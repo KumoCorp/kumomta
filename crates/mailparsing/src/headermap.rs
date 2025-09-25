@@ -1,6 +1,6 @@
 use crate::{
-    AddressList, AuthenticationResults, Header, Mailbox, MailboxList, MessageID, MimeParameters,
-    Result, SharedString,
+    AddressList, AuthenticationResults, Header, MailParsingError, Mailbox, MailboxList, MessageID,
+    MimeParameters, Result, SharedString,
 };
 use chrono::{DateTime, FixedOffset, TimeZone};
 use paste::paste;
@@ -58,7 +58,12 @@ macro_rules! accessor {
         pub fn $func_name(&self) -> Result<Option<$ty>> {
             match self.get_first($header_name) {
                 None => Ok(None),
-                Some(header) => Ok(Some(header.$parser()?)),
+                Some(header) => Ok(Some(header.$parser().map_err(|error| {
+                    MailParsingError::InvalidHeaderValueDuringGet {
+                        header_name: $header_name.to_string(),
+                        error: error.into(),
+                    }
+                })?)),
             }
         }
 
@@ -70,14 +75,24 @@ macro_rules! accessor {
                     .position(|header| header.get_name().eq_ignore_ascii_case($header_name))
                 {
                     if let Some(hdr) = v.as_header(self.headers[idx].get_name()) {
-                        hdr.$parser()?;
+                        hdr.$parser().map_err(|error| {
+                            MailParsingError::InvalidHeaderValueDuringAssignment {
+                                header_name: $header_name.to_string(),
+                                error: error.into(),
+                            }
+                        })?;
                         self.headers[idx] = hdr;
                     } else {
                         self.headers[idx].assign(v);
                     }
                 } else {
                     if let Some(hdr) = v.as_header($header_name) {
-                        hdr.$parser()?;
+                        hdr.$parser().map_err(|error| {
+                            MailParsingError::InvalidHeaderValueDuringAssignment {
+                                header_name: $header_name.to_string(),
+                                error: error.into(),
+                            }
+                        })?;
                         self.headers.push(hdr);
                     } else {
                         self.headers

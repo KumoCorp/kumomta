@@ -2208,8 +2208,10 @@ Some(
         k9::snapshot!(
             err,
             r#"
-HeaderParse(
-    "0: at line 1:
+InvalidHeaderValueDuringGet {
+    header_name: "Sender",
+    error: HeaderParse(
+        "0: at line 1:
 hello..there@docomo.ne.jp
      ^___________________
 expected '@', found .
@@ -2223,7 +2225,8 @@ hello..there@docomo.ne.jp
 ^________________________
 
 ",
-)
+    ),
+}
 "#
         );
     }
