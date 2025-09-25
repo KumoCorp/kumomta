@@ -150,7 +150,7 @@ fn aes_decrypt_block(ciphertext_buf: &[u8], params: AesParams) -> anyhow::Result
 
     match params.algorithm {
         AesAlgo::Ecb() => {
-            dec_key = match params.key {
+            let dec_key = match params.key {
                 AesKey::Aes128(k) => {
                     let key = UnboundCipherKey::new(&AES_128, &k)?;
                     PaddedBlockDecryptingKey::ecb_pkcs7(key)?
