@@ -147,7 +147,6 @@ impl LuaUserData for DecryptResult {
 
 fn aes_decrypt_block(ciphertext_buf: &[u8], params: AesParams) -> anyhow::Result<DecryptResult>  {
     let mut in_out_buffer = ciphertext_buf.to_vec();
-    let dec_key: PaddedBlockDecryptingKey;
 
     match params.algorithm {
         AesAlgo::Ecb() => {
