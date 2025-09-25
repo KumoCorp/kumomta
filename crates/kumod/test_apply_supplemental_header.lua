@@ -13,3 +13,12 @@ utils.assert_eq(
   trace,
   'eyJfQF8iOiJcXF8vIiwicmVjaXBpZW50IjoicmVjaXBAZXhhbXBsZS5jb20ifQ=='
 )
+
+msg:set_meta('woot', 'woot')
+kumo.apply_supplemental_trace_header(msg, { include_meta_names = { 'woot' } })
+local trace = msg:get_first_named_header_value 'X-KumoRef'
+
+utils.assert_eq(
+  trace,
+  'eyJfQF8iOiJcXF8vIiwicmVjaXBpZW50IjoicmVjaXBAZXhhbXBsZS5jb20iLCJ3b290Ijoid29vdCJ9'
+)
