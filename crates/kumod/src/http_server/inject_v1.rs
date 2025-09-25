@@ -7,14 +7,14 @@ use crate::spool::SpoolManager;
 use anyhow::Context;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use axum::extract::Json;
+use axum::extract::{Json, State};
 use axum_client_ip::InsecureClientIp;
 use config::{any_err, get_or_create_sub_module, load_config, CallbackSignature, LuaConfig};
 use kumo_chrono_helper::Utc;
 use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::AtomicCounter;
 use kumo_server_common::http_server::auth::AuthKind;
-use kumo_server_common::http_server::AppError;
+use kumo_server_common::http_server::{AppError, AppState};
 use kumo_server_runtime::{Runtime, RUNTIME};
 use kumo_template::{CompiledTemplates, TemplateEngine, TemplateList};
 use mailparsing::{AddrSpec, Address, EncodeHeaderValue, Mailbox, MessageBuilder, MimePart};
@@ -505,6 +505,8 @@ fn make_message<'a>(
     request: &'a InjectV1Request,
     compiled: &Compiled<'a>,
     auth: &AuthKind,
+    via_address: &Option<IpAddr>,
+    hostname: &Option<String>,
 ) -> anyhow::Result<Message> {
     let recip_addr = EnvelopeAddress::parse(&recip.email)
         .with_context(|| format!("recipient email {}", recip.email))?;
@@ -548,6 +550,12 @@ fn make_message<'a>(
     message.set_meta("http_auth", auth.summarize())?;
     message.set_meta("reception_protocol", "HTTP")?;
     message.set_meta("received_from", peer_address.to_string())?;
+    if let Some(via) = via_address {
+        message.set_meta("received_via", via.to_string())?;
+    }
+    if let Some(hostname) = hostname {
+        message.set_meta("hostname", hostname.to_string())?;
+    }
     Ok(message)
 }
 
@@ -559,10 +567,21 @@ async fn process_recipient<'a>(
     request: &'a InjectV1Request,
     compiled: &Compiled<'a>,
     auth: &AuthKind,
+    via_address: &Option<IpAddr>,
+    hostname: &Option<String>,
 ) -> anyhow::Result<()> {
     MSGS_RECVD.inc();
 
-    let message = make_message(sender, peer_address, recip, request, compiled, auth)?;
+    let message = make_message(
+        sender,
+        peer_address,
+        recip,
+        request,
+        compiled,
+        auth,
+        via_address,
+        hostname,
+    )?;
 
     // call callback to assign to queue
     let sig = CallbackSignature::<message::Message, ()>::new("http_message_generated");
@@ -672,6 +691,8 @@ async fn inject_v1_impl(
     sender: EnvelopeAddress,
     peer_address: IpAddr,
     mut request: InjectV1Request,
+    via_address: Option<IpAddr>,
+    hostname: Option<String>,
 ) -> Result<Json<InjectV1Response>, AppError> {
     request.normalize()?;
 
@@ -696,6 +717,8 @@ async fn inject_v1_impl(
             &request,
             &compiled,
             &auth,
+            &via_address,
+            &hostname,
         )
         .await
         {
@@ -729,7 +752,16 @@ fn build_from_v1_injection_request(
     let compiled = request.compile()?;
     let mut result = vec![];
     for recip in &request.recipients {
-        let msg = make_message(&sender, peer_address, recip, &request, &compiled, &auth)?;
+        let msg = make_message(
+            &sender,
+            peer_address,
+            recip,
+            &request,
+            &compiled,
+            &auth,
+            &None,
+            &None,
+        )?;
         result.push(msg);
     }
 
@@ -755,9 +787,16 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 .context("envelope_sender")
                 .map_err(any_err)?;
             let my_ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
-            let result = inject_v1_impl(AuthKind::TrustedIp(my_ip), sender, my_ip, request)
-                .await
-                .map_err(|err| any_err(err.0))?;
+            let result = inject_v1_impl(
+                AuthKind::TrustedIp(my_ip),
+                sender,
+                my_ip,
+                request,
+                None,
+                None,
+            )
+            .await
+            .map_err(|err| any_err(err.0))?;
 
             lua.to_value(&result.0)
         })?,
@@ -793,6 +832,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 pub async fn inject_v1(
     auth: AuthKind,
     InsecureClientIp(peer_address): InsecureClientIp,
+    State(app_state): State<AppState>,
     // Note: Json<> must be last in the param list
     Json(request): Json<InjectV1Request>,
 ) -> Result<Json<InjectV1Response>, AppError> {
@@ -831,8 +871,11 @@ pub async fn inject_v1(
         &*HTTPINJECT
     };
 
+    let via_address = Some(app_state.local_addr().ip().clone());
+    let hostname = Some(app_state.params().hostname.to_string());
+
     pool.spawn(format!("http inject_v1 for {peer_address:?}"), async move {
-        inject_v1_impl(auth, sender, peer_address, request).await
+        inject_v1_impl(auth, sender, peer_address, request, via_address, hostname).await
     })?
     .await?
 }
@@ -858,6 +901,14 @@ impl HttpInjectionGeneratorDispatcher {
                     .get_meta_string("received_from")?
                     .ok_or_else(|| anyhow::anyhow!("received_from metadata is missing!?"))?
                     .parse()?;
+                let via_address = match msg.get_meta_string("received_via") {
+                    Ok(Some(v)) => v.parse().ok(),
+                    _ => None,
+                };
+                let hostname: Option<String> = match msg.get_meta_string("hostname") {
+                    Ok(v) => v,
+                    _ => None,
+                };
 
                 let sender = msg.sender()?;
 
@@ -866,6 +917,8 @@ impl HttpInjectionGeneratorDispatcher {
                     sender,
                     peer_address,
                     request,
+                    via_address,
+                    hostname,
                 )
                 .await
                 .map_err(|err| err.0)?;

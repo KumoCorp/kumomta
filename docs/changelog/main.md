@@ -53,6 +53,8 @@
  * [kumo.encode](../reference/kumo.encode/index.md) is now a bit more relaxed
    about excess (but otherwise harmless) padding in the various
    `baseXX` encoding schemes.
+ * `received_via` and `hostname` are now set in the message metadata for
+   messages injected via HTTP. #417
 
 ## Fixes
 

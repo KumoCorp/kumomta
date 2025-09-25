@@ -13,7 +13,6 @@ use kumo_server_memory::{get_usage_and_limit, tracking_stats, JemallocStats};
 use kumo_server_runtime::spawn;
 use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr, TcpListener};
-use std::sync::Arc;
 use tower_http::compression::CompressionLayer;
 use tower_http::decompression::RequestDecompressionLayer;
 use tower_http::trace::TraceLayer;
@@ -86,7 +85,7 @@ pub struct HttpListenerParams {
 }
 
 pub struct RouterAndDocs {
-    pub router: Router,
+    pub router: Router<AppState>,
     pub docs: utoipa::openapi::OpenApi,
 }
 
@@ -108,12 +107,21 @@ impl RouterAndDocs {
 
 #[derive(Clone)]
 pub struct AppState {
-    trusted_hosts: Arc<CidrSet>,
+    params: HttpListenerParams,
+    local_addr: SocketAddr,
 }
 
 impl AppState {
     pub fn is_trusted_host(&self, addr: IpAddr) -> bool {
-        self.trusted_hosts.contains(addr)
+        self.params.trusted_hosts.contains(addr)
+    }
+
+    pub fn params(&self) -> &HttpListenerParams {
+        &self.params
+    }
+
+    pub fn local_addr(&self) -> &SocketAddr {
+        &self.local_addr
     }
 }
 
@@ -151,6 +159,16 @@ impl HttpListenerParams {
             .gzip(true)
             .quality(tower_http::CompressionLevel::Fastest);
         let decompression_layer = RequestDecompressionLayer::new().deflate(true).gzip(true);
+
+        let socket = TcpListener::bind(&self.listen)
+            .with_context(|| format!("listen on {}", self.listen))?;
+        let addr = socket.local_addr()?;
+
+        let app_state = AppState {
+            params: self.clone(),
+            local_addr: addr.clone(),
+        };
+
         let app = router_and_docs
             .router
             .layer(DefaultBodyLimit::max(
@@ -168,17 +186,13 @@ impl HttpListenerParams {
             // Require that all requests be authenticated as either coming
             // from a trusted IP address, or with an authorization header
             .route_layer(axum::middleware::from_fn_with_state(
-                AppState {
-                    trusted_hosts: Arc::new(self.trusted_hosts.clone()),
-                },
+                app_state.clone(),
                 auth_middleware,
             ))
             .layer(compression_layer)
             .layer(decompression_layer)
-            .layer(TraceLayer::new_for_http());
-        let socket = TcpListener::bind(&self.listen)
-            .with_context(|| format!("listen on {}", self.listen))?;
-        let addr = socket.local_addr()?;
+            .layer(TraceLayer::new_for_http())
+            .with_state(app_state);
 
         let make_service = app.into_make_service_with_connect_info::<SocketAddr>();
 
