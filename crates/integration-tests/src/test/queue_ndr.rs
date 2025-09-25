@@ -2,6 +2,8 @@ use crate::kumod::{DaemonWithMaildirOptions, MailGenParams};
 use anyhow::Context;
 use k9::assert_equal;
 use kumo_log_types::rfc3464::Report;
+use kumo_log_types::RecordType;
+use kumo_log_types::RecordType::{Bounce, Reception};
 use std::time::Duration;
 
 /// Verify that what we send in transits through and is delivered
@@ -160,6 +162,88 @@ Report {
     );
 
     assert!(original_message.contains("woot"));
+
+    Ok(())
+}
+
+/// Validate behavior when a generated NDR itself bounces.
+/// The expectation is that we log the Bounce for the generated
+/// NDR but don't generate an NDR for the bounced NDR
+#[tokio::test]
+async fn ndr_bounces() -> anyhow::Result<()> {
+    let mut daemon = DaemonWithMaildirOptions::new()
+        .policy_file("ndr.lua")
+        .start()
+        .await
+        .context("DaemonWithMaildir::start")?;
+
+    eprintln!("sending message");
+    let mut client = daemon.smtp_client().await.context("make smtp_client")?;
+
+    let response = MailGenParams {
+        recip: Some("permfail@example.com"),
+        sender: Some("sender-permfail@example.com"),
+        body: Some("woot"),
+        ..Default::default()
+    }
+    .send(&mut client)
+    .await
+    .context("send message")?;
+    eprintln!("{response:?}");
+    anyhow::ensure!(response.code == 250);
+
+    daemon
+        .wait_for_source_summary(
+            |summary| {
+                summary.get(&Reception).copied().unwrap_or(0) > 0
+                    && summary.get(&Bounce).copied().unwrap_or(0) >= 2
+            },
+            Duration::from_secs(10),
+        )
+        .await;
+
+    daemon.stop_both().await.context("stop_both")?;
+    println!("Stopped!");
+
+    let delivery_summary = daemon.dump_logs().await.context("dump_logs")?;
+    k9::snapshot!(
+        delivery_summary,
+        "
+DeliverySummary {
+    source_counts: {
+        Reception: 1,
+        Bounce: 2,
+    },
+    sink_counts: {
+        Rejection: 5,
+    },
+}
+"
+    );
+
+    let records = daemon.source.collect_logs().await?;
+    let mut bounces = vec![];
+    for record in records {
+        if record.kind == RecordType::Bounce {
+            bounces.push(format!(
+                "from=<{}> to=<{}> why='{}' subject={}",
+                record.sender,
+                record.recipient,
+                record.response.content,
+                record.headers.get("Subject").unwrap().to_string(),
+            ));
+        }
+    }
+
+    k9::snapshot!(
+        bounces,
+        r#"
+[
+    "from=<sender-permfail@example.com> to=<permfail@example.com> why='permfail requested' subject="Hello! This is a test"",
+    "from=<> to=<sender-permfail@example.com> why='permfail requested' subject="Returned mail"",
+]
+"#
+    );
 
     Ok(())
 }

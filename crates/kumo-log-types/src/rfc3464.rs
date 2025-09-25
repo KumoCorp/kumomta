@@ -421,6 +421,11 @@ impl Report {
         msg: Option<&MimePart<'_>>,
         log: &JsonLogRecord,
     ) -> anyhow::Result<Option<MimePart<'static>>> {
+        if log.sender.is_empty() {
+            // Cannot send a bounce back to the null sender
+            return Ok(None);
+        }
+
         let action = match &log.kind {
             RecordType::Bounce
                 if params.enable_bounce && log.delivery_protocol.as_deref() == Some("ESMTP") =>
@@ -511,10 +516,11 @@ impl Report {
             _ => unreachable!(),
         };
 
-        parts.push(MimePart::new_text_plain(&exposition)?);
+        parts.push(MimePart::new_text_plain(&exposition).context("new_text_plain")?);
 
         let status_text = format!("{per_message}\r\n{per_recipient}\r\n");
-        parts.push(MimePart::new_text("message/delivery-status", &status_text)?);
+        parts
+            .push(MimePart::new_text("message/delivery-status", &status_text).context("new_text")?);
 
         match (params.include_original_message, msg) {
             (IncludeOriginalMessage::No, _) | (_, None) => {}
@@ -523,15 +529,18 @@ impl Report {
                 for hdr in msg.headers().iter() {
                     hdr.write_header(&mut data).ok();
                 }
-                parts.push(MimePart::new_no_transfer_encoding(
-                    "text/rfc822-headers",
-                    &data,
-                )?);
+                parts.push(
+                    MimePart::new_no_transfer_encoding("text/rfc822-headers", &data)
+                        .context("new_no_transfer_encoding")?,
+                );
             }
             (IncludeOriginalMessage::FullContent, Some(msg)) => {
                 let mut data = vec![];
                 msg.write_message(&mut data).ok();
-                parts.push(MimePart::new_no_transfer_encoding("message/rfc822", &data)?);
+                parts.push(
+                    MimePart::new_no_transfer_encoding("message/rfc822", &data)
+                        .context("new_no_transfer_encoding")?,
+                );
             }
         };
 
@@ -547,12 +556,22 @@ impl Report {
 
         let mut ct = report_msg
             .headers()
-            .content_type()?
+            .content_type()
+            .context("get content_type")?
             .expect("assigned during construction");
         ct.set("report-type", "delivery-status");
-        report_msg.headers_mut().set_content_type(ct)?;
-        report_msg.headers_mut().set_subject("Returned mail")?;
-        report_msg.headers_mut().set_mime_version("1.0")?;
+        report_msg
+            .headers_mut()
+            .set_content_type(ct)
+            .context("set_content_type")?;
+        report_msg
+            .headers_mut()
+            .set_subject("Returned mail")
+            .context("set_subject")?;
+        report_msg
+            .headers_mut()
+            .set_mime_version("1.0")
+            .context("set_mime_version")?;
 
         let message_id = if params.stable_content {
             format!("<UUID@{}>", params.reporting_mta.name)
@@ -563,13 +582,19 @@ impl Report {
         report_msg
             .headers_mut()
             .set_message_id(message_id.as_str())?;
-        report_msg.headers_mut().set_to(log.sender.as_str())?;
+        report_msg
+            .headers_mut()
+            .set_to(log.sender.as_str())
+            .context("set_to")?;
 
         let from = format!(
             "Mail Delivery Subsystem <mailer-daemon@{}>",
             params.reporting_mta.name
         );
-        report_msg.headers_mut().set_from(from.as_str())?;
+        report_msg
+            .headers_mut()
+            .set_from(from.as_str())
+            .context("set_from")?;
 
         Ok(Some(report_msg))
     }
