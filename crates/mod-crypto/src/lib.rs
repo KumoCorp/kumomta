@@ -69,7 +69,6 @@ impl AesKey {
 
 fn aes_encrypt_block(plaintext: &str, params: AesParams) -> Result<Vec<u8>, anyhow::Error> {
     let mut buf_ciphertext = plaintext.as_bytes().to_vec();
-    let enc_key: PaddedBlockEncryptingKey;
 
     match params.algorithm {
         AesAlgo::Ecb() => {
