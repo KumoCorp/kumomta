@@ -10,6 +10,7 @@ use crate::types::results::DmarcResultWithContext;
 use dns_resolver::Resolver;
 use hickory_resolver::proto::rr::RecordType;
 use hickory_resolver::Name;
+use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::SystemTime;
@@ -17,32 +18,36 @@ use std::time::SystemTime;
 pub use types::results::DmarcResult;
 
 pub struct CheckHostParams {
+    /// Domain of the sender in the "From:"
+    pub from_domain: String,
+
     /// Domain that provides the sought-after authorization information.
     ///
-    /// Initially, the domain portion of the "MAIL FROM" or "HELO" identity.
-    pub domain: String,
-
     /// The "MAIL FROM" email address if available.
-    pub sender: Option<String>,
+    pub mail_from_domain: Option<String>,
 
     /// IP address of the SMTP client that is emitting the mail (v4 or v6).
     pub client_ip: IpAddr,
+
+    /// The results of the DKIM part of the checks
+    pub dkim: Vec<BTreeMap<String, String>>,
 }
 
 impl CheckHostParams {
     pub async fn check(self, resolver: &dyn Resolver) -> DmarcResultWithContext {
         let Self {
-            domain,
-            sender,
+            from_domain,
+            mail_from_domain,
             client_ip,
+            dkim,
         } = self;
 
-        let sender = match sender {
-            Some(sender) => sender,
-            None => format!("postmaster@{domain}"),
-        };
-
-        match DmarcContext::new(&sender, &domain, client_ip) {
+        match DmarcContext::new(
+            &from_domain,
+            mail_from_domain.as_ref().map(|x| x.as_str()),
+            client_ip,
+            &dkim[..],
+        ) {
             Ok(cx) => cx.check(resolver).await,
             Err(result) => result,
         }
@@ -50,55 +55,41 @@ impl CheckHostParams {
 }
 
 struct DmarcContext<'a> {
-    pub(crate) sender: &'a str,
-    pub(crate) local_part: &'a str,
-    pub(crate) sender_domain: &'a str,
-    pub(crate) domain: &'a str,
+    pub(crate) from_domain: &'a str,
+    pub(crate) mail_from_domain: Option<&'a str>,
     pub(crate) client_ip: IpAddr,
     pub(crate) now: SystemTime,
+    pub(crate) dkim: &'a [BTreeMap<String, String>],
 }
 
 impl<'a> DmarcContext<'a> {
     /// Create a new evaluation context.
     ///
-    /// - `sender` is the "MAIL FROM" or "HELO" identity
-    /// - `domain` is the domain that provides the sought-after authorization information;
-    ///   initially, the domain portion of the "MAIL FROM" or "HELO" identity
+    /// - `from_domain` is the domain of the "From:" header
+    /// - `mail_from_domain` is the domain portion of the "MAIL FROM" identity
     /// - `client_ip` is the IP address of the SMTP client that is emitting the mail
     fn new(
-        sender: &'a str,
-        domain: &'a str,
+        from_domain: &'a str,
+        mail_from_domain: Option<&'a str>,
         client_ip: IpAddr,
+        dkim: &'a [BTreeMap<String, String>],
     ) -> Result<Self, DmarcResultWithContext> {
-        let Some((local_part, sender_domain)) = sender.split_once('@') else {
-            return Err(DmarcResultWithContext {
-                result: DmarcResult::Fail,
-                context:
-                    "input sender parameter '{sender}' is missing @ sign to delimit local part and domain".to_owned(),
-            });
-        };
-
         Ok(Self {
-            sender,
-            local_part,
-            sender_domain,
-            domain,
+            from_domain,
+            mail_from_domain,
             client_ip,
             now: SystemTime::now(),
+            dkim,
         })
     }
 
-    pub(crate) fn with_domain(&self, domain: &'a str) -> Self {
-        Self { domain, ..*self }
-    }
-
     pub async fn check(&self, resolver: &dyn Resolver) -> DmarcResultWithContext {
-        let name = match Name::from_utf8(self.domain) {
+        let name = match Name::from_utf8(self.from_domain) {
             Ok(name) => name,
             Err(_) => {
                 return DmarcResultWithContext {
                     result: DmarcResult::Fail,
-                    context: format!("invalid domain name: {}", self.domain),
+                    context: format!("invalid domain name: {}", self.from_domain),
                 }
             }
         };
@@ -108,7 +99,7 @@ impl<'a> DmarcContext<'a> {
                 if answer.records.is_empty() || answer.nxdomain {
                     return DmarcResultWithContext {
                         result: DmarcResult::Fail,
-                        context: format!("no DMARC records found for {}", &self.domain),
+                        context: format!("no DMARC records found for {}", &self.from_domain),
                     };
                 } else {
                     answer.as_txt()
@@ -141,7 +132,7 @@ impl<'a> DmarcContext<'a> {
         }
         DmarcResultWithContext {
             result: DmarcResult::Fail,
-            context: format!("no DMARC records found for {}", &self.domain),
+            context: format!("no DMARC records found for {}", &self.from_domain),
         }
     }
 }
