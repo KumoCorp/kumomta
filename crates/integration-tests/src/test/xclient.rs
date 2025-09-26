@@ -75,6 +75,7 @@ async fn xclient_switch_from_addr() -> anyhow::Result<()> {
         final_meta.get("received_from").unwrap().to_string(),
         "\"42.42.42.42:42\""
     );
+    assert!(final_meta.get("orig_received_from").is_some());
 
     daemon.stop_both().await.context("stop_both")?;
 
@@ -146,6 +147,7 @@ async fn xclient_switch_via_addr() -> anyhow::Result<()> {
         final_meta.get("received_via").unwrap().to_string(),
         "\"42.42.42.42:42\""
     );
+    assert!(final_meta.get("orig_received_via").is_some());
 
     daemon.stop_both().await.context("stop_both")?;
 

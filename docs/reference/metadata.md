@@ -23,7 +23,9 @@ table tbody tr td:nth-of-type(2) {
 |----|----|-------|-----|
 |Connection|`reception_protocol`|indicates the reception protocol, such as `ESMTP`|{{since('2023.08.22-4d895015', inline=True)}}|
 |Connection|`received_via`|indicates the IP:port of the KumoMTA listener that is handling this session|{{since('2023.08.22-4d895015', inline=True)}}.<br> For HTTP injections {{since('dev', inline=True)}}|
+|Connection|`orig_received_via`|Set when XCLIENT or other similar proxying is active; it indicates the raw IP:port of the KumoMTA listener that is handling this session, independent of any adjustments applied by XCLIENT or proxy protocol|{{since('dev', inline=True)}}|
 |Connection|`received_from`|indicates the IP:port of the sending or peer machine in this session|{{since('2023.08.22-4d895015', inline=True)}}|
+|Connection|`orig_received_from`|Set when XCLIENT or other similar proxying is active; it indicates the raw IP:port of the sending or peer machine in this session, independent of any adjustments applied by XCLIENT or proxy protocol|{{since('dev', inline=True)}}|
 |Connection|`hostname`|A copy of the effective value of the hostname set by [kumo.start_esmtp_listener](kumo/start_esmtp_listener/hostname.md) or [kumo.start_http_listener](kumo/start_http_listener/hostname.md)|{{since('2023.11.28-b5252a41', inline=True)}}.<br> For HTTP injections {{since('dev', inline=True)}}|
 |Connection|`authn_id`|the authentication id if the message was received via authenticated SMTP||
 |Connection|`authz_id`|the authorization id if the message was received via authenticated SMTP||

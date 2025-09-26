@@ -824,6 +824,8 @@ pub struct SmtpServerSession {
     said_hello: Option<String>,
     peer_address: SocketAddr,
     my_address: SocketAddr,
+    orig_peer_address: SocketAddr,
+    orig_my_address: SocketAddr,
     tls_active: Option<TlsInformation>,
     read_buffer: DebugabbleReadBuffer,
     params: ConcreteEsmtpListenerParams,
@@ -891,7 +893,9 @@ impl SmtpServerSession {
             state: None,
             said_hello: None,
             peer_address,
+            orig_peer_address: peer_address,
             my_address,
+            orig_my_address: my_address,
             tls_active: None,
             read_buffer: DebugabbleReadBuffer(Vec::with_capacity(1024)),
             params: concrete_params,
@@ -2266,6 +2270,8 @@ impl SmtpServerSession {
 
             self.peer_address = (new_addr, new_port).into();
             self.meta
+                .set_meta("orig_received_from", self.orig_peer_address.to_string());
+            self.meta
                 .set_meta("received_from", self.peer_address.to_string());
 
             SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
@@ -2288,6 +2294,8 @@ impl SmtpServerSession {
             let new_port = dest_port.unwrap_or(old_via.port());
 
             self.my_address = (new_addr, new_port).into();
+            self.meta
+                .set_meta("orig_received_via", self.orig_my_address.to_string());
             self.meta
                 .set_meta("received_via", self.my_address.to_string());
 
