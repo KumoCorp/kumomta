@@ -26,9 +26,63 @@ pub struct Record {
 impl Record {
     pub(crate) async fn evaluate(
         &self,
-        _cx: &DmarcContext<'_>,
+        cx: &DmarcContext<'_>,
         _resolver: &dyn Resolver,
     ) -> DmarcResultWithContext {
+        match self.align_dkim {
+            Mode::Relaxed => {
+                for dkim in cx.dkim {
+                    if let Some(result) = dkim.get("header.d") {
+                        if !cx.from_domain.ends_with(&format!(".{}", result))
+                            && cx.from_domain != result
+                        {
+                            return DmarcResultWithContext {
+                                result: DmarcResult::Fail,
+                                context: "DMARC: DKIM relaxed check failed".into(),
+                            };
+                        }
+                    }
+                }
+            }
+            Mode::Strict => {
+                for dkim in cx.dkim {
+                    if let Some(result) = dkim.get("header.d") {
+                        if cx.from_domain != result {
+                            return DmarcResultWithContext {
+                                result: DmarcResult::Fail,
+                                context: "DMARC: DKIM strict check failed".into(),
+                            };
+                        }
+                    }
+                }
+            }
+        }
+
+        match self.align_spf {
+            Mode::Relaxed => {
+                if let Some(mail_from_domain) = cx.mail_from_domain {
+                    if !mail_from_domain.ends_with(&format!(".{}", cx.from_domain))
+                        && mail_from_domain != cx.from_domain
+                    {
+                        return DmarcResultWithContext {
+                            result: DmarcResult::Fail,
+                            context: "DMARC: SPF relaxed check failed".into(),
+                        };
+                    }
+                }
+            }
+            Mode::Strict => {
+                if let Some(mail_from_domain) = cx.mail_from_domain {
+                    if mail_from_domain != cx.from_domain {
+                        return DmarcResultWithContext {
+                            result: DmarcResult::Fail,
+                            context: "DMARC: SPF strict check failed".into(),
+                        };
+                    }
+                }
+            }
+        }
+
         DmarcResultWithContext {
             result: DmarcResult::Pass,
             context: "Success".into(),
