@@ -140,6 +140,7 @@ kumo.on('init', function()
     peer = {
       ['127.0.0.1'] = {
         banner = 'Welcome to loopback!',
+        allow_xclient = true,
       },
       ['192.168.1.0/24'] = {
         banner = 'Welcome to lan!',

@@ -30,6 +30,7 @@ use parking_lot::FairMutex as Mutex;
 use prometheus::{Histogram, HistogramTimer};
 use rfc5321::{
     subject_name, AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response, TlsInformation,
+    XClientParameter,
 };
 use rustls::ServerConfig;
 use serde::{Deserialize, Serialize};
@@ -37,7 +38,7 @@ use serde_json::json;
 use spool::SpoolId;
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
@@ -344,6 +345,7 @@ pub struct ConcreteEsmtpListenerParams {
 
     pub deferred_spool: bool,
     pub deferred_queue: bool,
+    pub allow_xclient: bool,
 
     pub trace_headers: TraceHeaders,
 
@@ -447,6 +449,9 @@ impl ConcreteEsmtpListenerParams {
         if let Some(line_length_hard_limit) = base.line_length_hard_limit {
             self.line_length_hard_limit = line_length_hard_limit;
         }
+        if let Some(allow_xclient) = base.allow_xclient {
+            self.allow_xclient = allow_xclient;
+        }
 
         if let Some(map) = base.meta {
             for (k, v) in map.into_iter() {
@@ -508,6 +513,7 @@ impl Default for ConcreteEsmtpListenerParams {
             data_buffer_size: 128 * 1024,
             invalid_line_endings: ConformanceDisposition::default(),
             line_length_hard_limit: MAX_LINE_LEN,
+            allow_xclient: false,
         }
     }
 }
@@ -569,6 +575,9 @@ pub struct GenericEsmtpListenerParams {
 
     #[serde(default)]
     line_length_hard_limit: Option<usize>,
+
+    #[serde(default)]
+    allow_xclient: Option<bool>,
 }
 
 impl mlua::FromLua for GenericEsmtpListenerParams {
@@ -827,6 +836,7 @@ pub struct SmtpServerSession {
     reception_count: AtomicCounter,
     session_id: Uuid,
     domains: HashMap<String, Option<EsmtpDomain>>,
+    config_params: EsmtpListenerParams,
 }
 
 #[derive_where(Debug)]
@@ -872,7 +882,7 @@ impl SmtpServerSession {
         let mut concrete_params = ConcreteEsmtpListenerParams::default();
         meta.set_meta("hostname", concrete_params.hostname.to_string());
 
-        concrete_params.apply_generic(params.base, &my_address, &peer_address, &mut meta);
+        concrete_params.apply_generic(params.base.clone(), &my_address, &peer_address, &mut meta);
 
         let service = format!("esmtp_listener:{my_address}");
 
@@ -896,6 +906,7 @@ impl SmtpServerSession {
             ),
             session_id: Uuid::new_v4(),
             domains: HashMap::new(),
+            config_params: params,
         };
 
         connection_gauge().inc();
@@ -1844,6 +1855,9 @@ impl SmtpServerSession {
                     } else {
                         extensions.push("AUTH PLAIN");
                     }
+                    if self.params.allow_xclient {
+                        extensions.push("XCLIENT ADDR PORT DESTADDR DESTPORT");
+                    }
 
                     let extensions = match self
                         .call_callback::<Option<Vec<String>>, _, _>(
@@ -2136,13 +2150,10 @@ impl SmtpServerSession {
                     )
                     .await?;
                 }
-                Ok(
-                    Command::Vrfy(_)
-                    | Command::Expn(_)
-                    | Command::Help(_)
-                    | Command::Lhlo(_)
-                    | Command::XClient(_),
-                ) => {
+                Ok(Command::XClient(params)) => {
+                    self.process_xclient(&params).await?;
+                }
+                Ok(Command::Vrfy(_) | Command::Expn(_) | Command::Help(_) | Command::Lhlo(_)) => {
                     self.write_response(
                         502,
                         format!("5.5.1 Command unimplemented"),
@@ -2154,6 +2165,185 @@ impl SmtpServerSession {
                 Ok(Command::DataDot) => unreachable!(),
             }
         }
+    }
+
+    async fn process_xclient(&mut self, params: &[XClientParameter]) -> anyhow::Result<()> {
+        if !self.params.allow_xclient {
+            self.write_response(
+                550,
+                "insufficient authorization",
+                None,
+                RejectDisconnect::If421,
+            )
+            .await?;
+            return Ok(());
+        }
+        if self.state.is_some() {
+            self.write_response(
+                503,
+                "mail transaction in progress",
+                None,
+                RejectDisconnect::If421,
+            )
+            .await?;
+            return Ok(());
+        }
+
+        let mut addr: Option<IpAddr> = None;
+        let mut port: Option<u16> = None;
+        let mut dest_addr: Option<IpAddr> = None;
+        let mut dest_port: Option<u16> = None;
+
+        for p in params {
+            let name = &p.name;
+            let value = &p.value;
+
+            if name.eq_ignore_ascii_case("ADDR") {
+                let Ok(ip) = value.parse::<IpAddr>() else {
+                    self.write_response(
+                        501,
+                        format!("ADDR {value} is invalid"),
+                        None,
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
+                    return Ok(());
+                };
+                addr.replace(ip);
+            } else if name.eq_ignore_ascii_case("PORT") {
+                let Ok(v) = value.parse::<u16>() else {
+                    self.write_response(
+                        501,
+                        format!("PORT {value} is invalid"),
+                        None,
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
+                    return Ok(());
+                };
+                port.replace(v);
+            } else if name.eq_ignore_ascii_case("DESTADDR") {
+                let Ok(ip) = value.parse::<IpAddr>() else {
+                    self.write_response(
+                        501,
+                        format!("ADDR {value} is invalid"),
+                        None,
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
+                    return Ok(());
+                };
+                dest_addr.replace(ip);
+            } else if name.eq_ignore_ascii_case("DESTPORT") {
+                let Ok(v) = value.parse::<u16>() else {
+                    self.write_response(
+                        501,
+                        format!("PORT {value} is invalid"),
+                        None,
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
+                    return Ok(());
+                };
+                dest_port.replace(v);
+            } else {
+                self.write_response(
+                    501,
+                    format!("parameter {name} is not supported"),
+                    None,
+                    RejectDisconnect::If421,
+                )
+                .await?;
+                return Ok(());
+            }
+        }
+
+        if addr.is_some() || port.is_some() {
+            let old_peer = self.peer_address.clone();
+
+            let new_addr = addr.unwrap_or(old_peer.ip());
+            let new_port = port.unwrap_or(old_peer.port());
+
+            self.peer_address = (new_addr, new_port).into();
+            self.meta
+                .set_meta("received_from", self.peer_address.to_string());
+
+            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                conn_meta: self.meta.clone_inner(),
+                payload: SmtpServerTraceEventPayload::Diagnostic {
+                    level: Level::INFO,
+                    message: format!(
+                        "XCLIENT changed received_from from {old_peer:?} -> {:?}",
+                        self.peer_address
+                    ),
+                },
+                when: Utc::now(),
+            });
+        }
+
+        if dest_addr.is_some() || dest_port.is_some() {
+            let old_via = self.my_address.clone();
+
+            let new_addr = dest_addr.unwrap_or(old_via.ip());
+            let new_port = dest_port.unwrap_or(old_via.port());
+
+            self.my_address = (new_addr, new_port).into();
+            self.meta
+                .set_meta("received_via", self.my_address.to_string());
+
+            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                conn_meta: self.meta.clone_inner(),
+                payload: SmtpServerTraceEventPayload::Diagnostic {
+                    level: Level::INFO,
+                    message: format!(
+                        "XCLIENT changed received_via from {old_via:?} -> {:?}",
+                        self.my_address
+                    ),
+                },
+                when: Utc::now(),
+            });
+        }
+
+        // re-evaluate parameters based on new IP info
+        self.params = Default::default();
+        self.params.apply_generic(
+            self.config_params.base.clone(),
+            &self.my_address,
+            &self.peer_address,
+            &mut self.meta,
+        );
+        match self
+            .call_callback::<GenericEsmtpListenerParams, _, _>(
+                "smtp_server_get_dynamic_parameters",
+                (self.my_address.to_string(), self.meta.clone()),
+            )
+            .await?
+        {
+            Ok(generic) => {
+                self.params.apply_generic(
+                    generic,
+                    &self.my_address,
+                    &self.peer_address,
+                    &mut self.meta,
+                );
+            }
+            Err(rej) => {
+                self.write_response(rej.code, rej.message, None, rej.disconnect)
+                    .await?;
+                return Ok(());
+            }
+        }
+
+        // and finally, re-emit the banner as the response to the successful XCLIENT command
+        self.write_response(
+            220,
+            format!("{} {}", self.params.hostname, self.params.banner),
+            None,
+            RejectDisconnect::If421,
+        )
+        .await?;
+
+        Ok(())
     }
 
     async fn process_data(&mut self, mut data: Vec<u8>, activity: &Activity) -> anyhow::Result<()> {

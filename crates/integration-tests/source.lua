@@ -25,6 +25,16 @@ kumo.on('init', function()
     listen = '127.0.0.1:0',
     relay_hosts = relay_hosts,
     deferred_queue = (DEFERRED_SMTP_SERVER_MSG_INJECT and true) or false,
+    peer = {
+      ['127.0.0.1'] = {
+        allow_xclient = true,
+      },
+    },
+    via = {
+      ['42.42.42.42'] = {
+        banner = 'what do you get when you multiply six by nine?',
+      },
+    },
   }
 
   kumo.start_http_listener {
