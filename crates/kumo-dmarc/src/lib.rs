@@ -1,21 +1,19 @@
 #![allow(dead_code)]
 
-mod types;
-
-#[cfg(test)]
-mod tests;
-
 use crate::types::record::Record;
 use crate::types::results::DmarcResultWithContext;
 use dns_resolver::Resolver;
-use hickory_resolver::proto::rr::RecordType;
-use hickory_resolver::Name;
 use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::SystemTime;
 
 pub use types::results::DmarcResult;
+
+mod types;
+
+#[cfg(test)]
+mod tests;
 
 pub struct CheckHostParams {
     /// Domain of the sender in the "From:"
@@ -84,17 +82,7 @@ impl<'a> DmarcContext<'a> {
     }
 
     pub async fn check(&self, resolver: &dyn Resolver) -> DmarcResultWithContext {
-        let name = match Name::from_utf8(self.from_domain) {
-            Ok(name) => name,
-            Err(_) => {
-                return DmarcResultWithContext {
-                    result: DmarcResult::Fail,
-                    context: format!("invalid domain name: {}", self.from_domain),
-                }
-            }
-        };
-
-        let initial_txt = match resolver.resolve(name, RecordType::TXT).await {
+        let initial_txt = match resolver.resolve_txt(self.from_domain).await {
             Ok(answer) => {
                 if answer.records.is_empty() || answer.nxdomain {
                     return DmarcResultWithContext {

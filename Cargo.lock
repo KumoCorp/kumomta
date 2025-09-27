@@ -3264,7 +3264,6 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "dns-resolver",
- "hickory-resolver",
  "instant-xml",
  "k9",
  "kumo-spf",

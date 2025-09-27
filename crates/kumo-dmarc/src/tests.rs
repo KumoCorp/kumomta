@@ -17,7 +17,7 @@ async fn dmarc_dkim_relaxed_subdomain() {
         Ipv4Addr::LOCALHOST,
         "sample.example.com",
         "sample.example.com",
-        Some("example.com"),
+        &[Some("example.com")],
         &resolver,
     )
     .await;
@@ -38,12 +38,56 @@ async fn dmarc_dkim_strict_subdomain() {
         Ipv4Addr::LOCALHOST,
         "sample.example.com",
         "example.com",
-        Some("example.com"),
+        &[Some("example.com")],
         &resolver,
     )
     .await;
 
     k9::assert_equal!(result.result, DmarcResult::Fail);
+}
+
+#[tokio::test]
+async fn dmarc_dkim_relaxed_illformed() {
+    let resolver = TestResolver::default().with_zone(EXAMPLE_COM).with_txt(
+        "example.com",
+        "v=DMARC1; p=reject; adkim=r; \
+            rua=mailto:dmarc-feedback@example.com"
+            .to_string(),
+    );
+
+    let result = evaluate_ip(
+        Ipv4Addr::LOCALHOST,
+        "example.com",
+        "example.com",
+        &[None],
+        &resolver,
+    )
+    .await;
+
+    k9::assert_equal!(result.result, DmarcResult::Fail);
+    k9::assert_equal!(result.context.contains("d="), true);
+}
+
+#[tokio::test]
+async fn dmarc_dkim_strict_illformed() {
+    let resolver = TestResolver::default().with_zone(EXAMPLE_COM).with_txt(
+        "example.com",
+        "v=DMARC1; p=reject; adkim=s; \
+            rua=mailto:dmarc-feedback@example.com"
+            .to_string(),
+    );
+
+    let result = evaluate_ip(
+        Ipv4Addr::LOCALHOST,
+        "example.com",
+        "example.com",
+        &[None],
+        &resolver,
+    )
+    .await;
+
+    k9::assert_equal!(result.result, DmarcResult::Fail);
+    k9::assert_equal!(result.context.contains("d="), true);
 }
 
 #[tokio::test]
@@ -59,7 +103,7 @@ async fn dmarc_spf_relaxed_subdomain() {
         Ipv4Addr::LOCALHOST,
         "example.com",
         "helper.example.com",
-        None,
+        &[],
         &resolver,
     )
     .await;
@@ -80,7 +124,7 @@ async fn dmarc_spf_strict_subdomain() {
         Ipv4Addr::LOCALHOST,
         "example.com",
         "helper.example.com",
-        None,
+        &[],
         &resolver,
     )
     .await;
@@ -92,19 +136,28 @@ async fn evaluate_ip(
     client_ip: impl Into<IpAddr>,
     from_domain: &str,
     mail_from_domain: &str,
-    dkim_domain: Option<&str>,
+    dkim_domains: &[Option<&str>],
     resolver: &dyn Resolver,
 ) -> DmarcResultWithContext {
-    let dkim = if let Some(dkim_domain) = dkim_domain {
-        let mut map = BTreeMap::new();
-        map.insert("header.d".to_string(), dkim_domain.to_string());
+    let mut dkim_vec = vec![];
 
-        vec![map]
-    } else {
-        vec![]
-    };
+    for dkim_domain in dkim_domains {
+        if let Some(dkim_domain) = dkim_domain {
+            let mut map = BTreeMap::new();
+            map.insert("header.d".to_string(), dkim_domain.to_string());
 
-    match DmarcContext::new(from_domain, Some(mail_from_domain), client_ip.into(), &dkim) {
+            dkim_vec.push(map);
+        } else {
+            dkim_vec.push(BTreeMap::new());
+        }
+    }
+
+    match DmarcContext::new(
+        from_domain,
+        Some(mail_from_domain),
+        client_ip.into(),
+        &dkim_vec,
+    ) {
         Ok(cx) => cx.check(resolver).await,
         Err(result) => result,
     }
