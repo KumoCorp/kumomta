@@ -23,6 +23,7 @@ pub static VALIDATE_SIG: Multiple("validate_config") -> ();
 
 mod accounting;
 mod delivery_metrics;
+mod dmarc;
 mod egress_source;
 mod http_server;
 mod logging;
@@ -333,6 +334,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             crate::logging::register,
             message::dkim::register,
             crate::spf::register,
+            crate::dmarc::register,
         ],
         policy: &opts.policy,
     }

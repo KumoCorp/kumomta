@@ -30,6 +30,7 @@ humantime.workspace = true
 kumo-address = {path="../kumo-address"}
 kumo-api-types = {path="../kumo-api-types"}
 kumo-chrono-helper = {path="../kumo-chrono-helper"}
+kumo-dmarc = {path="../kumo-dmarc"}
 kumo-log-types = {path="../kumo-log-types"}
 kumo-prometheus = {path="../kumo-prometheus"}
 kumo-server-common = {path="../kumo-server-common"}

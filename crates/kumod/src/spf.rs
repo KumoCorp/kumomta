@@ -9,9 +9,9 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 #[derive(Debug, Serialize)]
-struct CheckHostOutput {
-    disposition: SpfDisposition,
-    result: AuthenticationResult,
+pub struct CheckHostOutput {
+    pub disposition: SpfDisposition,
+    pub result: AuthenticationResult,
 }
 
 pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
