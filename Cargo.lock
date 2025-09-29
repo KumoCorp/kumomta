@@ -4178,6 +4178,7 @@ dependencies = [
  "data-loader",
  "hex",
  "mlua",
+ "mod-digest",
  "rand 0.8.5",
  "serde",
  "serde_json",

@@ -9,6 +9,7 @@ config = {path="../config"}
 data-encoding.workspace = true
 mlua = {workspace=true, features=["serialize"]}
 data-loader = {path="../data-loader"}
+mod-digest = {path="../mod-digest"}
 serde_json.workspace = true
 serde.workspace = true
 rand.workspace = true

@@ -3,14 +3,10 @@ use aws_lc_rs::cipher::{
     AES_128, AES_256, DecryptionContext, PaddedBlockDecryptingKey, PaddedBlockEncryptingKey,
     UnboundCipherKey,
 };
-use data_encoding::{
-    BASE32, BASE32HEX, BASE32HEX_NOPAD, BASE32_NOPAD, BASE64, BASE64URL, BASE64URL_NOPAD,
-    BASE64_NOPAD, HEXLOWER,
-};
 use config::{any_err, from_lua_value, get_or_create_sub_module};
-use mlua::prelude::LuaUserData;
-use mlua::{Lua, MetaMethod, UserDataFields, UserDataMethods, Value, Error as LuaError};
+use mlua::{Lua, Value, Error as LuaError};
 use data_loader::KeySource;
+use mod_digest::BinaryResult;
 use std::str;
 use serde::Deserialize;
 use serde_json;
@@ -118,38 +114,7 @@ fn aes_encrypt_block(plaintext: &[u8], params: AesParams) -> Result<Vec<u8>, any
 }
 
 
-struct DecryptResult(Vec<u8>);
-impl LuaUserData for DecryptResult {
-    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
-        fields.add_field_method_get("hex", |_, this| Ok(HEXLOWER.encode(&this.0)));
-
-        fields.add_field_method_get("base32", |_, this| Ok(BASE32.encode(&this.0)));
-        fields.add_field_method_get("base32_nopad", |_, this| Ok(BASE32_NOPAD.encode(&this.0)));
-
-        fields.add_field_method_get("base32hex", |_, this| Ok(BASE32HEX.encode(&this.0)));
-        fields.add_field_method_get("base32hex_nopad", |_, this| {
-            Ok(BASE32HEX_NOPAD.encode(&this.0))
-        });
-
-        fields.add_field_method_get("base64", |_, this| Ok(BASE64.encode(&this.0)));
-        fields.add_field_method_get("base64_nopad", |_, this| Ok(BASE64_NOPAD.encode(&this.0)));
-
-        fields.add_field_method_get("base64url", |_, this| Ok(BASE64URL.encode(&this.0)));
-        fields.add_field_method_get("base64url_nopad", |_, this| {
-            Ok(BASE64URL_NOPAD.encode(&this.0))
-        });
-
-        fields.add_field_method_get("bytes", |lua, this| lua.create_string(&this.0));
-    }
-
-    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_meta_method(MetaMethod::ToString, |_, this, _: ()| {
-            Ok(HEXLOWER.encode(&this.0))
-        });
-    }
-}
-
-fn aes_decrypt_block(ciphertext_buf: &[u8], params: AesParams) -> anyhow::Result<DecryptResult>  {
+fn aes_decrypt_block(ciphertext_buf: &[u8], params: AesParams) -> anyhow::Result<BinaryResult>  {
     let mut in_out_buffer = ciphertext_buf.to_vec();
 
     match params.algorithm {
@@ -167,7 +132,7 @@ fn aes_decrypt_block(ciphertext_buf: &[u8], params: AesParams) -> anyhow::Result
 
             match dec_key.decrypt(&mut in_out_buffer, DecryptionContext::None) {
                 //     Ok(DigestResult(digest.as_ref().to_vec()))
-                Ok(plaintext) => Ok(DecryptResult(plaintext.to_vec())),
+                Ok(plaintext) => Ok(BinaryResult(plaintext.to_vec())),
                 Err(e) => Err(anyhow!("Decryption failed with AES ECB mode: {}", e)),
             }
         }
@@ -197,7 +162,7 @@ fn aes_decrypt_block(ciphertext_buf: &[u8], params: AesParams) -> anyhow::Result
             let mut decrypt_buffer = actual_ciphertext.to_vec(); // Create a mutable buffer for decryption
             let plaintext_slice =
                 dec_key.decrypt(&mut decrypt_buffer, DecryptionContext::Iv128(iv.into()))?;
-            Ok(DecryptResult(plaintext_slice.to_vec()))
+            Ok(BinaryResult(plaintext_slice.to_vec()))
         }
     }
 }
