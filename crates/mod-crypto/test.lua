@@ -46,49 +46,39 @@ local original_message = 'Hello, World!123'
 local second_message = 'second message here!!!'
 
 print("Testing file-based key...")
-local f = kumo.crypto.aes_encrypt_block {
+local f = kumo.crypto.aes_encrypt_block('Cbc', original_message, {
   key = key_file,
-  value = original_message,
-  algorithm = 'Cbc',
-}
+})
 
-local b = kumo.crypto.aes_decrypt_block {
+local b = kumo.crypto.aes_decrypt_block('Cbc', f, {
   key = key_file,
-  value = f,
-  algorithm = 'Cbc',
-}
+})
 
 if b.bytes ~= original_message then
-    cleanup()
     error("FAILED: File-based CBC fail : " .. b.bytes .. " != " .. original_message)
 end
 print(string.format("[OK] -- CBC encryption test OK: with msg: \"%s\"", b.bytes))
 
--- Test 2: Hex key (ECB) - use hex string directly as KeySource::Data expects
+-- Test 2: Hex key (ECB) 
 print("Testing hex-based key...")
 print("Using hex key directly:", hex_key_128, "(length:", #hex_key_128, "chars)")
 
-local f2 = kumo.crypto.aes_encrypt_block {
+local f2 = kumo.crypto.aes_encrypt_block('Ecb', second_message, {
   key = {
     key_data = hex_key_128,  -- Use hex string directly, not binary!
   },
-  value = second_message,
-  algorithm = 'Ecb',
-}
+})
 
-local dr = kumo.crypto.aes_decrypt_block {
+local dr = kumo.crypto.aes_decrypt_block('Ecb', f2, {
   key = {
     key_data = hex_key_128,  -- Use hex string directly, not binary!
   },
-  value = f2,
-  algorithm = 'Ecb',
-}
+})
 
 if dr.bytes ~= second_message then
     print("FAILED: Hex-based ECB round-trip failed!")
     print("Expected:", second_message)
     print("Got:", dr.bytes)
-    cleanup()
     os.exit(1)
 end
 
@@ -97,5 +87,34 @@ print(string.format("Base64: %s", dr.base64))
 print(string.format("Base64 (no pad): %s", dr.base64_nopad))
 print(string.format("Bytes length: %s", #dr.bytes))
 print(string.format("Final result: %s", dr.bytes))
+
+-- Test 3: Binary non-UTF-8 data
+print("Testing with binary non-UTF-8 data...")
+local binary_data = string.char(0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE, 0xFD, 0xFC, 0x80, 0x90, 0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0)
+print("Binary data length:", #binary_data, "bytes")
+print("Binary data hex:", kumo.encode.hex_encode(binary_data))
+
+local f3 = kumo.crypto.aes_encrypt_block('Ecb', binary_data, {
+  key = {
+    key_data = hex_key_128,
+  },
+})
+
+local dr3 = kumo.crypto.aes_decrypt_block('Ecb', f3, {
+  key = {
+    key_data = hex_key_128,
+  },
+})
+
+if dr3.bytes ~= binary_data then
+    print("FAILED: Binary data ECB round-trip failed!")
+    print("Expected length:", #binary_data)
+    print("Got length:", #dr3.bytes)
+    print("Expected hex:", kumo.encode.hex_encode(binary_data))
+    print("Got hex:", dr3.hex)
+    os.exit(1)
+end
+print("UCCESS: Binary non-UTF-8 data test passed!")
+
 cleanup()
 print("-- mod_crypto--  All tests lua passed!")

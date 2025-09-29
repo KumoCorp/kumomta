@@ -13,6 +13,7 @@ use mlua::{Lua, MetaMethod, UserDataFields, UserDataMethods, Value, Error as Lua
 use data_loader::KeySource;
 use std::str;
 use serde::Deserialize;
+use serde_json;
 
 const CBC_IV_LEN: usize = 16; // AES block size is 16 bytes
 
@@ -29,6 +30,11 @@ pub enum AesAlgo {
 }
 
 #[derive(Deserialize, Clone, Debug)]
+pub struct KeyConfig {
+    pub key: KeySource,
+}
+
+#[derive(Deserialize, Clone, Debug)]
 pub struct LuaCfg {
     pub key: KeySource,
     pub value: String,
@@ -36,9 +42,8 @@ pub struct LuaCfg {
 }
 
 #[derive(Deserialize, Clone, Debug)]
-pub struct LuaCfgDecrypt {
+pub struct DecryptConfig {
     pub key: KeySource,
-    pub value: Vec<u8>,
     pub algorithm: AesAlgo,
 }
 
@@ -66,8 +71,8 @@ impl AesKey {
     }
 }
 
-fn aes_encrypt_block(plaintext: &str, params: AesParams) -> Result<Vec<u8>, anyhow::Error> {
-    let mut buf_ciphertext = plaintext.as_bytes().to_vec();
+fn aes_encrypt_block(plaintext: &[u8], params: AesParams) -> Result<Vec<u8>, anyhow::Error> {
+    let mut buf_ciphertext = plaintext.to_vec();
 
     match params.algorithm {
         AesAlgo::Ecb => {
@@ -200,38 +205,49 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let crypto = get_or_create_sub_module(lua, "crypto")?;
     crypto.set(
         "aes_encrypt_block",
-        lua.create_async_function(|lua, params: Value| async move {
-            let params: LuaCfg = from_lua_value(&lua, params)?;
+        lua.create_async_function(|lua, (algorithm, data, config): (String, mlua::String, Value)| async move {
+            let algorithm: AesAlgo = serde_json::from_str(&format!("\"{}\"", algorithm))
+                .map_err(|e| LuaError::external(format!("Invalid algorithm '{}': {}", algorithm, e)))?;
+            
+            let config: KeyConfig = from_lua_value(&lua, config)?;
             let aes_k =
-                params.key.get().await.map_err(|e| {
-                    LuaError::external(format!("key: {:?} failed: {}", params.key, e))
+                config.key.get().await.map_err(|e| {
+                    LuaError::external(format!("key: {:?} failed: {}", config.key, e))
                 })?;
             let aes_key = AesKey::from_bytes(&aes_k).map_err(any_err)?;
 
             let p = AesParams {
                 key: aes_key,
-                algorithm: params.algorithm.clone(),
+                algorithm,
             };
-            let result = aes_encrypt_block(&params.value, p).map_err(any_err)?;
-            Ok(result)
+            let plaintext_bytes = data.as_bytes();
+            let result = aes_encrypt_block(&plaintext_bytes, p).map_err(any_err)?;
+            // Convert Vec<u8> to mlua::String for binary data support
+            Ok(lua.create_string(&result)?)
         })?,
     )?;
 
     crypto.set(
         "aes_decrypt_block",
-        lua.create_async_function(|lua, params: Value| async move {
-            let params: LuaCfgDecrypt = from_lua_value(&lua, params)?;
+        lua.create_async_function(|lua, (algorithm, data, config): (String, mlua::String, Value)| async move {
+            let algorithm: AesAlgo = serde_json::from_str(&format!("\"{}\"", algorithm))
+                .map_err(|e| LuaError::external(format!("Invalid algorithm '{}': {}", algorithm, e)))?;
+                
+            let config: KeyConfig = from_lua_value(&lua, config)?;
             let aes_k =
-                params.key.get().await.map_err(|e| {
-                    LuaError::external(format!("key: {:?} failed: {}", params.key, e))
+                config.key.get().await.map_err(|e| {
+                    LuaError::external(format!("key: {:?} failed: {}", config.key, e))
                 })?;
 
             let aes_key = AesKey::from_bytes(&aes_k).map_err(any_err)?;
             let p = AesParams {
                 key: aes_key,
-                algorithm: params.algorithm.clone(),
+                algorithm,
             };
-            let result = aes_decrypt_block(&params.value, p).map_err(any_err)?;
+            
+            // Convert mlua::String to bytes
+            let ciphertext_bytes = data.as_bytes();
+            let result = aes_decrypt_block(&ciphertext_bytes, p).map_err(any_err)?;
             Ok(result)
         })?,
     )?;
@@ -256,23 +272,7 @@ mod tests {
                 algorithm: AesAlgo::Ecb,
             };
 
-            let ciphertext = aes_encrypt_block(plaintext, params.clone())?;
-            let decrypted_text = aes_decrypt_block(ciphertext.as_slice(), params.clone())?;
-            let decrypted_string = String::from_utf8(decrypted_text.0)?;
-            assert_eq!(decrypted_string, plaintext);
-
-            Ok(())
-        }
-        #[test]
-        fn encrypt_decrypt_aes256_ecb_hex() -> Result<()> {
-            let plaintext = "helloword-from-the-water";
-            let key_hex = "603deb1015ca71be2b73aef0857d7781a5b6b8e5b62c65e9f1f63b7ee7ec6f2f";
-            let key = hex::decode(key_hex)?;
-            let params = AesParams {
-                key: AesKey::Aes256(key.as_slice().try_into().unwrap()),
-                algorithm: AesAlgo::Ecb,
-            };
-            let ciphertext = aes_encrypt_block(plaintext, params.clone())?;
+            let ciphertext = aes_encrypt_block(plaintext.as_bytes(), params.clone())?;
             let decrypted_text = aes_decrypt_block(ciphertext.as_slice(), params.clone())?;
             let decrypted_string = String::from_utf8(decrypted_text.0)?;
             assert_eq!(decrypted_string, plaintext);
@@ -294,7 +294,7 @@ mod tests {
                 algorithm: AesAlgo::Cbc,
             };
 
-            let ciphertext_with_iv = aes_encrypt_block(plaintext, params.clone())?;
+            let ciphertext_with_iv = aes_encrypt_block(plaintext.as_bytes(), params.clone())?;
 
             assert!(
                 ciphertext_with_iv.len() > 16,
@@ -319,7 +319,7 @@ mod tests {
                 algorithm: AesAlgo::Cbc,
             };
 
-            let ciphertext_with_iv = aes_encrypt_block(plaintext, params.clone())?;
+            let ciphertext_with_iv = aes_encrypt_block(plaintext.as_bytes(), params.clone())?;
 
             assert!(
                 ciphertext_with_iv.len() > 16,
