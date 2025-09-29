@@ -114,7 +114,7 @@ if dr3.bytes ~= binary_data then
     print("Got hex:", dr3.hex)
     os.exit(1)
 end
-print("UCCESS: Binary non-UTF-8 data test passed!")
+print("SUCCESS: Binary non-UTF-8 data test passed!")
 
 cleanup()
 print("-- mod_crypto--  All tests lua passed!")
