@@ -64,6 +64,10 @@
    [ignore_8bit_checks](../reference/kumo/make_egress_path/ignore_8bit_checks.md)
    for more discussion on this topic and the ability to disable this send-time
    checking.  #327
+ * New
+   [start_esmtp_listener.allow_xclient](../reference/kumo/start_esmtp_listener/allow_xclient.md)
+   option enables support for
+   [XCLIENT](https://www.postfix.org/XCLIENT_README.html).
 
 ## Fixes
 
