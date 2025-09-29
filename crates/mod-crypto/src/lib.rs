@@ -15,6 +15,8 @@ use hex::decode;
 use std::str;
 use serde::Deserialize;
 
+const CBC_IV_LEN: usize = 16; // AES block size is 16 bytes
+
 #[derive(Deserialize, Clone, Debug)]
 pub struct AesParams {
     pub algorithm: AesAlgo,
@@ -71,7 +73,7 @@ fn aes_encrypt_block(plaintext: &str, params: AesParams) -> Result<Vec<u8>, anyh
     let mut buf_ciphertext = plaintext.as_bytes().to_vec();
 
     match params.algorithm {
-        AesAlgo::Ecb() => {
+        AesAlgo::Ecb => {
             let enc_key = match params.key {
                 AesKey::Aes128(k) => {
                     let key = UnboundCipherKey::new(&AES_128, &k)?;
@@ -86,7 +88,7 @@ fn aes_encrypt_block(plaintext: &str, params: AesParams) -> Result<Vec<u8>, anyh
             enc_key.encrypt(&mut buf_ciphertext)?;
             Ok(buf_ciphertext)
         }
-        AesAlgo::Cbc() => {
+        AesAlgo::Cbc => {
             let enc_key = match params.key {
                 AesKey::Aes128(k) => {
                     let key = UnboundCipherKey::new(&AES_128, &k)?;
@@ -149,7 +151,7 @@ fn aes_decrypt_block(ciphertext_buf: &[u8], params: AesParams) -> anyhow::Result
     let mut in_out_buffer = ciphertext_buf.to_vec();
 
     match params.algorithm {
-        AesAlgo::Ecb() => {
+        AesAlgo::Ecb => {
             let dec_key = match params.key {
                 AesKey::Aes128(k) => {
                     let key = UnboundCipherKey::new(&AES_128, &k)?;
@@ -168,7 +170,7 @@ fn aes_decrypt_block(ciphertext_buf: &[u8], params: AesParams) -> anyhow::Result
             }
         }
 
-        AesAlgo::Cbc() => {
+        AesAlgo::Cbc => {
             let dec_key = match params.key {
                 AesKey::Aes128(k) => {
                     let key = UnboundCipherKey::new(&AES_128, &k)?;
@@ -211,7 +213,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             let p = AesParams {
                 key: aes_key,
-                algorithm: algo,
+                algorithm: params.algorithm.clone(),
             };
             let result = aes_encrypt_block(&params.value, p).map_err(any_err)?;
             Ok(result)
@@ -230,7 +232,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let aes_key = AesKey::from_bytes(&aes_k).map_err(any_err)?;
             let p = AesParams {
                 key: aes_key,
-                algorithm: algo,
+                algorithm: params.algorithm.clone(),
             };
             let result = aes_decrypt_block(&params.value, p).map_err(any_err)?;
             Ok(result)
@@ -254,16 +256,13 @@ mod tests {
             let key = hex::decode(key_hex)?;
             let params = AesParams {
                 key: AesKey::Aes128(key.as_slice().try_into().unwrap()),
-                algorithm: AesAlgo::Ecb(),
+                algorithm: AesAlgo::Ecb,
             };
 
             let ciphertext = aes_encrypt_block(plaintext, params.clone())?;
             let decrypted_text = aes_decrypt_block(ciphertext.as_slice(), params.clone())?;
             let decrypted_string = String::from_utf8(decrypted_text.0)?;
-
-            // Trim PKCS7 padding before assertion
-            let trimmed_string = decrypted_string.trim_end_matches(|c| c as u8 <= 16);
-            assert_eq!(trimmed_string, plaintext);
+            assert_eq!(decrypted_string, plaintext);
 
             Ok(())
         }
@@ -274,15 +273,12 @@ mod tests {
             let key = hex::decode(key_hex)?;
             let params = AesParams {
                 key: AesKey::Aes256(key.as_slice().try_into().unwrap()),
-                algorithm: AesAlgo::Ecb(),
+                algorithm: AesAlgo::Ecb,
             };
             let ciphertext = aes_encrypt_block(plaintext, params.clone())?;
             let decrypted_text = aes_decrypt_block(ciphertext.as_slice(), params.clone())?;
             let decrypted_string = String::from_utf8(decrypted_text.0)?;
-            
-            // Trim PKCS7 padding before assertion
-            let trimmed_string = decrypted_string.trim_end_matches(|c| c as u8 <= 16);
-            assert_eq!(trimmed_string, plaintext);
+            assert_eq!(decrypted_string, plaintext);
 
             Ok(())
         }
@@ -298,7 +294,7 @@ mod tests {
 
             let params = AesParams {
                 key: AesKey::Aes128(key.as_slice().try_into().unwrap()),
-                algorithm: AesAlgo::Cbc(),
+                algorithm: AesAlgo::Cbc,
             };
 
             let ciphertext_with_iv = aes_encrypt_block(plaintext, params.clone())?;
@@ -310,10 +306,7 @@ mod tests {
 
             let decrypted_text = aes_decrypt_block(ciphertext_with_iv.as_slice(), params.clone())?;
             let decrypted_string = String::from_utf8(decrypted_text.0)?;
-            
-            // Trim PKCS7 padding before assertion
-            let trimmed_string = decrypted_string.trim_end_matches(|c| c as u8 <= 16);
-            assert_eq!(trimmed_string, plaintext);
+            assert_eq!(decrypted_string, plaintext);
 
             Ok(())
         }
@@ -326,7 +319,7 @@ mod tests {
 
             let params = AesParams {
                 key: AesKey::Aes256(key.as_slice().try_into().unwrap()),
-                algorithm: AesAlgo::Cbc(),
+                algorithm: AesAlgo::Cbc,
             };
 
             let ciphertext_with_iv = aes_encrypt_block(plaintext, params.clone())?;
@@ -338,10 +331,7 @@ mod tests {
 
             let decrypted_text = aes_decrypt_block(ciphertext_with_iv.as_slice(), params.clone())?;
             let decrypted_string = String::from_utf8(decrypted_text.0)?;
-            
-            // Trim PKCS7 padding before assertion
-            let trimmed_string = decrypted_string.trim_end_matches(|c| c as u8 <= 16);
-            assert_eq!(trimmed_string, plaintext);
+            assert_eq!(decrypted_string, plaintext);
 
             Ok(())
         }
