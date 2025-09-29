@@ -48,12 +48,19 @@ pub enum AesKey {
     Aes256([u8; 32]),
 }
 
-
 impl AesKey {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
         match bytes.len() {
-            16 => Ok(AesKey::Aes128(bytes.try_into().unwrap())),
-            32 => Ok(AesKey::Aes256(bytes.try_into().unwrap())),
+            16 => {
+                let key: [u8; 16] = bytes.try_into()
+                    .map_err(|e| format!("Failed to convert to 16-byte array: {}", e))?;
+                Ok(AesKey::Aes128(key))
+            }
+            32 => {
+                let key: [u8; 32] = bytes.try_into()
+                    .map_err(|e| format!("Failed to convert to 32-byte array: {}", e))?;
+                Ok(AesKey::Aes256(key))
+            }
             _ => Err("Key length must be 16 or 32 bytes".to_string()),
         }
     }
