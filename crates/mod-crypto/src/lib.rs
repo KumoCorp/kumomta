@@ -11,7 +11,6 @@ use config::{any_err, from_lua_value, get_or_create_sub_module};
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, MetaMethod, UserDataFields, UserDataMethods, Value, Error as LuaError};
 use data_loader::KeySource;
-use hex::decode;
 use std::str;
 use serde::Deserialize;
 
@@ -49,21 +48,12 @@ pub enum AesKey {
     Aes256([u8; 32]),
 }
 
-fn is_hex(vec: &[u8]) -> bool {
-    let hex_str = String::from_utf8_lossy(vec);
-    hex_str.chars().all(|c| c.is_digit(16)) && hex_str.len() % 2 == 0
-}
 
 impl AesKey {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let decoded_bytes = if is_hex(bytes) {
-            decode(bytes).map_err(|e| format!("Failed to decode hex: {}", e))?
-        } else {
-            bytes.to_vec()
-        };
-        match decoded_bytes.len() {
-            16 => Ok(AesKey::Aes128(decoded_bytes.try_into().unwrap())),
-            32 => Ok(AesKey::Aes256(decoded_bytes.try_into().unwrap())),
+        match bytes.len() {
+            16 => Ok(AesKey::Aes128(bytes.try_into().unwrap())),
+            32 => Ok(AesKey::Aes256(bytes.try_into().unwrap())),
             _ => Err("Key length must be 16 or 32 bytes".to_string()),
         }
     }
@@ -166,7 +156,7 @@ fn aes_decrypt_block(ciphertext_buf: &[u8], params: AesParams) -> anyhow::Result
             match dec_key.decrypt(&mut in_out_buffer, DecryptionContext::None) {
                 //     Ok(DigestResult(digest.as_ref().to_vec()))
                 Ok(plaintext) => Ok(DecryptResult(plaintext.to_vec())),
-                Err(_) => Err(anyhow!("Decryption failed with AES key, mode ecb block")),
+                Err(e) => Err(anyhow!("Decryption failed with AES ECB mode: {}", e)),
             }
         }
 

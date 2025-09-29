@@ -7,14 +7,14 @@ local hex_key = '2b7e151628aed2a6abf7158809cf4f3c'
 local f = kumo.crypto.aes_encrypt_block {
   key = '/tmp/kumo/aes_key_256.bin',
   value = 'some value here world',
-  algorithm = 'cbc',
+  algorithm = 'Cbc',
 }
 -- 'f' is now a raw binary string representing the encrypted data.
 -- 'b' will be a DecryptResult object.
 local b = kumo.crypto.aes_decrypt_block {
   key = '/tmp/kumo/aes_key_256.bin',
   value = f,
-  algorithm = 'cbc',
+  algorithm = 'Cbc',
 }
 print(b.bytes)
 
@@ -24,14 +24,14 @@ local f2 = kumo.crypto.aes_encrypt_block {
     key_data = hex_key,
   },
   value = 'second message here!!!',
-  algorithm = 'ecb',
+  algorithm = 'Ecb',
 }
 local dr = kumo.crypto.aes_decrypt_block {
   key = {
     key_data = hex_key,
   },
   value = f2,
-  algorithm = 'ecb',
+  algorithm = 'Ecb',
 }
 
 print(string.format("Hex: %s", dr.hex))
