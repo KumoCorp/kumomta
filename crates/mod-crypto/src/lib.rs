@@ -131,7 +131,6 @@ fn aes_decrypt_block(ciphertext_buf: &[u8], params: AesParams) -> anyhow::Result
             };
 
             match dec_key.decrypt(&mut in_out_buffer, DecryptionContext::None) {
-                //     Ok(DigestResult(digest.as_ref().to_vec()))
                 Ok(plaintext) => Ok(BinaryResult(plaintext.to_vec())),
                 Err(e) => Err(anyhow!("Decryption failed with AES ECB mode: {}", e)),
             }
