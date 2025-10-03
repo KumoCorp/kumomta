@@ -127,9 +127,15 @@ pub async fn auth_middleware(
                     request.extensions_mut().insert(AuthKind::TrustedIp(ip));
                     return next.run(request).await;
                 }
+
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    format!("{ip} is not a trusted host, and no Authorization header is present"),
+                )
+                    .into_response();
             }
 
-            (StatusCode::UNAUTHORIZED, "Missing Authorization header").into_response()
+            (StatusCode::UNAUTHORIZED, "peer is unknown, and no Authorization header is present").into_response()
         }
         Some(authorization) => match authorization.to_str() {
             Err(_) => (StatusCode::BAD_REQUEST, "Malformed Authorization header").into_response(),
