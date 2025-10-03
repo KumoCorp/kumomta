@@ -135,7 +135,11 @@ pub async fn auth_middleware(
                     .into_response();
             }
 
-            (StatusCode::UNAUTHORIZED, "peer is unknown, and no Authorization header is present").into_response()
+            (
+                StatusCode::UNAUTHORIZED,
+                "peer is unknown, and no Authorization header is present",
+            )
+                .into_response()
         }
         Some(authorization) => match authorization.to_str() {
             Err(_) => (StatusCode::BAD_REQUEST, "Malformed Authorization header").into_response(),
