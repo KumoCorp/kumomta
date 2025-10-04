@@ -32,6 +32,15 @@ kumo.on('smtp_server_message_received', function(msg, conn_meta)
 end)
 ```
 
+{{since('dev', indent=True)}}
+    Meta names can now use simple wildcard suffixes; if the last character
+    of the meta name is `*` then it will match any string with that prefix.
+    For example `"xfer_*"` will match any meta names that start with `"xfer_"`.
+
+!!! note
+    meta names are case sensitive, so you must specify the exact matching
+    case, even if you are using wildcards to match names.
+
 See also:
 
   * [msg:import_x_headers](../../message/import_x_headers.md)

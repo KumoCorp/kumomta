@@ -68,6 +68,12 @@
    [start_esmtp_listener.allow_xclient](../reference/kumo/start_esmtp_listener/allow_xclient.md)
    option enables support for
    [XCLIENT](https://www.postfix.org/XCLIENT_README.html).
+ * [configure_local_logs.meta](../reference/kumo/configure_local_logs/meta.md),
+   and related logging `meta` options such as those in
+   [configure_log_hook](../reference/kumo/configure_log_hook.md) and other
+   higher level helpers that are built atop those functions now support simple
+   wildcard suffix matching of meta names, allowing capture of all meta fields
+   via `*` or all prefixed names via `prefix*`.
 
 ## Fixes
 
