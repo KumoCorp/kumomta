@@ -1,6 +1,6 @@
 use crate::{SpfContext, SpfDisposition, SpfResult};
 use dns_resolver::{Resolver, TestResolver};
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 /// https://www.rfc-editor.org/rfc/rfc7208#appendix-A.1
 #[tokio::test]
@@ -22,7 +22,7 @@ async fn all() {
 
 /// https://www.rfc-editor.org/rfc/rfc7208#appendix-A.1
 #[tokio::test]
-async fn ip() {
+async fn a() {
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
         .with_txt("example.com", "v=spf1 a -all".to_string());
@@ -147,6 +147,110 @@ async fn ip4() {
         &SpfResult {
             disposition: SpfDisposition::Pass,
             context: "matched 'ip4:192.0.2.128/28' directive".to_owned(),
+        },
+        "{result:?}"
+    );
+
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .with_txt("example.com", "v=spf1 ip4:192.0.2.128 -all".to_string());
+
+    let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 65]), &resolver).await;
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::Fail,
+            context: "matched '-all' directive".to_owned(),
+        },
+        "{result:?}"
+    );
+
+    let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 128]), &resolver).await;
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::Pass,
+            context: "matched 'ip4:192.0.2.128/32' directive".to_owned(),
+        },
+        "{result:?}"
+    );
+}
+
+#[tokio::test]
+async fn ip6() {
+    let resolver = TestResolver::default().with_zone(EXAMPLE_COM).with_txt(
+        "example.com",
+        "v=spf1 ip6:2a01:111:f400::/48 -all".to_string(),
+    );
+
+    let result = evaluate_ip(
+        Ipv6Addr::from([
+            0x1a, 0x01, 0x01, 0x11, 0xf4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x01,
+        ]),
+        &resolver,
+    )
+    .await;
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::Fail,
+            context: "matched '-all' directive".to_owned(),
+        },
+        "{result:?}"
+    );
+
+    let result = evaluate_ip(
+        Ipv6Addr::from([
+            0x2a, 0x01, 0x01, 0x11, 0xf4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x01,
+        ]),
+        &resolver,
+    )
+    .await;
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::Pass,
+            context: "matched 'ip6:2a01:111:f400::/48' directive".to_owned(),
+        },
+        "{result:?}"
+    );
+
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .with_txt("example.com", "v=spf1 ip6:2a01:111:f400:: -all".to_string());
+
+    let result = evaluate_ip(
+        Ipv6Addr::from([
+            0x1a, 0x01, 0x01, 0x11, 0xf4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x01,
+        ]),
+        &resolver,
+    )
+    .await;
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::Fail,
+            context: "matched '-all' directive".to_owned(),
+        },
+        "{result:?}"
+    );
+
+    let result = evaluate_ip(
+        Ipv6Addr::from([
+            0x2a, 0x01, 0x01, 0x11, 0xf4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ]),
+        &resolver,
+    )
+    .await;
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::Pass,
+            context: "matched 'ip6:2a01:111:f400::/128' directive".to_owned(),
         },
         "{result:?}"
     );
