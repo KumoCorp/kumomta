@@ -389,7 +389,7 @@ impl DualCidrLength {
                 specified_masked == observed_masked
             }
             (IpAddr::V6(observed), IpAddr::V6(specified), DualCidrLength { v6, .. }) => {
-                let mask = u128::MAX << (32 - v6);
+                let mask = u128::MAX << (128 - v6);
                 let specified_masked = Ipv6Addr::from_bits(specified.to_bits() & mask);
                 let observed_masked = Ipv6Addr::from(observed.to_bits() & mask);
                 specified_masked == observed_masked
@@ -589,9 +589,12 @@ impl Mechanism {
             return Ok(Self::Ptr { domain });
         }
         if let Some(remain) = starts_with_ident(s, "ip4:") {
-            let (addr, len) = remain
-                .split_once('/')
-                .ok_or_else(|| format!("invalid 'ip4' mechanism: {s}"))?;
+            let (addr, len) = if let Some((addr, len)) = remain.split_once('/') {
+                (addr, len)
+            } else {
+                // Default CIDR length for IPv4 is /32 (single host)
+                (remain, "32")
+            };
             let ip4_network = addr
                 .parse()
                 .map_err(|err| format!("invalid 'ip4' mechanism: {s}: {err}"))?;
@@ -605,9 +608,12 @@ impl Mechanism {
             });
         }
         if let Some(remain) = starts_with_ident(s, "ip6:") {
-            let (addr, len) = remain
-                .split_once('/')
-                .ok_or_else(|| format!("invalid 'ip6' mechanism: {s}"))?;
+            let (addr, len) = if let Some((addr, len)) = remain.split_once('/') {
+                (addr, len)
+            } else {
+                // Default CIDR length for IPv6 is /128 (single host)
+                (remain, "128")
+            };
             let ip6_network = addr
                 .parse()
                 .map_err(|err| format!("invalid 'ip6' mechanism: {s}: {err}"))?;
