@@ -115,6 +115,13 @@ pub struct CheckHostParams {
 
     /// IP address of the SMTP client that is emitting the mail (v4 or v6).
     pub client_ip: IpAddr,
+
+    /// Explicitly the domain name passed to HELO/EHLO,
+    /// regardless of the `domain` value.
+    pub ehlo_domain: Option<String>,
+
+    /// The host name of this host, the one doing the check
+    pub relaying_host_name: Option<String>,
 }
 
 impl CheckHostParams {
@@ -123,6 +130,8 @@ impl CheckHostParams {
             domain,
             sender,
             client_ip,
+            ehlo_domain,
+            relaying_host_name,
         } = self;
 
         let sender = match sender {
@@ -131,7 +140,12 @@ impl CheckHostParams {
         };
 
         match SpfContext::new(&sender, &domain, client_ip) {
-            Ok(cx) => cx.check(resolver, true).await,
+            Ok(cx) => {
+                cx.with_ehlo_domain(ehlo_domain.as_deref())
+                    .with_relaying_host_name(relaying_host_name.as_deref())
+                    .check(resolver, true)
+                    .await
+            }
             Err(result) => result,
         }
     }
@@ -144,6 +158,8 @@ struct SpfContext<'a> {
     pub(crate) domain: &'a str,
     pub(crate) client_ip: IpAddr,
     pub(crate) now: SystemTime,
+    pub(crate) ehlo_domain: Option<&'a str>,
+    pub(crate) relaying_host_name: &'a str,
 }
 
 impl<'a> SpfContext<'a> {
@@ -169,7 +185,23 @@ impl<'a> SpfContext<'a> {
             domain,
             client_ip,
             now: SystemTime::now(),
+            ehlo_domain: None,
+            relaying_host_name: "localhost",
         })
+    }
+
+    pub fn with_ehlo_domain(&self, ehlo_domain: Option<&'a str>) -> Self {
+        Self {
+            ehlo_domain,
+            ..*self
+        }
+    }
+
+    pub fn with_relaying_host_name(&self, relaying_host_name: Option<&'a str>) -> Self {
+        Self {
+            relaying_host_name: relaying_host_name.unwrap_or(self.relaying_host_name),
+            ..*self
+        }
     }
 
     pub(crate) fn with_domain(&self, domain: &'a str) -> Self {

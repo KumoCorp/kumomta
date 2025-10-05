@@ -155,9 +155,13 @@ impl MacroSpec {
                             .unwrap_or(0)
                     ))
                     .unwrap(),
-                MacroName::RelayingHostName
-                | MacroName::HeloDomain
-                | MacroName::ValidatedDomainName => {
+                MacroName::HeloDomain => {
+                    buf.push_str(cx.ehlo_domain.unwrap_or(""));
+                }
+                MacroName::RelayingHostName => {
+                    buf.push_str(cx.relaying_host_name);
+                }
+                MacroName::ValidatedDomainName => {
                     return Err(format!("{:?} has not been implemented", m.name))
                 }
             };
@@ -345,7 +349,9 @@ mod test {
             "email.example.com",
             IpAddr::from([192, 0, 2, 3]),
         )
-        .unwrap();
+        .unwrap()
+        .with_ehlo_domain(Some("mx1.example.com"))
+        .with_relaying_host_name(Some("mx.mbp.com"));
 
         for (input, expect) in &[
             ("%{s}", "strong-bad@email.example.com"),
@@ -362,6 +368,10 @@ mod test {
             ("%{lr}", "strong-bad"),
             ("%{lr-}", "bad.strong"),
             ("%{l1r-}", "strong"),
+            ("%{h}", "mx1.example.com"),
+            ("%{h2}", "example.com"),
+            ("%{r}", "mx.mbp.com"),
+            ("%{rr}", "com.mbp.mx"),
         ] {
             let spec = MacroSpec::parse(input).unwrap();
             let output = spec.expand(&ctx).unwrap();
