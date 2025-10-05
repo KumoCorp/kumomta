@@ -124,6 +124,30 @@ async fn mx() {
     );
 }
 
+#[tokio::test]
+async fn underscores() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .with_txt(
+            "under_score.com",
+            "v=spf1 ip4:192.0.2.128/28 -all".to_string(),
+        )
+        .with_txt(
+            "example.com",
+            "v=spf1 include:under_score.com -all".to_string(),
+        );
+
+    let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 65]), &resolver).await;
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::Fail,
+            context: "matched '-all' directive".to_owned(),
+        },
+        "{result:?}"
+    );
+}
+
 /// https://www.rfc-editor.org/rfc/rfc7208#appendix-A.1
 #[tokio::test]
 async fn ip4() {

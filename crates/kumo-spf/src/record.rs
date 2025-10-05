@@ -4,7 +4,6 @@ use dns_resolver::Resolver;
 use hickory_resolver::Name;
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::str::FromStr;
 
 #[derive(Debug, Default)]
 pub(crate) struct Record {
@@ -229,7 +228,7 @@ impl Directive {
             }
             .matches(cx.client_ip, IpAddr::V6(*ip6_network)),
             Mechanism::Ptr { domain } => {
-                let domain = match Name::from_str(&cx.domain(domain.as_ref())?) {
+                let domain = match Name::from_str_relaxed(&cx.domain(domain.as_ref())?) {
                     Ok(domain) => domain,
                     Err(err) => {
                         return Err(SpfResult {
