@@ -15,7 +15,7 @@ pub(crate) struct Record {
 
 impl Record {
     pub(crate) fn parse(s: &str) -> Result<Self, String> {
-        let mut tokens = s.split(' ');
+        let mut tokens = s.split_whitespace();
         let version = tokens
             .next()
             .ok_or_else(|| format!("expected version in {s}"))?;
@@ -695,10 +695,22 @@ mod test {
             Record::parse("v=spf1 -exists:%{ir").unwrap_err(),
             r#"invalid token '-exists:%{ir'"#
         );
-        k9::snapshot!(Record::parse("v=spf1 ").unwrap_err(), "invalid empty token");
+
+        // Extraneous space is not strictly allowed, but we're relaxed
+        // about it to support common real world usage
+        k9::snapshot!(
+            Record::parse("v=spf1 ").unwrap(),
+            "
+Record {
+    directives: [],
+    redirect: None,
+    explanation: None,
+}
+"
+        );
 
         k9::snapshot!(
-            parse("v=spf1 mx -all exp=explain._spf.%{d}"),
+            parse("v=spf1 mx  -all exp=explain._spf.%{d}"),
             r#"
 Record {
     directives: [
