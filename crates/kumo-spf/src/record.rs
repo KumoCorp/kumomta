@@ -160,6 +160,7 @@ impl Directive {
         let matched = match &self.mechanism {
             Mechanism::All => true,
             Mechanism::A { domain, cidr_len } => {
+                cx.check_lookup_limit()?;
                 let domain = cx.domain(domain.as_ref(), resolver).await?;
                 let resolved = match resolver.resolve_ip(&domain).await {
                     Ok(ips) => ips,
@@ -176,6 +177,7 @@ impl Directive {
                     .any(|&resolved_ip| cidr_len.matches(cx.client_ip, resolved_ip))
             }
             Mechanism::Mx { domain, cidr_len } => {
+                cx.check_lookup_limit()?;
                 let domain = cx.domain(domain.as_ref(), resolver).await?;
                 let exchanges = match resolver.resolve_mx(&domain).await {
                     Ok(exchanges) => exchanges,
@@ -188,7 +190,15 @@ impl Directive {
                 };
 
                 let mut matched = false;
-                for exchange in exchanges {
+                for (idx, exchange) in exchanges.into_iter().enumerate() {
+                    if idx >= 10 {
+                        // https://datatracker.ietf.org/doc/html/rfc7208#section-4.6.4
+                        return Err(SpfResult {
+                            disposition: SpfDisposition::PermError,
+                            context: format!("too many MX records for {domain}"),
+                        });
+                    }
+
                     let resolved = match resolver.resolve_ip(&exchange.to_string()).await {
                         Ok(ips) => ips,
                         Err(err) => {
@@ -227,6 +237,7 @@ impl Directive {
             }
             .matches(cx.client_ip, IpAddr::V6(*ip6_network)),
             Mechanism::Ptr { domain } => {
+                // Note that validated_domain applies lookup limits
                 let validated_domain = cx.validated_domain(domain.as_ref(), resolver).await?;
 
                 validated_domain.is_some()
@@ -266,6 +277,7 @@ impl Directive {
                 }
             }
             Mechanism::Exists { domain } => {
+                cx.check_lookup_limit()?;
                 let domain = cx.domain(Some(domain), resolver).await?;
                 match resolver.resolve_ip(&domain).await {
                     Ok(ips) => ips.iter().any(|ip| ip.is_ipv4()),

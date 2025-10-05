@@ -7,6 +7,8 @@ use instant_xml::{FromXml, ToXml};
 use serde::{Serialize, Serializer};
 use std::fmt;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::SystemTime;
 
 pub mod record;
@@ -160,6 +162,7 @@ struct SpfContext<'a> {
     pub(crate) now: SystemTime,
     pub(crate) ehlo_domain: Option<&'a str>,
     pub(crate) relaying_host_name: &'a str,
+    lookups_remaining: Arc<AtomicUsize>,
 }
 
 impl<'a> SpfContext<'a> {
@@ -187,12 +190,14 @@ impl<'a> SpfContext<'a> {
             now: SystemTime::now(),
             ehlo_domain: None,
             relaying_host_name: "localhost",
+            lookups_remaining: Arc::new(AtomicUsize::new(10)),
         })
     }
 
     pub fn with_ehlo_domain(&self, ehlo_domain: Option<&'a str>) -> Self {
         Self {
             ehlo_domain,
+            lookups_remaining: self.lookups_remaining.clone(),
             ..*self
         }
     }
@@ -200,15 +205,39 @@ impl<'a> SpfContext<'a> {
     pub fn with_relaying_host_name(&self, relaying_host_name: Option<&'a str>) -> Self {
         Self {
             relaying_host_name: relaying_host_name.unwrap_or(self.relaying_host_name),
+            lookups_remaining: self.lookups_remaining.clone(),
             ..*self
         }
     }
 
     pub(crate) fn with_domain(&self, domain: &'a str) -> Self {
-        Self { domain, ..*self }
+        Self {
+            domain,
+            lookups_remaining: self.lookups_remaining.clone(),
+            ..*self
+        }
+    }
+
+    pub(crate) fn check_lookup_limit(&self) -> Result<(), SpfResult> {
+        let remain = self.lookups_remaining.load(Ordering::Relaxed);
+        if remain > 0 {
+            self.lookups_remaining.store(remain - 1, Ordering::Relaxed);
+            return Ok(());
+        }
+
+        Err(SpfResult {
+            disposition: SpfDisposition::PermError,
+            context: "DNS lookup limits exceeded".to_string(),
+        })
     }
 
     pub async fn check(&self, resolver: &dyn Resolver, initial: bool) -> SpfResult {
+        if !initial {
+            if let Err(err) = self.check_lookup_limit() {
+                return err;
+            }
+        }
+
         let name = match Name::from_str_relaxed(self.domain) {
             Ok(name) => name,
             Err(_) => {
@@ -300,6 +329,9 @@ impl<'a> SpfContext<'a> {
         spec: Option<&MacroSpec>,
         resolver: &dyn Resolver,
     ) -> Result<Option<String>, SpfResult> {
+        // https://datatracker.ietf.org/doc/html/rfc7208#section-4.6.4
+        self.check_lookup_limit()?;
+
         let domain = self.domain(spec, resolver).await?;
 
         let domain = match Name::from_str_relaxed(&domain) {
@@ -322,7 +354,14 @@ impl<'a> SpfContext<'a> {
             }
         };
 
-        for ptr in ptrs.iter().filter(|ptr| domain.zone_of(ptr)) {
+        for (idx, ptr) in ptrs.iter().filter(|ptr| domain.zone_of(ptr)).enumerate() {
+            if idx >= 10 {
+                // https://datatracker.ietf.org/doc/html/rfc7208#section-4.6.4
+                return Err(SpfResult {
+                    disposition: SpfDisposition::PermError,
+                    context: format!("too many PTR records for {}", self.client_ip),
+                });
+            }
             match resolver.resolve_ip(&ptr.to_string()).await {
                 Ok(ips) => {
                     if ips.iter().any(|&ip| ip == self.client_ip) {

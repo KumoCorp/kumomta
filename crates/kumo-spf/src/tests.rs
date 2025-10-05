@@ -395,6 +395,29 @@ async fn ptr() {
     );
 }
 
+#[tokio::test]
+async fn lookup_limits() {
+    let mut resolver = TestResolver::default().with_zone(EXAMPLE_COM);
+    for i in 1..=15 {
+        resolver = resolver.with_txt(
+            &format!("inc{i}.com"),
+            format!("v=spf1 redirect=inc{}.com", i + 1),
+        );
+    }
+
+    let resolver = resolver.with_txt("example.com", "v=spf1 redirect=inc1.com".to_string());
+
+    let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 65]), &resolver).await;
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::PermError,
+            context: "DNS lookup limits exceeded".to_owned(),
+        },
+        "{result:?}"
+    );
+}
+
 /// https://www.rfc-editor.org/rfc/rfc7208#appendix-A
 const EXAMPLE_COM: &str = r#"; A domain with two mail servers, two hosts, and two servers
 ; at the domain name
