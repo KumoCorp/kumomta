@@ -280,14 +280,67 @@ impl<'a> SpfContext<'a> {
         }
     }
 
-    pub(crate) fn domain(&self, spec: Option<&MacroSpec>) -> Result<String, SpfResult> {
+    pub(crate) async fn domain(
+        &self,
+        spec: Option<&MacroSpec>,
+        resolver: &dyn Resolver,
+    ) -> Result<String, SpfResult> {
         let Some(spec) = spec else {
             return Ok(self.domain.to_owned());
         };
 
-        spec.expand(self).map_err(|err| SpfResult {
+        spec.expand(self, resolver).await.map_err(|err| SpfResult {
             disposition: SpfDisposition::TempError,
             context: format!("error evaluating domain spec: {err}"),
         })
+    }
+
+    pub(crate) async fn validated_domain(
+        &self,
+        spec: Option<&MacroSpec>,
+        resolver: &dyn Resolver,
+    ) -> Result<Option<String>, SpfResult> {
+        let domain = self.domain(spec, resolver).await?;
+
+        let domain = match Name::from_str_relaxed(&domain) {
+            Ok(domain) => domain,
+            Err(err) => {
+                return Err(SpfResult {
+                    disposition: SpfDisposition::PermError,
+                    context: format!("error parsing domain name: {err}"),
+                })
+            }
+        };
+
+        let ptrs = match resolver.resolve_ptr(self.client_ip).await {
+            Ok(ptrs) => ptrs,
+            Err(err) => {
+                return Err(SpfResult {
+                    disposition: SpfDisposition::TempError,
+                    context: format!("error looking up PTR for {}: {err}", self.client_ip),
+                })
+            }
+        };
+
+        for ptr in ptrs.iter().filter(|ptr| domain.zone_of(ptr)) {
+            match resolver.resolve_ip(&ptr.to_string()).await {
+                Ok(ips) => {
+                    if ips.iter().any(|&ip| ip == self.client_ip) {
+                        let mut ptr = ptr.clone();
+                        // Remove trailing dot
+                        ptr.set_fqdn(false);
+                        return Ok(Some(ptr.to_string()));
+                    }
+                }
+                Err(err) => {
+                    return Err(SpfResult {
+                        disposition: SpfDisposition::TempError,
+                        context: format!("error looking up IP for {ptr}: {err}"),
+                    })
+                }
+            }
+        }
+
+        Ok(None)
     }
 }

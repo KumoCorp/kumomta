@@ -1,7 +1,6 @@
 use crate::spec::MacroSpec;
 use crate::{SpfContext, SpfDisposition, SpfResult};
 use dns_resolver::Resolver;
-use hickory_resolver::Name;
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -76,7 +75,7 @@ impl Record {
         }
 
         if let Some(domain) = &self.redirect {
-            let domain = match cx.domain(Some(domain)) {
+            let domain = match cx.domain(Some(domain), resolver).await {
                 Ok(domain) => domain,
                 Err(err) => return err,
             };
@@ -102,7 +101,7 @@ impl Record {
         };
 
         let domain = match &self.explanation {
-            Some(domain) => match cx.domain(Some(domain)) {
+            Some(domain) => match cx.domain(Some(domain), resolver).await {
                 Ok(domain) => domain,
                 Err(err) => return err,
             },
@@ -123,7 +122,7 @@ impl Record {
             Err(_) => return SpfResult::fail(failed),
         };
 
-        match spec.expand(cx) {
+        match spec.expand(cx, resolver).await {
             Ok(explanation) => SpfResult::fail(explanation),
             Err(_) => SpfResult::fail(failed),
         }
@@ -161,7 +160,7 @@ impl Directive {
         let matched = match &self.mechanism {
             Mechanism::All => true,
             Mechanism::A { domain, cidr_len } => {
-                let domain = cx.domain(domain.as_ref())?;
+                let domain = cx.domain(domain.as_ref(), resolver).await?;
                 let resolved = match resolver.resolve_ip(&domain).await {
                     Ok(ips) => ips,
                     Err(err) => {
@@ -177,7 +176,7 @@ impl Directive {
                     .any(|&resolved_ip| cidr_len.matches(cx.client_ip, resolved_ip))
             }
             Mechanism::Mx { domain, cidr_len } => {
-                let domain = cx.domain(domain.as_ref())?;
+                let domain = cx.domain(domain.as_ref(), resolver).await?;
                 let exchanges = match resolver.resolve_mx(&domain).await {
                     Ok(exchanges) => exchanges,
                     Err(err) => {
@@ -228,48 +227,12 @@ impl Directive {
             }
             .matches(cx.client_ip, IpAddr::V6(*ip6_network)),
             Mechanism::Ptr { domain } => {
-                let domain = match Name::from_str_relaxed(&cx.domain(domain.as_ref())?) {
-                    Ok(domain) => domain,
-                    Err(err) => {
-                        return Err(SpfResult {
-                            disposition: SpfDisposition::PermError,
-                            context: format!("error parsing domain name: {err}"),
-                        })
-                    }
-                };
+                let validated_domain = cx.validated_domain(domain.as_ref(), resolver).await?;
 
-                let ptrs = match resolver.resolve_ptr(cx.client_ip).await {
-                    Ok(ptrs) => ptrs,
-                    Err(err) => {
-                        return Err(SpfResult {
-                            disposition: SpfDisposition::TempError,
-                            context: format!("error looking up PTR for {}: {err}", cx.client_ip),
-                        })
-                    }
-                };
-
-                let mut matched = false;
-                for ptr in ptrs.iter().filter(|ptr| domain.zone_of(ptr)) {
-                    match resolver.resolve_ip(&ptr.to_string()).await {
-                        Ok(ips) => {
-                            if ips.iter().any(|&ip| ip == cx.client_ip) {
-                                matched = true;
-                                break;
-                            }
-                        }
-                        Err(err) => {
-                            return Err(SpfResult {
-                                disposition: SpfDisposition::TempError,
-                                context: format!("error looking up IP for {ptr}: {err}"),
-                            })
-                        }
-                    }
-                }
-
-                matched
+                validated_domain.is_some()
             }
             Mechanism::Include { domain } => {
-                let domain = cx.domain(Some(domain))?;
+                let domain = cx.domain(Some(domain), resolver).await?;
                 let nested = cx.with_domain(&domain);
                 use SpfDisposition::*;
                 match Box::pin(nested.check(resolver, false)).await {
@@ -303,7 +266,7 @@ impl Directive {
                 }
             }
             Mechanism::Exists { domain } => {
-                let domain = cx.domain(Some(domain))?;
+                let domain = cx.domain(Some(domain), resolver).await?;
                 match resolver.resolve_ip(&domain).await {
                     Ok(ips) => ips.iter().any(|ip| ip.is_ipv4()),
                     Err(err) => {
