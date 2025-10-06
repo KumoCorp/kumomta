@@ -21,6 +21,11 @@
  * [smtp_server_data](../reference/events/smtp_server_data.md) event enables
    once-per-transaction processing of a message and recipient list modification
    for alias expansion and legal capture.
+ * Admin bounces and scheduled queue suspensions can now optionally target the
+   complete queue name instead of matching by domain/campaign/tenant.  This is
+   useful in certain automation scenarios where you wish to target a specific
+   queue precisely.  The kcli commands support a `--queue` option to select the
+   queue name, while the API expose that via a `queue_names` field.
 
 ## Fixes
 

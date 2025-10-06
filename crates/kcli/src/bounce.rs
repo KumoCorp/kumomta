@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{ArgGroup, Parser};
 use kumo_api_types::{BounceV1Request, BounceV1Response};
 use reqwest::Url;
 use std::time::Duration;
@@ -21,6 +21,12 @@ use std::time::Duration;
 ///
 /// The totals printed by this command are often under-reported
 /// due to the asynchronous nature of the action.
+#[clap(
+    group(ArgGroup::new("selection")
+        .multiple(true)
+        .required(true)
+        .args(&["domain", "routing_domain", "campaign", "tenant", "everything", "queue"])),
+)]
 pub struct BounceCommand {
     /// The domain name to match.
     /// If omitted, any domains will match!
@@ -42,6 +48,11 @@ pub struct BounceCommand {
     #[arg(long)]
     tenant: Option<String>,
 
+    /// Bounce specific scheduled queue names using their exact queue name(s).
+    /// Can be specified multiple times.
+    #[arg(long, conflicts_with_all=&["domain", "routing_domain", "campaign", "tenant"])]
+    queue: Vec<String>,
+
     /// The reason to log in the delivery logs (each matching message will
     /// bounce with an AdminBounce record) as well as in the list
     /// of bounces.
@@ -49,7 +60,7 @@ pub struct BounceCommand {
     reason: String,
 
     /// Purge all queues.
-    #[arg(long)]
+    #[arg(long, conflicts_with_all=&["domain", "routing_domain", "campaign", "tenant", "queue"])]
     everything: bool,
 
     /// Do not generate AdminBounce delivery logs
@@ -68,6 +79,7 @@ impl BounceCommand {
             && self.campaign.is_none()
             && self.tenant.is_none()
             && self.routing_domain.is_none()
+            && self.queue.is_empty()
             && !self.everything
         {
             anyhow::bail!(
@@ -88,6 +100,7 @@ impl BounceCommand {
                 duration: self.duration,
                 expires: None,
                 suppress_logging: self.suppress_logging,
+                queue_names: self.queue.clone(),
             },
         )
         .await?;

@@ -65,6 +65,12 @@ pub struct BounceV1Request {
     /// expiration timestamp
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires: Option<DateTime<Utc>>,
+
+    /// If present, queue_names takes precedence over `campaign`,
+    /// `tenant`, and `domain` and specifies the exact set of
+    /// scheduled queue names to which the bounce applies.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queue_names: Vec<String>,
 }
 
 impl BounceV1Request {
@@ -191,6 +197,12 @@ pub struct SuspendV1Request {
     /// expiration timestamp
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires: Option<DateTime<Utc>>,
+
+    /// If present, queue_names takes precedence over `campaign`,
+    /// `tenant`, and `domain` and specifies the exact set of
+    /// scheduled queue names to which the suspension applies.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queue_names: Vec<String>,
 }
 
 impl SuspendV1Request {

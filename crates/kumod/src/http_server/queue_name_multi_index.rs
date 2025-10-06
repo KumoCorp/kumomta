@@ -1,5 +1,5 @@
 use arc_swap::ArcSwap;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
@@ -26,6 +26,7 @@ pub struct QueueNameMultiIndexMap<T: GetCriteria> {
     by_domain_tenant: HashMap<DT, UuidHashSet>,
     // The `Bounce` type uses this index
     by_domain: HashMap<String, UuidHashSet>,
+    by_queue_name: HashMap<String, UuidHashSet>,
     // catch all for other stuff
     other: UuidHashSet,
     match_all: Option<Uuid>,
@@ -59,6 +60,7 @@ enum KeyType {
     DCT(DCT),
     DT(DT),
     D(String),
+    ExactNames(BTreeSet<String>),
     Other,
 }
 
@@ -72,6 +74,7 @@ pub struct Criteria {
     pub tenant: Option<String>,
     pub domain: Option<String>,
     pub routing_domain: Option<String>,
+    pub queue_names: BTreeSet<String>,
 }
 
 impl Criteria {
@@ -81,6 +84,7 @@ impl Criteria {
             && self.tenant.is_none()
             && self.domain.is_none()
             && self.routing_domain.is_none()
+            && self.queue_names.is_empty()
     }
 
     /// Returns true if the supplied fields match this critiera
@@ -90,7 +94,17 @@ impl Criteria {
         tenant: Option<&str>,
         domain: Option<&str>,
         routing_domain: Option<&str>,
+        queue_name: Option<&str>,
     ) -> bool {
+        if !self.queue_names.is_empty() {
+            if let Some(queue_name) = queue_name {
+                return self.queue_names.contains(queue_name);
+            }
+            // When queue_names is set, only matching queue names
+            // can possibly match
+            return false;
+        }
+
         if !match_criteria(campaign, self.campaign.as_deref()) {
             return false;
         }
@@ -113,11 +127,15 @@ impl Criteria {
             tenant: None,
             domain: None,
             routing_domain: None,
+            queue_names: Default::default(),
         }
     }
 
     /// Classify the criteria to the most appropriate key/index type
     fn key(&self) -> KeyType {
+        if !self.queue_names.is_empty() {
+            return KeyType::ExactNames(self.queue_names.clone());
+        }
         match (
             &self.domain,
             &self.campaign,
@@ -156,6 +174,7 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
             by_domain_campaign_tenant: HashMap::new(),
             by_domain_tenant: HashMap::new(),
             by_domain: HashMap::new(),
+            by_queue_name: HashMap::new(),
             other: HashMap::new(),
             match_all: None,
             lookup_count: 0,
@@ -185,6 +204,11 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
         match criteria.key() {
             KeyType::FullCriteria => {
                 // Implicitly handled via by_criteria which is populated below
+            }
+            KeyType::ExactNames(names) => {
+                for name in names {
+                    self.by_queue_name.entry(name).or_default().insert(*id, ());
+                }
             }
             KeyType::DCT(dct) => {
                 self.by_domain_campaign_tenant
@@ -223,6 +247,11 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
         match criteria.key() {
             KeyType::FullCriteria => {
                 // Implicitly handled via by_criteria which is updated above
+            }
+            KeyType::ExactNames(names) => {
+                for name in names {
+                    self.by_queue_name.entry(name).or_default().remove(id);
+                }
             }
             KeyType::DCT(dct) => {
                 self.by_domain_campaign_tenant
@@ -278,6 +307,7 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
         tenant: Option<&str>,
         domain: Option<&str>,
         routing_domain: Option<&str>,
+        queue_name: Option<&str>,
         cache: &ArcSwap<Option<CachedEntry<T>>>,
     ) -> Option<T> {
         if let Some(hit) = cache.load().as_ref() {
@@ -295,7 +325,7 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
             }
         }
 
-        let entry = self.get_matching(campaign, tenant, domain, routing_domain);
+        let entry = self.get_matching(campaign, tenant, domain, routing_domain, queue_name);
 
         cache.store(Arc::new(Some(CachedEntry {
             entry: entry.clone(),
@@ -314,6 +344,7 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
         tenant: Option<&str>,
         domain: Option<&str>,
         routing_domain: Option<&str>,
+        queue_name: Option<&str>,
     ) -> Option<T> {
         if self.by_id.is_empty() {
             // Fast path: if there are no rules, nothing could match!
@@ -333,17 +364,44 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
         // We need to reduce the search space!
         let now = Instant::now();
 
+        let mut queue_names = BTreeSet::new();
+        if let Some(queue_name) = queue_name {
+            queue_names.insert(queue_name.to_string());
+        }
+
         let criteria = Criteria {
             campaign: campaign.map(|s| s.to_string()),
             tenant: tenant.map(|s| s.to_string()),
             domain: domain.map(|s| s.to_string()),
             routing_domain: routing_domain.map(|s| s.to_string()),
+            queue_names,
         };
         if let Some(id) = self.by_criteria.get(&criteria) {
             // Exactly matching criteria!
             if let Some(entry) = self.by_id.get(id) {
                 if entry.get_expires() > now {
                     return Some(entry.clone());
+                }
+            }
+        }
+
+        // Check exact matching queue name
+        if let Some(exact_name) = queue_name {
+            if let Some(ids) = self.by_queue_name.get(exact_name) {
+                for id in ids.keys() {
+                    if let Some(entry) = self.by_id.get(id) {
+                        if entry.get_criteria().matches(
+                            campaign,
+                            tenant,
+                            domain,
+                            routing_domain,
+                            queue_name,
+                        ) {
+                            if entry.get_expires() > now {
+                                return Some(entry.clone());
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -357,10 +415,13 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
                 tracing::trace!("{} DCT: candidates for c={campaign:?} tenant={tenant:?} domain={domain:?} routing_domain={routing_domain:?}", ids.len());
                 for id in ids.keys() {
                     if let Some(entry) = self.by_id.get(id) {
-                        if entry
-                            .get_criteria()
-                            .matches(campaign, tenant, domain, routing_domain)
-                        {
+                        if entry.get_criteria().matches(
+                            campaign,
+                            tenant,
+                            domain,
+                            routing_domain,
+                            queue_name,
+                        ) {
                             if entry.get_expires() > now {
                                 return Some(entry.clone());
                             }
@@ -378,10 +439,13 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
                 tracing::trace!("{} DT: candidates for c={campaign:?} tenant={tenant:?} domain={domain:?} routing_domain={routing_domain:?}", ids.len());
                 for id in ids.keys() {
                     if let Some(entry) = self.by_id.get(id) {
-                        if entry
-                            .get_criteria()
-                            .matches(campaign, tenant, domain, routing_domain)
-                        {
+                        if entry.get_criteria().matches(
+                            campaign,
+                            tenant,
+                            domain,
+                            routing_domain,
+                            queue_name,
+                        ) {
                             if entry.get_expires() > now {
                                 return Some(entry.clone());
                             }
@@ -396,10 +460,13 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
                 tracing::trace!("{} DOMAIN: candidates for c={campaign:?} tenant={tenant:?} domain={domain:?} routing_domain={routing_domain:?}", ids.len());
                 for id in ids.keys() {
                     if let Some(entry) = self.by_id.get(id) {
-                        if entry
-                            .get_criteria()
-                            .matches(campaign, tenant, domain, routing_domain)
-                        {
+                        if entry.get_criteria().matches(
+                            campaign,
+                            tenant,
+                            domain,
+                            routing_domain,
+                            queue_name,
+                        ) {
                             if entry.get_expires() > now {
                                 return Some(entry.clone());
                             }
@@ -415,10 +482,13 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
 
         for id in self.other.keys() {
             if let Some(entry) = self.by_id.get(id) {
-                if entry
-                    .get_criteria()
-                    .matches(campaign, tenant, domain, routing_domain)
-                {
+                if entry.get_criteria().matches(
+                    campaign,
+                    tenant,
+                    domain,
+                    routing_domain,
+                    queue_name,
+                ) {
                     if entry.get_expires() > now {
                         return Some(entry.clone());
                     }
@@ -480,7 +550,7 @@ mod test {
         });
 
         assert_eq!(
-            map.get_matching(None, None, Some("woot"), None)
+            map.get_matching(None, None, Some("woot"), None, None)
                 .unwrap()
                 .reason,
             "any"
@@ -494,13 +564,88 @@ mod test {
         });
 
         assert_eq!(
-            map.get_matching(None, None, None, None).unwrap().reason,
+            map.get_matching(None, None, None, None, None)
+                .unwrap()
+                .reason,
             "a different any"
         );
 
         assert_eq!(map.by_id.len(), 1);
         assert_eq!(map.by_criteria.len(), 1);
         assert!(map.match_all.is_some());
+    }
+
+    #[test]
+    fn match_queue_name_only_one() {
+        let mut map = QueueNameMultiIndexMap::new();
+
+        map.insert(Entry {
+            id: Uuid::new_v4(),
+            criteria: Criteria {
+                domain: None,
+                campaign: None,
+                tenant: None,
+                routing_domain: None,
+                queue_names: ["some.full.queue.name".to_string()].into_iter().collect(),
+            },
+            expires: Instant::now() + Duration::from_secs(60),
+            reason: "full queue".to_string(),
+        });
+
+        assert_eq!(
+            map.get_matching(Some("campaign"), None, None, None, None),
+            None
+        );
+        assert_eq!(
+            map.get_matching(None, None, None, None, Some("some.full.queue.name"))
+                .unwrap()
+                .reason,
+            "full queue"
+        );
+    }
+
+    #[test]
+    fn match_queue_name_two_options() {
+        let mut map = QueueNameMultiIndexMap::new();
+
+        map.insert(Entry {
+            id: Uuid::new_v4(),
+            criteria: Criteria {
+                domain: None,
+                campaign: None,
+                tenant: None,
+                routing_domain: None,
+                queue_names: [
+                    "some.full.queue.name".to_string(),
+                    "some.other.queue.name".to_string(),
+                ]
+                .into_iter()
+                .collect(),
+            },
+            expires: Instant::now() + Duration::from_secs(60),
+            reason: "full queue".to_string(),
+        });
+
+        assert_eq!(
+            map.get_matching(Some("campaign"), None, None, None, None),
+            None
+        );
+        assert_eq!(
+            map.get_matching(None, None, None, None, Some("some.full.queue.name"))
+                .unwrap()
+                .reason,
+            "full queue"
+        );
+        assert_eq!(
+            map.get_matching(None, None, None, None, Some("some.other.queue.name"))
+                .unwrap()
+                .reason,
+            "full queue"
+        );
+        assert_eq!(
+            map.get_matching(None, None, None, None, Some("bogus.queue.name")),
+            None
+        );
     }
 
     #[test]
@@ -514,20 +659,30 @@ mod test {
                 campaign: None,
                 tenant: None,
                 routing_domain: None,
+                queue_names: Default::default(),
             },
             expires: Instant::now() + Duration::from_secs(60),
             reason: "only domain".to_string(),
         });
 
-        assert_eq!(map.get_matching(Some("campaign"), None, None, None), None);
-        assert_eq!(map.get_matching(None, Some("tenant"), None, None), None);
         assert_eq!(
-            map.get_matching(None, None, Some("otherdomain"), None),
+            map.get_matching(Some("campaign"), None, None, None, None),
             None
         );
-        assert_eq!(map.get_matching(None, None, None, Some("routing")), None);
         assert_eq!(
-            map.get_matching(None, None, Some("domain"), None)
+            map.get_matching(None, Some("tenant"), None, None, None),
+            None
+        );
+        assert_eq!(
+            map.get_matching(None, None, Some("otherdomain"), None, None),
+            None
+        );
+        assert_eq!(
+            map.get_matching(None, None, None, Some("routing"), None),
+            None
+        );
+        assert_eq!(
+            map.get_matching(None, None, Some("domain"), None, None)
                 .unwrap()
                 .reason,
             "only domain"
@@ -537,7 +692,8 @@ mod test {
                 Some("camp"),
                 Some("tenant"),
                 Some("domain"),
-                Some("routing")
+                Some("routing"),
+                None,
             )
             .unwrap()
             .reason,
@@ -556,21 +712,35 @@ mod test {
                 campaign: None,
                 tenant: Some("tenant".to_string()),
                 routing_domain: None,
+                queue_names: Default::default(),
             },
             expires: Instant::now() + Duration::from_secs(60),
             reason: "tenant and domain".to_string(),
         });
 
-        assert_eq!(map.get_matching(Some("campaign"), None, None, None), None);
-        assert_eq!(map.get_matching(None, Some("tenant"), None, None), None);
-        assert_eq!(map.get_matching(None, None, Some("domain"), None), None);
-        assert_eq!(map.get_matching(None, None, None, Some("routing")), None);
+        assert_eq!(
+            map.get_matching(Some("campaign"), None, None, None, None),
+            None
+        );
+        assert_eq!(
+            map.get_matching(None, Some("tenant"), None, None, None),
+            None
+        );
+        assert_eq!(
+            map.get_matching(None, None, Some("domain"), None, None),
+            None
+        );
+        assert_eq!(
+            map.get_matching(None, None, None, Some("routing"), None),
+            None
+        );
         assert_eq!(
             map.get_matching(
                 Some("camp"),
                 Some("tenant"),
                 Some("domain"),
-                Some("routing")
+                Some("routing"),
+                None,
             )
             .unwrap()
             .reason,
@@ -585,6 +755,7 @@ mod test {
                 campaign: None,
                 tenant: None,
                 routing_domain: None,
+                queue_names: Default::default(),
             },
             expires: Instant::now() + Duration::from_secs(60),
             reason: "only domain".to_string(),
@@ -598,14 +769,15 @@ mod test {
                 Some("camp"),
                 Some("tenant"),
                 Some("domain"),
-                Some("routing")
+                Some("routing"),
+                None,
             )
             .is_some(),
             "must match either entry"
         );
 
         assert!(
-            map.get_matching(None, None, Some("domain"), None,)
+            map.get_matching(None, None, Some("domain"), None, None)
                 .is_some(),
             "must match either entry"
         );
@@ -633,6 +805,7 @@ mod test {
                                 campaign: c.map(|s| s.to_string()),
                                 tenant: t.map(|s| s.to_string()),
                                 routing_domain: rd.map(|s| s.to_string()),
+                                queue_names: Default::default(),
                             },
                             expires: Instant::now() + Duration::from_secs(60),
                             reason: reason.clone(),
@@ -647,7 +820,7 @@ mod test {
         eprintln!("{queries:#?}");
 
         for (d, c, t, rd, reason) in queries {
-            let e = map.get_matching(c, t, d, rd);
+            let e = map.get_matching(c, t, d, rd, None);
             assert_eq!(e.unwrap().reason, reason);
         }
     }

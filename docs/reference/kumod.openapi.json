@@ -641,6 +641,13 @@
             ],
             "nullable": true
           },
+          "queue_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "If present, queue_names takes precedence over `campaign`,\n`tenant`, and `domain` and specifies the exact set of\nscheduled queue names to which the bounce applies."
+          },
           "reason": {
             "type": "string",
             "description": "Reason to log in the delivery log. Each matching message will be bounced\nwith an AdminBounce record unless you suppress logging.\nThe reason will also be shown in the list of currently active admin\nbounces.",
@@ -1235,6 +1242,13 @@
               }
             ],
             "nullable": true
+          },
+          "queue_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "If present, queue_names takes precedence over `campaign`,\n`tenant`, and `domain` and specifies the exact set of\nscheduled queue names to which the suspension applies."
           },
           "reason": {
             "type": "string",
