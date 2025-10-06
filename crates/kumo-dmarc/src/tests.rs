@@ -132,6 +132,34 @@ async fn dmarc_spf_strict_subdomain() {
     k9::assert_equal!(result.result, DmarcResult::Fail);
 }
 
+#[tokio::test]
+async fn dmarc_pct_rate() {
+    let mut total_failures = 0;
+
+    for _ in 0..10000 {
+        let resolver = TestResolver::default().with_zone(EXAMPLE_COM).with_txt(
+            "example.com",
+            "v=DMARC1; p=reject; aspf=s; pct=50; \
+                rua=mailto:dmarc-feedback@example.com"
+                .to_string(),
+        );
+
+        let result = evaluate_ip(
+            Ipv4Addr::LOCALHOST,
+            "example.com",
+            "helper.example.com",
+            &[],
+            &resolver,
+        )
+        .await;
+
+        if matches!(result.result, DmarcResult::Fail) {
+            total_failures += 1;
+        }
+    }
+    k9::assert_lesser_than!((total_failures - 5000i32).abs(), 1000);
+}
+
 async fn evaluate_ip(
     client_ip: impl Into<IpAddr>,
     from_domain: &str,
