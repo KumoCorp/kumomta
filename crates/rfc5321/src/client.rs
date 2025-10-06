@@ -1190,7 +1190,7 @@ fn apply_dot_stuffing(data: &[u8]) -> Option<Vec<u8>> {
 
 /// Extracts the object=name pairs of the subject name from a cert.
 /// eg:
-/// ```norun
+/// ```no_run
 /// ["C=US", "ST=CA", "L=SanFrancisco", "O=Fort-Funston", "OU=MyOrganizationalUnit",
 /// "CN=do.havedane.net", "name=EasyRSA", "emailAddress=me@myhost.mydomain"]
 /// ```
