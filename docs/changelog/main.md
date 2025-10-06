@@ -83,3 +83,4 @@
    hard limit on startup (just as we do in `kumod` and `tsa-daemon`), which
    helps to avoid issues with running out of file descriptors when no explicit
    tunings have been deployed for the proxy server.
+ * spf: implemented missing `h`, `r` and `p` macros. #423
