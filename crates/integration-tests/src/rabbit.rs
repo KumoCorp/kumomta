@@ -61,9 +61,6 @@ async fn test_lapin_rabbit() -> anyhow::Result<()> {
         .wait_for_maildir_count(1, Duration::from_secs(10))
         .await;
 
-    daemon.stop_both().await.context("stop_both")?;
-    println!("Stopped!");
-
     let mut consumer = channel
         .basic_consume(
             "woot",
@@ -76,20 +73,23 @@ async fn test_lapin_rabbit() -> anyhow::Result<()> {
     let timeout = tokio::time::Duration::from_secs(20);
 
     // Wait for Reception record
-    let delivery = tokio::time::timeout(timeout, consumer.next())
+    let reception = tokio::time::timeout(timeout, consumer.next())
         .await?
         .unwrap();
-    let delivery = delivery?;
-    println!("{}", String::from_utf8_lossy(&delivery.data));
-    delivery.ack(BasicAckOptions::default()).await?;
+    let reception = reception?;
+    println!("reception={}", String::from_utf8_lossy(&reception.data));
+    reception.ack(BasicAckOptions::default()).await?;
 
     // Wait for Delivery record
     let delivery = tokio::time::timeout(timeout, consumer.next())
         .await?
         .unwrap();
     let delivery = delivery?;
-    println!("{}", String::from_utf8_lossy(&delivery.data));
+    println!("delivery={}", String::from_utf8_lossy(&delivery.data));
     delivery.ack(BasicAckOptions::default()).await?;
+
+    daemon.stop_both().await.context("stop_both")?;
+    println!("Stopped!");
 
     Ok(())
 }
