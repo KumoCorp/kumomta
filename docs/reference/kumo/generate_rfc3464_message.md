@@ -88,7 +88,6 @@ log_hooks:new_disposition_hook {
   name = 'ndr_generator',
   hook = ndr_generator,
 }
-
 ```
 
 If you wish to customize the human readable portion of the message, you might
