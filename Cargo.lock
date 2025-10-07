@@ -2008,6 +2008,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
+name = "file_type"
+version = "0.8.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdb59c35ae9deec7122ad59eb8a29378c78c16b530092da679686d4c106c6b3b"
+dependencies = [
+ "phf 0.13.1",
+]
+
+[[package]]
 name = "filedescriptor"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3523,6 +3532,7 @@ dependencies = [
  "mod-digest",
  "mod-dns-resolver",
  "mod-encode",
+ "mod-file-type",
  "mod-filesystem",
  "mod-http",
  "mod-kafka",
@@ -4404,6 +4414,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mod-file-type"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "file_type",
+ "mlua",
+ "serde",
+]
+
+[[package]]
 name = "mod-filesystem"
 version = "0.1.0"
 dependencies = [
@@ -5200,6 +5221,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "phf"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1562dc717473dbaa4c1f85a36410e03c047b2e7df7f45ee938fbef64ae7fadf"
+dependencies = [
+ "phf_shared 0.13.1",
+]
+
+[[package]]
 name = "phf_codegen"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5246,6 +5276,15 @@ name = "phf_shared"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06005508882fb681fd97892ecff4b7fd0fee13ef1aa569f8695dae7ab9099981"
+dependencies = [
+ "siphasher",
+]
+
+[[package]]
+name = "phf_shared"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e57fef6bc5981e38c2ce2d63bfa546861309f875b8a75f092d1d54ae2d64f266"
 dependencies = [
  "siphasher",
 ]

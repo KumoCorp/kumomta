@@ -35,6 +35,7 @@ mod-digest = {path="../mod-digest"}
 mod-dns-resolver = {path="../mod-dns-resolver"}
 mod-encode = {path="../mod-encode"}
 mod-filesystem = {path="../mod-filesystem"}
+mod-file-type = {path="../mod-file-type"}
 mod-http = {path="../mod-http"}
 mod-kafka = {path="../mod-kafka"}
 mod-memoize = {path="../mod-memoize"}

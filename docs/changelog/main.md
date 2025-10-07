@@ -39,6 +39,8 @@
    corresponding HTTP API endpoints:
    [xfer](../reference/rapidoc.md/#post-/api/admin/xfer/v1) and
    [xfer-cancel](../reference/rapidoc.md/#post-/api/admin/xfer/cancel/v1) #311
+ * New [kumo.file_type](../reference/kumo.file_type/index.md) module provides
+   functions for reasoning about file types.
 
 ## Fixes
 
