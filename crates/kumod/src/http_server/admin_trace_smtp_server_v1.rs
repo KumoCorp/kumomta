@@ -57,7 +57,7 @@ pub enum SmtpServerTraceEventPayload {
         queue: String,
         meta: serde_json::Value,
         sender: String,
-        recipient: String,
+        recipient: Vec<String>,
         id: SpoolId,
     },
 }

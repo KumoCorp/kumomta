@@ -2,78 +2,46 @@
 
 ## Breaking Changes
 
+ * Enabling
+   [`batch_handling="BatchByDomain"`](../reference/kumo/start_esmtp_listener/batch_handling.md)
+   will cause [message:recipient](../reference/message/recipient.md) and the
+   `recipient` field of [Log Record](../reference/log_record.md) to switch to
+   an array holding the list of recipients.  These are *NOT* active by default,
+   but if you wish to enable them you should audit your policy and consider
+   switching to using
+   [message:recipient_list](../reference/message/recipient_list.md) as well as
+   review your log processors to ensure that they are able to handle the
+   `recipient` field being either an array or a string, or otherwise adjusting
+   your log templates accordingly.
+
 ## Other Changes and Enhancements
 
- * [try_next_host_on_transport_error](../reference/kumo/make_egress_path/try_next_host_on_transport_error.md)
-   option to more aggressively retry failures that are either transport errors
-   (eg: timeout) or are not definitively associated with the message (eg:
-   response to commands in between transactions).
- * You may now specify outbound SMTP port numbers when configuring
-   [make_queue_config().protocol](../reference/kumo/make_queue_config/protocol.md)
-   with an `mx_list`.
- * You may now specify outbound SMTP port numbers when assigning either the
-   `routing_domain` or the domain portion of the scheduled queue name using the
-   `queue` meta item. #352
- * [kumo.dns.lookup_ptr](../reference/kumo.dns/lookup_ptr.md) function for looking
-   up PTR records. Thanks to @kayozaki! #390
- * [kumo.mpsc.define](../reference/kumo.mpsc/define.md) function for advanced
-   non-durable, non-persistent, in-memory queue processing.
- * [kumo.fs](../reference/kumo.fs/index.md) module for efficiently working with
-   the filesystem.  The functions
-   [kumo.read_dir](../reference/kumo/read_dir.md),
-   [kumo.glob](../reference/kumo/glob.md) and
-   [kumo.uncached_glob](../reference/kumo/uncached_glob.md) have been
-   deprecated in favor of functions with the same names in `kumo.fs`.  In
-   addition, a new [kumo.fs.open](../reference/kumo.fs/open.md) function that
-   can create async capable file handles is now provided.
- * SMTP Receptions made via TLS now: #100
-    * Show in the trace headers as ESMTPS/ESMTPSA along with the TLS version
-      and cipher as a comment. eg: `with ESMTPS (TLSv1_3:TLS13_AES_256_GCM_SHA384)`
-    * Are recorded as `tls_cipher`, `tls_protocol_version` and
-      `tls_peer_subject_name` in the meta values for the message and in the
-      `Reception` log record.
- * New
-   [tls_required_client_ca](../reference/kumo/start_esmtp_listener/tls_required_client_ca.md)
-   parameter to aid in configuring mTLS
- * HTTP endpoints now support decompressing `deflate` and `gzip` compressed
-   request bodies, which helps to reduce bandwidth usage particularly with the
-   injection API. Thanks to @dschaaff! #394
- * You may now consume HashiCorp Vault secrets stored with keys named something
-   other than `key` by using the new optional `vault_key` field in a
-   [KeySource](../reference/keysource.md). Thanks to @pankajrathi95! #399
- * Powerful MIME parsing API exposed to lua. Use
-   [msg:parse_mime](../reference/message/parse_mime.md) to parse incoming
-   messages, or [kumo.mimepart](../reference/kumo.mimepart/index.md) to parse
-   and/or (re)build messages independently from the incoming message flow. #117
- * [kumo.generate_rfc3464_message](../reference/kumo/generate_rfc3464_message.md)
-   can be used to generate RFC 3464 non-delivery-reports.
- * New `event_time` and `created_time` fields in [Log
-   Record](../reference/log_record.md) provide sub-second time stamp
-   granularity. #405
- * [kumo.encode](../reference/kumo.encode/index.md) is now a bit more relaxed
-   about excess (but otherwise harmless) padding in the various
-   `baseXX` encoding schemes.
- * `received_via` and `hostname` are now set in the message metadata for
-   messages injected via HTTP. #417
- * `SMTPUTF8` and `8BITMIME` are now advertised by the ESMTP listener. If the
-   next SMTP hop doesn't advertise these extensions and the current message is
-   8bit, then the message will be marked as permanently failed with a reason
-   explaining that the content is incompatible with the next hop.  Previously,
-   we'd try to send the 8bit data anyway, and the remote host would respond
-   with its own error informing of the incompatibility. See
-   [ignore_8bit_checks](../reference/kumo/make_egress_path/ignore_8bit_checks.md)
-   for more discussion on this topic and the ability to disable this send-time
-   checking.  #327
- * New
-   [start_esmtp_listener.allow_xclient](../reference/kumo/start_esmtp_listener/allow_xclient.md)
-   option enables support for
-   [XCLIENT](https://www.postfix.org/XCLIENT_README.html).
+ * [msg:check_fix_conformance](../reference/message/check_fix_conformance.md#fixing-8-bit-content)
+   now supports optionally detecting and fixing 8-bit charsets.
+ * [smtp_server_data](../reference/events/smtp_server_data.md) event enables
+   once-per-transaction processing of a message and recipient list modification
+   for alias expansion and legal capture.
+ * Admin bounces and scheduled queue suspensions can now optionally target the
+   complete queue name instead of matching by domain/campaign/tenant.  This is
+   useful in certain automation scenarios where you wish to target a specific
+   queue precisely.  The kcli commands support a `--queue` option to select the
+   queue name, while the API expose that via a `queue_names` field.
+ * New [kcli xfer](../reference/kcli/xfer.md) and [kcli
+   xfer-cancel](../reference/kcli/xfer-cancel.md) commands enable migration
+   of queues to alternative kumomta nodes as part of operational tasks such
+   draining a queue for decomissioning or scaling down infrastructure.  These
+   commands are building blocks for you to deploy auto-scaling or similar
+   functionality within your infrastructure orchestration. The new
+   [xfer_message_received](../reference/events/xfer_message_received.md) can be
+   used to fixup messages as they are arrive on the target node via xfer.
+   `XferOut` and `XferIn` are two new [log record](../reference/log_record.md)
+   types associated with message transfers. The kcli commands have
+   corresponding HTTP API endpoints:
+   [xfer](../reference/rapidoc.md/#post-/api/admin/xfer/v1) and
+   [xfer-cancel](../reference/rapidoc.md/#post-/api/admin/xfer/cancel/v1) #311
 
 ## Fixes
 
- * `msg:check_fix_conformance` could panic when attempting to fix messages with
-   broken base64 parts
- * The kumo `proxy-server` now increases its soft `NOFILE` limit to match its
-   hard limit on startup (just as we do in `kumod` and `tsa-daemon`), which
-   helps to avoid issues with running out of file descriptors when no explicit
-   tunings have been deployed for the proxy server.
+ * smtp server would incorrectly return a 451 instead of a 452 status when
+   `max_recipients_per_message` or `max_messages_per_connection` limits
+   were exceeded.

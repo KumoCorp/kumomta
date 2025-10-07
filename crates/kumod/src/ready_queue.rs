@@ -17,6 +17,7 @@ use crate::queue::{
 use crate::smtp_dispatcher::{OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
 use crate::smtp_server::{DeferredSmtpInjectionDispatcher, ShuttingDownError};
 use crate::spool::SpoolManager;
+use crate::xfer::XferDispatcher;
 use anyhow::Context;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
@@ -1318,6 +1319,7 @@ impl Dispatcher {
         let delivery_protocol = match &queue_config.borrow().protocol {
             DeliveryProto::Smtp { .. } => "ESMTP".to_string(),
             DeliveryProto::Lua { .. } => "Lua".to_string(),
+            DeliveryProto::Xfer { .. } => "Xfer".to_string(),
             DeliveryProto::Maildir { .. } => "Maildir".to_string(),
             DeliveryProto::DeferredSmtpInjection => "DeferredSmtpInjection".to_string(),
             DeliveryProto::HttpInjectionGenerator => "HttpInjectionGenerator".to_string(),
@@ -1371,6 +1373,9 @@ impl Dispatcher {
             }
             DeliveryProto::DeferredSmtpInjection => {
                 Box::new(DeferredSmtpInjectionDispatcher::new())
+            }
+            DeliveryProto::Xfer { xfer } => {
+                Box::new(XferDispatcher::init(&mut dispatcher, xfer).await?)
             }
             DeliveryProto::Null => {
                 anyhow::bail!("Should not have a ready_queue for the null queue")
@@ -1473,6 +1478,7 @@ impl Dispatcher {
                             source_address: None,
                             provider: dispatcher.path_config.borrow().provider_name.as_deref(),
                             session_id: Some(dispatcher.session_id),
+                            recipient_list: None,
                         })
                         .await;
                         QueueManager::requeue_message(
@@ -1530,6 +1536,7 @@ impl Dispatcher {
                         source_address: None,
                         provider: dispatcher.path_config.borrow().provider_name.as_deref(),
                         session_id: Some(dispatcher.session_id),
+                        recipient_list: None,
                     })
                     .await;
                     QueueManager::requeue_message(
@@ -1795,6 +1802,7 @@ impl Dispatcher {
                 source_address: None,
                 provider: path_config.provider_name.as_deref(),
                 session_id: Some(self.session_id),
+                recipient_list: None,
             })
             .await;
 
@@ -1897,6 +1905,7 @@ impl Dispatcher {
                             tls_info: None,
                             source_address: None,
                             session_id: Some(self.session_id),
+                            recipient_list: None,
                         })
                         .await;
 

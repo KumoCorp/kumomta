@@ -103,6 +103,7 @@ impl AdminBounceEntry {
             components.tenant,
             Some(components.domain),
             components.routing_domain,
+            Some(queue_name),
         )
     }
 
@@ -118,6 +119,7 @@ impl AdminBounceEntry {
             components.tenant,
             Some(components.domain),
             components.routing_domain,
+            Some(queue_name),
             cache,
         )
     }
@@ -131,6 +133,7 @@ impl AdminBounceEntry {
                 components.tenant,
                 Some(components.domain),
                 components.routing_domain,
+                Some(queue_name),
             )
         });
         names
@@ -170,6 +173,7 @@ impl AdminBounceEntry {
                 tls_info: None,
                 source_address: None,
                 session_id: None,
+                recipient_list: None,
             })
             .await;
         }
@@ -208,6 +212,7 @@ pub async fn bounce_v1(
             tenant: request.tenant,
             domain: request.domain,
             routing_domain: request.routing_domain,
+            queue_names: request.queue_names.into_iter().collect(),
         },
         reason: request.reason,
         suppress_logging: request.suppress_logging,
@@ -303,6 +308,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     tenant: request.tenant,
                     domain: request.domain,
                     routing_domain: request.routing_domain,
+                    queue_names: request.queue_names.into_iter().collect(),
                 },
                 reason: request.reason,
                 expires: Instant::now() + duration,

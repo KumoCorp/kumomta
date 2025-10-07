@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use cidr_map::CidrSet;
 use serde::{Deserialize, Serialize};
+use serde_with::formats::PreferOne;
+use serde_with::{serde_as, OneOrMany};
 use spool::SpoolId;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -12,6 +14,7 @@ pub mod egress_path;
 pub mod rebind;
 pub mod shaping;
 pub mod tsa;
+pub mod xfer;
 
 /// Describes which messages should be bounced.
 /// The criteria apply to the scheduled queue associated
@@ -63,6 +66,12 @@ pub struct BounceV1Request {
     /// expiration timestamp
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires: Option<DateTime<Utc>>,
+
+    /// If present, queue_names takes precedence over `campaign`,
+    /// `tenant`, and `domain` and specifies the exact set of
+    /// scheduled queue names to which the bounce applies.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queue_names: Vec<String>,
 }
 
 impl BounceV1Request {
@@ -189,6 +198,12 @@ pub struct SuspendV1Request {
     /// expiration timestamp
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires: Option<DateTime<Utc>>,
+
+    /// If present, queue_names takes precedence over `campaign`,
+    /// `tenant`, and `domain` and specifies the exact set of
+    /// scheduled queue names to which the suspension applies.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queue_names: Vec<String>,
 }
 
 impl SuspendV1Request {
@@ -357,6 +372,7 @@ pub struct InspectQueueV1Response {
     pub last_changed: DateTime<Utc>,
 }
 
+#[serde_as]
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct MessageInformation {
     /// The envelope sender
@@ -364,7 +380,8 @@ pub struct MessageInformation {
     pub sender: String,
     /// The envelope-to address
     #[schema(example = "recipient@example.com")]
-    pub recipient: String,
+    #[serde_as(as = "OneOrMany<_, PreferOne>")] // FIXME: json schema
+    pub recipient: Vec<String>,
     /// The message metadata
     #[schema(example=json!({
         "received_from": "10.0.0.1:3488"
@@ -402,6 +419,7 @@ pub struct TraceSmtpV1Event {
     pub when: DateTime<Utc>,
 }
 
+#[serde_as]
 #[derive(Clone, Serialize, Deserialize, Debug, ToSchema, PartialEq)]
 pub enum TraceSmtpV1Payload {
     Connected,
@@ -424,7 +442,8 @@ pub enum TraceSmtpV1Payload {
         queue: String,
         meta: serde_json::Value,
         sender: String,
-        recipient: String,
+        #[serde_as(as = "OneOrMany<_, PreferOne>")] // FIXME: json schema
+        recipient: Vec<String>,
         id: SpoolId,
         #[serde(default)]
         was_arf_or_oob: Option<bool>,

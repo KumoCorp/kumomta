@@ -4,7 +4,7 @@
 kumo.mimepart.new_html(CONTENT)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Constructs a new [MimePart](../mimepart/index.md) with `Content-Type: text/html`.
 

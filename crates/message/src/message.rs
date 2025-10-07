@@ -19,10 +19,12 @@ use kumo_log_types::rfc5965::ARFReport;
 use mailparsing::{AuthenticationResult, AuthenticationResults, EncodeHeaderValue};
 use mailparsing::{DecodedBody, Header, HeaderParseResult, MessageConformance, MimePart};
 #[cfg(feature = "impl")]
-use mlua::{LuaSerdeExt, UserData, UserDataMethods};
+use mlua::{IntoLua, LuaSerdeExt, UserData, UserDataMethods};
 use parking_lot::Mutex;
 use prometheus::{Histogram, IntGauge};
 use serde::{Deserialize, Serialize};
+use serde_with::formats::PreferOne;
+use serde_with::{serde_as, OneOrMany};
 use spool::{get_data_spool, get_meta_spool, Spool, SpoolId};
 use std::hash::Hash;
 use std::sync::{Arc, LazyLock, Weak};
@@ -246,13 +248,15 @@ impl WeakMessage {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct MetaData {
-    sender: EnvelopeAddress,
-    recipient: EnvelopeAddress,
-    meta: serde_json::Value,
+pub(crate) struct MetaData {
+    pub sender: EnvelopeAddress,
+    #[serde_as(as = "OneOrMany<_, PreferOne>")]
+    pub recipient: Vec<EnvelopeAddress>,
+    pub meta: serde_json::Value,
     #[serde(default)]
-    schedule: Option<Scheduling>,
+    pub schedule: Option<Scheduling>,
 }
 
 impl Drop for MessageInner {
@@ -273,7 +277,7 @@ impl Message {
     pub fn new_dirty(
         id: SpoolId,
         sender: EnvelopeAddress,
-        recipient: EnvelopeAddress,
+        recipient: Vec<EnvelopeAddress>,
         meta: serde_json::Value,
         data: Arc<Box<[u8]>>,
     ) -> anyhow::Result<Self> {
@@ -334,6 +338,31 @@ impl Message {
                 link: LinkedListAtomicLink::default(),
             }),
         })
+    }
+
+    pub(crate) fn new_from_parts(id: SpoolId, metadata: MetaData, data: Arc<Box<[u8]>>) -> Self {
+        MESSAGE_COUNT.inc();
+        META_COUNT.inc();
+
+        let flags = if metadata.schedule.is_some() {
+            MessageFlags::SCHEDULED
+        } else {
+            MessageFlags::empty()
+        };
+
+        Self {
+            msg_and_id: Arc::new(MessageWithId {
+                id,
+                inner: Mutex::new(MessageInner {
+                    metadata: Some(Box::new(metadata)),
+                    data,
+                    flags: flags | MessageFlags::META_DIRTY | MessageFlags::DATA_DIRTY,
+                    num_attempts: 0,
+                    due: None,
+                }),
+                link: LinkedListAtomicLink::default(),
+            }),
+        }
     }
 
     pub async fn new_with_id(id: SpoolId) -> anyhow::Result<Self> {
@@ -474,6 +503,16 @@ impl Message {
         } else {
             None
         }
+    }
+
+    pub(crate) async fn clone_meta_data(&self) -> anyhow::Result<MetaData> {
+        self.load_meta_if_needed().await?;
+        let inner = self.msg_and_id.inner.lock();
+        inner
+            .metadata
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("metadata not loaded even though we just loaded it"))
+            .map(|md| (**md).clone())
     }
 
     pub fn set_force_sync(&self, force: bool) {
@@ -626,7 +665,23 @@ impl Message {
         }
     }
 
+    #[deprecated = "use recipient_list or first_recipient instead"]
     pub fn recipient(&self) -> anyhow::Result<EnvelopeAddress> {
+        self.first_recipient()
+    }
+
+    pub fn first_recipient(&self) -> anyhow::Result<EnvelopeAddress> {
+        let inner = self.msg_and_id.inner.lock();
+        match &inner.metadata {
+            Some(meta) => match meta.recipient.first() {
+                Some(recip) => Ok(recip.clone()),
+                None => anyhow::bail!("recipient list is empty!?"),
+            },
+            None => anyhow::bail!("metadata is not loaded"),
+        }
+    }
+
+    pub fn recipient_list(&self) -> anyhow::Result<Vec<EnvelopeAddress>> {
         let inner = self.msg_and_id.inner.lock();
         match &inner.metadata {
             Some(meta) => Ok(meta.recipient.clone()),
@@ -634,7 +689,20 @@ impl Message {
         }
     }
 
+    pub fn recipient_list_string(&self) -> anyhow::Result<Vec<String>> {
+        let inner = self.msg_and_id.inner.lock();
+        match &inner.metadata {
+            Some(meta) => Ok(meta.recipient.iter().map(|a| a.to_string()).collect()),
+            None => anyhow::bail!("metadata is not loaded"),
+        }
+    }
+
+    #[deprecated = "use set_recipient_list instead"]
     pub fn set_recipient(&self, recipient: EnvelopeAddress) -> anyhow::Result<()> {
+        self.set_recipient_list(vec![recipient])
+    }
+
+    pub fn set_recipient_list(&self, recipient: Vec<EnvelopeAddress>) -> anyhow::Result<()> {
         let mut inner = self.msg_and_id.inner.lock();
         match &mut inner.metadata {
             Some(meta) => {
@@ -748,6 +816,26 @@ impl Message {
         }
     }
 
+    pub fn unset_meta<S: AsRef<str>>(&self, key: S) -> anyhow::Result<()> {
+        let mut inner = self.msg_and_id.inner.lock();
+        match &mut inner.metadata {
+            None => anyhow::bail!("set_meta: metadata must be loaded first"),
+            Some(meta) => {
+                let key = key.as_ref();
+
+                match &mut meta.meta {
+                    serde_json::Value::Object(map) => {
+                        map.remove(key);
+                    }
+                    _ => anyhow::bail!("metadata is somehow not a json object"),
+                }
+
+                inner.flags.set(MessageFlags::META_DIRTY, true);
+                Ok(())
+            }
+        }
+    }
+
     /// Retrieve `key` as a String.
     pub fn get_meta_string<S: serde_json::value::Index + std::fmt::Display + Copy>(
         &self,
@@ -795,7 +883,7 @@ impl Message {
                 let name = QueueNameComponents::format(
                     self.get_meta_string("campaign")?,
                     self.get_meta_string("tenant")?,
-                    self.recipient()?.domain().to_string().to_lowercase(),
+                    self.first_recipient()?.domain().to_string().to_lowercase(),
                     self.get_meta_string("routing_domain")?,
                 );
                 name.to_string()
@@ -1111,9 +1199,11 @@ impl Message {
         &self,
         check: MessageConformance,
         fix: MessageConformance,
+        settings: Option<&CheckFixSettings>,
     ) -> anyhow::Result<()> {
         let data = self.get_data();
-        let mut msg = MimePart::parse(data.as_ref().as_ref())?;
+        let data_bytes = data.as_ref().as_ref();
+        let mut msg = MimePart::parse(data_bytes)?;
 
         let conformance = msg.conformance();
 
@@ -1138,6 +1228,39 @@ impl Message {
                 .is_empty();
 
             if !missing_headers_only {
+                if to_fix.contains(MessageConformance::NEEDS_TRANSFER_ENCODING) {
+                    // Something is 8-bit. If we're lucky, it's simply UTF-8,
+                    // but it could be some other "legacy" charset encoding.
+                    // If we've been asked to detect an encoding, try that now,
+                    // and re-parse the message with the re-coded input.
+                    // Otherwise, we'll attempt a lossy conversion to UTF-8
+                    // and the resulting message will likely include unicode
+                    // replacement characters.
+
+                    if let Some(settings) = settings {
+                        if settings.detect_encoding {
+                            use charset_normalizer_rs::entity::NormalizerSettings;
+
+                            let norm_settings = NormalizerSettings {
+                                include_encodings: settings.include_encodings.clone(),
+                                exclude_encodings: settings.exclude_encodings.clone(),
+                                ..Default::default()
+                            };
+
+                            let guess = charset_normalizer_rs::from_bytes(
+                                &data_bytes.to_vec(),
+                                Some(norm_settings),
+                            )
+                            .map_err(|err| anyhow::anyhow!("{err}"))?;
+                            if let Some(best) = guess.get_best() {
+                                if let Some(decoded) = best.decoded_payload() {
+                                    msg = MimePart::parse(decoded.to_string())?;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 msg = msg.rebuild().with_context(|| {
                     format!("Rebuilding message to correct conformance issues: {problems}")
                 })?;
@@ -1277,19 +1400,38 @@ impl UserData for Message {
             this.set_sender(sender).map_err(any_err)
         });
 
-        methods.add_method("recipient", move |_, this, _: ()| {
-            this.recipient().map_err(any_err)
+        methods.add_method("recipient", move |lua, this, _: ()| {
+            let mut recipients = this.recipient_list().map_err(any_err)?;
+            match recipients.len() {
+                0 => Ok(mlua::Value::Nil),
+                1 => {
+                    let recip: EnvelopeAddress = recipients.pop().expect("have 1");
+                    recip.into_lua(lua)
+                }
+                _ => recipients.into_lua(lua),
+            }
+        });
+
+        methods.add_method("recipient_list", move |lua, this, _: ()| {
+            let recipients = this.recipient_list().map_err(any_err)?;
+            recipients.into_lua(lua)
         });
 
         methods.add_method("set_recipient", move |lua, this, value: mlua::Value| {
-            let recipient = match value {
+            let recipients = match value {
                 mlua::Value::String(s) => {
                     let s = s.to_str()?;
-                    EnvelopeAddress::parse(&s).map_err(any_err)?
+                    vec![EnvelopeAddress::parse(&s).map_err(any_err)?]
                 }
-                _ => lua.from_value::<EnvelopeAddress>(value.clone())?,
+                _ => {
+                    if let Ok(recips) = lua.from_value::<Vec<EnvelopeAddress>>(value.clone()) {
+                        recips
+                    } else {
+                        vec![lua.from_value::<EnvelopeAddress>(value.clone())?]
+                    }
+                }
             };
-            this.set_recipient(recipient).map_err(any_err)
+            this.set_recipient_list(recipients).map_err(any_err)
         });
 
         #[cfg(feature = "impl")]
@@ -1443,18 +1585,31 @@ impl UserData for Message {
 
         methods.add_async_method(
             "check_fix_conformance",
-            |_, this, (check, fix): (String, String)| async move {
+            |lua, this, (check, fix, settings): (String, String, Option<mlua::Value>)| async move {
                 use std::str::FromStr;
                 let check = MessageConformance::from_str(&check).map_err(any_err)?;
                 let fix = MessageConformance::from_str(&fix).map_err(any_err)?;
 
-                match this.check_fix_conformance(check, fix) {
+                let settings = match settings {
+                    Some(v) => Some(lua.from_value(v).map_err(any_err)?),
+                    None => None,
+                };
+
+                match this.check_fix_conformance(check, fix, settings.as_ref()) {
                     Ok(_) => Ok(None),
                     Err(err) => Ok(Some(format!("{err:#}"))),
                 }
             },
         );
     }
+}
+
+#[derive(Default, Debug, Clone)]
+#[cfg_attr(feature = "impl", derive(Deserialize))]
+pub struct CheckFixSettings {
+    pub detect_encoding: bool,
+    pub include_encodings: Vec<String>,
+    pub exclude_encodings: Vec<String>,
 }
 
 impl TimerEntryWithDelay for WeakMessage {
@@ -1484,17 +1639,17 @@ impl TimerEntryWithDelay for Message {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use super::*;
     use serde_json::json;
 
-    fn new_msg_body<S: AsRef<str>>(s: S) -> Message {
+    pub fn new_msg_body<S: AsRef<[u8]>>(s: S) -> Message {
         Message::new_dirty(
             SpoolId::new(),
             EnvelopeAddress::parse("sender@example.com").unwrap(),
-            EnvelopeAddress::parse("recip@example.com").unwrap(),
+            vec![EnvelopeAddress::parse("recip@example.com").unwrap()],
             serde_json::json!({}),
-            Arc::new(s.as_ref().as_bytes().to_vec().into_boxed_slice()),
+            Arc::new(s.as_ref().to_vec().into_boxed_slice()),
         )
         .unwrap()
     }
@@ -1837,6 +1992,7 @@ Hello";
             msg.check_fix_conformance(
                 MessageConformance::MISSING_MESSAGE_ID_HEADER,
                 MessageConformance::empty(),
+                None,
             )
             .unwrap_err(),
             "Message has conformance issues: MISSING_MESSAGE_ID_HEADER"
@@ -1845,6 +2001,7 @@ Hello";
         msg.check_fix_conformance(
             MessageConformance::MISSING_MESSAGE_ID_HEADER,
             MessageConformance::MISSING_MESSAGE_ID_HEADER,
+            None,
         )
         .unwrap();
 
@@ -1877,6 +2034,7 @@ Hello this is a really long line Hello this is a really long line
         msg.check_fix_conformance(
             MessageConformance::MISSING_COLON_VALUE,
             MessageConformance::MISSING_MESSAGE_ID_HEADER | MessageConformance::LINE_TOO_LONG,
+            None,
         )
         .unwrap();
 
@@ -1911,6 +2069,7 @@ Hello this is a really long line Hello this is a really long line
         msg.check_fix_conformance(
             MessageConformance::default(),
             MessageConformance::MISSING_MIME_VERSION,
+            None,
         )
         .unwrap();
         k9::snapshot!(
@@ -1931,6 +2090,7 @@ Body
         msg.check_fix_conformance(
             MessageConformance::default(),
             MessageConformance::MISSING_MIME_VERSION | MessageConformance::NAME_ENDS_WITH_SPACE,
+            None,
         )
         .unwrap();
         k9::snapshot!(
@@ -1949,6 +2109,30 @@ Body\r
 
 "#
         );
+    }
+
+    #[test]
+    fn check_fix_latin_input() {
+        // Note that the encoding_rs crate unifies latin1 into cp1252
+        const POUNDS: &str = "Subject: £\r\n\r\nGBP\r\n";
+        let (content, _, _) = encoding_rs::WINDOWS_1252.encode(POUNDS);
+        let msg = new_msg_body(&*content);
+        msg.check_fix_conformance(
+            MessageConformance::default(),
+            MessageConformance::NEEDS_TRANSFER_ENCODING,
+            Some(&CheckFixSettings {
+                detect_encoding: true,
+                include_encodings: vec!["iso-8859-1".to_string()],
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+
+        let subject = msg
+            .get_first_named_header_value("subject")
+            .unwrap()
+            .unwrap();
+        assert_eq!(subject, "£");
     }
 
     #[test]

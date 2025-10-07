@@ -10,7 +10,7 @@ tags:
 kumo.fs.uncached_glob(pattern [, relative_to])
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 !!! warning
     This function can cause an expensive filesystem walk to occur, especially

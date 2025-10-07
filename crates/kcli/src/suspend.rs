@@ -1,10 +1,16 @@
-use clap::Parser;
+use clap::{ArgGroup, Parser};
 use kumo_api_types::{SuspendV1Request, SuspendV1Response};
 use reqwest::Url;
 use std::time::Duration;
 
 #[derive(Debug, Parser)]
 /// Administratively suspend messages in matching queues.
+#[clap(
+    group(ArgGroup::new("selection")
+        .multiple(true)
+        .required(true)
+        .args(&["domain", "campaign", "tenant", "everything", "queue"])),
+)]
 pub struct SuspendCommand {
     /// The domain name to match.
     /// If omitted, any domains will match!
@@ -26,8 +32,13 @@ pub struct SuspendCommand {
     reason: String,
 
     /// Suspend all queues.
-    #[arg(long)]
+    #[arg(long, conflicts_with_all=&["domain", "campaign", "tenant", "queue"])]
     everything: bool,
+
+    /// Suspend specific scheduled queue names using their exact queue name(s).
+    /// Can be specified multiple times.
+    #[arg(long, conflicts_with_all=&["domain", "campaign", "tenant"])]
+    queue: Vec<String>,
 
     /// The duration over which matching messages will continue to suspend.
     /// The default is '5m'.
@@ -40,6 +51,7 @@ impl SuspendCommand {
         if self.domain.is_none()
             && self.campaign.is_none()
             && self.tenant.is_none()
+            && self.queue.is_empty()
             && !self.everything
         {
             anyhow::bail!(
@@ -58,6 +70,7 @@ impl SuspendCommand {
                 reason: self.reason.clone(),
                 duration: self.duration,
                 expires: None,
+                queue_names: self.queue.clone(),
             },
         )
         .await?;

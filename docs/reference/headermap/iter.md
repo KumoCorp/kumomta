@@ -4,7 +4,7 @@
 headers:iter(OPTIONAL_NAME)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Produces an iterator over the headers.  If `OPTIONAL_NAME` is omitted, all
 headers are iterated in the order in which they appear in the message.

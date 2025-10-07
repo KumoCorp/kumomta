@@ -344,8 +344,14 @@ impl ShapingInner {
     pub async fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<Rule>> {
         use rfc5321::ForwardPath;
         // Extract the domain from the recipient.
-        let recipient = ForwardPath::try_from(record.recipient.as_str())
-            .map_err(|err| anyhow::anyhow!("parsing record.recipient: {err}"))?;
+        let recipient = ForwardPath::try_from(
+            record
+                .recipient
+                .first()
+                .ok_or_else(|| anyhow::anyhow!("no recipients!?"))?
+                .as_str(),
+        )
+        .map_err(|err| anyhow::anyhow!("parsing record.recipient: {err}"))?;
 
         let recipient = match recipient {
             ForwardPath::Postmaster => {
@@ -1730,7 +1736,7 @@ match_internal = true
                 kind: RecordType::TransientFailure,
                 id: String::new(),
                 sender: String::new(),
-                recipient: recipient.to_string(),
+                recipient: vec![recipient.to_string()],
                 queue: String::new(),
                 site: site.to_string(),
                 size: 0,
@@ -1961,6 +1967,7 @@ MergedEntry {
             100/m,
         ),
         max_deliveries_per_connection: 100,
+        max_recipients_per_batch: 100,
         prohibited_hosts: {
             "127.0.0.0/8",
             "::1",
@@ -2112,6 +2119,7 @@ MergedEntry {
             100/m,
         ),
         max_deliveries_per_connection: 100,
+        max_recipients_per_batch: 100,
         prohibited_hosts: {
             "127.0.0.0/8",
             "::1",
@@ -2176,6 +2184,7 @@ MergedEntry {
             additional_source_selection_rates: {},
             max_connection_rate: None,
             max_deliveries_per_connection: 1024,
+            max_recipients_per_batch: 100,
             prohibited_hosts: {
                 "127.0.0.0/8",
                 "::1",
@@ -2333,6 +2342,7 @@ MergedEntry {
             100/m,
         ),
         max_deliveries_per_connection: 20,
+        max_recipients_per_batch: 100,
         prohibited_hosts: {
             "127.0.0.0/8",
             "::1",

@@ -360,7 +360,15 @@ impl Logger {
         let mut result = HashMap::new();
 
         for name in &self.meta {
-            if let Some(value) = meta.get(name) {
+            if let Some(prefix) = name.strip_suffix('*') {
+                if let Some(obj) = meta.as_object() {
+                    for (k, v) in obj {
+                        if k.starts_with(prefix) {
+                            result.insert(k.to_string(), v.clone());
+                        }
+                    }
+                }
+            } else if let Some(value) = meta.get(name) {
                 if !value.is_null() {
                     result.insert(name.to_string(), value.clone());
                 }

@@ -58,6 +58,22 @@ static TLS_CONFIG: LruCacheWithTtl<TlsAcceptorConfigKey, Arc<ServerConfig>>::new
 }
 
 declare_event! {
+static SMTP_SERVER_DATA: Single(
+    "smtp_server_data",
+    message: Message,
+    connection_metadata: ConnectionMetaData
+) -> ();
+}
+
+declare_event! {
+static SMTP_SERVER_SPLIT_TXN: Single(
+    "smtp_server_split_transaction",
+    message: Message,
+    connection_metadata: ConnectionMetaData
+) -> Option<Vec<Vec<EnvelopeAddress>>>;
+}
+
+declare_event! {
 static SMTP_SERVER_MSG_RX: Single(
     "smtp_server_message_received",
     message: Message,
@@ -301,8 +317,23 @@ impl TraceHeaders {
         let mut object = json!({
             // Marker to identify encoded supplemental header
             "_@_": "\\_/",
-            "recipient": message.recipient()?,
         });
+
+        let recips = message.recipient_list_string()?;
+        match recips.len() {
+            1 => {
+                object.as_object_mut().unwrap().insert(
+                    "recipient".to_string(),
+                    recips.into_iter().next().unwrap().into(),
+                );
+            }
+            _ => {
+                object
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("recipient".to_string(), recips.into());
+            }
+        }
 
         for name in &self.include_meta_names {
             if let Ok(value) = message.get_meta(name) {
@@ -352,6 +383,7 @@ pub struct ConcreteEsmtpListenerParams {
     pub client_timeout: Duration,
 
     pub data_processing_timeout: Duration,
+    pub batch_handling: BatchHandling,
 
     max_messages_per_connection: usize,
     max_recipients_per_message: usize,
@@ -406,6 +438,9 @@ impl ConcreteEsmtpListenerParams {
         }
         if let Some(banner) = base.banner {
             self.banner = banner;
+        }
+        if let Some(batch_handling) = base.batch_handling {
+            self.batch_handling = batch_handling;
         }
         if let Some(tls_certificate) = base.tls_certificate {
             self.tls_certificate.replace(tls_certificate);
@@ -498,6 +533,7 @@ impl Default for ConcreteEsmtpListenerParams {
         Self {
             hostname: default_hostname(),
             relay_hosts: CidrSet::default_trusted_hosts(),
+            batch_handling: BatchHandling::default(),
             banner: "KumoMTA".to_string(),
             tls_certificate: None,
             tls_private_key: None,
@@ -518,6 +554,17 @@ impl Default for ConcreteEsmtpListenerParams {
     }
 }
 
+#[derive(Deserialize, Serialize, Copy, Clone, Debug, Default, PartialEq)]
+pub enum BatchHandling {
+    /// Every incoming recipient is given a separate message batch,
+    /// so they each have a batch of 1
+    #[default]
+    BifurcateAlways,
+    /// Extract the domains of the recipients and batch the recipients
+    /// by domain
+    BatchByDomain,
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct GenericEsmtpListenerParams {
@@ -527,6 +574,9 @@ pub struct GenericEsmtpListenerParams {
     pub relay_hosts: Option<CidrSet>,
     #[serde(default)]
     pub banner: Option<String>,
+
+    #[serde(default)]
+    pub batch_handling: Option<BatchHandling>,
 
     #[serde(default)]
     pub tls_certificate: Option<KeySource>,
@@ -824,6 +874,8 @@ pub struct SmtpServerSession {
     said_hello: Option<String>,
     peer_address: SocketAddr,
     my_address: SocketAddr,
+    orig_peer_address: SocketAddr,
+    orig_my_address: SocketAddr,
     tls_active: Option<TlsInformation>,
     read_buffer: DebugabbleReadBuffer,
     params: ConcreteEsmtpListenerParams,
@@ -891,7 +943,9 @@ impl SmtpServerSession {
             state: None,
             said_hello: None,
             peer_address,
+            orig_peer_address: peer_address,
             my_address,
+            orig_my_address: my_address,
             tls_active: None,
             read_buffer: DebugabbleReadBuffer(Vec::with_capacity(1024)),
             params: concrete_params,
@@ -1983,7 +2037,7 @@ impl SmtpServerSession {
                     if let Some(state) = &self.state {
                         if state.recipients.len() == self.params.max_recipients_per_message {
                             self.write_response(
-                                451,
+                                452,
                                 "4.5.3 too many recipients",
                                 Some(line),
                                 RejectDisconnect::If421,
@@ -2007,7 +2061,7 @@ impl SmtpServerSession {
                                 return Ok(());
                             } else {
                                 self.write_response(
-                                    451,
+                                    452,
                                     "4.5.3 too many recipients on this connection",
                                     Some(line),
                                     RejectDisconnect::If421,
@@ -2266,6 +2320,8 @@ impl SmtpServerSession {
 
             self.peer_address = (new_addr, new_port).into();
             self.meta
+                .set_meta("orig_received_from", self.orig_peer_address.to_string());
+            self.meta
                 .set_meta("received_from", self.peer_address.to_string());
 
             SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
@@ -2288,6 +2344,8 @@ impl SmtpServerSession {
             let new_port = dest_port.unwrap_or(old_via.port());
 
             self.my_address = (new_addr, new_port).into();
+            self.meta
+                .set_meta("orig_received_via", self.orig_my_address.to_string());
             self.meta
                 .set_meta("received_via", self.my_address.to_string());
 
@@ -2397,6 +2455,55 @@ impl SmtpServerSession {
             }
         }
 
+        // Create a message to dispatch to the smtp_server_data event.
+        // This allows a policy to do any initial processing on the "raw"
+        // data input prior to breaking it into batches
+        let base_message = Message::new_dirty(
+            SpoolId::new(),
+            state.sender.clone(),
+            state.recipients.clone(),
+            self.meta.clone_inner(),
+            Arc::new(data.clone().into_boxed_slice()),
+        )?;
+
+        match timeout_at(
+            deadline.into(),
+            Box::pin(
+                self.call_callback_sig(
+                    &SMTP_SERVER_DATA,
+                    (base_message.clone(), self.meta.clone()),
+                ),
+            ),
+        )
+        .await
+        {
+            Ok(Ok(Ok(_))) => {}
+            Err(_) => {
+                self.write_response(
+                    451,
+                    "4.4.5 data_processing_timeout exceeded (rx)",
+                    Some("DATA".into()),
+                    RejectDisconnect::If421,
+                )
+                .await?;
+                return Ok(());
+            }
+            Ok(Ok(Err(rej))) => {
+                // Explicity kumo.reject'ed.
+                // Rejecting any one message from a batch in
+                // smtp_server_message_received will reject the
+                // entire batch
+                self.write_response(rej.code, rej.message, Some("DATA".into()), rej.disconnect)
+                    .await?;
+                return Ok(());
+            }
+            Ok(Err(err)) => {
+                // Let the technical difficulties handler deal with
+                // the response for this
+                return Err(err);
+            }
+        }
+
         let mut ids = vec![];
 
         // If anything decides to reject at this phase, it needs to apply to
@@ -2407,9 +2514,82 @@ impl SmtpServerSession {
 
         let datestamp = Utc::now().to_rfc2822();
 
-        for recip in state.recipients {
+        // For multiple recipient messages, `batches` holds how we will
+        // split and track delivery.
+        // We allow the user to perform advanced batching via the
+        // SMTP_SERVER_SPLIT_TXN event, but we also have the simpler
+        // and more common cases handled by the BatchHandling enum
+
+        let mut batches: Vec<Vec<EnvelopeAddress>> = vec![];
+
+        match timeout_at(
+            deadline.into(),
+            Box::pin(self.call_callback_sig(
+                &SMTP_SERVER_SPLIT_TXN,
+                (base_message.clone(), self.meta.clone()),
+            )),
+        )
+        .await
+        {
+            Ok(Ok(Ok(Some(batch_result)))) => {
+                // Definitively returned a list of recipients,
+                // which may be empty!
+                batches = batch_result;
+            }
+            Ok(Ok(Ok(None))) => {
+                // No handler defined, or it returned, explicitly
+                // or implicitly, nil.
+                // In this case, fall back to batch_handling.
+                // This is likely the common path for the majority
+                // of messages entering the system
+                match self.params.batch_handling {
+                    BatchHandling::BifurcateAlways => {
+                        for recip in base_message.recipient_list()? {
+                            batches.push(vec![recip]);
+                        }
+                    }
+                    BatchHandling::BatchByDomain => {
+                        let mut by_domain: HashMap<String, Vec<EnvelopeAddress>> = HashMap::new();
+                        for recip in base_message.recipient_list()? {
+                            by_domain
+                                .entry(recip.domain().to_lowercase())
+                                .or_insert_with(Vec::new)
+                                .push(recip);
+                        }
+
+                        batches = by_domain
+                            .into_iter()
+                            .map(|(_keys, values)| values)
+                            .collect();
+                    }
+                }
+            }
+            Err(_) => {
+                self.write_response(
+                    451,
+                    "4.4.5 data_processing_timeout exceeded (rx)",
+                    Some("DATA".into()),
+                    RejectDisconnect::If421,
+                )
+                .await?;
+                return Ok(());
+            }
+            Ok(Ok(Err(rej))) => {
+                // Explicity kumo.reject'ed.
+                self.write_response(rej.code, rej.message, Some("DATA".into()), rej.disconnect)
+                    .await?;
+                return Ok(());
+            }
+            Ok(Err(err)) => {
+                // Let the technical difficulties handler deal with
+                // the response for this
+                return Err(err);
+            }
+        }
+
+        for recip_list in batches {
             let id = SpoolId::new();
-            let mut body = if self.params.trace_headers.received_header {
+            let body = if self.params.trace_headers.received_header {
                 let received = {
                     let protocol = match (&self.authentication_id, &self.tls_active) {
                         (Some(_auth), Some(_tls)) => "ESMTPSA",
@@ -2427,7 +2607,10 @@ impl SmtpServerSession {
                     let peer_address = self.peer_address.ip();
                     let my_address = self.my_address.ip();
                     let hostname = &self.params.hostname;
-                    let recip = recip.to_string();
+                    // RFC 5321 section 4.4: If the FOR clause appears,
+                    // it MUST contain exactly one <path> entry, even
+                    // when multiple RCPT commands have been given.
+                    let recip = recip_list[0].to_string();
                     format!(
                         "Received: from {from_domain} ({peer_address})\r\n  \
                             by {hostname} (KumoMTA {my_address}) \r\n  \
@@ -2438,19 +2621,18 @@ impl SmtpServerSession {
 
                 let mut body = Vec::with_capacity(data.len() + received.len());
                 body.extend_from_slice(received.as_bytes());
-                body
+                body.extend_from_slice(&data);
+                Arc::new(body.into_boxed_slice())
             } else {
-                Vec::with_capacity(data.len())
+                base_message.get_data()
             };
-
-            body.extend_from_slice(&data);
 
             let message = Message::new_dirty(
                 id,
                 state.sender.clone(),
-                recip,
-                self.meta.clone_inner(),
-                Arc::new(body.into_boxed_slice()),
+                recip_list,
+                base_message.get_meta_obj()?,
+                body,
             )?;
 
             if self.params.deferred_queue {
@@ -2503,7 +2685,6 @@ impl SmtpServerSession {
         // At this point we've nominally accepted the batch; let's
         // get to work on logging and injecting into the queues
 
-        let mut messages = vec![];
         let mut was_arf_or_oob = false;
         let mut black_holed = false;
 
@@ -2544,6 +2725,7 @@ impl SmtpServerSession {
             }
         }
 
+        let mut messages: Vec<(/* queue_name */ String, Message)> = vec![];
         for message in accepted_messages {
             self.params.trace_headers.apply_supplemental(&message)?;
 
@@ -2551,8 +2733,12 @@ impl SmtpServerSession {
 
             let queue_name = message.get_queue_name()?;
 
+            // Assumption: that the relayability of the recipient list in a
+            // message is represented fully by the first recipient in that list.
+            // If you have different relaying requirements per recipient, they
+            // must not be in the same batch.
             let relay_disposition = self
-                .check_relaying(&message.sender()?, &message.recipient()?)
+                .check_relaying(&message.sender()?, &message.first_recipient()?)
                 .await?;
 
             let mut relay_this_one = relay_disposition.relay;
@@ -2583,10 +2769,7 @@ impl SmtpServerSession {
                         .sender()
                         .map(|s| s.to_string())
                         .expect("have sender"),
-                    recipient: message
-                        .recipient()
-                        .map(|s| s.to_string())
-                        .expect("have recipient"),
+                    recipient: message.recipient_list_string().expect("have recipients"),
                     id: *message.id(),
                 },
                 when: Utc::now(),
@@ -2595,7 +2778,39 @@ impl SmtpServerSession {
             if relay_this_one && queue_name != "null" && !self.params.deferred_spool {
                 match message.save(Some(deadline)).await {
                     Err(err) => {
-                        // FIXME: unwind rest of batch
+                        // Assume that any other saves that we try right now
+                        // are likely to fail for similar reasons, and since
+                        // SMTP doesn't provide a means for reporting a partial
+                        // failure, we have to unwind any other messages that
+                        // we just spooled as part of this same "transaction".
+                        for (_queue_name, prior) in messages {
+                            SpoolManager::remove_from_spool(*prior.id()).await.ok();
+                            log_disposition(LogDisposition {
+                                kind: RecordType::Bounce,
+                                msg: prior.clone(),
+                                site: "",
+                                peer_address: None,
+                                response: Response {
+                                    code: 500,
+                                    enhanced_code: None,
+                                    command: None,
+                                    content: format!(
+                                        "KumoMTA internal: Message::save failed for other \
+                                        messages in the same batch during reception: {err:#}"
+                                    ),
+                                },
+                                egress_source: None,
+                                egress_pool: None,
+                                relay_disposition: None,
+                                delivery_protocol: None,
+                                tls_info: None,
+                                source_address: None,
+                                provider: None,
+                                session_id: None,
+                                recipient_list: None,
+                            })
+                            .await;
+                        }
 
                         if err.root_cause().is::<tokio::time::error::Elapsed>() {
                             self.write_response(
@@ -2635,6 +2850,7 @@ impl SmtpServerSession {
                 source_address: None,
                 provider: None,
                 session_id: Some(self.session_id),
+                recipient_list: None,
             })
             .await;
             if queue_name != "null" {
@@ -2957,6 +3173,7 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
             source_address: None,
             provider: None,
             session_id: None,
+            recipient_list: None,
         })
         .await;
 

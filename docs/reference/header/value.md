@@ -4,7 +4,7 @@
 local value = header.value
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Depending on the header name, returns one of the structured representations of the header value.
 

@@ -4,7 +4,7 @@
 local rebuilt = mimepart:rebuild()
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 `mimepart:rebuild()` will return a new, distinct, mimepart by interpreting
 `mimepart` and extracting all of the key features and building up the new mime

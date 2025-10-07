@@ -1,5 +1,6 @@
 use crate::queue::LuaDeliveryProtocol;
 use crate::smtp_dispatcher::SmtpProtocol;
+use kumo_api_types::xfer::XferProtocol;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -16,6 +17,9 @@ pub enum DeliveryProto {
     Lua {
         custom_lua: LuaDeliveryProtocol,
     },
+    Xfer {
+        xfer: XferProtocol,
+    },
     HttpInjectionGenerator,
     DeferredSmtpInjection,
     Null,
@@ -30,13 +34,16 @@ impl DeliveryProto {
             Self::HttpInjectionGenerator { .. } => "httpinject",
             Self::DeferredSmtpInjection { .. } => "defersmtpinject",
             Self::Null { .. } => "null",
+            Self::Xfer { .. } => "xfer",
         }
     }
 
     pub fn ready_queue_name(&self) -> String {
         let proto_name = self.metrics_protocol_name();
         match self {
-            Self::Smtp { .. } | Self::Null | Self::DeferredSmtpInjection => proto_name.to_string(),
+            Self::Smtp { .. } | Self::Xfer { .. } | Self::Null | Self::DeferredSmtpInjection => {
+                proto_name.to_string()
+            }
             Self::Maildir { maildir_path, .. } => {
                 format!("{proto_name}:{maildir_path}")
             }

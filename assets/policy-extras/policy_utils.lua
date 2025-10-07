@@ -12,6 +12,17 @@ local function is_table_or_ud(o)
   return false
 end
 
+local function has_mt(object, name)
+  local mt = getmetatable(object)
+  if not mt then
+    return false
+  end
+  if mt[name] then
+    return true
+  end
+  return false
+end
+
 ---@param o1 any|table First object to compare
 ---@param o2 any|table Second object to compare
 ---@param ignore_mt boolean True to ignore metatables (a recursive function to tests tables inside tables)
@@ -183,6 +194,81 @@ function mod.split_ip_port(ip_port)
   end
 
   return ip, port
+end
+
+local function dump_impl(value, indent, done)
+  if done[value] then
+    return '[recursive node]'
+  end
+
+  local ty = type(value)
+
+  if ty == 'table' then
+    if has_mt(value, '__tostring') then
+      local s = tostring(value)
+      if s then
+        return s
+      end
+    end
+
+    done[value] = true
+
+    local list = {}
+    for key in pairs(value) do
+      table.insert(list, key)
+    end
+    table.sort(list)
+
+    local dumped = '{'
+    for idx, key in ipairs(list) do
+      if idx > 1 then
+        dumped = dumped .. ',\n'
+      else
+        dumped = dumped .. '\n'
+      end
+
+      dumped = dumped .. string.rep(' ', indent)
+      dumped = dumped
+        .. string.format(
+          '[%q] = %s',
+          key,
+          dump_impl(value[key], indent + 2, done)
+        )
+    end
+    done[value] = false
+    if #dumped > 1 then
+      dumped = dumped .. '\n'
+    end
+    dumped = dumped .. '}'
+    return dumped
+  end
+
+  if ty == 'number' or ty == 'boolean' then
+    return tostring(value)
+  end
+
+  return string.format('%q', tostring(value))
+end
+
+-- Returns a psuedo-lua repr style dump of the provided value
+-- as a string. This is useful for getting a sense of what the
+-- value might be during debugging
+function mod.dumps(value)
+  if value == nil then
+    return nil
+  end
+  local done = {}
+  return dump_impl(value, 2, done)
+end
+
+function mod:test()
+  mod.assert_eq(mod.dumps(true), 'true')
+  mod.assert_eq(mod.dumps(false), 'false')
+  mod.assert_eq(mod.dumps(42), '42')
+  mod.assert_eq(mod.dumps(1.5), '1.5')
+  mod.assert_eq(mod.dumps {}, '{}')
+  mod.assert_eq(mod.dumps { 1, 2 }, '{\n  [1] = 1,\n  [2] = 2\n}')
+  mod.assert_eq(mod.dumps { foo = 'bar' }, '{\n  ["foo"] = "bar"\n}')
 end
 
 return mod

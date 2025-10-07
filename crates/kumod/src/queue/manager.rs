@@ -179,6 +179,7 @@ impl QueueManager {
                     source_address: None,
                     provider: None,
                     session_id: None,
+                    recipient_list: None,
                 })
                 .await;
 
@@ -261,6 +262,7 @@ impl QueueManager {
                                 source_address: None,
                                 provider: None,
                                 session_id: None,
+                                recipient_list: None,
                             })
                             .await;
                             SpoolManager::remove_from_spool(*msg.id()).await.ok();

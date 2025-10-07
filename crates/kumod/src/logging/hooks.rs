@@ -155,11 +155,17 @@ impl LogHookState {
 
         let record_json = serde_json::to_value(&record)?;
 
+        let mut recipients = vec![];
+        for recip in &record.recipient {
+            recipients.push(EnvelopeAddress::parse(&recip)?);
+        }
+        anyhow::ensure!(!recipients.is_empty(), "no recips!?");
+
         let id = SpoolId::new();
         let msg = Message::new_dirty(
             id,
             EnvelopeAddress::parse(&record.sender)?,
-            EnvelopeAddress::parse(&record.recipient)?,
+            recipients,
             record.meta.clone().into_iter().collect(),
             Arc::new(record_text.into_boxed_slice()),
         )?;

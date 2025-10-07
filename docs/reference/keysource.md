@@ -82,7 +82,7 @@ local vault_signer = kumo.dkim.rsa_sha256_signer {
     -- vault_token = "hvs.TOKENTOKENTOKEN"
 
     -- Optional: specify the key name within the vault secret
-    -- {{since('dev', inline=True)}}
+    -- {{since('2025.10.06-5ec871ab', inline=True)}}
     -- Defaults to "key" if not specified
     -- vault_key = "my_custom_key_name"
   },
@@ -96,7 +96,7 @@ For example, you might populate it like this:
 $ vault kv put -mount=secret dkim/example.org key=@example-private-dkim-key.pem
 ```
 
-If you want to use a different field name, you can specify it with `vault_key` {{since('dev', inline=True)}}:
+If you want to use a different field name, you can specify it with `vault_key` {{since('2025.10.06-5ec871ab', inline=True)}}:
 
 ```lua
 local vault_signer = kumo.dkim.rsa_sha256_signer {

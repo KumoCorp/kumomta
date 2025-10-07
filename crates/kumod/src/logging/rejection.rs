@@ -37,7 +37,7 @@ pub async fn log_rejection(args: LogRejection) {
             id: "".to_string(),
             size: 0,
             sender: args.sender.clone().unwrap_or_default(),
-            recipient: args.recipient.clone().unwrap_or_default(),
+            recipient: vec![args.recipient.clone().unwrap_or_default()],
             queue: "".to_string(),
             site: "".to_string(),
             peer_address: Some(args.peer_address.clone()),

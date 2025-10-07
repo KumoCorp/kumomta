@@ -295,155 +295,157 @@ async fn publish_log_v1_impl(
 ) -> anyhow::Result<()> {
     tracing::trace!("got record: {record:?}");
     // Extract the domain from the recipient.
-    let recipient = ForwardPath::try_from(record.recipient.as_str())
-        .map_err(|err| anyhow!("parsing record.recipient: {err}"))?;
+    for recip in &record.recipient {
+        let recipient = ForwardPath::try_from(recip.as_str())
+            .map_err(|err| anyhow!("parsing record.recipient: {err}"))?;
 
-    let recipient = match recipient {
-        ForwardPath::Postmaster => {
-            // It doesn't make sense to apply automation on the
-            // local postmaster address, so we ignore this.
-            return Ok(());
-        }
-        ForwardPath::Path(path) => path.mailbox,
-    };
-    let domain = recipient.domain.to_string();
-
-    // Track events/outcomes by site.
-    let source = record.egress_source.as_deref().unwrap_or("unspecified");
-    let store_key = record.site.to_string();
-
-    let matches = shaping.match_rules(&record).await?;
-
-    for m in &matches {
-        let expires = record.timestamp + chrono::Duration::from_std(m.duration)?;
-        if expires <= *now {
-            // Record was perhaps delayed and is already expired, no sense recording it now
-            continue;
-        }
-
-        let matching_scope = MatchingScope::from_rule_and_record(m, &record);
-
-        let triggered = match m.trigger {
-            Trigger::Immediate => true,
-            Trigger::Threshold(spec) => {
-                let count = TSA_STATE
-                    .get()
-                    .expect("state not initialized")
-                    .record_event(&matching_scope, m, &record);
-
-                count >= spec.limit
+        let recipient = match recipient {
+            ForwardPath::Postmaster => {
+                // It doesn't make sense to apply automation on the
+                // local postmaster address, so we ignore this.
+                continue;
             }
+            ForwardPath::Path(path) => path.mailbox,
         };
+        let domain = recipient.domain.to_string();
 
-        tracing::trace!("match={m:?} triggered={triggered} for {record:?}");
+        // Track events/outcomes by site.
+        let source = record.egress_source.as_deref().unwrap_or("unspecified");
+        let store_key = record.site.to_string();
 
-        // To enact the action, we need to generate (or update) a row
-        // in the db with its effects and its expiry
-        if triggered {
-            for action in &m.action {
-                // Since there can be multiple actions within a match,
-                // ensure that the rule_hash that we use to record
-                // the effects of an action varies by the current
-                // action that we are iterating
-                let a_hash = action_hash(m, action);
-                let rule_hash = format!("{store_key}-{a_hash}");
-                let action_hash = ActionHash::from_rule_and_record(m, action, &record);
+        let matches = shaping.match_rules(&record).await?;
 
-                tracing::debug!("{action:?} for {record:?}");
-                match action {
-                    Action::Suspend => {
-                        create_ready_q_suspension(
-                            &action_hash,
-                            &rule_hash,
-                            m,
-                            &record,
-                            source,
-                            events,
-                        )
-                        .await?;
-                    }
-                    Action::SuspendTenant => {
-                        create_tenant_suspension(
-                            &action_hash,
-                            &rule_hash,
-                            m,
-                            &record,
-                            UseCampaign::No,
-                            events,
-                        )
-                        .await?;
-                    }
-                    Action::SuspendCampaign => {
-                        create_tenant_suspension(
-                            &action_hash,
-                            &rule_hash,
-                            m,
-                            &record,
-                            UseCampaign::Yes,
-                            events,
-                        )
-                        .await?;
-                    }
-                    Action::SetConfig(config) => {
-                        TSA_STATE
-                            .get()
-                            .expect("tsa_state missing")
-                            .create_config_override(
+        for m in &matches {
+            let expires = record.timestamp + chrono::Duration::from_std(m.duration)?;
+            if expires <= *now {
+                // Record was perhaps delayed and is already expired, no sense recording it now
+                continue;
+            }
+
+            let matching_scope = MatchingScope::from_rule_and_record(m, &record);
+
+            let triggered = match m.trigger {
+                Trigger::Immediate => true,
+                Trigger::Threshold(spec) => {
+                    let count = TSA_STATE
+                        .get()
+                        .expect("state not initialized")
+                        .record_event(&matching_scope, m, &record);
+
+                    count >= spec.limit
+                }
+            };
+
+            tracing::trace!("match={m:?} triggered={triggered} for {record:?}");
+
+            // To enact the action, we need to generate (or update) a row
+            // in the db with its effects and its expiry
+            if triggered {
+                for action in &m.action {
+                    // Since there can be multiple actions within a match,
+                    // ensure that the rule_hash that we use to record
+                    // the effects of an action varies by the current
+                    // action that we are iterating
+                    let a_hash = action_hash(m, action);
+                    let rule_hash = format!("{store_key}-{a_hash}");
+                    let action_hash = ActionHash::from_rule_and_record(m, action, &record);
+
+                    tracing::debug!("{action:?} for {record:?}");
+                    match action {
+                        Action::Suspend => {
+                            create_ready_q_suspension(
+                                &action_hash,
+                                &rule_hash,
+                                m,
+                                &record,
+                                source,
+                                events,
+                            )
+                            .await?;
+                        }
+                        Action::SuspendTenant => {
+                            create_tenant_suspension(
+                                &action_hash,
+                                &rule_hash,
+                                m,
+                                &record,
+                                UseCampaign::No,
+                                events,
+                            )
+                            .await?;
+                        }
+                        Action::SuspendCampaign => {
+                            create_tenant_suspension(
+                                &action_hash,
+                                &rule_hash,
+                                m,
+                                &record,
+                                UseCampaign::Yes,
+                                events,
+                            )
+                            .await?;
+                        }
+                        Action::SetConfig(config) => {
+                            TSA_STATE
+                                .get()
+                                .expect("tsa_state missing")
+                                .create_config_override(
+                                    &action_hash,
+                                    m,
+                                    &record,
+                                    config,
+                                    &domain,
+                                    source,
+                                    PreferRollup::Yes,
+                                );
+                        }
+                        Action::SetDomainConfig(config) => {
+                            TSA_STATE
+                                .get()
+                                .expect("tsa_state missing")
+                                .create_config_override(
+                                    &action_hash,
+                                    m,
+                                    &record,
+                                    config,
+                                    &domain,
+                                    source,
+                                    PreferRollup::No,
+                                );
+                        }
+                        Action::Bounce => {
+                            create_bounce(
                                 &action_hash,
                                 m,
                                 &record,
-                                config,
-                                &domain,
-                                source,
-                                PreferRollup::Yes,
-                            );
-                    }
-                    Action::SetDomainConfig(config) => {
-                        TSA_STATE
-                            .get()
-                            .expect("tsa_state missing")
-                            .create_config_override(
+                                UseTenant::No,
+                                UseCampaign::No,
+                                events,
+                            )
+                            .await?;
+                        }
+                        Action::BounceTenant => {
+                            create_bounce(
                                 &action_hash,
                                 m,
                                 &record,
-                                config,
-                                &domain,
-                                source,
-                                PreferRollup::No,
-                            );
-                    }
-                    Action::Bounce => {
-                        create_bounce(
-                            &action_hash,
-                            m,
-                            &record,
-                            UseTenant::No,
-                            UseCampaign::No,
-                            events,
-                        )
-                        .await?;
-                    }
-                    Action::BounceTenant => {
-                        create_bounce(
-                            &action_hash,
-                            m,
-                            &record,
-                            UseTenant::Yes,
-                            UseCampaign::No,
-                            events,
-                        )
-                        .await?;
-                    }
-                    Action::BounceCampaign => {
-                        create_bounce(
-                            &action_hash,
-                            m,
-                            &record,
-                            UseTenant::Yes,
-                            UseCampaign::Yes,
-                            events,
-                        )
-                        .await?;
+                                UseTenant::Yes,
+                                UseCampaign::No,
+                                events,
+                            )
+                            .await?;
+                        }
+                        Action::BounceCampaign => {
+                            create_bounce(
+                                &action_hash,
+                                m,
+                                &record,
+                                UseTenant::Yes,
+                                UseCampaign::Yes,
+                                events,
+                            )
+                            .await?;
+                        }
                     }
                 }
             }

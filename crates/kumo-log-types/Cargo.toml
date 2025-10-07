@@ -13,6 +13,7 @@ mailparsing = {path="../mailparsing"}
 rfc5321 = {path="../rfc5321", default-features=false}
 serde = {workspace=true}
 serde_json = {workspace=true}
+serde_with.workspace = true
 uuid = {workspace=true, features=["serde"]}
 uuid-helper.workspace = true
 

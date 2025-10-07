@@ -97,6 +97,7 @@ impl AdminSuspendEntry {
             components.tenant,
             Some(components.domain),
             None,
+            Some(queue_name),
         )
     }
 }
@@ -123,6 +124,7 @@ pub async fn suspend(
             tenant: request.tenant,
             domain: request.domain,
             routing_domain: None,
+            queue_names: request.queue_names.into_iter().collect(),
         },
         reason: request.reason,
         expires: Instant::now() + duration,
@@ -194,6 +196,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     tenant: request.tenant,
                     domain: request.domain,
                     routing_domain: None, // FIXME: add to API surface
+                    queue_names: request.queue_names.into_iter().collect(),
                 },
                 reason: request.reason,
                 expires: Instant::now() + duration,

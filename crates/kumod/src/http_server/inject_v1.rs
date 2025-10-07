@@ -20,6 +20,7 @@ use kumo_template::{CompiledTemplates, TemplateEngine, TemplateList};
 use mailparsing::{AddrSpec, Address, EncodeHeaderValue, Mailbox, MessageBuilder, MimePart};
 use message::{EnvelopeAddress, Message};
 use mlua::{Lua, LuaSerdeExt};
+use reqwest::StatusCode;
 use rfc5321::Response;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -542,7 +543,7 @@ fn make_message<'a>(
     let message = Message::new_dirty(
         id,
         sender.clone(),
-        recip_addr,
+        vec![recip_addr],
         serde_json::json!({}),
         Arc::new(normalized.into_boxed_slice()),
     )?;
@@ -618,6 +619,7 @@ async fn process_recipient<'a>(
             source_address: None,
             provider: None,
             session_id: None,
+            recipient_list: None,
         })
         .await;
         QueueManager::insert_or_unwind(&queue_name, message.clone(), request.deferred_spool, None)
@@ -640,7 +642,7 @@ async fn queue_deferred(
     let message = message::Message::new_dirty(
         id,
         sender.clone(),
-        EnvelopeAddress::null_sender(),
+        vec![EnvelopeAddress::null_sender()],
         serde_json::json!({}),
         Arc::new(payload.into_boxed_slice()),
     )?;
@@ -674,6 +676,7 @@ async fn queue_deferred(
         source_address: None,
         provider: None,
         session_id: None,
+        recipient_list: None,
     })
     .await;
     QueueManager::insert_or_unwind(GENERATOR_QUEUE_NAME, message, request.deferred_spool, None)
@@ -796,7 +799,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 None,
             )
             .await
-            .map_err(|err| any_err(err.0))?;
+            .map_err(|err| any_err(err.err))?;
 
             lua.to_value(&result.0)
         })?,
@@ -838,10 +841,16 @@ pub async fn inject_v1(
 ) -> Result<Json<InjectV1Response>, AppError> {
     if kumo_server_memory::get_headroom() == 0 {
         // Using too much memory
-        return Err(anyhow::anyhow!("load shedding").into());
+        return Err(AppError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "load shedding",
+        ));
     }
     if kumo_server_common::disk_space::is_over_limit() {
-        return Err(anyhow::anyhow!("disk is too full").into());
+        return Err(AppError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "disk is too full",
+        ));
     }
 
     let limit = LIMIT.load();
@@ -921,7 +930,7 @@ impl HttpInjectionGeneratorDispatcher {
                     hostname,
                 )
                 .await
-                .map_err(|err| err.0)?;
+                .map_err(|err| err.err)?;
 
                 Ok(())
             })?
@@ -996,6 +1005,7 @@ impl QueueDispatcher for HttpInjectionGeneratorDispatcher {
                 source_address: None,
                 provider: dispatcher.path_config.borrow().provider_name.as_deref(),
                 session_id: None,
+                recipient_list: None,
             })
             .await;
             SpoolManager::remove_from_spool(*msg.id()).await?;

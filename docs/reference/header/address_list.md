@@ -4,7 +4,7 @@
 local address_list = header.address_list
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Reading the `address_list` field will attempt to interpret the contents of the
 header as an [AddressList](../headermap/index.md#addresslist).

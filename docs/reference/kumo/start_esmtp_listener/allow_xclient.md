@@ -1,6 +1,6 @@
 # allow_xclient
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 !!! danger
     Take care to apply this ONLY in an appropriate `peer` block,

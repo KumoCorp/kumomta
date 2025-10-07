@@ -249,8 +249,9 @@ impl TraceSmtpServerCommand {
                             was_arf_or_oob,
                             will_enqueue,
                         } => {
+                            let recip_list = recipient.join(", ");
                             println!(
-                                "[{key}] {delta} === Message from=<{sender}> to=<{recipient}> id={id}"
+                                "[{key}] {delta} === Message from=<{sender}> to=<{recip_list}> id={id}"
                             );
                             println!(
                                 "[{key}] {delta} === Message queue={queue} relay={relay} \

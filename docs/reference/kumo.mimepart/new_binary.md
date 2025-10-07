@@ -4,7 +4,7 @@
 kumo.mimepart.new_binary(CONTENT_TYPE, CONTENT, OPTIONAL_ATTACHMENT_OPTIONS)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Constructs a new [MimePart](../mimepart/index.md) for binary content.
 

@@ -4,7 +4,7 @@
 headers:set_references(VALUE)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Assign `VALUE` to the `References` header.
 

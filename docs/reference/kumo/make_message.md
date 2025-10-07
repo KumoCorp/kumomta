@@ -9,7 +9,7 @@ tags:
 MSG = kumo.make_message(SENDER, RECIPIENT, BODY)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Constructs a new [Message](../message/index.md) object with the specified `SENDER`, `RECIPIENT` and `BODY`.
 

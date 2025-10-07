@@ -40,6 +40,8 @@ pub enum ClientError {
     NotConnected,
     #[error("Command rejected {0:?}")]
     Rejected(Response),
+    #[error("Commands rejected {0:?}")]
+    RejectedBatch(Vec<Response>),
     #[error("STARTTLS: {0} is not a valid DNS name")]
     InvalidDnsName(String),
     #[error("Invalid client certificate configured: {error:?}")]
@@ -125,6 +127,10 @@ impl ClientError {
             | Self::SslErrorStack(_)
             | Self::NoUsableDaneTlsa { .. } => false,
             Self::Rejected(response) => response.was_due_to_message(),
+            Self::RejectedBatch(responses) => match responses.len() {
+                1 => responses[0].was_due_to_message(),
+                _ => false,
+            },
         }
     }
 }
@@ -848,8 +854,20 @@ impl SmtpClient {
         recipient: RECIP,
         data: B,
     ) -> Result<Response, ClientError> {
+        let recipient: ForwardPath = recipient.into();
+        let status = self
+            .send_mail_multi_recip(sender, vec![recipient], data)
+            .await?;
+        Ok(status.response)
+    }
+
+    pub async fn send_mail_multi_recip<B: AsRef<[u8]>, SENDER: Into<ReversePath>>(
+        &mut self,
+        sender: SENDER,
+        recipient_list: Vec<ForwardPath>,
+        data: B,
+    ) -> Result<BatchSendSuccess, ClientError> {
         let sender = sender.into();
-        let recipient = recipient.into();
 
         let data: &[u8] = data.as_ref();
         let stuffed;
@@ -863,7 +881,8 @@ impl SmtpClient {
         };
 
         let data_is_8bit = data.iter().any(|&b| b >= 0x80);
-        let envelope_is_8bit = !sender.is_ascii() || !recipient.is_ascii();
+        let envelope_is_8bit =
+            !sender.is_ascii() || recipient_list.iter().any(|recipient| !recipient.is_ascii());
 
         let mut mail_from_params = vec![];
         if data_is_8bit {
@@ -930,10 +949,13 @@ impl SmtpClient {
             address: sender,
             parameters: mail_from_params,
         });
-        commands.push(Command::RcptTo {
-            address: recipient,
-            parameters: vec![],
-        });
+
+        for recipient in &recipient_list {
+            commands.push(Command::RcptTo {
+                address: recipient.clone(),
+                parameters: vec![],
+            });
+        }
         commands.push(Command::Data);
 
         // Assume that something might break below: if it does, we want
@@ -963,9 +985,13 @@ impl SmtpClient {
             return Err(ClientError::Rejected(mail_resp));
         }
 
-        let rcpt_resp = responses.remove(0)?;
-        if is_err && rcpt_resp.code != 250 {
-            return Err(ClientError::Rejected(rcpt_resp));
+        let mut rcpt_responses = vec![];
+        for _ in &recipient_list {
+            rcpt_responses.push(responses.remove(0)?);
+        }
+
+        if is_err && rcpt_responses.iter().all(|resp| resp.code != 250) {
+            return Err(ClientError::RejectedBatch(rcpt_responses));
         }
 
         let data_resp = responses.remove(0)?;
@@ -973,7 +999,9 @@ impl SmtpClient {
             return Err(ClientError::Rejected(data_resp));
         }
 
-        if data_resp.code == 354 && (mail_resp.code != 250 || rcpt_resp.code != 250) {
+        if data_resp.code == 354
+            && (mail_resp.code != 250 || rcpt_responses.iter().all(|resp| resp.code != 250))
+        {
             // RFC 2920 3.1:
             // the client cannot assume that the DATA command will be rejected
             // just because none of the RCPT TO commands worked.  If the DATA
@@ -997,8 +1025,13 @@ impl SmtpClient {
         if mail_resp.code != 250 {
             return Err(ClientError::Rejected(mail_resp));
         }
-        if rcpt_resp.code != 250 {
-            return Err(ClientError::Rejected(rcpt_resp));
+        if rcpt_responses.iter().all(|resp| resp.code != 250) {
+            if rcpt_responses.len() == 1 {
+                return Err(ClientError::Rejected(
+                    rcpt_responses.pop().expect("have at least one"),
+                ));
+            }
+            return Err(ClientError::RejectedBatch(rcpt_responses));
         }
         if data_resp.code != 354 {
             return Err(ClientError::Rejected(data_resp));
@@ -1028,8 +1061,17 @@ impl SmtpClient {
         // issuing an RSET next time around
         self.use_rset = self.enable_rset;
 
-        Ok(resp)
+        Ok(BatchSendSuccess {
+            response: resp,
+            rcpt_responses,
+        })
     }
+}
+
+#[derive(Debug)]
+pub struct BatchSendSuccess {
+    pub response: Response,
+    pub rcpt_responses: Vec<Response>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
@@ -1190,7 +1232,7 @@ fn apply_dot_stuffing(data: &[u8]) -> Option<Vec<u8>> {
 
 /// Extracts the object=name pairs of the subject name from a cert.
 /// eg:
-/// ```norun
+/// ```no_run
 /// ["C=US", "ST=CA", "L=SanFrancisco", "O=Fort-Funston", "OU=MyOrganizationalUnit",
 /// "CN=do.havedane.net", "name=EasyRSA", "emailAddress=me@myhost.mydomain"]
 /// ```

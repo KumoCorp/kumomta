@@ -9,7 +9,7 @@ mimepart.body = 'changed content'
     This is a field rather than a method, so you must use `mimepart.body`
     rather than `mimepart:body` to reference it.
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 The `body` field allows reading or writing the transfer-decoded content of the
 `mimepart`.  For example, if the incoming message has `base64` encoded the

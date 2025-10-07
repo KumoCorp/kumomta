@@ -7,6 +7,8 @@ use instant_xml::{FromXml, ToXml};
 use serde::{Serialize, Serializer};
 use std::fmt;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::SystemTime;
 
 pub mod record;
@@ -115,6 +117,13 @@ pub struct CheckHostParams {
 
     /// IP address of the SMTP client that is emitting the mail (v4 or v6).
     pub client_ip: IpAddr,
+
+    /// Explicitly the domain name passed to HELO/EHLO,
+    /// regardless of the `domain` value.
+    pub ehlo_domain: Option<String>,
+
+    /// The host name of this host, the one doing the check
+    pub relaying_host_name: Option<String>,
 }
 
 impl CheckHostParams {
@@ -123,6 +132,8 @@ impl CheckHostParams {
             domain,
             sender,
             client_ip,
+            ehlo_domain,
+            relaying_host_name,
         } = self;
 
         let sender = match sender {
@@ -131,7 +142,12 @@ impl CheckHostParams {
         };
 
         match SpfContext::new(&sender, &domain, client_ip) {
-            Ok(cx) => cx.check(resolver, true).await,
+            Ok(cx) => {
+                cx.with_ehlo_domain(ehlo_domain.as_deref())
+                    .with_relaying_host_name(relaying_host_name.as_deref())
+                    .check(resolver, true)
+                    .await
+            }
             Err(result) => result,
         }
     }
@@ -144,6 +160,9 @@ struct SpfContext<'a> {
     pub(crate) domain: &'a str,
     pub(crate) client_ip: IpAddr,
     pub(crate) now: SystemTime,
+    pub(crate) ehlo_domain: Option<&'a str>,
+    pub(crate) relaying_host_name: &'a str,
+    lookups_remaining: Arc<AtomicUsize>,
 }
 
 impl<'a> SpfContext<'a> {
@@ -169,15 +188,57 @@ impl<'a> SpfContext<'a> {
             domain,
             client_ip,
             now: SystemTime::now(),
+            ehlo_domain: None,
+            relaying_host_name: "localhost",
+            lookups_remaining: Arc::new(AtomicUsize::new(10)),
         })
     }
 
+    pub fn with_ehlo_domain(&self, ehlo_domain: Option<&'a str>) -> Self {
+        Self {
+            ehlo_domain,
+            lookups_remaining: self.lookups_remaining.clone(),
+            ..*self
+        }
+    }
+
+    pub fn with_relaying_host_name(&self, relaying_host_name: Option<&'a str>) -> Self {
+        Self {
+            relaying_host_name: relaying_host_name.unwrap_or(self.relaying_host_name),
+            lookups_remaining: self.lookups_remaining.clone(),
+            ..*self
+        }
+    }
+
     pub(crate) fn with_domain(&self, domain: &'a str) -> Self {
-        Self { domain, ..*self }
+        Self {
+            domain,
+            lookups_remaining: self.lookups_remaining.clone(),
+            ..*self
+        }
+    }
+
+    pub(crate) fn check_lookup_limit(&self) -> Result<(), SpfResult> {
+        let remain = self.lookups_remaining.load(Ordering::Relaxed);
+        if remain > 0 {
+            self.lookups_remaining.store(remain - 1, Ordering::Relaxed);
+            return Ok(());
+        }
+
+        Err(SpfResult {
+            disposition: SpfDisposition::PermError,
+            context: "DNS lookup limits exceeded".to_string(),
+        })
     }
 
     pub async fn check(&self, resolver: &dyn Resolver, initial: bool) -> SpfResult {
-        let name = match Name::from_utf8(self.domain) {
+        if !initial {
+            if let Err(err) = self.check_lookup_limit() {
+                return err;
+            }
+        }
+
+        let name = match Name::from_str_relaxed(self.domain) {
             Ok(name) => name,
             Err(_) => {
                 // Per <https://www.rfc-editor.org/rfc/rfc7208#section-4.3>, invalid
@@ -248,14 +309,77 @@ impl<'a> SpfContext<'a> {
         }
     }
 
-    pub(crate) fn domain(&self, spec: Option<&MacroSpec>) -> Result<String, SpfResult> {
+    pub(crate) async fn domain(
+        &self,
+        spec: Option<&MacroSpec>,
+        resolver: &dyn Resolver,
+    ) -> Result<String, SpfResult> {
         let Some(spec) = spec else {
             return Ok(self.domain.to_owned());
         };
 
-        spec.expand(self).map_err(|err| SpfResult {
+        spec.expand(self, resolver).await.map_err(|err| SpfResult {
             disposition: SpfDisposition::TempError,
             context: format!("error evaluating domain spec: {err}"),
         })
+    }
+
+    pub(crate) async fn validated_domain(
+        &self,
+        spec: Option<&MacroSpec>,
+        resolver: &dyn Resolver,
+    ) -> Result<Option<String>, SpfResult> {
+        // https://datatracker.ietf.org/doc/html/rfc7208#section-4.6.4
+        self.check_lookup_limit()?;
+
+        let domain = self.domain(spec, resolver).await?;
+
+        let domain = match Name::from_str_relaxed(&domain) {
+            Ok(domain) => domain,
+            Err(err) => {
+                return Err(SpfResult {
+                    disposition: SpfDisposition::PermError,
+                    context: format!("error parsing domain name: {err}"),
+                })
+            }
+        };
+
+        let ptrs = match resolver.resolve_ptr(self.client_ip).await {
+            Ok(ptrs) => ptrs,
+            Err(err) => {
+                return Err(SpfResult {
+                    disposition: SpfDisposition::TempError,
+                    context: format!("error looking up PTR for {}: {err}", self.client_ip),
+                })
+            }
+        };
+
+        for (idx, ptr) in ptrs.iter().filter(|ptr| domain.zone_of(ptr)).enumerate() {
+            if idx >= 10 {
+                // https://datatracker.ietf.org/doc/html/rfc7208#section-4.6.4
+                return Err(SpfResult {
+                    disposition: SpfDisposition::PermError,
+                    context: format!("too many PTR records for {}", self.client_ip),
+                });
+            }
+            match resolver.resolve_ip(&ptr.to_string()).await {
+                Ok(ips) => {
+                    if ips.iter().any(|&ip| ip == self.client_ip) {
+                        let mut ptr = ptr.clone();
+                        // Remove trailing dot
+                        ptr.set_fqdn(false);
+                        return Ok(Some(ptr.to_string()));
+                    }
+                }
+                Err(err) => {
+                    return Err(SpfResult {
+                        disposition: SpfDisposition::TempError,
+                        context: format!("error looking up IP for {ptr}: {err}"),
+                    })
+                }
+            }
+        }
+
+        Ok(None)
     }
 }

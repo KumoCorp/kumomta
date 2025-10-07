@@ -20,7 +20,7 @@ pub async fn inspect_v1(
 ) -> Result<Json<InspectMessageV1Response>, AppError> {
     let msg = Message::new_with_id(request.id).await?;
 
-    let recipient = msg.recipient()?.to_string();
+    let recipient = msg.recipient_list_string()?;
     let sender = msg.sender()?.to_string();
     let meta = msg.get_meta_obj()?;
     let scheduling = msg

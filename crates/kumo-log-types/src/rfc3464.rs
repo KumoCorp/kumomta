@@ -446,27 +446,33 @@ impl Report {
             received_from_mta: None,
             reporting_mta: params.reporting_mta.clone(),
         };
-        let per_recipient = PerRecipientReportEntry {
-            action,
-            extensions: Default::default(),
-            status: (&log.response).into(),
-            diagnostic_code: Some(DiagnosticCode {
-                diagnostic_type: "smtp".into(),
-                diagnostic: log.response.to_single_line(),
-            }),
-            final_log_id: None,
-            original_recipient: None,
-            final_recipient: Recipient {
-                recipient_type: "rfc822".to_string(),
-                recipient: log.recipient.to_string(),
-            },
-            remote_mta: log.peer_address.as_ref().map(|addr| RemoteMta {
-                mta_type: "dns".to_string(),
-                name: addr.name.to_string(),
-            }),
-            last_attempt_date: Some(log.timestamp),
-            will_retry_until: None,
-        };
+
+        let mut per_recipient = vec![];
+        let recip_list = log.recipient.join(", ");
+
+        for recip in &log.recipient {
+            per_recipient.push(PerRecipientReportEntry {
+                action,
+                extensions: Default::default(),
+                status: (&log.response).into(),
+                diagnostic_code: Some(DiagnosticCode {
+                    diagnostic_type: "smtp".into(),
+                    diagnostic: log.response.to_single_line(),
+                }),
+                final_log_id: None,
+                original_recipient: None,
+                final_recipient: Recipient {
+                    recipient_type: "rfc822".to_string(),
+                    recipient: recip.to_string(),
+                },
+                remote_mta: log.peer_address.as_ref().map(|addr| RemoteMta {
+                    mta_type: "dns".to_string(),
+                    name: addr.name.to_string(),
+                }),
+                last_attempt_date: Some(log.timestamp),
+                will_retry_until: None,
+            });
+        }
 
         let mut parts = vec![];
 
@@ -474,11 +480,10 @@ impl Report {
             RecordType::Bounce => {
                 let mut data = format!(
                     "The message was received at {created}\r\n\
-                    from {sender} and addressed to {recipient}.\r\n\
+                    from {sender} and addressed to {recip_list}.\r\n\
                     ",
                     created = log.created.to_rfc2822(),
                     sender = log.sender,
-                    recipient = log.recipient
                 );
                 if let Some(peer) = &log.peer_address {
                     data.push_str(&format!(
@@ -502,14 +507,13 @@ impl Report {
             RecordType::Expiration => {
                 format!(
                     "The message was received at {created}\r\n\
-                    from {sender} and addressed to {recipient}.\r\n\
+                    from {sender} and addressed to {recip_list}.\r\n\
                     Status: {status}\r\n\
                     The message will be deleted from the queue.\r\n\
                     No further attempts will be made to deliver it.\r\n\
                     ",
                     created = log.created.to_rfc2822(),
                     sender = log.sender,
-                    recipient = log.recipient,
                     status = log.response.to_single_line()
                 )
             }
@@ -518,7 +522,10 @@ impl Report {
 
         parts.push(MimePart::new_text_plain(&exposition).context("new_text_plain")?);
 
-        let status_text = format!("{per_message}\r\n{per_recipient}\r\n");
+        let mut status_text = format!("{per_message}\r\n");
+        for per_recip in per_recipient {
+            status_text.push_str(&format!("{per_recip}\r\n"));
+        }
         parts
             .push(MimePart::new_text("message/delivery-status", &status_text).context("new_text")?);
 
@@ -668,7 +675,7 @@ mod test {
             provider_name: None,
             queue: "target.example.com".to_string(),
             reception_protocol: None,
-            recipient: "recip@target.example.com".to_string(),
+            recipient: vec!["recip@target.example.com".to_string()],
             sender: "sender@sender.example.com".to_string(),
             session_id: None,
             response: Response {
@@ -713,7 +720,7 @@ mod test {
             provider_name: None,
             queue: "target.example.com".to_string(),
             reception_protocol: None,
-            recipient: "recip@target.example.com".to_string(),
+            recipient: vec!["recip@target.example.com".to_string()],
             sender: "sender@sender.example.com".to_string(),
             session_id: None,
             response: Response {

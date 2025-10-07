@@ -12,7 +12,7 @@ The bounce will be applied immediately to queued messages, (asynchronously with 
 The totals printed by this command are often under-reported due to the asynchronous nature of the action.
 
 
-**Usage:** `kcli bounce [OPTIONS] --reason <REASON>`
+**Usage:** `kcli bounce [OPTIONS] --reason <REASON> <--domain <DOMAIN>|--routing-domain <ROUTING_DOMAIN>|--campaign <CAMPAIGN>|--tenant <TENANT>|--everything|--queue <QUEUE>>`
 
 ## Options
 
@@ -24,6 +24,8 @@ The totals printed by this command are often under-reported due to the asynchron
 * `--campaign <CAMPAIGN>` — The campaign name to match. If omitted, any campaigns will match!
 
 * `--tenant <TENANT>` — The tenant name to match. If omitted, any tenant will match!
+
+* `--queue <QUEUE>` — Bounce specific scheduled queue names using their exact queue name(s). Can be specified multiple times
 
 * `--reason <REASON>` — The reason to log in the delivery logs (each matching message will bounce with an AdminBounce record) as well as in the list of bounces
 

@@ -4,7 +4,7 @@
 local structure = mimepart:get_simple_structure()
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 A MIME message is an encoding of a tree of pieces of content which makes things
 relatively complex to script around in various processing work flows,

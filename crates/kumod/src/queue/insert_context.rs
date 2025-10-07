@@ -67,6 +67,7 @@ pub enum InsertReason {
     MxWasProhibited,
     MxWasSkipped,
     TooManyConnectionFailures,
+    TooManyRecipients,
     ConnectionRateThrottle,
     /// There was a TransientFailure logged to explain what really happened
     LoggedTransientFailure,

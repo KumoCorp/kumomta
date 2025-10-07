@@ -25,6 +25,10 @@ pub struct LogDisposition<'a> {
     pub source_address: Option<MaybeProxiedSourceAddress>,
     pub provider: Option<&'a str>,
     pub session_id: Option<Uuid>,
+    /// if Some, specifies the recipient list to which this log
+    /// applies, otherwise, the full msg.recipient_list_string()
+    /// will be used
+    pub recipient_list: Option<Vec<String>>,
 }
 
 pub async fn log_disposition(args: LogDisposition<'_>) {
@@ -42,12 +46,20 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
         source_address,
         provider,
         session_id,
+        recipient_list,
     } = args;
 
     let loggers = Logger::get_loggers();
     if loggers.is_empty() {
         return;
     }
+
+    let recipient_list = match recipient_list {
+        Some(list) => list,
+        None => msg
+            .recipient_list_string()
+            .unwrap_or_else(|err| vec![format!("{err:#}")]),
+    };
 
     let mut feedback_report = None;
 
@@ -107,19 +119,21 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             };
         }
 
-        match kind {
-            RecordType::Reception => {
-                crate::accounting::account_reception(
-                    &reception_protocol.as_deref().unwrap_or("unknown"),
-                );
-            }
-            RecordType::Delivery => {
-                crate::accounting::account_delivery(
-                    &delivery_protocol.as_deref().unwrap_or("unknown"),
-                );
-            }
-            _ => {}
-        };
+        for _ in 0..recipient_list.len() {
+            match kind {
+                RecordType::Reception => {
+                    crate::accounting::account_reception(
+                        &reception_protocol.as_deref().unwrap_or("unknown"),
+                    );
+                }
+                RecordType::Delivery => {
+                    crate::accounting::account_delivery(
+                        &delivery_protocol.as_deref().unwrap_or("unknown"),
+                    );
+                }
+                _ => {}
+            };
+        }
 
         let (headers, meta) = logger.extract_fields(&msg).await;
 
@@ -140,10 +154,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                 .sender()
                 .map(|addr| addr.to_string())
                 .unwrap_or_else(|err| format!("{err:#}")),
-            recipient: msg
-                .recipient()
-                .map(|addr| addr.to_string())
-                .unwrap_or_else(|err| format!("{err:#}")),
+            recipient: recipient_list.clone(),
             queue: msg
                 .get_queue_name()
                 .unwrap_or_else(|err| format!("{err:#}")),
@@ -183,7 +194,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                     // This incoming bounce report is addressed to
                     // the envelope from of the original message
                     let sender = msg
-                        .recipient()
+                        .first_recipient()
                         .map(|addr| addr.to_string())
                         .unwrap_or_else(|err| format!("{err:#}"));
                     let queue = msg
@@ -224,12 +235,12 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                             id: msg.id().to_string(),
                             size: 0,
                             sender: sender.clone(),
-                            recipient: recip
+                            recipient: vec![recip
                                 .original_recipient
                                 .as_ref()
                                 .unwrap_or(&recip.final_recipient)
                                 .recipient
-                                .to_string(),
+                                .to_string()],
                             queue: queue.to_string(),
                             site: site.to_string(),
                             peer_address: Some(ResolvedAddress {

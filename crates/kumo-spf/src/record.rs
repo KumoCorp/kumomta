@@ -1,10 +1,8 @@
 use crate::spec::MacroSpec;
 use crate::{SpfContext, SpfDisposition, SpfResult};
 use dns_resolver::Resolver;
-use hickory_resolver::Name;
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::str::FromStr;
 
 #[derive(Debug, Default)]
 pub(crate) struct Record {
@@ -15,7 +13,7 @@ pub(crate) struct Record {
 
 impl Record {
     pub(crate) fn parse(s: &str) -> Result<Self, String> {
-        let mut tokens = s.split(' ');
+        let mut tokens = s.split_whitespace();
         let version = tokens
             .next()
             .ok_or_else(|| format!("expected version in {s}"))?;
@@ -77,7 +75,7 @@ impl Record {
         }
 
         if let Some(domain) = &self.redirect {
-            let domain = match cx.domain(Some(domain)) {
+            let domain = match cx.domain(Some(domain), resolver).await {
                 Ok(domain) => domain,
                 Err(err) => return err,
             };
@@ -103,7 +101,7 @@ impl Record {
         };
 
         let domain = match &self.explanation {
-            Some(domain) => match cx.domain(Some(domain)) {
+            Some(domain) => match cx.domain(Some(domain), resolver).await {
                 Ok(domain) => domain,
                 Err(err) => return err,
             },
@@ -124,7 +122,7 @@ impl Record {
             Err(_) => return SpfResult::fail(failed),
         };
 
-        match spec.expand(cx) {
+        match spec.expand(cx, resolver).await {
             Ok(explanation) => SpfResult::fail(explanation),
             Err(_) => SpfResult::fail(failed),
         }
@@ -162,7 +160,8 @@ impl Directive {
         let matched = match &self.mechanism {
             Mechanism::All => true,
             Mechanism::A { domain, cidr_len } => {
-                let domain = cx.domain(domain.as_ref())?;
+                cx.check_lookup_limit()?;
+                let domain = cx.domain(domain.as_ref(), resolver).await?;
                 let resolved = match resolver.resolve_ip(&domain).await {
                     Ok(ips) => ips,
                     Err(err) => {
@@ -178,7 +177,8 @@ impl Directive {
                     .any(|&resolved_ip| cidr_len.matches(cx.client_ip, resolved_ip))
             }
             Mechanism::Mx { domain, cidr_len } => {
-                let domain = cx.domain(domain.as_ref())?;
+                cx.check_lookup_limit()?;
+                let domain = cx.domain(domain.as_ref(), resolver).await?;
                 let exchanges = match resolver.resolve_mx(&domain).await {
                     Ok(exchanges) => exchanges,
                     Err(err) => {
@@ -190,7 +190,15 @@ impl Directive {
                 };
 
                 let mut matched = false;
-                for exchange in exchanges {
+                for (idx, exchange) in exchanges.into_iter().enumerate() {
+                    if idx >= 10 {
+                        // https://datatracker.ietf.org/doc/html/rfc7208#section-4.6.4
+                        return Err(SpfResult {
+                            disposition: SpfDisposition::PermError,
+                            context: format!("too many MX records for {domain}"),
+                        });
+                    }
+
                     let resolved = match resolver.resolve_ip(&exchange.to_string()).await {
                         Ok(ips) => ips,
                         Err(err) => {
@@ -229,48 +237,13 @@ impl Directive {
             }
             .matches(cx.client_ip, IpAddr::V6(*ip6_network)),
             Mechanism::Ptr { domain } => {
-                let domain = match Name::from_str(&cx.domain(domain.as_ref())?) {
-                    Ok(domain) => domain,
-                    Err(err) => {
-                        return Err(SpfResult {
-                            disposition: SpfDisposition::PermError,
-                            context: format!("error parsing domain name: {err}"),
-                        })
-                    }
-                };
+                // Note that validated_domain applies lookup limits
+                let validated_domain = cx.validated_domain(domain.as_ref(), resolver).await?;
 
-                let ptrs = match resolver.resolve_ptr(cx.client_ip).await {
-                    Ok(ptrs) => ptrs,
-                    Err(err) => {
-                        return Err(SpfResult {
-                            disposition: SpfDisposition::TempError,
-                            context: format!("error looking up PTR for {}: {err}", cx.client_ip),
-                        })
-                    }
-                };
-
-                let mut matched = false;
-                for ptr in ptrs.iter().filter(|ptr| domain.zone_of(ptr)) {
-                    match resolver.resolve_ip(&ptr.to_string()).await {
-                        Ok(ips) => {
-                            if ips.iter().any(|&ip| ip == cx.client_ip) {
-                                matched = true;
-                                break;
-                            }
-                        }
-                        Err(err) => {
-                            return Err(SpfResult {
-                                disposition: SpfDisposition::TempError,
-                                context: format!("error looking up IP for {ptr}: {err}"),
-                            })
-                        }
-                    }
-                }
-
-                matched
+                validated_domain.is_some()
             }
             Mechanism::Include { domain } => {
-                let domain = cx.domain(Some(domain))?;
+                let domain = cx.domain(Some(domain), resolver).await?;
                 let nested = cx.with_domain(&domain);
                 use SpfDisposition::*;
                 match Box::pin(nested.check(resolver, false)).await {
@@ -304,7 +277,8 @@ impl Directive {
                 }
             }
             Mechanism::Exists { domain } => {
-                let domain = cx.domain(Some(domain))?;
+                cx.check_lookup_limit()?;
+                let domain = cx.domain(Some(domain), resolver).await?;
                 match resolver.resolve_ip(&domain).await {
                     Ok(ips) => ips.iter().any(|ip| ip.is_ipv4()),
                     Err(err) => {
@@ -389,7 +363,7 @@ impl DualCidrLength {
                 specified_masked == observed_masked
             }
             (IpAddr::V6(observed), IpAddr::V6(specified), DualCidrLength { v6, .. }) => {
-                let mask = u128::MAX << (32 - v6);
+                let mask = u128::MAX << (128 - v6);
                 let specified_masked = Ipv6Addr::from_bits(specified.to_bits() & mask);
                 let observed_masked = Ipv6Addr::from(observed.to_bits() & mask);
                 specified_masked == observed_masked
@@ -589,9 +563,12 @@ impl Mechanism {
             return Ok(Self::Ptr { domain });
         }
         if let Some(remain) = starts_with_ident(s, "ip4:") {
-            let (addr, len) = remain
-                .split_once('/')
-                .ok_or_else(|| format!("invalid 'ip4' mechanism: {s}"))?;
+            let (addr, len) = if let Some((addr, len)) = remain.split_once('/') {
+                (addr, len)
+            } else {
+                // Default CIDR length for IPv4 is /32 (single host)
+                (remain, "32")
+            };
             let ip4_network = addr
                 .parse()
                 .map_err(|err| format!("invalid 'ip4' mechanism: {s}: {err}"))?;
@@ -605,9 +582,12 @@ impl Mechanism {
             });
         }
         if let Some(remain) = starts_with_ident(s, "ip6:") {
-            let (addr, len) = remain
-                .split_once('/')
-                .ok_or_else(|| format!("invalid 'ip6' mechanism: {s}"))?;
+            let (addr, len) = if let Some((addr, len)) = remain.split_once('/') {
+                (addr, len)
+            } else {
+                // Default CIDR length for IPv6 is /128 (single host)
+                (remain, "128")
+            };
             let ip6_network = addr
                 .parse()
                 .map_err(|err| format!("invalid 'ip6' mechanism: {s}: {err}"))?;
@@ -689,10 +669,22 @@ mod test {
             Record::parse("v=spf1 -exists:%{ir").unwrap_err(),
             r#"invalid token '-exists:%{ir'"#
         );
-        k9::snapshot!(Record::parse("v=spf1 ").unwrap_err(), "invalid empty token");
+
+        // Extraneous space is not strictly allowed, but we're relaxed
+        // about it to support common real world usage
+        k9::snapshot!(
+            Record::parse("v=spf1 ").unwrap(),
+            "
+Record {
+    directives: [],
+    redirect: None,
+    explanation: None,
+}
+"
+        );
 
         k9::snapshot!(
-            parse("v=spf1 mx -all exp=explain._spf.%{d}"),
+            parse("v=spf1 mx  -all exp=explain._spf.%{d}"),
             r#"
 Record {
     directives: [

@@ -22,6 +22,10 @@ The log record is a JSON object with the following shape:
     "sender": "user@sender.example.com",
 
     // The envelope recipient
+    //
+    // If the message has multiple recipients (eg: it was part of
+    // an SMTP batch transaction) this will be an array of the
+    // recipients. (Multi-recipient is possible {{since('dev', inline=True)}})
     "recipient": "user@recipient.example.com",
 
     // Which named queue the message was associated with
@@ -76,7 +80,7 @@ The log record is a JSON object with the following shape:
     "timestamp": 1757675281,
 
     // The time at which this record was generated, expressed
-    // as an RFC 3339 string {{since('dev', inline=True)}}
+    // as an RFC 3339 string {{since('2025.10.06-5ec871ab', inline=True)}}
     "event_time": "2025-09-12T11:08:01.440526026Z",
 
     // The time at which the message was received, expressed
@@ -84,7 +88,7 @@ The log record is a JSON object with the following shape:
     "created": 1757675281,
 
     // The time at which the message was received, expressed
-    // as an RFC 3339 string {{since('dev', inline=True)}}
+    // as an RFC 3339 string {{since('2025.10.06-5ec871ab', inline=True)}}
     "created_time": "2025-09-12T11:08:01.440526026Z",
 
     // The number of delivery attempts.
@@ -147,7 +151,7 @@ The log record is a JSON object with the following shape:
     "nodeid": "557f3ad4-2c8c-11ee-976e-782d7e12e173",
 
     // Information about TLS used for outgoing SMTP, if applicable.
-    // Incoming TLS info is available {{since('dev', inline=True)}}.
+    // Incoming TLS info is available {{since('2025.10.06-5ec871ab', inline=True)}}.
     "tls_cipher": "TLS_AES_256_GCM_SHA384",
     "tls_protocol_version": "TLSv1.3",
     "tls_peer_subject_name": ["C=US","ST=CA","L=SanFrancisco","O=Fort-Funston",
@@ -189,6 +193,10 @@ The following record types are defined:
   in response to an incoming SMTP command. {{since('2024.06.10-84e84b89', inline=True)}}
 * `"Delayed"` - explains why a message landed in the scheduled queue when
   it doesn't otherwise have a `TransientFailure` record logged. {{since('2025.01.23-7273d2bc', inline=True)}}
+* `"XferOut"` - a message was transferred out from the current node to another
+  kumomta node as part of an [xfer](kcli/xfer.md). {{since('dev', inline=True)}}
+* `"XferIn"` - a message was transferred in to the current node from another
+  kumomta node as part of an [xfer](kcli/xfer.md). {{since('dev', inline=True)}}
 
 ## Feedback Report
 

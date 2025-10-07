@@ -4,7 +4,7 @@
 mimepart:replace_body(CONTENT, OPTIONAL_CONTENT_TYPE)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 This method allows you to change the body portion of the `mimepart`, optionally
 changing the `Content-Type` in the process.

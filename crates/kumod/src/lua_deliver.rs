@@ -241,6 +241,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
                                 source_address: None,
                                 provider: dispatcher.path_config.borrow().provider_name.as_deref(),
                                 session_id: Some(dispatcher.session_id),
+                                recipient_list: None, // FIXME: multi recipient?
                             })
                             .await;
                             spawn(
@@ -283,6 +284,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
                                 source_address: None,
                                 provider: dispatcher.path_config.borrow().provider_name.as_deref(),
                                 session_id: Some(dispatcher.session_id),
+                                recipient_list: None, // FIXME: multi recipient?
                             })
                             .await;
                             SpoolManager::remove_from_spool(*msg.id()).await?;
@@ -321,6 +323,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
                         source_address: None,
                         provider: dispatcher.path_config.borrow().provider_name.as_deref(),
                         session_id: Some(dispatcher.session_id),
+                        recipient_list: None, // FIXME: multi recipient?
                     })
                     .await;
                     SpoolManager::remove_from_spool(*msg.id()).await?;

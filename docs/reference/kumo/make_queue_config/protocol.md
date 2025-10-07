@@ -40,7 +40,7 @@ kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
 end)
 ```
 
-{{since('dev', indent=True)}}
+{{since('2025.10.06-5ec871ab', indent=True)}}
     You may now use port numbers to override the outbound port number.
 
     ```lua

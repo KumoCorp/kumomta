@@ -6,6 +6,7 @@ use kumo_api_types::{
 use kumo_chrono_helper::Utc;
 use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
+use reqwest::StatusCode;
 
 /// Retrieve information about messages in a scheduled queue.
 #[utoipa::path(
@@ -22,16 +23,16 @@ pub async fn inspect_v1(
     Query(request): Query<InspectQueueV1Request>,
 ) -> Result<Json<InspectQueueV1Response>, AppError> {
     let Some(queue) = QueueManager::get_opt(&request.queue_name) else {
-        return Err(AppError(anyhow::anyhow!(
-            "not such queue {}",
-            request.queue_name
-        )));
+        return Err(AppError::new(
+            StatusCode::NOT_FOUND,
+            format!("no such queue {}", request.queue_name),
+        ));
     };
     let mut messages = vec![];
 
     for msg in queue.iter(request.limit) {
         if msg.load_meta_if_needed().await.is_ok() {
-            let recipient = msg.recipient()?.to_string();
+            let recipient = msg.recipient_list_string()?;
             let sender = msg.sender()?.to_string();
             let meta = msg.get_meta_obj()?;
             let scheduling = msg

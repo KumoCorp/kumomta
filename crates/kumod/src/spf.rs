@@ -9,9 +9,9 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 #[derive(Debug, Serialize)]
-struct CheckHostOutput {
-    disposition: SpfDisposition,
-    result: AuthenticationResult,
+pub struct CheckHostOutput {
+    pub disposition: SpfDisposition,
+    pub result: AuthenticationResult,
 }
 
 pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
@@ -26,11 +26,16 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                     .and_then(|v| SocketAddr::from_str(v.as_str()?).ok())
                     .expect("`received_from` is always set, and always to a value representing a `SocketAddr`");
 
+                let ehlo_domain = meta.get_meta("ehlo_domain").map(|s| s.to_string());
+                let relaying_host_name = meta.get_meta("hostname").map(|s| s.to_string());
+
                 let resolver = dns_resolver::get_resolver();
                 let result = CheckHostParams {
                     domain,
                     sender,
                     client_ip: addr.ip(),
+                    ehlo_domain,
+                    relaying_host_name,
                 }
                 .check(&**resolver)
                 .await;

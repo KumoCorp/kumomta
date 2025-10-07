@@ -1,7 +1,7 @@
 # check_fix_conformance
 
 ```lua
-message:check_fix_conformance(CHECKS, FIXES)
+message:check_fix_conformance(CHECKS, FIXES, OPT_SETTINGS)
 ```
 
 {{since('2023.11.28-b5252a41')}}
@@ -98,3 +98,85 @@ The strategy for fixing is simple:
     Since fixing issues other than missing headers essentially rewrites the
     message, the chances are very high that any digital signature in the
     original message will be invalidated.
+
+## Fixing 8-bit content
+
+{{since('dev')}}
+
+The default behavior when fixing `NEEDS_TRANSFER_ENCODING` is to perform a
+lossy conversion to UTF-8, replacing any non-UTF-8 bytes with unicode
+replacement characters.
+
+"Fixing" 8-bit content in this context is difficult, because there are many
+8-bit encodings and it is not always possible to decide what encoding is
+associated with a piece of data--that is why MIME defines explicit transfer
+encoding and header encoding indicators in its various RFCs.
+
+KumoMTA includes a character set encoding detector function that can be used to
+make a guess at the encoding.  You can enable it by passing in an optional
+settings parameter.
+
+Here's an example:
+
+```lua
+msg:check_fix_conformance('', 'NEEDS_TRANSFER_ENCODING', {
+  -- Enable the encoding detector
+  detect_encoding = true,
+  -- Constrain the set of allowed encodings to just latin-1.
+  -- You can omit the include_encodings option and the full
+  -- set of encodings will be considered
+  include_encodings = {
+    'iso-8859-1',
+  },
+  -- You can optionally exclude encodings
+  exclude_encodings = {},
+})
+```
+
+Since there is some ambiguity in charset detection, it is recommended that you
+employ some heuristics to select the include/exclude list.  For example, if you
+know that the sender is from a chinese locale, then you might select `big5` and
+not include any latin charsets.
+
+It is not recommended to attempt fixing up the charset of 8-bit content if you
+are unsure of the sender.
+
+The set of encodings supported by the detector are:
+
+ * iso-8859-2
+ * iso-8859-3
+ * iso-8859-4
+ * iso-8859-5
+ * iso-8859-6
+ * iso-8859-7
+ * iso-8859-8
+ * iso-8859-10
+ * iso-8859-13
+ * iso-8859-14
+ * iso-8859-15
+ * iso-8859-16
+ * koi8-r
+ * koi8-u
+ * macintosh
+ * windows-874
+ * windows-1250
+ * windows-1251
+ * windows-1252 (which is a superset of iso-8859-1)
+ * windows-1253
+ * windows-1254
+ * windows-1255
+ * windows-1256
+ * windows-1257
+ * windows-1258
+ * x-mac-cyrillic
+ * gbk
+ * gb18030
+ * big5
+ * euc-jp
+ * euc-kr
+ * iso-2022-jp
+ * shift_jis
+ * utf-16be
+ * utf-16le
+ * utf-8
+

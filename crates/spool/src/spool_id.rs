@@ -1,7 +1,8 @@
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use uuid::Uuid;
+use std::sync::LazyLock;
+use uuid::{ClockSequence, Context, Timestamp, Uuid};
 
 /// Identifies a message within the spool of its host node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -104,6 +105,55 @@ impl SpoolId {
         let (seconds, nanos) = self.0.get_timestamp().unwrap().to_unix();
         Utc.timestamp_opt(seconds.try_into().unwrap(), nanos)
             .unwrap()
+    }
+
+    /// Assuming that self is a SpoolId received from some other node,
+    /// this method produces a new SpoolId with the information
+    /// from the local node, but with the timestamp from the source
+    /// spool id.
+    /// The intent is to reduces the chances of having multiple
+    /// messages with the same spool id live on a system in the
+    /// case of a misconfiguration that produces a loop.
+    pub fn derive_new_with_cloned_timestamp(&self) -> Self {
+        let ts = self.0.get_timestamp().unwrap();
+
+        let candidate = Self(uuid_helper::new_v1(ts));
+
+        if candidate != *self {
+            return candidate;
+        }
+
+        // There's a conflict; try to avoid it by working
+        // through a sequence that increments a shared, initially
+        // randomized, counter.
+        // If we do have a routing loop then at least
+        // we stand some chance of avoiding re-using
+        // the same spoolid, but it isn't totally foolproof.
+
+        // Note: Context is only suitable for V1 uuids,
+        // which is what we're using here.
+        static CONTEXT: LazyLock<Context> = LazyLock::new(Context::new_random);
+
+        let (mut seconds, mut subsec_nanos) = ts.to_gregorian();
+        loop {
+            let (counter, secs, nanos) =
+                CONTEXT.generate_timestamp_sequence(seconds, subsec_nanos.into());
+            seconds = secs;
+            subsec_nanos = nanos as u16;
+
+            let ts = Timestamp::from_unix_time(
+                seconds,
+                subsec_nanos.into(),
+                counter.into(),
+                CONTEXT.usable_bits() as u8,
+            );
+
+            let candidate = Self(uuid_helper::new_v1(ts));
+
+            if candidate != *self {
+                return candidate;
+            }
+        }
     }
 }
 

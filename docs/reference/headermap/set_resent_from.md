@@ -4,7 +4,7 @@
 headers:set_resent_from(FROM)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Assign `VALUE` to the `Resent-From` header.
 

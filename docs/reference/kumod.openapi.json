@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2025.07.21-fc739b66"
+    "version": "2025.10.07-5b5145ae"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -448,6 +448,72 @@
         }
       }
     },
+    "/api/admin/xfer/cancel/v1": {
+      "post": {
+        "tags": [
+          "xfer"
+        ],
+        "summary": "Allows the system operator to stop a message transfer that was",
+        "description": "previously initiated via the `/api/admin/xfer/v1` API endpoint.\nThe cancellation works by walking the xfer scheduled queue,\nreversing the metadata changes made as part of setting up the\nxfer (to restore the original scheduling information) and then\nre-inserting the message into an appropriate scheduled queue.\n\nThe cancellation is \"instantaneous\" in the sense that it applies\njust once to the specified xfer scheduled queue.  Any other messages\nthat are in-flight or imminently about to be reinserted into\nthat scheduled queue will not be considered, so you may need\nto trigger the cancellation a few times over short time span\nto ensure that all messages are taken out of the xfer queue.\n\nCancellation requests always complete asynchronously because\nthey may operate on very large quantities of messages, and it\nis infeasible to wait for completion in the context of\na single HTTP request.",
+        "operationId": "xfer_cancel_v1",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/XferCancelV1Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Xfer added successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/XferV1Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/xfer/v1": {
+      "post": {
+        "tags": [
+          "xfer"
+        ],
+        "summary": "Allows the system operator to transfer messages from the current",
+        "description": "node to some other target node.\nThe transfer (xfer) can target queues that match\ncertain criteria, or if no criteria are provided, ALL queues.\nQueue selection is based upon the envelope recipient and message\nmetadata as described in <https://docs.kumomta.com/reference/queues/>.\nMessages in the selected queues will be moved into an xfer queue\nwhose name is based on the target specified by the transfer request.",
+        "operationId": "xfer_v1",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/XferV1Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Xfer added successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/XferV1Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/check-liveness/v1": {
       "get": {
         "tags": [
@@ -492,6 +558,40 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InjectV1Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/xfer/inject/v1": {
+      "post": {
+        "tags": [
+          "xfer"
+        ],
+        "summary": "Performs a message transfer.",
+        "description": "This is considered to be an internal API and should not be\ntargeted by external consumers.",
+        "operationId": "inject_xfer_v1",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Message transferred successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/XferResponseV1"
                 }
               }
             }
@@ -640,6 +740,13 @@
               }
             ],
             "nullable": true
+          },
+          "queue_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "If present, queue_names takes precedence over `campaign`,\n`tenant`, and `domain` and specifies the exact set of\nscheduled queue names to which the bounce applies."
           },
           "reason": {
             "type": "string",
@@ -925,7 +1032,10 @@
             "minimum": 0
           },
           "recipient": {
-            "type": "string",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "description": "The envelope-to address",
             "example": "recipient@example.com"
           },
@@ -1233,6 +1343,13 @@
             ],
             "nullable": true
           },
+          "queue_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "If present, queue_names takes precedence over `campaign`,\n`tenant`, and `domain` and specifies the exact set of\nscheduled queue names to which the suspension applies."
+          },
           "reason": {
             "type": "string",
             "description": "The reason for the suspension",
@@ -1282,6 +1399,79 @@
           }
         },
         "additionalProperties": false
+      },
+      "XferCancelV1Request": {
+        "type": "object",
+        "required": [
+          "queue_name",
+          "reason"
+        ],
+        "properties": {
+          "queue_name": {
+            "type": "string",
+            "description": "The name of the xfer scheduled queue"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason to log in the delivery log. Each matching message will log\nwith an AdminRebind record to indicate that it was moved from\nits containing queue, and this reason will be included in that record.",
+            "example": "Scaling down"
+          }
+        }
+      },
+      "XferCancelV1Response": {
+        "type": "object"
+      },
+      "XferV1Request": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/XferProtocol"
+          },
+          {
+            "type": "object",
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "campaign": {
+                "type": "string",
+                "description": "The campaign name to match. If omitted, any campaign will match.",
+                "nullable": true
+              },
+              "domain": {
+                "type": "string",
+                "description": "The domain name to match. If omitted, any domain will match.",
+                "example": "example.com",
+                "nullable": true
+              },
+              "queue_names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "If present, queue_names takes precedence over `campaign`,\n`tenant`, and `domain` and specifies the exact set of\nscheduled queue names to which the xfer applies."
+              },
+              "reason": {
+                "type": "string",
+                "description": "Reason to log in the delivery log. Each matching message will log\nwith an AdminRebind record to indicate that it was moved from\nits containing queue, and this reason will be included in that record.",
+                "example": "Scaling down"
+              },
+              "routing_domain": {
+                "type": "string",
+                "description": "The routing_domain name to match. If omitted, any routing_domain will match.",
+                "nullable": true
+              },
+              "tenant": {
+                "type": "string",
+                "description": "The tenant to match. If omitted, any tenant will match.",
+                "nullable": true
+              }
+            }
+          }
+        ],
+        "description": "Describes which messages should be transferred to another\nkumomta node.\nThe criteria apply to the scheduled queue associated\nwith a given message."
+      },
+      "XferV1Response": {
+        "type": "object"
       }
     },
     "responses": {
@@ -1457,6 +1647,26 @@
                   }
                 }
               }
+            }
+          }
+        }
+      },
+      "XferCancelV1Response": {
+        "description": "",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "XferV1Response": {
+        "description": "",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object"
             }
           }
         }

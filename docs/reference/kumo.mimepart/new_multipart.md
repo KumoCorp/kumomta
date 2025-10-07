@@ -4,7 +4,7 @@
 kumo.mimepart.new_multipart(CONTENT_TYPE, PARTS, OPTIONAL_BOUNDARY)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Constructs a new multi-part [MimePart](../mimepart/index.md) with the
 `Content-Type` header set to `CONTENT_TYPE`, which is expected to have a
