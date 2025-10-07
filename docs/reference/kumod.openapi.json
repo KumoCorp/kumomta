@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2025.09.10-91c0c2ac"
+    "version": "2025.10.07-407d2bc3"
   },
   "paths": {
     "/api/admin/bounce/v1": {
