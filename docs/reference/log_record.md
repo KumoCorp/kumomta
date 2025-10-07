@@ -22,6 +22,10 @@ The log record is a JSON object with the following shape:
     "sender": "user@sender.example.com",
 
     // The envelope recipient
+    //
+    // If the message has multiple recipients (eg: it was part of
+    // an SMTP batch transaction) this will be an array of the
+    // recipients. (Multi-recipient is possible {{since('dev', inline=True)}})
     "recipient": "user@recipient.example.com",
 
     // Which named queue the message was associated with
