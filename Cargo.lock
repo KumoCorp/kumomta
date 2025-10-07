@@ -3267,7 +3267,7 @@ dependencies = [
  "instant-xml",
  "k9",
  "kumo-spf",
- "rand 0.9.2",
+ "rand 0.8.5",
  "serde",
  "tokio",
 ]

@@ -28,10 +28,10 @@ impl Record {
         cx: &DmarcContext<'_>,
         _resolver: &dyn Resolver,
     ) -> DmarcResultWithContext {
-        if rand::random_range(0..100) >= self.rate {
+        if rand::random::<u8>() % 100 >= self.rate {
             return DmarcResultWithContext {
                 result: DmarcResult::Pass,
-                context: "DMARC: message skipped".into(),
+                context: format!("sampled_out due to pct={}", self.rate),
             };
         }
         match self.align_dkim {

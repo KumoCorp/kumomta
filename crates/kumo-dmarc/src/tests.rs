@@ -136,14 +136,14 @@ async fn dmarc_spf_strict_subdomain() {
 async fn dmarc_pct_rate() {
     let mut total_failures = 0;
 
-    for _ in 0..10000 {
-        let resolver = TestResolver::default().with_zone(EXAMPLE_COM).with_txt(
-            "example.com",
-            "v=DMARC1; p=reject; aspf=s; pct=50; \
+    let resolver = TestResolver::default().with_zone(EXAMPLE_COM).with_txt(
+        "example.com",
+        "v=DMARC1; p=reject; aspf=s; pct=50; \
                 rua=mailto:dmarc-feedback@example.com"
-                .to_string(),
-        );
+            .to_string(),
+    );
 
+    for _ in 0..10000 {
         let result = evaluate_ip(
             Ipv4Addr::LOCALHOST,
             "example.com",

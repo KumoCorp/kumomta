@@ -9,7 +9,7 @@ dns-resolver = {path="../dns-resolver"}
 instant-xml = {workspace=true}
 kumo-spf = { path = "../kumo-spf" }
 serde = {workspace=true}
-rand = "0.9"
+rand = {workspace=true}
 
 [dev-dependencies]
 k9 = {workspace=true}
