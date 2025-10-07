@@ -4,7 +4,7 @@
 kumo.mimepart.builder()
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Returns a message builder object that can be used to build an email from an
 optional text, optional html and optional set of attachments. The builder takes

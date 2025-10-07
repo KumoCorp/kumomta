@@ -1,6 +1,6 @@
 # The HeaderMap Object
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Represents the parsed state of the set of headers in a [MimePart](../mimepart/index.md).
 

@@ -8,7 +8,7 @@ local headers = mimepart.headers
     This is a field rather than a method, so you must use `mimepart.headers`
     rather than `mimepart:headers` to reference it.
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 The `headers` field returns a reference to the
 [HeaderMap](../headermap/index.md) for `mimepart`.  You can use the headermap

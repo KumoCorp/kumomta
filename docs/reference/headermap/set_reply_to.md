@@ -4,7 +4,7 @@
 headers:set_reply_to(TO)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Assign `VALUE` to the `Reply-To` header.
 

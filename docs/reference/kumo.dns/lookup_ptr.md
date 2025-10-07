@@ -4,7 +4,7 @@
 kumo.dns.lookup_ptr(IP)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Resolve PTR records for the requested `IP`.
 

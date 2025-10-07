@@ -9,7 +9,7 @@ tags:
 kumo.inject_message(MSG)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Injects the `MSG` into the queue subsystem and begins delivering the message.
 

@@ -4,7 +4,7 @@
 mimepart:append_part(PART)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Appends `PART`, which must also be a [MimePart](index.md) (perhaps created via
 [kumo.mimpart.new_text](../kumo.mimepart/new_text.md) or similar) to the set of

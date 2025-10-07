@@ -4,7 +4,7 @@
 kumo.mpsc.define(NAME, OPTIONAL_LIMIT)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Defines a new Multi-Producer-Single-Consumer (MPSC) queue, returning a *queue*
 object.  An MPSC queue allows multiple producers to submit values to the queue

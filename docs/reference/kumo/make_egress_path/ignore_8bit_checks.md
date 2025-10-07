@@ -1,6 +1,6 @@
 # ignore_8bit_checks
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 When set to `true`, the SMTP client will not pre-emptively consider a message
 send attempt as a permanent failure when it would require either `8BITMIME` or

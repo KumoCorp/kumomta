@@ -4,7 +4,7 @@
 headers:set_content_disposition(VALUE)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Assign the `VALUE` to the `Content-Disposition` header.
 

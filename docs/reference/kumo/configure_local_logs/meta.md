@@ -32,7 +32,7 @@ kumo.on('smtp_server_message_received', function(msg, conn_meta)
 end)
 ```
 
-{{since('dev', indent=True)}}
+{{since('2025.10.06-5ec871ab', indent=True)}}
     Meta names can now use simple wildcard suffixes; if the last character
     of the meta name is `*` then it will match any string with that prefix.
     For example `"xfer_*"` will match any meta names that start with `"xfer_"`.

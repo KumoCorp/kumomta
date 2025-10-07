@@ -5,7 +5,7 @@ local bounce_msg =
   kumo.generate_rfc3464_message(PARAMS, OPT_ORIG_MSG, LOG_RECORD)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Generates an RFC 3464 delivery status [Message](../message/index.md) from a log
 record.  This function is intended to be used from inside a `log_disposition`

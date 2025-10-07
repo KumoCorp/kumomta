@@ -4,7 +4,7 @@
 kumo.apply_supplemental_trace_header(msg, opt_params)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Builds a supplemental trace header according to the optional parameters, and
 adds it to the message.

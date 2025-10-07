@@ -4,7 +4,7 @@
 kumo.on('shutdown_logging', function() end)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Called by `kumod` as part of shutdown, just prior to shutting down all loggers.
 

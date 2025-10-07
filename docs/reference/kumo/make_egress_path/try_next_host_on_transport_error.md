@@ -1,6 +1,6 @@
 # try_next_host_on_transport_error
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 An optional boolean value that defaults to `false`.
 

@@ -4,7 +4,7 @@
 headers:prepend(NAME, VALUE)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Constructs a new header with `NAME` and `VALUE` and prepends it to the header map.
 

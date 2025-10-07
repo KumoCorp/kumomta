@@ -4,7 +4,7 @@
 headers:set_content_transfer_encoding(VALUE)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Assign the `VALUE` to the `Content-Transfer-Encoding` header.
 

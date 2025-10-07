@@ -4,7 +4,7 @@
 local mime_part = message:parse_mime()
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Returns a [MimePart](../mimepart/index.md) representation of the message content.
 

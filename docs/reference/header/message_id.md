@@ -4,7 +4,7 @@
 local message_id = header.message_id
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Reading the `message_id` field will attempt to interpret the contents
 of the header as a `Message-Id` header.

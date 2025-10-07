@@ -45,7 +45,7 @@ For example, you might populate it like this:
 $ vault kv put -mount=secret tls/mail.example.com key=@mail.example.com.key
 ```
 
-If you want to use a different field name, you can specify it with `vault_key` {{since('dev', inline=True)}}:
+If you want to use a different field name, you can specify it with `vault_key` {{since('2025.10.06-5ec871ab', inline=True)}}:
 
 ```lua
 kumo.start_esmtp_listener {
