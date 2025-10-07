@@ -28,6 +28,12 @@ impl Record {
         cx: &DmarcContext<'_>,
         _resolver: &dyn Resolver,
     ) -> DmarcResultWithContext {
+        if rand::random::<u8>() % 100 >= self.rate {
+            return DmarcResultWithContext {
+                result: DmarcResult::Pass,
+                context: format!("sampled_out due to pct={}", self.rate),
+            };
+        }
         match self.align_dkim {
             Mode::Relaxed => {
                 for dkim in cx.dkim {
