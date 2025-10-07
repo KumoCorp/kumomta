@@ -16,6 +16,8 @@ use crate::queue::{opt_timeout_at, IncrementAttempts, InsertResult, ReadyQueueFu
 use crate::ready_queue::ReadyQueueManager;
 use crate::smtp_server::{make_deferred_queue_config, DEFERRED_QUEUE_NAME};
 use crate::spool::SpoolManager;
+use crate::xfer::request::AdminXferEntry;
+use crate::xfer::{make_xfer_queue, SavedQueueInfo};
 use anyhow::Context;
 use arc_swap::ArcSwap;
 use chrono::Utc;
@@ -23,6 +25,7 @@ use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{declare_event, load_config, LuaConfig};
 use humantime::format_duration;
 use kumo_api_types::egress_path::{ConfigRefreshStrategy, MemoryReductionPolicy};
+use kumo_api_types::xfer::XferProtocol;
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on};
@@ -71,6 +74,10 @@ impl Queue {
 
         if name == DEFERRED_QUEUE_NAME {
             return make_deferred_queue_config();
+        }
+
+        if let Some(xfer) = make_xfer_queue(name) {
+            return Ok(xfer);
         }
 
         if name == "null" {
@@ -505,6 +512,209 @@ impl Queue {
         if count > 0 {
             for msg in msgs {
                 self.do_rebind(msg, rebind, InsertReason::AdminRebind.into())
+                    .await;
+            }
+        }
+    }
+
+    async fn do_xfer(
+        self: &Arc<Self>,
+        msg: Message,
+        rebind: &Arc<AdminXferEntry>,
+        context: InsertContext,
+    ) {
+        // Don't re-issue save_info if they xfer again to re-target
+        // a queue that they already xfer'd previously
+        if !XferProtocol::is_xfer_queue_name(&self.name) {
+            if let Err(err) = SavedQueueInfo::save_info(&msg).await {
+                tracing::error!("failed to apply xfer: {err:#}");
+            }
+        }
+
+        let queue_name = rebind.request.protocol.to_queue_name();
+        let queue_holder;
+        let queue = match QueueManager::resolve(&queue_name).await {
+            Err(err) => {
+                tracing::error!("failed to resolve queue `{queue_name}`: {err:#}");
+                self
+            }
+            Ok(queue) => {
+                queue_holder = queue;
+                &queue_holder
+            }
+        };
+
+        if let Err(err) = msg.load_meta_if_needed().await {
+            tracing::error!("failed to load meta: {err:#}");
+        }
+        if let Err(err) = msg.set_meta("queue", queue.name.to_string()) {
+            tracing::error!("failed to save queue meta: {err:#}");
+        }
+
+        if msg.needs_save() {
+            if let Err(err) = msg.save(None).await {
+                tracing::error!("failed to save msg after rebind: {err:#}");
+            }
+        }
+
+        if queue.name != self.name {
+            log_disposition(LogDisposition {
+                kind: RecordType::AdminRebind,
+                msg: msg.clone(),
+                site: "",
+                peer_address: None,
+                response: Response {
+                    code: 250,
+                    enhanced_code: None,
+                    command: None,
+                    content: format!("Rebound from {} to {queue_name}: {}", self.name, queue.name,),
+                },
+                egress_pool: None,
+                egress_source: None,
+                relay_disposition: None,
+                delivery_protocol: None,
+                tls_info: None,
+                source_address: None,
+                provider: None,
+                session_id: None,
+                recipient_list: None,
+            })
+            .await;
+        }
+
+        if let Err(err) = queue
+            .requeue_message_internal(
+                msg,
+                IncrementAttempts::No,
+                Some(chrono::Duration::seconds(0)),
+                context,
+            )
+            .await
+        {
+            tracing::error!(
+                "failed to requeue message to {} after failed rebind: {err:#}",
+                queue.name
+            );
+        }
+    }
+
+    #[instrument(skip(self))]
+    pub async fn xfer_all(self: &Arc<Self>, xfer: &Arc<AdminXferEntry>) {
+        let msgs = self.drain_timeq();
+        let count = msgs.len();
+        if count > 0 {
+            for msg in msgs {
+                self.do_xfer(msg, xfer, InsertReason::AdminRebind.into())
+                    .await;
+            }
+        }
+    }
+
+    async fn unwind_cancel_xfer(self: &Arc<Self>, msg: Message, context: InsertContext) {
+        // Try to put it back!
+        if let Err(err) = SavedQueueInfo::save_info(&msg).await {
+            tracing::error!("failed to re-apply xfer: {err:#}. Giving up on message; cannot safely do anything more with it until restart");
+            return;
+        }
+
+        if let Err(err) = self
+            .requeue_message_internal(
+                msg,
+                IncrementAttempts::No,
+                Some(chrono::Duration::seconds(0)),
+                context,
+            )
+            .await
+        {
+            tracing::error!(
+                "failed to requeue message to {} after failed xfer cancel: {err:#}",
+                self.name
+            );
+        }
+    }
+
+    async fn undo_xfer(self: &Arc<Self>, msg: Message, context: InsertContext, reason: &str) {
+        if let Err(err) = SavedQueueInfo::restore_info(&msg).await {
+            tracing::error!("failed to cancel xfer: {err:#}");
+        }
+
+        if msg.needs_save() {
+            if let Err(err) = msg.save(None).await {
+                tracing::error!("failed to save msg after cancel xfer: {err:#}");
+            }
+        }
+
+        // Put the message back into its originating queue
+        let queue_name = match msg.get_queue_name() {
+            Ok(name) => name,
+            Err(err) => {
+                tracing::error!(
+                    "failed to get queue name from message after cancelling xfer: {err:#}"
+                );
+                return self.unwind_cancel_xfer(msg, context).await;
+            }
+        };
+
+        let queue = match QueueManager::resolve(&queue_name).await {
+            Err(err) => {
+                tracing::error!(
+                    "failed to resolve queue `{queue_name}` after cancelling xfer: {err:#}"
+                );
+                return self.unwind_cancel_xfer(msg, context).await;
+            }
+            Ok(queue) => queue,
+        };
+
+        log_disposition(LogDisposition {
+            kind: RecordType::AdminRebind,
+            msg: msg.clone(),
+            site: "",
+            peer_address: None,
+            response: Response {
+                code: 250,
+                enhanced_code: None,
+                command: None,
+                content: format!("Rebound from {} to {queue_name}: {reason}", self.name),
+            },
+            egress_pool: None,
+            egress_source: None,
+            relay_disposition: None,
+            delivery_protocol: None,
+            tls_info: None,
+            source_address: None,
+            provider: None,
+            session_id: None,
+            recipient_list: None,
+        })
+        .await;
+
+        if let Err(err) = queue
+            .requeue_message_internal(
+                msg,
+                IncrementAttempts::No,
+                Some(chrono::Duration::seconds(0)),
+                context,
+            )
+            .await
+        {
+            tracing::error!(
+                "failed to requeue message to {} after failed rebind: {err:#}",
+                queue.name
+            );
+        }
+    }
+
+    #[instrument(skip(self))]
+    pub async fn cancel_xfer_all(self: &Arc<Self>, reason: String) {
+        if !XferProtocol::is_xfer_queue_name(&*self.name) {
+            return;
+        }
+
+        let msgs = self.drain_timeq();
+        let count = msgs.len();
+        if count > 0 {
+            for msg in msgs {
+                self.undo_xfer(msg, InsertReason::AdminRebind.into(), &reason)
                     .await;
             }
         }
@@ -1115,6 +1325,7 @@ impl Queue {
         match &self.queue_config.borrow().protocol {
             DeliveryProto::Smtp { .. }
             | DeliveryProto::Lua { .. }
+            | DeliveryProto::Xfer { .. }
             | DeliveryProto::HttpInjectionGenerator => {
                 let source_selector = self.source_selector.load();
                 match source_selector

@@ -23,9 +23,16 @@ kumo.on('init', function()
 
   kumo.start_esmtp_listener(smtp_params)
 
+  kumo.start_http_listener {
+    listen = '127.0.0.1:0',
+  }
+
   kumo.configure_local_logs {
     log_dir = TEST_DIR .. '/logs',
     max_segment_duration = '1s',
+    meta = {
+      '*',
+    },
   }
 
   kumo.define_spool {
@@ -37,6 +44,11 @@ kumo.on('init', function()
     name = 'meta',
     path = TEST_DIR .. '/meta-spool',
   }
+end)
+
+kumo.on('xfer_message_received', function(msg)
+  -- This is coupled with the xfer integration tests
+  msg:set_meta('sunk', 'received via xfer')
 end)
 
 local function apply_rejections(envelope_addr)

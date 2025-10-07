@@ -22,6 +22,7 @@ data-loader = {path="../data-loader"}
 derive-where.workspace = true
 dns-resolver = {path="../dns-resolver", features=["unbound"]}
 duration-serde = {path="../duration-serde"}
+flate2 = {workspace=true}
 flume = {workspace=true}
 gcd = {workspace=true}
 gethostname = {workspace=true}
@@ -56,6 +57,7 @@ parking_lot = {workspace=true}
 ppp = {workspace=true}
 prometheus = {workspace=true}
 rand = {workspace=true}
+reqwest = {workspace=true, default-features=false, features=["rustls-tls"]}
 rfc5321 = {path="../rfc5321"}
 rustls = {workspace=true}
 serde = {workspace=true, features=["rc"]}

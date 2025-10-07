@@ -22,6 +22,8 @@ mod suspend_ready_q_list;
 mod top;
 mod trace_smtp_client;
 mod trace_smtp_server;
+mod xfer;
+mod xfer_cancel;
 
 /// KumoMTA CLI.
 ///
@@ -72,6 +74,8 @@ enum SubCommand {
     TraceSmtpClient(trace_smtp_client::TraceSmtpClientCommand),
     TraceSmtpServer(trace_smtp_server::TraceSmtpServerCommand),
     Top(top::TopCommand),
+    Xfer(xfer::XferCommand),
+    XferCancel(xfer_cancel::XferCancelCommand),
 }
 
 impl SubCommand {
@@ -135,6 +139,8 @@ impl SubCommand {
             Self::TraceSmtpClient(cmd) => cmd.run(endpoint).await,
             Self::TraceSmtpServer(cmd) => cmd.run(endpoint).await,
             Self::Top(cmd) => cmd.run(endpoint).await,
+            Self::Xfer(cmd) => cmd.run(endpoint).await,
+            Self::XferCancel(cmd) => cmd.run(endpoint).await,
         }
     }
 }

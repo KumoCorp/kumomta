@@ -36,6 +36,7 @@ mod smtp_dispatcher;
 mod smtp_server;
 mod spf;
 mod spool;
+mod xfer;
 
 /// KumoMTA Daemon.
 ///

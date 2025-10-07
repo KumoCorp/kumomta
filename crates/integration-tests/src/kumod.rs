@@ -334,23 +334,14 @@ impl DaemonWithMaildir {
         &self,
         args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     ) -> anyhow::Result<R> {
-        let path = target_bin("kcli")?;
-        let mut cmd = Command::new(path);
-        cmd.args([
-            "--endpoint",
-            &format!("http://{}", self.source.listener("http")),
-        ]);
-        cmd.args(args);
-        cmd.stdout(std::process::Stdio::piped());
-        let label = format!("{cmd:?}");
-        let child = cmd.spawn()?;
-        let output = child.wait_with_output().await?;
-        anyhow::ensure!(output.status.success(), "{label}: {:?}", output.status);
-        println!(
-            "kcli output is: {}",
-            String::from_utf8_lossy(&output.stdout)
-        );
-        Ok(serde_json::from_slice(&output.stdout)?)
+        self.source.kcli_json(args).await
+    }
+
+    pub async fn sink_kcli_json<R: for<'a> serde::Deserialize<'a>>(
+        &self,
+        args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+    ) -> anyhow::Result<R> {
+        self.sink.kcli_json(args).await
     }
 
     pub fn extract_maildir_messages(&self) -> anyhow::Result<Vec<MailEntry>> {
@@ -487,6 +478,7 @@ impl KumoDaemon {
                 "kumod=trace,kumo_server_common=info,kumo_server_runtime=info,amqprs=trace,warn,lua=trace",
             )
             .env("KUMOD_TEST_DIR", dir.path())
+            .env("KUMO_NODE_ID_PATH", dir.path().join("nodeid"))
             .envs(args.env.iter().cloned())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -756,6 +748,26 @@ impl KumoDaemon {
         }
 
         anyhow::bail!("unexpected state from accounting db");
+    }
+
+    pub async fn kcli_json<R: for<'a> serde::Deserialize<'a>>(
+        &self,
+        args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+    ) -> anyhow::Result<R> {
+        let path = target_bin("kcli")?;
+        let mut cmd = Command::new(path);
+        cmd.args(["--endpoint", &format!("http://{}", self.listener("http"))]);
+        cmd.args(args);
+        cmd.stdout(std::process::Stdio::piped());
+        let label = format!("{cmd:?}");
+        let child = cmd.spawn()?;
+        let output = child.wait_with_output().await?;
+        anyhow::ensure!(output.status.success(), "{label}: {:?}", output.status);
+        println!(
+            "kcli output is: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        Ok(serde_json::from_slice(&output.stdout)?)
     }
 }
 

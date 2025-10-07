@@ -193,6 +193,10 @@ The following record types are defined:
   in response to an incoming SMTP command. {{since('2024.06.10-84e84b89', inline=True)}}
 * `"Delayed"` - explains why a message landed in the scheduled queue when
   it doesn't otherwise have a `TransientFailure` record logged. {{since('2025.01.23-7273d2bc', inline=True)}}
+* `"XferOut"` - a message was transferred out from the current node to another
+  kumomta node as part of an [xfer](kcli/xfer.md). {{since('dev', inline=True)}}
+* `"XferIn"` - a message was transferred in to the current node from another
+  kumomta node as part of an [xfer](kcli/xfer.md). {{since('dev', inline=True)}}
 
 ## Feedback Report
 

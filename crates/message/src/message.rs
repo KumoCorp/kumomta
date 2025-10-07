@@ -250,13 +250,13 @@ impl WeakMessage {
 
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct MetaData {
-    sender: EnvelopeAddress,
+pub(crate) struct MetaData {
+    pub sender: EnvelopeAddress,
     #[serde_as(as = "OneOrMany<_, PreferOne>")]
-    recipient: Vec<EnvelopeAddress>,
-    meta: serde_json::Value,
+    pub recipient: Vec<EnvelopeAddress>,
+    pub meta: serde_json::Value,
     #[serde(default)]
-    schedule: Option<Scheduling>,
+    pub schedule: Option<Scheduling>,
 }
 
 impl Drop for MessageInner {
@@ -338,6 +338,31 @@ impl Message {
                 link: LinkedListAtomicLink::default(),
             }),
         })
+    }
+
+    pub(crate) fn new_from_parts(id: SpoolId, metadata: MetaData, data: Arc<Box<[u8]>>) -> Self {
+        MESSAGE_COUNT.inc();
+        META_COUNT.inc();
+
+        let flags = if metadata.schedule.is_some() {
+            MessageFlags::SCHEDULED
+        } else {
+            MessageFlags::empty()
+        };
+
+        Self {
+            msg_and_id: Arc::new(MessageWithId {
+                id,
+                inner: Mutex::new(MessageInner {
+                    metadata: Some(Box::new(metadata)),
+                    data,
+                    flags: flags | MessageFlags::META_DIRTY | MessageFlags::DATA_DIRTY,
+                    num_attempts: 0,
+                    due: None,
+                }),
+                link: LinkedListAtomicLink::default(),
+            }),
+        }
     }
 
     pub async fn new_with_id(id: SpoolId) -> anyhow::Result<Self> {
@@ -478,6 +503,16 @@ impl Message {
         } else {
             None
         }
+    }
+
+    pub(crate) async fn clone_meta_data(&self) -> anyhow::Result<MetaData> {
+        self.load_meta_if_needed().await?;
+        let inner = self.msg_and_id.inner.lock();
+        inner
+            .metadata
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("metadata not loaded even though we just loaded it"))
+            .map(|md| (**md).clone())
     }
 
     pub fn set_force_sync(&self, force: bool) {
@@ -771,6 +806,26 @@ impl Message {
                 match &mut meta.meta {
                     serde_json::Value::Object(map) => {
                         map.insert(key.to_string(), value);
+                    }
+                    _ => anyhow::bail!("metadata is somehow not a json object"),
+                }
+
+                inner.flags.set(MessageFlags::META_DIRTY, true);
+                Ok(())
+            }
+        }
+    }
+
+    pub fn unset_meta<S: AsRef<str>>(&self, key: S) -> anyhow::Result<()> {
+        let mut inner = self.msg_and_id.inner.lock();
+        match &mut inner.metadata {
+            None => anyhow::bail!("set_meta: metadata must be loaded first"),
+            Some(meta) => {
+                let key = key.as_ref();
+
+                match &mut meta.meta {
+                    serde_json::Value::Object(map) => {
+                        map.remove(key);
                     }
                     _ => anyhow::bail!("metadata is somehow not a json object"),
                 }
@@ -1584,11 +1639,11 @@ impl TimerEntryWithDelay for Message {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use super::*;
     use serde_json::json;
 
-    fn new_msg_body<S: AsRef<[u8]>>(s: S) -> Message {
+    pub fn new_msg_body<S: AsRef<[u8]>>(s: S) -> Message {
         Message::new_dirty(
             SpoolId::new(),
             EnvelopeAddress::parse("sender@example.com").unwrap(),

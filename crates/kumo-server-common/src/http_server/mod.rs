@@ -237,16 +237,25 @@ impl HttpListenerParams {
 }
 
 #[derive(Debug)]
-pub struct AppError(pub anyhow::Error);
+pub struct AppError {
+    pub err: anyhow::Error,
+    pub code: StatusCode,
+}
+
+impl AppError {
+    pub fn new(code: StatusCode, err: impl Into<String>) -> Self {
+        let err: String = err.into();
+        Self {
+            err: anyhow::anyhow!(err),
+            code,
+        }
+    }
+}
 
 // Tell axum how to convert `AppError` into a response.
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Error: {:#}", self.0),
-        )
-            .into_response()
+        (self.code, format!("Error: {:#}", self.err)).into_response()
     }
 }
 
@@ -257,7 +266,10 @@ where
     E: Into<anyhow::Error>,
 {
     fn from(err: E) -> Self {
-        Self(err.into())
+        Self {
+            err: err.into(),
+            code: StatusCode::INTERNAL_SERVER_ERROR,
+        }
     }
 }
 

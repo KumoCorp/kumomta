@@ -46,3 +46,4 @@ mod tsa_campaign_suspension;
 mod tsa_tenant_suspension;
 mod tsa_tenant_suspension_issue290;
 mod xclient;
+mod xfer;

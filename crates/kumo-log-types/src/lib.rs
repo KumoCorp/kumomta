@@ -65,6 +65,14 @@ pub enum RecordType {
     /// Explains why a message was put into the scheduled queue
     Delayed,
 
+    /// Message was transferred to another kumomta node,
+    /// which is now responsible for delivery.
+    XferOut,
+
+    /// Message was received from another kumomta node,
+    /// and we are now responsible for delivery.
+    XferIn,
+
     /// Special for matching anything in the logging config
     Any,
 }
@@ -82,6 +90,8 @@ impl RecordType {
             | Self::Delivery
             | Self::DeferredInjectionRebind
             | Self::AdminRebind
+            | Self::XferOut
+            | Self::XferIn
             | Self::Delayed => false,
             Self::Bounce
             | Self::TransientFailure

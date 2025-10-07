@@ -141,6 +141,12 @@ impl Rfc2045Info {
             invalid_mime_headers,
         }
     }
+
+    pub fn content_type(&self) -> Option<&str> {
+        self.content_type
+            .as_ref()
+            .map(|params| params.value.as_str())
+    }
 }
 
 impl<'a> MimePart<'a> {

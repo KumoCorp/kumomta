@@ -50,6 +50,7 @@ kumo.on('init', function()
     log_dir = TEST_DIR .. '/logs',
     max_segment_duration = '1s',
     headers = { 'X-*', 'Y-*', 'Subject' },
+    meta = { 'xfer*' },
   }
 
   if WEBHOOK_PORT then
@@ -255,6 +256,9 @@ end
 kumo.on('smtp_server_message_received', function(msg)
   local result = msg:import_scheduling_header 'X-Schedule'
   kumo.log_info('schedule result', kumo.serde.json_encode(result))
+  -- This tenant header import is used by xfer.rs as a way to set
+  -- the tenant metadata for the incoming message
+  msg:import_x_headers { 'tenant' }
 end)
 
 kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)

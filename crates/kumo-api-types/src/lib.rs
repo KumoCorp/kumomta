@@ -14,6 +14,7 @@ pub mod egress_path;
 pub mod rebind;
 pub mod shaping;
 pub mod tsa;
+pub mod xfer;
 
 /// Describes which messages should be bounced.
 /// The criteria apply to the scheduled queue associated

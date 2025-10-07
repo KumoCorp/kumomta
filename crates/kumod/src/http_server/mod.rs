@@ -3,6 +3,7 @@ use axum::routing::{delete, get, post};
 use axum::Router;
 use inject_v1::*;
 use kumo_api_types::rebind::*;
+use kumo_api_types::xfer::*;
 use kumo_api_types::*;
 use kumo_server_common::http_server::RouterAndDocs;
 use spool::SpoolId;
@@ -40,6 +41,9 @@ pub mod queue_name_multi_index;
         admin_suspend_v1::list,
         admin_suspend_v1::delete,
         check_liveness_v1::check_liveness_v1,
+        crate::xfer::inject_xfer_v1,
+        crate::xfer::request::xfer_v1,
+        crate::xfer::cancel::xfer_cancel_v1,
     ),
     components(
         schemas(
@@ -69,13 +73,19 @@ pub mod queue_name_multi_index;
             SuspendV1ListEntry,
             SuspendV1Request,
             TraceHeaders,
+            XferV1Request,
+            XferV1Response,
+            XferCancelV1Request,
+            XferCancelV1Response,
         ),
         responses(
             InjectV1Response,
             BounceV1Response,
             InspectMessageV1Response,
             InspectQueueV1Response,
-            ReadyQueueStateResponse
+            ReadyQueueStateResponse,
+            XferV1Response,
+            XferCancelV1Response,
         ),
     )
 )]
@@ -88,6 +98,12 @@ pub fn make_router() -> RouterAndDocs {
                 "/api/check-liveness/v1",
                 get(check_liveness_v1::check_liveness_v1),
             )
+            .route("/api/xfer/inject/v1", post(crate::xfer::inject_xfer_v1))
+            .route(
+                "/api/admin/xfer/cancel/v1",
+                post(crate::xfer::cancel::xfer_cancel_v1),
+            )
+            .route("/api/admin/xfer/v1", post(crate::xfer::request::xfer_v1))
             .route("/api/inject/v1", post(inject_v1::inject_v1))
             .route("/api/admin/bounce/v1", post(admin_bounce_v1::bounce_v1))
             .route("/api/admin/bounce/v1", get(admin_bounce_v1::bounce_v1_list))

@@ -26,6 +26,19 @@
    useful in certain automation scenarios where you wish to target a specific
    queue precisely.  The kcli commands support a `--queue` option to select the
    queue name, while the API expose that via a `queue_names` field.
+ * New [kcli xfer](../reference/kcli/xfer.md) and [kcli
+   xfer-cancel](../reference/kcli/xfer-cancel.md) commands enable migration
+   of queues to alternative kumomta nodes as part of operational tasks such
+   draining a queue for decomissioning or scaling down infrastructure.  These
+   commands are building blocks for you to deploy auto-scaling or similar
+   functionality within your infrastructure orchestration. The new
+   [xfer_message_received](../reference/events/xfer_message_received.md) can be
+   used to fixup messages as they are arrive on the target node via xfer.
+   `XferOut` and `XferIn` are two new [log record](../reference/log_record.md)
+   types associated with message transfers. The kcli commands have
+   corresponding HTTP API endpoints:
+   [xfer](../reference/rapidoc.md/#post-/api/admin/xfer/v1) and
+   [xfer-cancel](../reference/rapidoc.md/#post-/api/admin/xfer/cancel/v1) #311
 
 ## Fixes
 
