@@ -182,12 +182,12 @@ sha2 = "0.10"
 slog = "2.7"
 smallvec = "1.13"
 socksv5 = {version="0.3", default-features=false, features=["tokio"]}
-sqlite = "0.36"
-strum = { version = "0.26", features = ["derive"] }
+sqlite = "0.37"
+strum = { version = "0.27", features = ["derive"] }
 tabout = "0.3"
 tempfile = "3.10"
 test-log = {version="0.2", features = ["trace"]}
-testcontainers-modules = { version = "0.11", default-features = false }
+testcontainers-modules = { version = "0.13", default-features = false }
 textwrap = "0.16"
 thiserror = "2"
 tikv-jemallocator = {version="0.6", features=["background_threads", "stats"]}
