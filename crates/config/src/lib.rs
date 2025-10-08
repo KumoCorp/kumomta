@@ -7,7 +7,7 @@ use mlua::{
     UserData, UserDataMethods, Value,
 };
 use parking_lot::FairMutex as Mutex;
-pub use paste;
+pub use pastey as paste;
 use prometheus::{CounterVec, HistogramTimer, HistogramVec};
 use serde::Serialize;
 use std::borrow::Cow;

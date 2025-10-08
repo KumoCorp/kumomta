@@ -9,7 +9,7 @@ dashmap.workspace = true
 kumo-server-memory = {path="../kumo-server-memory"}
 linkme.workspace = true
 parking_lot = {workspace=true}
-paste.workspace = true
+pastey.workspace = true
 prometheus.workspace = true
 rand.workspace = true
 scopeguard.workspace = true

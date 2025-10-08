@@ -147,7 +147,7 @@ openssl = { version="=0.10.72" } # pinned; see patch below
 openssl-sys = { version="0.9" }
 ordermap = {version="0.5", features=["serde"]}
 parking_lot = "0.12"
-paste = "1"
+pastey = "0.1"
 percent-encoding = "2.3"
 pest = "2.7"
 pest_derive = "2.7"

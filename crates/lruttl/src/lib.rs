@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Weak};
 use tokio::sync::Semaphore;
 use tokio::time::{timeout_at, Duration, Instant};
-pub use {linkme, paste};
+pub use {linkme, pastey as paste};
 
 mod metrics;
 

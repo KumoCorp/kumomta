@@ -5,7 +5,7 @@ use async_stream::stream;
 use futures::stream::BoxStream;
 use futures::StreamExt;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
-pub use paste;
+pub use pastey as paste;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::hash::Hash;

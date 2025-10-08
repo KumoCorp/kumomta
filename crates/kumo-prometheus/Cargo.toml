@@ -10,7 +10,7 @@ futures = {workspace=true}
 map_vec = {workspace=true}
 memchr = {workspace=true}
 parking_lot = {workspace=true}
-paste = {workspace=true}
+pastey = {workspace=true}
 prometheus = {workspace=true}
 serde_json = {workspace=true}
 tokio = {workspace=true, features=["rt", "time"]}

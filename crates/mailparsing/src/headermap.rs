@@ -3,7 +3,7 @@ use crate::{
     MimeParameters, Result, SharedString,
 };
 use chrono::{DateTime, FixedOffset, TimeZone};
-use paste::paste;
+use pastey::paste;
 
 /// Represents an ordered list of headers.
 /// Note that there may be multiple headers with the same name.

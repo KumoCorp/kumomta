@@ -12,7 +12,7 @@ data-encoding-macro = {workspace=true}
 memchr = {workspace=true}
 nom = {workspace=true}
 nom_locate = {workspace=true}
-paste = {workspace=true}
+pastey = {workspace=true}
 quoted_printable = {workspace=true}
 serde = {workspace=true}
 thiserror = {workspace=true}
