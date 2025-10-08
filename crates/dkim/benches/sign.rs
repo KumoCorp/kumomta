@@ -1,5 +1,5 @@
 use chrono::TimeZone;
-use criterion::{black_box, criterion_group, criterion_main, Criterion, SamplingMode, Throughput};
+use criterion::{criterion_group, criterion_main, Criterion, SamplingMode, Throughput};
 use kumo_dkim::canonicalization::Type;
 use kumo_dkim::{DkimPrivateKey, ParsedEmail, SignerBuilder};
 
@@ -75,7 +75,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         group.sampling_mode(SamplingMode::Flat);
         group.throughput(Throughput::Bytes(email_text.len() as u64));
         group.bench_function(format!("sign {canon:?}"), |b| {
-            b.iter(|| signer.sign(black_box(&email)).unwrap())
+            b.iter(|| signer.sign(std::hint::black_box(&email)).unwrap())
         });
         group.finish();
     }
