@@ -216,7 +216,7 @@ uuid = "1.4"
 uuid-helper = { path = "crates/uuid-helper" }
 vaultrs = "0.7"
 walkdir = "2.3"
-which = "7"
+which = "8"
 zstd = "0.13"
 zstd-safe = {version="7.0", features=["std"]}
 
