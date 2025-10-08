@@ -158,7 +158,7 @@ quoted_printable = "0.5"
 rand = "0.8"
 ratatui = { version = "0.29.0", features = ["crossterm", "unstable-widget-ref"] }
 rcgen = "0.13"
-rdkafka = "0.36"
+rdkafka = "0.38"
 redis = {version="0.32", features=["cluster", "cluster-async", "connection-manager", "tokio-comp", "tls-native-tls", "tokio-native-tls-comp"]}
 regex = "1.7"
 reqwest = {version="0.12", default-features=false, features=["rustls-tls", "rustls-tls-native-roots"]}
