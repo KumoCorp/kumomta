@@ -1,8 +1,16 @@
+---
+status: deprecated
+---
+
 # build_client
 
 ```lua
 kumo.amqp.build_client(URI)
 ```
+
+!!! note
+    This function is deprecated and will be removed in a future release.
+    Please migrate to [kumo.amqp.basic_publish](basic_publish.md).
 
 Constructs an AMQP client object, using the underlying
 [lapin](https://docs.rs/lapin/) client implementation.

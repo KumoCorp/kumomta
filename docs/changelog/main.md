@@ -46,6 +46,9 @@
    [xfer-cancel](../reference/rapidoc.md/#post-/api/admin/xfer/cancel/v1) #311
  * New [kumo.file_type](../reference/kumo.file_type/index.md) module provides
    functions for reasoning about file types.
+ * [kumo.amqp.build_client](../reference/kumo.amqp/build_client.md) is
+   deprecated in favor of
+   [kumo.amqp.basic_publish](../reference/kumo.amqp/basic_publish.md).
 
 ## Fixes
 
