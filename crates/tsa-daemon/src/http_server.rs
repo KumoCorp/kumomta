@@ -754,11 +754,11 @@ async fn process_suspension_subscription_inner(mut socket: WebSocket) -> anyhow:
         let suspensions = get_suspensions();
         for record in suspensions.ready_q {
             let json = serde_json::to_string(&SuspensionEntry::ReadyQ(record))?;
-            socket.send(Message::Text(json)).await?;
+            socket.send(Message::Text(json.into())).await?;
         }
         for record in suspensions.sched_q {
             let json = serde_json::to_string(&SuspensionEntry::SchedQ(record))?;
-            socket.send(Message::Text(json)).await?;
+            socket.send(Message::Text(json.into())).await?;
         }
     }
 
@@ -771,7 +771,7 @@ async fn process_suspension_subscription_inner(mut socket: WebSocket) -> anyhow:
             _ => continue,
         };
         let json = serde_json::to_string(&event)?;
-        socket.send(Message::Text(json)).await?;
+        socket.send(Message::Text(json.into())).await?;
     }
 }
 
@@ -820,11 +820,11 @@ async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Resu
             );
             for record in suspensions.ready_q {
                 let json = serde_json::to_string(&SubscriptionItem::ReadyQSuspension(record))?;
-                socket.send(Message::Text(json)).await?;
+                socket.send(Message::Text(json.into())).await?;
             }
             for record in suspensions.sched_q {
                 let json = serde_json::to_string(&SubscriptionItem::SchedQSuspension(record))?;
-                socket.send(Message::Text(json)).await?;
+                socket.send(Message::Text(json.into())).await?;
             }
         }
         // and then bounces
@@ -837,7 +837,7 @@ async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Resu
             tracing::debug!("new sub, has {num_bounces} bounces");
             for record in bounces {
                 let json = serde_json::to_string(&SubscriptionItem::SchedQBounce(record))?;
-                socket.send(Message::Text(json)).await?;
+                socket.send(Message::Text(json.into())).await?;
             }
         }
 
@@ -855,7 +855,7 @@ async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Resu
     loop {
         let event = rx.recv().await?;
         let json = serde_json::to_string(&event)?;
-        socket.send(Message::Text(json)).await?;
+        socket.send(Message::Text(json.into())).await?;
     }
 }
 

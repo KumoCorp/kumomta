@@ -274,10 +274,13 @@ impl DaemonWithMaildir {
         ))
         .await?;
         socket
-            .send(Message::Text(serde_json::to_string(&TraceSmtpV1Request {
-                source_addr: None,
-                terse: true,
-            })?))
+            .send(Message::Text(
+                serde_json::to_string(&TraceSmtpV1Request {
+                    source_addr: None,
+                    terse: true,
+                })?
+                .into(),
+            ))
             .await?;
 
         let (signal_close, mut close_signalled) = tokio::sync::oneshot::channel();

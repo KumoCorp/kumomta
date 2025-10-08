@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::Json;
-use axum_client_ip::InsecureClientIp;
+use axum_client_ip::ClientIp;
 use chrono::{DateTime, Utc};
 use config::{declare_event, load_config};
 use flate2::write::GzEncoder;
@@ -266,13 +266,14 @@ pub struct XferResponseV1 {
     post,
     tag="xfer",
     path="/api/xfer/inject/v1",
+    request_body=String,
     responses(
       (status = 200, description = "Message transferred successfully", body=XferResponseV1)
     ),
 )]
 pub async fn inject_xfer_v1(
     auth: AuthKind,
-    InsecureClientIp(peer_address): InsecureClientIp,
+    ClientIp(peer_address): ClientIp,
     State(app_state): State<AppState>,
     body: Bytes,
 ) -> Result<Json<XferResponseV1>, AppError> {

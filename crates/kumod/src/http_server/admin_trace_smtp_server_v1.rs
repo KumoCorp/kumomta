@@ -194,7 +194,7 @@ async fn process_websocket_inner(mut socket: WebSocket) -> anyhow::Result<()> {
                             },
                         };
                         let json = serde_json::to_string(&event)?;
-                        socket.send(Message::Text(json)).await?;
+                        socket.send(Message::Text(json.into())).await?;
                         continue;
                     }
                 };
@@ -207,7 +207,7 @@ async fn process_websocket_inner(mut socket: WebSocket) -> anyhow::Result<()> {
                 }
 
                 let json = serde_json::to_string(&event.to_v1(request.terse))?;
-                socket.send(Message::Text(json)).await?;
+                socket.send(Message::Text(json.into())).await?;
             }
 
             msg = socket.recv() => {

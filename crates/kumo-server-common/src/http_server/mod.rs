@@ -192,6 +192,7 @@ impl HttpListenerParams {
             .layer(compression_layer)
             .layer(decompression_layer)
             .layer(TraceLayer::new_for_http())
+            .layer(axum_client_ip::ClientIpSource::ConnectInfo.into_extension())
             .with_state(app_state);
 
         let make_service = app.into_make_service_with_connect_info::<SocketAddr>();

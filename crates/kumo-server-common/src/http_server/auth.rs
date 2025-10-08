@@ -1,5 +1,4 @@
 use crate::http_server::AppState;
-use axum::async_trait;
 use axum::extract::{FromRequestParts, Request, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
@@ -168,7 +167,6 @@ pub async fn auth_middleware(
     }
 }
 
-#[async_trait]
 impl<B> FromRequestParts<B> for AuthKind
 where
     B: Send + Sync,
@@ -192,7 +190,6 @@ where
 /// only be accessible to trusted IP addresses
 pub struct TrustedIpRequired;
 
-#[async_trait]
 impl<B> FromRequestParts<B> for TrustedIpRequired
 where
     B: Send + Sync,

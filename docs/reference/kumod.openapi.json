@@ -1,12 +1,12 @@
 {
-  "openapi": "3.0.3",
+  "openapi": "3.1.0",
   "info": {
     "title": "kumod",
     "description": "",
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2025.10.07-5b5145ae"
+    "version": "2025.10.08-4be75084"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -14,8 +14,7 @@
         "tags": [
           "bounce"
         ],
-        "summary": "Allows the system operator to list all currently active administrative bounces that have been",
-        "description": "configured.",
+        "summary": "Allows the system operator to list all currently active administrative bounces that have been\nconfigured.",
         "operationId": "bounce_v1_list",
         "responses": {
           "200": {
@@ -37,11 +36,9 @@
         "tags": [
           "bounce"
         ],
-        "summary": "Allows the system operator to administratively bounce messages that match",
-        "description": "certain criteria, or if no criteria are provided, ALL messages.",
+        "summary": "Allows the system operator to administratively bounce messages that match\ncertain criteria, or if no criteria are provided, ALL messages.",
         "operationId": "bounce_v1",
         "requestBody": {
-          "description": "",
           "content": {
             "application/json": {
               "schema": {
@@ -71,7 +68,6 @@
         "summary": "Allows the system operator to delete an administrative bounce entry by its id.",
         "operationId": "bounce_v1_delete",
         "requestBody": {
-          "description": "",
           "content": {
             "application/json": {
               "schema": {
@@ -96,8 +92,7 @@
         "tags": [
           "config"
         ],
-        "summary": "Allows the system operator to trigger a configuration epoch bump,",
-        "description": "which causes various configs that are using the Epoch strategy to\nbe re-evaluated by triggering the appropriate callbacks.",
+        "summary": "Allows the system operator to trigger a configuration epoch bump,\nwhich causes various configs that are using the Epoch strategy to\nbe re-evaluated by triggering the appropriate callbacks.",
         "operationId": "bump_config_epoch",
         "responses": {
           "200": {
@@ -179,8 +174,10 @@
             "description": "Return up to `limit` messages in the queue sample.\nDepending on the strategy configured for the queue,\nmessages may not be directly reachable via this endpoint.\nIf no limit is provided, all messages in the queue will\nbe sampled.",
             "required": false,
             "schema": {
-              "type": "integer",
-              "nullable": true,
+              "type": [
+                "integer",
+                "null"
+              ],
               "minimum": 0
             }
           }
@@ -204,8 +201,7 @@
         "tags": [
           "inspect"
         ],
-        "summary": "Retrieve information about the states that apply to a set of",
-        "description": "ready queues, or all queues if no specific queues were named\nin the request.",
+        "summary": "Retrieve information about the states that apply to a set of\nready queues, or all queues if no specific queues were named\nin the request.",
         "operationId": "readyq_states",
         "parameters": [
           {
@@ -240,11 +236,9 @@
         "tags": [
           "rebind"
         ],
-        "summary": "Allows the system operator to administratively rebind messages.",
-        "description": "Rebinding can target queues that match\ncertain criteria, or if no criteria are provided, ALL queues.\nRebinding is moving a message from one scheduled queue into another.\nQueue selection is based upon the envelope recipient and message\nmetadata as described in <https://docs.kumomta.com/reference/queues/>",
+        "summary": "Allows the system operator to administratively rebind messages.\nRebinding can target queues that match\ncertain criteria, or if no criteria are provided, ALL queues.\nRebinding is moving a message from one scheduled queue into another.\nQueue selection is based upon the envelope recipient and message\nmetadata as described in <https://docs.kumomta.com/reference/queues/>",
         "operationId": "rebind_v1",
         "requestBody": {
-          "description": "",
           "content": {
             "application/json": {
               "schema": {
@@ -273,11 +267,9 @@
         "tags": [
           "logging"
         ],
-        "summary": "Changes the diagnostic log filter dynamically.",
-        "description": "See <https://docs.kumomta.com/reference/kumo/set_diagnostic_log_filter/>\nfor more information on diagnostic log filters.",
+        "summary": "Changes the diagnostic log filter dynamically.\nSee <https://docs.kumomta.com/reference/kumo/set_diagnostic_log_filter/>\nfor more information on diagnostic log filters.",
         "operationId": "set_diagnostic_log_filter_v1",
         "requestBody": {
-          "description": "",
           "content": {
             "application/json": {
               "schema": {
@@ -321,7 +313,6 @@
         "summary": "Define a suspension for a ready queue",
         "operationId": "suspend",
         "requestBody": {
-          "description": "",
           "content": {
             "application/json": {
               "schema": {
@@ -351,7 +342,6 @@
         "summary": "Remove a ready-queue suspension",
         "operationId": "delete",
         "requestBody": {
-          "description": "",
           "content": {
             "application/json": {
               "schema": {
@@ -398,7 +388,6 @@
         "summary": "Define a suspension for a scheduled queue",
         "operationId": "suspend",
         "requestBody": {
-          "description": "",
           "content": {
             "application/json": {
               "schema": {
@@ -428,7 +417,6 @@
         "summary": "Remove a scheduled-queue suspension",
         "operationId": "delete",
         "requestBody": {
-          "description": "",
           "content": {
             "application/json": {
               "schema": {
@@ -453,11 +441,10 @@
         "tags": [
           "xfer"
         ],
-        "summary": "Allows the system operator to stop a message transfer that was",
-        "description": "previously initiated via the `/api/admin/xfer/v1` API endpoint.\nThe cancellation works by walking the xfer scheduled queue,\nreversing the metadata changes made as part of setting up the\nxfer (to restore the original scheduling information) and then\nre-inserting the message into an appropriate scheduled queue.\n\nThe cancellation is \"instantaneous\" in the sense that it applies\njust once to the specified xfer scheduled queue.  Any other messages\nthat are in-flight or imminently about to be reinserted into\nthat scheduled queue will not be considered, so you may need\nto trigger the cancellation a few times over short time span\nto ensure that all messages are taken out of the xfer queue.\n\nCancellation requests always complete asynchronously because\nthey may operate on very large quantities of messages, and it\nis infeasible to wait for completion in the context of\na single HTTP request.",
+        "summary": "Allows the system operator to stop a message transfer that was\npreviously initiated via the `/api/admin/xfer/v1` API endpoint.\nThe cancellation works by walking the xfer scheduled queue,\nreversing the metadata changes made as part of setting up the\nxfer (to restore the original scheduling information) and then\nre-inserting the message into an appropriate scheduled queue.",
+        "description": "The cancellation is \"instantaneous\" in the sense that it applies\njust once to the specified xfer scheduled queue.  Any other messages\nthat are in-flight or imminently about to be reinserted into\nthat scheduled queue will not be considered, so you may need\nto trigger the cancellation a few times over short time span\nto ensure that all messages are taken out of the xfer queue.\n\nCancellation requests always complete asynchronously because\nthey may operate on very large quantities of messages, and it\nis infeasible to wait for completion in the context of\na single HTTP request.",
         "operationId": "xfer_cancel_v1",
         "requestBody": {
-          "description": "",
           "content": {
             "application/json": {
               "schema": {
@@ -473,7 +460,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/XferV1Response"
+                  "$ref": "#/components/schemas/XferCancelV1Response"
                 }
               }
             }
@@ -486,11 +473,9 @@
         "tags": [
           "xfer"
         ],
-        "summary": "Allows the system operator to transfer messages from the current",
-        "description": "node to some other target node.\nThe transfer (xfer) can target queues that match\ncertain criteria, or if no criteria are provided, ALL queues.\nQueue selection is based upon the envelope recipient and message\nmetadata as described in <https://docs.kumomta.com/reference/queues/>.\nMessages in the selected queues will be moved into an xfer queue\nwhose name is based on the target specified by the transfer request.",
+        "summary": "Allows the system operator to transfer messages from the current\nnode to some other target node.\nThe transfer (xfer) can target queues that match\ncertain criteria, or if no criteria are provided, ALL queues.\nQueue selection is based upon the envelope recipient and message\nmetadata as described in <https://docs.kumomta.com/reference/queues/>.\nMessages in the selected queues will be moved into an xfer queue\nwhose name is based on the target specified by the transfer request.",
         "operationId": "xfer_v1",
         "requestBody": {
-          "description": "",
           "content": {
             "application/json": {
               "schema": {
@@ -519,8 +504,7 @@
         "tags": [
           "liveness"
         ],
-        "summary": "Useful for load balancers to determine when service is available",
-        "description": "and ready to receive messages",
+        "summary": "Useful for load balancers to determine when service is available\nand ready to receive messages",
         "operationId": "check_liveness_v1",
         "responses": {
           "200": {
@@ -537,11 +521,9 @@
         "tags": [
           "inject"
         ],
-        "summary": "Inject a message using a given message body, with template expansion,",
-        "description": "to a list of recipients.",
+        "summary": "Inject a message using a given message body, with template expansion,\nto a list of recipients.",
         "operationId": "inject_v1",
         "requestBody": {
-          "description": "",
           "content": {
             "application/json": {
               "schema": {
@@ -570,16 +552,13 @@
         "tags": [
           "xfer"
         ],
-        "summary": "Performs a message transfer.",
-        "description": "This is considered to be an internal API and should not be\ntargeted by external consumers.",
+        "summary": "Performs a message transfer.\nThis is considered to be an internal API and should not be\ntargeted by external consumers.",
         "operationId": "inject_xfer_v1",
         "requestBody": {
-          "description": "",
           "content": {
-            "application/octet-stream": {
+            "text/plain": {
               "schema": {
-                "type": "string",
-                "format": "binary"
+                "type": "string"
               }
             }
           },
@@ -614,9 +593,11 @@
             "description": "If true, the `data` field must be encoded as base64"
           },
           "content_id": {
-            "type": "string",
-            "description": "Set the `Content-ID` header for this attachment.\nThis is used in multipart/related messages to\nembed inline images in text/html parts.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set the `Content-ID` header for this attachment.\nThis is used in multipart/related messages to\nembed inline images in text/html parts."
           },
           "content_type": {
             "type": "string",
@@ -627,9 +608,11 @@
             "description": "The content of the payload.\nThis is interpreted as UTF-8 text unless the\n`base64` field is set to `true`."
           },
           "file_name": {
-            "type": "string",
-            "description": "The the preferred filename for the attachment",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The the preferred filename for the attachment"
           }
         },
         "additionalProperties": false
@@ -663,20 +646,27 @@
               "type": "integer",
               "minimum": 0
             },
+            "propertyNames": {
+              "type": "string"
+            },
             "example": {
               "gmail.com": 200,
               "yahoo.com": 100
             }
           },
           "campaign": {
-            "type": "string",
-            "description": "The campaign field of the original request, if any.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The campaign field of the original request, if any."
           },
           "domain": {
-            "type": "string",
-            "description": "The domain field of the original request, if any.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The domain field of the original request, if any."
           },
           "duration": {
             "type": "string",
@@ -693,14 +683,18 @@
             "description": "The reason field of the original request"
           },
           "routing_domain": {
-            "type": "string",
-            "description": "The routing_domain field of the original request, if any.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The routing_domain field of the original request, if any."
           },
           "tenant": {
-            "type": "string",
-            "description": "The tenant field of the original request, if any.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The tenant field of the original request, if any."
           },
           "total_bounced": {
             "type": "integer",
@@ -717,29 +711,35 @@
         ],
         "properties": {
           "campaign": {
-            "type": "string",
-            "description": "The campaign name to match. If omitted, any campaign will match.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The campaign name to match. If omitted, any campaign will match."
           },
           "domain": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "The domain name to match. If omitted, any domain will match.",
-            "example": "example.com",
-            "nullable": true
+            "example": "example.com"
           },
           "duration": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "Defaults to \"5m\". Specifies how long this bounce directive remains active.\nWhile active, newly injected messages that match the bounce criteria\nwill also be bounced.",
-            "example": "20m",
-            "nullable": true
+            "example": "20m"
           },
           "expires": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/DateTime"
-              }
+            "type": [
+              "string",
+              "null"
             ],
-            "nullable": true
+            "format": "date-time",
+            "description": "instead of specifying the duration, you can set an explicit\nexpiration timestamp"
           },
           "queue_names": {
             "type": "array",
@@ -754,18 +754,22 @@
             "example": "Cleaning up a bad send"
           },
           "routing_domain": {
-            "type": "string",
-            "description": "The routing_domain name to match. If omitted, any routing_domain will match.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The routing_domain name to match. If omitted, any routing_domain will match."
           },
           "suppress_logging": {
             "type": "boolean",
             "description": "If true, do not generate AdminBounce delivery logs for matching\nmessages."
           },
           "tenant": {
-            "type": "string",
-            "description": "The tenant to match. If omitted, any tenant will match.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The tenant to match. If omitted, any tenant will match."
           }
         },
         "additionalProperties": false
@@ -784,6 +788,9 @@
             "additionalProperties": {
               "type": "integer",
               "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
             },
             "deprecated": true,
             "example": {
@@ -824,12 +831,15 @@
                 "description": "Optional list of attachments"
               },
               "from": {
-                "allOf": [
+                "oneOf": [
                   {
-                    "$ref": "#/components/schemas/FromHeader"
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/FromHeader",
+                    "description": "Set the From: header"
                   }
-                ],
-                "nullable": true
+                ]
               },
               "headers": {
                 "type": "object",
@@ -837,32 +847,44 @@
                 "additionalProperties": {
                   "type": "string"
                 },
+                "propertyNames": {
+                  "type": "string"
+                },
                 "example": {
                   "X-Tenant": "MyTenant"
                 }
               },
               "html_body": {
-                "type": "string",
-                "description": "If set, will be used to create a text/html part",
-                "nullable": true
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "If set, will be used to create a text/html part"
               },
               "reply_to": {
-                "allOf": [
+                "oneOf": [
                   {
-                    "$ref": "#/components/schemas/FromHeader"
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/FromHeader",
+                    "description": "Set the Reply-To: header"
                   }
-                ],
-                "nullable": true
+                ]
               },
               "subject": {
-                "type": "string",
-                "description": "Set the Subject: header",
-                "nullable": true
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Set the Subject: header"
               },
               "text_body": {
-                "type": "string",
-                "description": "If set, will be used to create a text/plain part",
-                "nullable": true
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "If set, will be used to create a text/plain part"
               }
             }
           }
@@ -881,10 +903,12 @@
             "example": "sales@sender-example.com"
           },
           "name": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "The displayable name of the sender",
-            "example": "Sales",
-            "nullable": true
+            "example": "Sales"
           }
         },
         "additionalProperties": false
@@ -899,12 +923,14 @@
             "items": {
               "type": "string"
             },
-            "description": "",
             "maxItems": 2,
             "minItems": 2
           }
         ],
         "description": "An email header."
+      },
+      "HttpTraceHeaders": {
+        "$ref": "#/components/schemas/TraceHeaders"
       },
       "InjectV1Request": {
         "type": "object",
@@ -915,7 +941,8 @@
         ],
         "properties": {
           "content": {
-            "$ref": "#/components/schemas/Content"
+            "$ref": "#/components/schemas/Content",
+            "description": "The content of the message"
           },
           "deferred_generation": {
             "type": "boolean",
@@ -941,12 +968,16 @@
             "type": "object",
             "description": "When using templating, this is the map of placeholder\nname to replacement value that should be used by\nthe templating engine.  This map applies to all\nrecipients, with the per-recipient substitutions\ntaking precedence.",
             "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
             "example": {
               "campaign_title": "Fall Campaign"
             }
           },
           "trace_headers": {
-            "$ref": "#/components/schemas/HttpTraceHeaders"
+            "$ref": "#/components/schemas/HttpTraceHeaders",
+            "description": "Controls which trace headers will be added to the message."
           }
         },
         "additionalProperties": false
@@ -994,10 +1025,52 @@
         ],
         "properties": {
           "id": {
-            "$ref": "#/components/schemas/SpoolId"
+            "$ref": "#/components/schemas/SpoolId",
+            "description": "The spool identifier of the message"
           },
           "message": {
-            "$ref": "#/components/schemas/MessageInformation"
+            "$ref": "#/components/schemas/MessageInformation",
+            "description": "The message information"
+          }
+        }
+      },
+      "InspectQueueV1Response": {
+        "type": "object",
+        "required": [
+          "queue_name",
+          "messages",
+          "num_scheduled",
+          "queue_config",
+          "delayed_metric",
+          "now",
+          "last_changed"
+        ],
+        "properties": {
+          "delayed_metric": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "last_changed": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InspectMessageV1Response"
+            }
+          },
+          "now": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "num_scheduled": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "queue_config": {},
+          "queue_name": {
+            "type": "string"
           }
         }
       },
@@ -1010,25 +1083,28 @@
         ],
         "properties": {
           "data": {
-            "type": "string",
-            "description": "If `want_body` was set in the original request,\nholds the message body",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "If `want_body` was set in the original request,\nholds the message body"
           },
           "due": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/DateTime"
-              }
+            "type": [
+              "string",
+              "null"
             ],
-            "nullable": true
+            "format": "date-time"
           },
           "meta": {
             "description": "The message metadata"
           },
           "num_attempts": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
-            "nullable": true,
             "minimum": 0
           },
           "recipient": {
@@ -1039,9 +1115,7 @@
             "description": "The envelope-to address",
             "example": "recipient@example.com"
           },
-          "scheduling": {
-            "nullable": true
-          },
+          "scheduling": {},
           "sender": {
             "type": "string",
             "description": "The envelope sender",
@@ -1060,7 +1134,8 @@
             "type": "string"
           },
           "since": {
-            "$ref": "#/components/schemas/DateTime"
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -1088,7 +1163,13 @@
               "type": "object",
               "additionalProperties": {
                 "$ref": "#/components/schemas/QueueState"
+              },
+              "propertyNames": {
+                "type": "string"
               }
+            },
+            "propertyNames": {
+              "type": "string"
             }
           }
         }
@@ -1106,22 +1187,29 @@
             "description": "If true, make all matched messages immediately eligible for\ndelivery.  When false, (the default), only messages whose\nqueue has changed will be made immediately eligible."
           },
           "campaign": {
-            "type": "string",
-            "description": "The campaign name to match. If omitted, any campaign will match.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The campaign name to match. If omitted, any campaign will match."
           },
           "data": {
             "type": "object",
             "description": "The data, a json object with string keys AND values to pass to the\nrebind operation",
             "additionalProperties": {
               "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
             }
           },
           "domain": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "The domain name to match. If omitted, any domain will match.",
-            "example": "example.com",
-            "nullable": true
+            "example": "example.com"
           },
           "reason": {
             "type": "string",
@@ -1129,18 +1217,22 @@
             "example": "Cleaning up a bad send"
           },
           "routing_domain": {
-            "type": "string",
-            "description": "The routing_domain name to match. If omitted, any routing_domain will match.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The routing_domain name to match. If omitted, any routing_domain will match."
           },
           "suppress_logging": {
             "type": "boolean",
             "description": "If true, do not generate AdminRebind delivery logs for matching\nmessages."
           },
           "tenant": {
-            "type": "string",
-            "description": "The tenant to match. If omitted, any tenant will match.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The tenant to match. If omitted, any tenant will match."
           },
           "trigger_rebind_event": {
             "type": "boolean",
@@ -1163,15 +1255,20 @@
             "example": "john.smith@mailbox-example.com"
           },
           "name": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "The displayable name of the recipient",
-            "example": "John Smith",
-            "nullable": true
+            "example": "John Smith"
           },
           "substitutions": {
             "type": "object",
             "description": "When using templating, this is the map of placeholder\nname to replacement value that should be used by the\ntemplating engine when processing just this recipient.\nNote that `name` is implicitly set from the `name`\nfield, so you do not need to duplicate it here.",
             "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
             "example": {
               "age": 42,
               "gender": "male"
@@ -1213,7 +1310,9 @@
             "description": "how long until this suspension expires and is automatically removed"
           },
           "expires": {
-            "$ref": "#/components/schemas/DateTime"
+            "type": "string",
+            "format": "date-time",
+            "description": "The time at which the suspension will expire"
           },
           "id": {
             "type": "string",
@@ -1239,17 +1338,18 @@
         ],
         "properties": {
           "duration": {
-            "type": "string",
-            "description": "Specifies how long this suspension remains active.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Specifies how long this suspension remains active."
           },
           "expires": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/DateTime"
-              }
+            "type": [
+              "string",
+              "null"
             ],
-            "nullable": true
+            "format": "date-time"
           },
           "name": {
             "type": "string",
@@ -1284,14 +1384,18 @@
         ],
         "properties": {
           "campaign": {
-            "type": "string",
-            "description": "The campaign name to match. If omitted, any campaign will match.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The campaign name to match. If omitted, any campaign will match."
           },
           "domain": {
-            "type": "string",
-            "description": "The domain name to match. If omitted, any domain will match.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The domain name to match. If omitted, any domain will match."
           },
           "duration": {
             "type": "string",
@@ -1308,9 +1412,11 @@
             "example": "pause while working on resolving a deliverability issue"
           },
           "tenant": {
-            "type": "string",
-            "description": "The tenant name to match. If omitted, any tenant will match.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The tenant name to match. If omitted, any tenant will match."
           }
         }
       },
@@ -1321,27 +1427,33 @@
         ],
         "properties": {
           "campaign": {
-            "type": "string",
-            "description": "The campaign name to match. If omitted, any campaign will match.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The campaign name to match. If omitted, any campaign will match."
           },
           "domain": {
-            "type": "string",
-            "description": "The domain name to match. If omitted, any domain will match.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The domain name to match. If omitted, any domain will match."
           },
           "duration": {
-            "type": "string",
-            "description": "Specifies how long this suspension remains active.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Specifies how long this suspension remains active."
           },
           "expires": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/DateTime"
-              }
+            "type": [
+              "string",
+              "null"
             ],
-            "nullable": true
+            "format": "date-time",
+            "description": "instead of specifying the duration, you can set an explicit\nexpiration timestamp"
           },
           "queue_names": {
             "type": "array",
@@ -1356,9 +1468,11 @@
             "example": "pause while working on resolving a block with the destination postmaster"
           },
           "tenant": {
-            "type": "string",
-            "description": "The tenant name to match. If omitted, any tenant will match.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The tenant name to match. If omitted, any tenant will match."
           }
         }
       },
@@ -1421,6 +1535,30 @@
       "XferCancelV1Response": {
         "type": "object"
       },
+      "XferProtocol": {
+        "type": "object",
+        "required": [
+          "target"
+        ],
+        "properties": {
+          "target": {
+            "type": "string",
+            "format": "uri",
+            "description": "Expected to be an HTTP url prefix like:\n`https://host.name:8008`\n`http://127.0.0.1:8000`"
+          }
+        }
+      },
+      "XferResponseV1": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/SpoolId"
+          }
+        }
+      },
       "XferV1Request": {
         "allOf": [
           {
@@ -1433,15 +1571,19 @@
             ],
             "properties": {
               "campaign": {
-                "type": "string",
-                "description": "The campaign name to match. If omitted, any campaign will match.",
-                "nullable": true
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The campaign name to match. If omitted, any campaign will match."
               },
               "domain": {
-                "type": "string",
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "description": "The domain name to match. If omitted, any domain will match.",
-                "example": "example.com",
-                "nullable": true
+                "example": "example.com"
               },
               "queue_names": {
                 "type": "array",
@@ -1456,14 +1598,18 @@
                 "example": "Scaling down"
               },
               "routing_domain": {
-                "type": "string",
-                "description": "The routing_domain name to match. If omitted, any routing_domain will match.",
-                "nullable": true
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The routing_domain name to match. If omitted, any routing_domain will match."
               },
               "tenant": {
-                "type": "string",
-                "description": "The tenant to match. If omitted, any tenant will match.",
-                "nullable": true
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The tenant to match. If omitted, any tenant will match."
               }
             }
           }
@@ -1493,6 +1639,9 @@
                   "additionalProperties": {
                     "type": "integer",
                     "minimum": 0
+                  },
+                  "propertyNames": {
+                    "type": "string"
                   },
                   "deprecated": true,
                   "example": {
@@ -1572,10 +1721,12 @@
               ],
               "properties": {
                 "id": {
-                  "$ref": "#/components/schemas/SpoolId"
+                  "$ref": "#/components/schemas/SpoolId",
+                  "description": "The spool identifier of the message"
                 },
                 "message": {
-                  "$ref": "#/components/schemas/MessageInformation"
+                  "$ref": "#/components/schemas/MessageInformation",
+                  "description": "The message information"
                 }
               }
             }
@@ -1603,7 +1754,8 @@
                   "minimum": 0
                 },
                 "last_changed": {
-                  "$ref": "#/components/schemas/DateTime"
+                  "type": "string",
+                  "format": "date-time"
                 },
                 "messages": {
                   "type": "array",
@@ -1612,7 +1764,8 @@
                   }
                 },
                 "now": {
-                  "$ref": "#/components/schemas/DateTime"
+                  "type": "string",
+                  "format": "date-time"
                 },
                 "num_scheduled": {
                   "type": "integer",
@@ -1643,7 +1796,13 @@
                     "type": "object",
                     "additionalProperties": {
                       "$ref": "#/components/schemas/QueueState"
+                    },
+                    "propertyNames": {
+                      "type": "string"
                     }
+                  },
+                  "propertyNames": {
+                    "type": "string"
                   }
                 }
               }

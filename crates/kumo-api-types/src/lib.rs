@@ -402,6 +402,7 @@ pub struct MessageInformation {
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct TraceSmtpV1Request {
     #[serde(default)]
+    #[schema(value_type=Option<Vec<String>>)]
     pub source_addr: Option<CidrSet>,
 
     #[serde(default, skip_serializing_if = "is_false")]
@@ -524,6 +525,7 @@ pub struct TraceSmtpClientV1Request {
 
     /// The source address to match. If omitted, any will match.
     #[serde(default)]
+    #[schema(value_type=Option<Vec<String>>)]
     pub source_addr: Option<CidrSet>,
 
     /// The mx hostname to match. If omitted, any will match.
@@ -536,6 +538,7 @@ pub struct TraceSmtpClientV1Request {
 
     /// The mx ip address to match. If omitted, any will match.
     #[serde(default)]
+    #[schema(value_type=Option<Vec<String>>)]
     pub mx_addr: Option<CidrSet>,
 
     /// Use a more terse representation of the data, focusing on the first

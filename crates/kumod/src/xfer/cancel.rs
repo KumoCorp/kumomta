@@ -29,7 +29,7 @@ use reqwest::StatusCode;
     tag="xfer",
     path="/api/admin/xfer/cancel/v1",
     responses(
-        (status = 200, description = "Xfer added successfully", body=XferV1Response)
+        (status = 200, description = "Xfer added successfully", body=XferCancelV1Response)
     ),
 )]
 pub async fn xfer_cancel_v1(

@@ -8,7 +8,7 @@ use anyhow::Context;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use axum::extract::{Json, State};
-use axum_client_ip::InsecureClientIp;
+use axum_client_ip::ClientIp;
 use config::{any_err, get_or_create_sub_module, load_config, CallbackSignature, LuaConfig};
 use kumo_chrono_helper::Utc;
 use kumo_log_types::ResolvedAddress;
@@ -834,7 +834,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 )]
 pub async fn inject_v1(
     auth: AuthKind,
-    InsecureClientIp(peer_address): InsecureClientIp,
+    ClientIp(peer_address): ClientIp,
     State(app_state): State<AppState>,
     // Note: Json<> must be last in the param list
     Json(request): Json<InjectV1Request>,

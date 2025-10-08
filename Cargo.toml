@@ -51,10 +51,10 @@ anyhow = "1.0"
 arc-swap = "1.6"
 async-stream = "0.3"
 async-trait = "0.1"
-axum = "0.7"
-axum-client-ip = "0.6"
+axum = "0.8"
+axum-client-ip = "1.1"
 axum-server = "0.7"
-axum-streams = {version="0.19", features=["text"]}
+axum-streams = {version="0.23", features=["text"]}
 backtrace = "0.3"
 bitflags = "2.3"
 bitstring = "0.2"
@@ -201,7 +201,7 @@ tokio-openssl = "0.6.4"
 tokio-reactor-trait = "1.1.0"
 tokio-rustls = "0.26"
 tokio-splice = "0.2"
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.28"
 toml = "0.8"
 toml_edit = "0.22"
 tower-http = {version="0.6", features=["trace", "compression-deflate", "compression-gzip", "decompression-deflate", "decompression-gzip"]}
@@ -209,8 +209,8 @@ tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = {version="0.3", features=["env-filter", "std", "fmt", "json"]}
 tui-prompts = "0.5"
-utoipa = {version="4", features=["axum_extras", "time", "uuid"]}
-utoipa-rapidoc = { version="4.0", features = ["axum"] }
+utoipa = {version="5", features=["axum_extras", "time", "uuid", "url", "chrono"]}
+utoipa-rapidoc = { version="6.0", features = ["axum"] }
 url = "2.4"
 uuid = "1.4"
 uuid-helper = { path = "crates/uuid-helper" }

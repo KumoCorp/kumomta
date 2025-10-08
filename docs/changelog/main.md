@@ -13,6 +13,11 @@
    review your log processors to ensure that they are able to handle the
    `recipient` field being either an array or a string, or otherwise adjusting
    your log templates accordingly.
+ * HTTP injections no longer consider the `Forwarded` header as a source of
+   information to populate the `received_from` metadata.  Instead, only the
+   directly connecting IP information will be used.  See the [upstream
+   issue](https://github.com/imbolc/axum-client-ip/issues/32) for more
+   information.
 
 ## Other Changes and Enhancements
 
