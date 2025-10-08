@@ -58,18 +58,20 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         let decorated_name = event_registrar_name(name);
         let mut call_stack = vec![];
         for n in 1.. {
-            match lua.inspect_stack(n) {
+            match lua.inspect_stack(n, |info| {
+                let source = info.source();
+                format!(
+                    "{}:{}",
+                    source
+                        .short_src
+                        .as_ref()
+                        .map(|b| b.to_string())
+                        .unwrap_or_else(String::new),
+                    info.current_line().unwrap_or(0)
+                )
+            }) {
                 Some(info) => {
-                    let source = info.source();
-                    call_stack.push(format!(
-                        "{}:{}",
-                        source
-                            .short_src
-                            .as_ref()
-                            .map(|b| b.to_string())
-                            .unwrap_or_else(String::new),
-                        info.curr_line()
-                    ));
+                    call_stack.push(info);
                 }
                 None => break,
             }
@@ -199,23 +201,23 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     }
 
     fn get_caller(lua: &Lua) -> String {
-        match lua.inspect_stack(1) {
-            Some(info) => {
-                let source = info.source();
-                let file_name = source
-                    .short_src
-                    .as_ref()
-                    .map(|b| b.to_string())
-                    .unwrap_or_else(String::new);
-                // Lua returns the somewhat obnoxious `[string "source.lua"]`
-                // Let's fix that up to be a bit nicer
-                let file_name = match file_name.strip_prefix("[string \"") {
-                    Some(name) => name.strip_suffix("\"]").unwrap_or(name),
-                    None => &file_name,
-                };
+        match lua.inspect_stack(1, |info| {
+            let source = info.source();
+            let file_name = source
+                .short_src
+                .as_ref()
+                .map(|b| b.to_string())
+                .unwrap_or_else(String::new);
+            // Lua returns the somewhat obnoxious `[string "source.lua"]`
+            // Let's fix that up to be a bit nicer
+            let file_name = match file_name.strip_prefix("[string \"") {
+                Some(name) => name.strip_suffix("\"]").unwrap_or(name),
+                None => &file_name,
+            };
 
-                format!("{file_name}:{}", info.curr_line())
-            }
+            format!("{file_name}:{}", info.current_line().unwrap_or(0))
+        }) {
+            Some(info) => info,
             None => "?".to_string(),
         }
     }
@@ -380,28 +382,30 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 line_defined: Option<usize>,
                 last_line_defined: Option<usize>,
                 what: &'static str,
-                curr_line: i32,
+                curr_line: Option<usize>,
                 is_tail_call: bool,
             }
 
             let mut frames = vec![];
             for n in level.. {
-                match lua.inspect_stack(n) {
-                    Some(info) => {
-                        let source = info.source();
-                        let names = info.names();
-                        frames.push(Frame {
-                            curr_line: info.curr_line(),
-                            is_tail_call: info.is_tail_call(),
-                            event: format!("{:?}", info.event()),
-                            last_line_defined: source.last_line_defined,
-                            line_defined: source.line_defined,
-                            name: names.name.as_ref().map(|b| b.to_string()),
-                            name_what: names.name_what.as_ref().map(|b| b.to_string()),
-                            source: source.source.as_ref().map(|b| b.to_string()),
-                            short_src: source.short_src.as_ref().map(|b| b.to_string()),
-                            what: source.what,
-                        });
+                match lua.inspect_stack(n, |info| {
+                    let source = info.source();
+                    let names = info.names();
+                    Frame {
+                        curr_line: info.current_line(),
+                        is_tail_call: info.is_tail_call(),
+                        event: format!("{:?}", info.event()),
+                        last_line_defined: source.last_line_defined,
+                        line_defined: source.line_defined,
+                        name: names.name.as_ref().map(|b| b.to_string()),
+                        name_what: names.name_what.as_ref().map(|b| b.to_string()),
+                        source: source.source.as_ref().map(|b| b.to_string()),
+                        short_src: source.short_src.as_ref().map(|b| b.to_string()),
+                        what: source.what,
+                    }
+                }) {
+                    Some(frame) => {
+                        frames.push(frame);
                     }
                     None => break,
                 }
