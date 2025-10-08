@@ -465,7 +465,7 @@ fn from_json<'a, T: Deserialize<'a>>(json: &'a str) -> anyhow::Result<T> {
 
 #[cfg(feature = "lua")]
 fn from_toml<'a, T: Deserialize<'a>>(toml: &'a str) -> anyhow::Result<T> {
-    let d = toml::Deserializer::new(toml);
+    let d = toml::Deserializer::parse(toml)?;
     Ok(serde_path_to_error::deserialize(d)?)
 }
 

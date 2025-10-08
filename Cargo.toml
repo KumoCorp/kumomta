@@ -189,7 +189,7 @@ tempfile = "3.10"
 test-log = {version="0.2", features = ["trace"]}
 testcontainers-modules = { version = "0.11", default-features = false }
 textwrap = "0.16"
-thiserror = "1"
+thiserror = "2"
 tikv-jemallocator = {version="0.6", features=["background_threads", "stats"]}
 tikv-jemalloc-ctl = {version="0.6", features=["stats"]}
 tikv-jemalloc-sys = {version="0.6", features=["profiling", "unprefixed_malloc_on_supported_platforms", "stats"]}
@@ -202,8 +202,8 @@ tokio-reactor-trait = "1.1.0"
 tokio-rustls = "0.26"
 tokio-splice = "0.2"
 tokio-tungstenite = "0.28"
-toml = "0.8"
-toml_edit = "0.22"
+toml = "0.9"
+toml_edit = "0.23"
 tower-http = {version="0.6", features=["trace", "compression-deflate", "compression-gzip", "decompression-deflate", "decompression-gzip"]}
 tracing = "0.1"
 tracing-appender = "0.2"
