@@ -72,7 +72,7 @@ impl Registry {
             let mut metrics = prometheus::default_registry().gather();
             if let Some(prefix) = &prefix {
                 metrics.iter_mut().for_each(|metric| {
-                    let name = format!("{prefix}{}", metric.get_name());
+                    let name = format!("{prefix}{}", metric.name());
                     metric.set_name(name);
                 });
             }
@@ -130,8 +130,8 @@ fn metrics_to_partial_json(metrics: &[MetricFamily], target: &mut String) {
         if midx > 0 {
             target.push(',');
         }
-        let name = mf.get_name();
-        let help = mf.get_help();
+        let name = mf.name();
+        let help = mf.help();
 
         target.push('"');
         target.push_str(name);
@@ -157,7 +157,7 @@ fn metrics_to_partial_json(metrics: &[MetricFamily], target: &mut String) {
         let first_label = metric_values[0].get_label();
         if first_label.len() == 1 {
             target.push_str("{\"");
-            target.push_str(first_label[0].get_name());
+            target.push_str(first_label[0].name());
             target.push_str("\":{");
         } else if first_label.len() > 1 {
             target.push('[');
@@ -174,9 +174,9 @@ fn metrics_to_partial_json(metrics: &[MetricFamily], target: &mut String) {
                 match metric_type {
                     MetricType::COUNTER | MetricType::GAUGE => {
                         let value = if metric_type == MetricType::COUNTER {
-                            metric.get_counter().get_value()
+                            metric.get_counter().value()
                         } else {
-                            metric.get_gauge().get_value()
+                            metric.get_gauge().value()
                         };
                         target.push_str(&value.to_string());
                     }
@@ -189,7 +189,7 @@ fn metrics_to_partial_json(metrics: &[MetricFamily], target: &mut String) {
 
                         let mut bucket = vec![];
                         for b in hist.get_bucket() {
-                            bucket.push(vec![b.get_upper_bound(), b.get_cumulative_count() as f64]);
+                            bucket.push(vec![b.upper_bound(), b.cumulative_count() as f64]);
                         }
 
                         let hist_value = serde_json::json!({
@@ -218,7 +218,7 @@ fn metrics_to_partial_json(metrics: &[MetricFamily], target: &mut String) {
 
             if label.len() == 1 {
                 target.push('"');
-                target.push_str(label[0].get_value());
+                target.push_str(label[0].value());
                 target.push_str("\":");
                 emit_value(metric_type, metric, target);
                 continue;
@@ -227,9 +227,9 @@ fn metrics_to_partial_json(metrics: &[MetricFamily], target: &mut String) {
             target.push('{');
             for pair in label {
                 target.push('"');
-                target.push_str(pair.get_name());
+                target.push_str(pair.name());
                 target.push_str("\":\"");
-                target.push_str(pair.get_value());
+                target.push_str(pair.value());
                 target.push_str("\",");
             }
             target.push_str("\"@\":");
