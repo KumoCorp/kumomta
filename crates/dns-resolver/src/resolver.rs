@@ -171,8 +171,8 @@ impl TestResolver {
         self
     }
 
-    pub fn with_txt(self, domain: &str, value: String) -> Self {
-        self.with_txt_multiple(domain, vec![value])
+    pub fn with_txt(self, domain: &str, value: impl Into<String>) -> Self {
+        self.with_txt_multiple(domain, vec![value.into()])
     }
 
     /// Add multiple separate TXT records for the specified domain
@@ -479,36 +479,36 @@ impl Resolver for HickoryResolver {
         let name = Name::from_utf8(host)
             .map_err(|err| DnsError::InvalidName(format!("invalid name {host}: {err}")))?;
 
-        self.inner
-            .lookup_ip(name)
-            .await
-            .map_err(|err| DnsError::from_resolve(&host, err))?
-            .into_iter()
-            .map(Ok)
-            .collect()
+        match self.inner.lookup_ip(name.clone()).await {
+            Ok(result) => Ok(result.into_iter().collect()),
+            Err(err) => match err.proto().map(|err| err.kind()) {
+                Some(ProtoErrorKind::NoRecordsFound { .. }) => Ok(vec![]),
+                _ => Err(DnsError::from_resolve(&name, err)),
+            },
+        }
     }
 
     async fn resolve_mx(&self, host: &str) -> Result<Vec<Name>, DnsError> {
         let name = Name::from_utf8(host)
             .map_err(|err| DnsError::InvalidName(format!("invalid name {host}: {err}")))?;
 
-        self.inner
-            .mx_lookup(name)
-            .await
-            .map_err(|err| DnsError::from_resolve(&host, err))?
-            .into_iter()
-            .map(|mx| Ok(mx.exchange().clone()))
-            .collect()
+        match self.inner.mx_lookup(name.clone()).await {
+            Ok(result) => Ok(result.into_iter().map(|mx| mx.exchange().clone()).collect()),
+            Err(err) => match err.proto().map(|err| err.kind()) {
+                Some(ProtoErrorKind::NoRecordsFound { .. }) => Ok(vec![]),
+                _ => Err(DnsError::from_resolve(&name, err)),
+            },
+        }
     }
 
     async fn resolve_ptr(&self, ip: IpAddr) -> Result<Vec<Name>, DnsError> {
-        self.inner
-            .reverse_lookup(ip)
-            .await
-            .map_err(|err| DnsError::from_resolve(&ip, err))?
-            .into_iter()
-            .map(|ptr| Ok(ptr.0))
-            .collect()
+        match self.inner.reverse_lookup(ip).await {
+            Ok(result) => Ok(result.into_iter().map(|ptr| ptr.0).collect()),
+            Err(err) => match err.proto().map(|err| err.kind()) {
+                Some(ProtoErrorKind::NoRecordsFound { .. }) => Ok(vec![]),
+                _ => Err(DnsError::from_resolve(&ip, err)),
+            },
+        }
     }
 
     async fn resolve(&self, name: Name, rrtype: RecordType) -> Result<Answer, DnsError> {

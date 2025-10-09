@@ -497,3 +497,70 @@ async fn initial_processing() {
     assert_eq!(result.disposition, SpfDisposition::None);
     assert_eq!(result.context, "no SPF records found for example.com");
 }
+
+/// This test is a little bit disingenuous, because the issue it is testing
+/// is impossible to reproduce with the TestResolver.  The issue was that
+/// the underlying resolver would propagate a NoRecordsFound hickory error
+/// as a DnsError::ResolveFailed instead of returning an empty list of
+/// ip addresses.  The error would essentially blow up the exists: rule which
+/// is defined as being OK in the face of having no matching records.
+#[tokio::test]
+async fn no_records_for_exists_should_not_block_otherwise_satisfied_eval() {
+    let resolver = TestResolver::default()
+        .with_txt(
+            "greenhouse.io",
+            "v=spf1 include:_spf.salesforce.com include:mg-spf.greenhouse.io ~all",
+        )
+        .with_txt(
+            "_spf.salesforce.com",
+            // Note that we don't provide any of these IP._spf.mta.salesforce.com
+            // A or AAAA entries, so the exists checks will all fail
+            "v=spf1 exists:%{i}._spf.mta.salesforce.com -all",
+        )
+        .with_txt(
+            "mg-spf.greenhouse.io",
+            "v=spf1 ip4:185.250.239.148 ip4:185.250.239.168 ip4:185.250.239.190 \
+                ip4:198.244.59.30 ip4:198.244.59.33 ip4:198.244.59.35 \
+                ip4:198.61.254.21 ip4:209.61.151.236 ip4:209.61.151.249 \
+                ip4:209.61.151.251 ip4:69.72.40.93 ip4:69.72.40.94/31 \
+                ip4:69.72.40.96/30 ip4:69.72.47.205 ~all",
+        );
+
+    let cx = SpfContext::new(
+        "sender@greenhouse.io",
+        "greenhouse.io",
+        "69.72.47.205".parse().unwrap(),
+    )
+    .unwrap();
+    let result = cx.check(&resolver, true).await;
+    eprintln!("{result:#?}");
+    assert_eq!(result.disposition, SpfDisposition::Pass);
+    assert_eq!(
+        result.context,
+        "matched 'include:mg-spf.greenhouse.io' directive"
+    );
+}
+
+/// This is the live-dns version of the above
+/// no_records_for_exists_should_not_block_otherwise_satisfied_eval test case
+/// that queries real DNS with a real resolver. Prior to the fix for this issue,
+/// this test would fail.
+#[cfg(feature = "live-dns-tests")]
+#[tokio::test]
+async fn live_no_records_for_exists_should_not_block_otherwise_satisfied_eval() {
+    use dns_resolver::HickoryResolver;
+    let resolver = HickoryResolver::new().unwrap();
+    let cx = SpfContext::new(
+        "sender@greenhouse.io",
+        "greenhouse.io",
+        "69.72.47.205".parse().unwrap(),
+    )
+    .unwrap();
+    let result = cx.check(&resolver, true).await;
+    eprintln!("{result:#?}");
+    assert_eq!(result.disposition, SpfDisposition::Pass);
+    assert_eq!(
+        result.context,
+        "matched 'include:mg-spf.greenhouse.io' directive"
+    );
+}

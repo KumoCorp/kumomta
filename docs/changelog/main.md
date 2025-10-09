@@ -55,3 +55,5 @@
  * smtp server would incorrectly return a 451 instead of a 452 status when
    `max_recipients_per_message` or `max_messages_per_connection` limits
    were exceeded.
+ * spf: a `NoRecordsFound` response from DNS during an `exists:` rule check
+   could cause the result to incorrectly be reported a `temperror`
