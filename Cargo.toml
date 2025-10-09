@@ -115,6 +115,7 @@ indoc = "2.0.5"
 instant-xml = "0.5"
 intrusive-collections = "0.9.7"
 json_comments = "0.2"
+itertools = "0.14"
 jwalk = "0.8"
 k9 = "0.12"
 lapin = {version="2.5", default-features=false, features=["native-tls"]}

@@ -17,6 +17,7 @@ futures = {workspace=true}
 futures-util = {workspace=true}
 human_bytes = {workspace=true}
 humantime = {workspace=true}
+itertools.workspace = true
 lexicmp = {workspace=true}
 message = {path="../message", default-features=false}
 num-format = {workspace=true}

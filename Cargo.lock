@@ -3375,6 +3375,7 @@ dependencies = [
  "human_bytes",
  "humantime",
  "indoc",
+ "itertools 0.14.0",
  "kumo-api-types",
  "kumo-prometheus",
  "lexicmp",
