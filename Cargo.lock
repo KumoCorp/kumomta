@@ -3142,6 +3142,7 @@ dependencies = [
  "mailparsing",
  "message",
  "nix 0.30.1",
+ "parking_lot",
  "rcgen 0.14.5",
  "reqwest",
  "rfc5321",

@@ -2,6 +2,7 @@ use crate::kumod::DaemonWithMaildirOptions;
 use anyhow::Context;
 use kumo_api_types::TraceSmtpV1Payload::Callback;
 use rfc5321::{Command, XClientParameter};
+use std::time::Duration;
 
 #[tokio::test]
 async fn xclient_switch_from_addr() -> anyhow::Result<()> {
@@ -60,6 +61,18 @@ async fn xclient_switch_from_addr() -> anyhow::Result<()> {
     eprintln!("{xclient_result_after:#?}");
     k9::assert_equal!(xclient_result_after.code, 550);
     k9::assert_equal!(xclient_result_after.content, "insufficient authorization");
+
+    tracer
+        .wait_for(
+            |events| {
+                events.iter().any(|event| {
+                    matches!(&event.payload, Callback{name,..}
+                        if name == "smtp_server_get_dynamic_parameters")
+                })
+            },
+            Duration::from_secs(10),
+        )
+        .await;
 
     let trace_events = tracer.stop().await?;
     eprintln!("{trace_events:#?}");

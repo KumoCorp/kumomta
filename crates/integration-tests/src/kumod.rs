@@ -9,6 +9,7 @@ use kumo_log_types::*;
 use maildir::{MailEntry, Maildir};
 use mailparsing::MessageBuilder;
 use nix::unistd::{Uid, User};
+use parking_lot::Mutex;
 use rfc5321::{
     BatchSendSuccess, ForwardPath, Response, ReversePath, SmtpClient, SmtpClientTimeouts,
 };
@@ -17,6 +18,7 @@ use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
@@ -285,51 +287,54 @@ impl DaemonWithMaildir {
 
         let (signal_close, mut close_signalled) = tokio::sync::oneshot::channel();
 
-        let joiner = tokio::spawn(async move {
-            let mut records = vec![];
-            let mut closed = false;
+        let records = Arc::new(Mutex::new(vec![]));
 
-            while !socket.is_terminated() {
-                tokio::select! {
-                    _ = &mut close_signalled, if !closed => {
-                        closed = true;
-                        if socket.close(None).await.is_err() {
-                            break;
-                        }
-                    }
-                    record = socket.next() => {
-                        match record {
-                            Some(Ok(msg)) => {
-                                match msg {
-                                    Message::Text(s) => {
-                                        let event: TraceSmtpV1Event = serde_json::from_str(&s).expect("TraceSmtpV1Event");
-                                        records.push(event);
-                                    }
-                                    Message::Ping(ping) => {
-                                        if socket.send(Message::Pong(ping)).await.is_err() {
-                                            break;
-                                        }
-                                    }
-                                    wat => {
-                                        eprintln!("WAT: {wat:?}");
-                                        break;
-                                    }
-                                }
-                            }
-                            Some(Err(_)) | None => {
+        let joiner = tokio::spawn({
+            let records = records.clone();
+            async move {
+                let mut closed = false;
+
+                while !socket.is_terminated() {
+                    tokio::select! {
+                        _ = &mut close_signalled, if !closed => {
+                            closed = true;
+                            if socket.close(None).await.is_err() {
                                 break;
                             }
                         }
-                    }
-                };
+                        record = socket.next() => {
+                            match record {
+                                Some(Ok(msg)) => {
+                                    match msg {
+                                        Message::Text(s) => {
+                                            let event: TraceSmtpV1Event = serde_json::from_str(&s).expect("TraceSmtpV1Event");
+                                            records.lock().push(event);
+                                        }
+                                        Message::Ping(ping) => {
+                                            if socket.send(Message::Pong(ping)).await.is_err() {
+                                                break;
+                                            }
+                                        }
+                                        wat => {
+                                            eprintln!("WAT: {wat:?}");
+                                            break;
+                                        }
+                                    }
+                                }
+                                Some(Err(_)) | None => {
+                                    break;
+                                }
+                            }
+                        }
+                    };
+                }
             }
-
-            records
         });
 
         Ok(ServerTracer {
             signal_close,
             joiner,
+            records,
         })
     }
 
@@ -894,12 +899,37 @@ impl DaemonWithTsa {
 
 pub struct ServerTracer {
     signal_close: tokio::sync::oneshot::Sender<()>,
-    joiner: tokio::task::JoinHandle<Vec<TraceSmtpV1Event>>,
+    joiner: tokio::task::JoinHandle<()>,
+    records: Arc<Mutex<Vec<TraceSmtpV1Event>>>,
 }
 
 impl ServerTracer {
     pub async fn stop(self) -> anyhow::Result<Vec<TraceSmtpV1Event>> {
         self.signal_close.send(()).expect("call stop only once");
-        Ok(self.joiner.await?)
+        self.joiner.await?;
+        Ok(self.records.lock().clone())
+    }
+
+    pub fn with_records<R>(&self, mut apply: impl FnMut(&[TraceSmtpV1Event]) -> R) -> R {
+        let records = self.records.lock();
+        (apply)(&records)
+    }
+
+    pub async fn wait_for(
+        &self,
+        mut condition: impl FnMut(&[TraceSmtpV1Event]) -> bool,
+        timeout: Duration,
+    ) -> bool {
+        tokio::select! {
+            _ = async {
+                loop {
+                    if self.with_records(&mut condition) {
+                        return true;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            } => true,
+            _ = tokio::time::sleep(timeout) => false,
+        }
     }
 }
