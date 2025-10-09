@@ -1,5 +1,5 @@
 use crate::spec::MacroSpec;
-use crate::{SpfContext, SpfDisposition, SpfResult};
+use crate::{fully_qualify, SpfContext, SpfDisposition, SpfResult};
 use dns_resolver::Resolver;
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -112,7 +112,7 @@ impl Record {
         // if no records are returned, or if more than one record is returned,
         // or if there are syntax errors in the explanation string, then proceed
         // as if no "exp" modifier was given."
-        let explanation = match resolver.resolve_txt(&domain).await {
+        let explanation = match resolver.resolve_txt(&fully_qualify(&domain)).await {
             Ok(answers) if answers.records.len() == 1 => answers.as_txt().pop().unwrap(),
             Ok(_) | Err(_) => return SpfResult::fail(failed),
         };
@@ -162,7 +162,7 @@ impl Directive {
             Mechanism::A { domain, cidr_len } => {
                 cx.check_lookup_limit()?;
                 let domain = cx.domain(domain.as_ref(), resolver).await?;
-                let resolved = match resolver.resolve_ip(&domain).await {
+                let resolved = match resolver.resolve_ip(&fully_qualify(&domain)).await {
                     Ok(ips) => ips,
                     Err(err) => {
                         return Err(SpfResult {
@@ -179,7 +179,7 @@ impl Directive {
             Mechanism::Mx { domain, cidr_len } => {
                 cx.check_lookup_limit()?;
                 let domain = cx.domain(domain.as_ref(), resolver).await?;
-                let exchanges = match resolver.resolve_mx(&domain).await {
+                let exchanges = match resolver.resolve_mx(&fully_qualify(&domain)).await {
                     Ok(exchanges) => exchanges,
                     Err(err) => {
                         return Err(SpfResult {
@@ -199,7 +199,10 @@ impl Directive {
                         });
                     }
 
-                    let resolved = match resolver.resolve_ip(&exchange.to_string()).await {
+                    let resolved = match resolver
+                        .resolve_ip(&fully_qualify(&exchange.to_string()))
+                        .await
+                    {
                         Ok(ips) => ips,
                         Err(err) => {
                             return Err(SpfResult {
@@ -279,7 +282,7 @@ impl Directive {
             Mechanism::Exists { domain } => {
                 cx.check_lookup_limit()?;
                 let domain = cx.domain(Some(domain), resolver).await?;
-                match resolver.resolve_ip(&domain).await {
+                match resolver.resolve_ip(&fully_qualify(&domain)).await {
                     Ok(ips) => ips.iter().any(|ip| ip.is_ipv4()),
                     Err(err) => {
                         return Err(SpfResult {

@@ -239,7 +239,10 @@ impl<'a> SpfContext<'a> {
         }
 
         let name = match Name::from_str_relaxed(self.domain) {
-            Ok(name) => name,
+            Ok(mut name) => {
+                name.set_fqdn(true);
+                name
+            }
             Err(_) => {
                 // Per <https://www.rfc-editor.org/rfc/rfc7208#section-4.3>, invalid
                 // domain names yield a "none" result during initial processing.
@@ -362,7 +365,7 @@ impl<'a> SpfContext<'a> {
                     context: format!("too many PTR records for {}", self.client_ip),
                 });
             }
-            match resolver.resolve_ip(&ptr.to_string()).await {
+            match resolver.resolve_ip(&fully_qualify(&ptr.to_string())).await {
                 Ok(ips) => {
                     if ips.iter().any(|&ip| ip == self.client_ip) {
                         let mut ptr = ptr.clone();
@@ -381,5 +384,12 @@ impl<'a> SpfContext<'a> {
         }
 
         Ok(None)
+    }
+}
+
+pub(crate) fn fully_qualify(domain_name: &str) -> String {
+    match dns_resolver::fully_qualify(domain_name) {
+        Ok(name) => name.to_string(),
+        Err(_) => domain_name.to_string(),
     }
 }
