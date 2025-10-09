@@ -44,6 +44,7 @@ mod-mimepart = {path="../mod-mimepart"}
 mod-mpsc = {path="../mod-mpsc"}
 mod-regex = {path="../mod-regex"}
 mod-redis = {path="../mod-redis"}
+mod-rspamd = {path="../mod-rspamd"}
 mod-serde = {path="../mod-serde"}
 mod-sqlite = {path="../mod-sqlite"}
 mod-string = {path="../mod-string"}

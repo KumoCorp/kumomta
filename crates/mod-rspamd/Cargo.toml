@@ -1,0 +1,15 @@
+[package]
+name = "mod-rspamd"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow.workspace=true
+config = {path="../config"}
+duration-serde = {path="../duration-serde"}
+humantime.workspace=true
+mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
+rspamd-client = {version = "0.3", features = ["async"]}
+serde.workspace=true
+serde_json.workspace=true
+tokio.workspace=true
