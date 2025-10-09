@@ -135,7 +135,7 @@ pub trait Resolver: Send + Sync + 'static {
     async fn resolve_ptr(&self, ip: IpAddr) -> Result<Vec<Name>, DnsError>;
 
     async fn resolve_txt(&self, name: &str) -> Result<Answer, DnsError> {
-        let name = Name::from_utf8(name)
+        let name = Name::from_str_relaxed(name)
             .map_err(|err| DnsError::InvalidName(format!("invalid name {name}: {err}")))?;
         self.resolve(name, RecordType::TXT).await
     }
@@ -178,7 +178,7 @@ impl TestResolver {
     /// Add multiple separate TXT records for the specified domain
     pub fn with_txt_multiple(mut self, domain: &str, value: Vec<String>) -> Self {
         let fqdn = format!("{}.", domain);
-        let authority = Name::from_str(&fqdn).unwrap();
+        let authority = Name::from_str_relaxed(&fqdn).unwrap();
         let key = RrKey {
             name: LowerName::from_str(&fqdn).unwrap(),
             record_type: RecordType::TXT,
@@ -260,7 +260,7 @@ impl TestResolver {
 #[async_trait]
 impl Resolver for TestResolver {
     async fn resolve_ip(&self, full: &str) -> Result<Vec<IpAddr>, DnsError> {
-        let name = Name::from_utf8(full)
+        let name = Name::from_str_relaxed(full)
             .map_err(|err| DnsError::InvalidName(format!("invalid name {full}: {err}")))?;
 
         let mut values = vec![];
@@ -280,7 +280,7 @@ impl Resolver for TestResolver {
     }
 
     async fn resolve_mx(&self, full: &str) -> Result<Vec<Name>, DnsError> {
-        let name = Name::from_utf8(full)
+        let name = Name::from_str_relaxed(full)
             .map_err(|err| DnsError::InvalidName(format!("invalid name {full}: {err}")))?;
 
         let mut values = vec![];
@@ -294,14 +294,14 @@ impl Resolver for TestResolver {
     }
 
     async fn resolve_txt(&self, full: &str) -> Result<Answer, DnsError> {
-        let name = Name::from_utf8(full)
+        let name = Name::from_str_relaxed(full)
             .map_err(|err| DnsError::InvalidName(format!("invalid name {full}: {err}")))?;
         self.get(&name, RecordType::TXT)
     }
 
     async fn resolve_ptr(&self, ip: IpAddr) -> Result<Vec<Name>, DnsError> {
         let name = ptr_host(ip);
-        let name = Name::from_utf8(ptr_host(ip))
+        let name = Name::from_str_relaxed(ptr_host(ip))
             .map_err(|err| DnsError::InvalidName(format!("invalid name {name}: {err}")))?;
 
         let mut values = vec![];
@@ -476,7 +476,7 @@ impl HickoryResolver {
 #[async_trait]
 impl Resolver for HickoryResolver {
     async fn resolve_ip(&self, host: &str) -> Result<Vec<IpAddr>, DnsError> {
-        let name = Name::from_utf8(host)
+        let name = Name::from_str_relaxed(host)
             .map_err(|err| DnsError::InvalidName(format!("invalid name {host}: {err}")))?;
 
         match self.inner.lookup_ip(name.clone()).await {
@@ -489,7 +489,7 @@ impl Resolver for HickoryResolver {
     }
 
     async fn resolve_mx(&self, host: &str) -> Result<Vec<Name>, DnsError> {
-        let name = Name::from_utf8(host)
+        let name = Name::from_str_relaxed(host)
             .map_err(|err| DnsError::InvalidName(format!("invalid name {host}: {err}")))?;
 
         match self.inner.mx_lookup(name.clone()).await {
