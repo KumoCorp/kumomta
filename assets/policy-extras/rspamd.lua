@@ -11,6 +11,7 @@ rspamd-client Rust library.
 
 - Native async Rust client for high performance
 - **File header optimization** for local scanning (avoids sending message body over socket)
+- **Milter protocol support** for header modifications (add/remove headers, subject rewriting)
 - **ZSTD compression** for faster message transmission (enabled by default)
 - **HTTPCrypt encryption** for secure communication with Rspamd
 - Automatic metadata extraction from messages and connections
@@ -92,8 +93,12 @@ local ACTION_HANDLERS = {
   end,
 
   ['rewrite subject'] = function(msg, result)
+    -- Subject rewriting is typically handled by milter actions
+    -- But we can also do it manually if milter doesn't provide it
     local subject = msg:get_first_named_header_value 'Subject' or ''
-    msg:set_first_named_header('Subject', '***SPAM*** ' .. subject)
+    if not result.milter or not result.milter.add_headers or not result.milter.add_headers.Subject then
+      msg:set_first_named_header('Subject', '***SPAM*** ' .. subject)
+    end
     msg:set_first_named_header('X-Spam-Flag', 'YES')
     msg:set_first_named_header('X-Spam-Score', tostring(result.score))
   end,
@@ -185,8 +190,59 @@ function mod.scan_message(client, msg, conn_meta, options)
   return result
 end
 
+-- Apply milter actions from Rspamd response
+-- Handles add_headers, remove_headers, and subject rewriting
+--
+-- Note: Body rewriting is not currently supported by rspamd-client crate.
+-- Rspamd can suggest body modifications, but the current protocol implementation
+-- returns header changes only. For body modifications, you would need to:
+-- 1. Configure Rspamd to save modified messages
+-- 2. Fetch the modified message from Rspamd
+-- 3. Replace the message body in KumoMTA
+-- This is left for future implementation.
+function mod.apply_milter_actions(msg, result)
+  if not result.milter then
+    return
+  end
+
+  local milter = result.milter
+
+  -- Remove headers
+  if milter.remove_headers then
+    for header_name, index in pairs(milter.remove_headers) do
+      -- If index is 0, remove all instances
+      if index == 0 then
+        msg:remove_all_named_headers(header_name)
+      else
+        -- Remove specific instance (1-indexed)
+        -- Note: KumoMTA may handle this differently
+        msg:remove_all_named_headers(header_name)
+      end
+    end
+  end
+
+  -- Add headers
+  if milter.add_headers then
+    for header_name, header_data in pairs(milter.add_headers) do
+      -- Special handling for Subject rewriting
+      if header_name == 'Subject' then
+        msg:set_first_named_header('Subject', header_data.value)
+      else
+        -- Add the header
+        -- The order field could be used for insertion ordering if needed
+        msg:append_header(header_name, header_data.value)
+      end
+    end
+  end
+end
+
 -- Apply the Rspamd action recommendation
-function mod.apply_action(msg, result, custom_handlers)
+-- Options:
+--   apply_milter: if true, apply milter actions (default: true)
+function mod.apply_action(msg, result, custom_handlers, options)
+  options = options or {}
+  local apply_milter = options.apply_milter ~= false -- default true
+
   local handlers = custom_handlers or ACTION_HANDLERS
   local action = result.action
 
@@ -203,6 +259,11 @@ function mod.apply_action(msg, result, custom_handlers)
     )
     msg:set_first_named_header('X-Spam-Status', action)
     msg:set_first_named_header('X-Spam-Score', tostring(result.score))
+  end
+
+  -- Apply milter actions (headers, subject rewrite, etc.)
+  if apply_milter then
+    mod.apply_milter_actions(msg, result)
   end
 end
 
@@ -246,17 +307,20 @@ function mod:setup(config)
 
     -- Apply action based on config
     if config.action == 'none' then
-      -- Just store metadata, don't take action
+      -- Just store metadata and apply milter actions
+      mod.apply_milter_actions(msg, result)
       return
     elseif config.action == 'tag' then
       -- Only add headers
       ACTION_HANDLERS['add header'](msg, result)
+      mod.apply_milter_actions(msg, result)
     elseif config.action == 'reject' then
       -- Reject if Rspamd says to reject
       if result.action == 'reject' or result.action == 'soft reject' or result.action == 'greylist' then
         mod.apply_action(msg, result, config.custom_handlers)
       else
         ACTION_HANDLERS['add header'](msg, result)
+        mod.apply_milter_actions(msg, result)
       end
     elseif config.action == 'quarantine' then
       -- Send spam to quarantine queue
@@ -264,6 +328,7 @@ function mod:setup(config)
         msg:set_meta('queue', config.quarantine_queue or 'quarantine')
         ACTION_HANDLERS['add header'](msg, result)
       end
+      mod.apply_milter_actions(msg, result)
     else
       -- Follow Rspamd's recommendation
       mod.apply_action(msg, result, config.custom_handlers)

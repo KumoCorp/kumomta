@@ -13,6 +13,7 @@ This example demonstrates how to integrate Rspamd spam scanning with KumoMTA.
 
 - Native async Rspamd client
 - **File header optimization** for local scanning (avoids sending message body)
+- **Milter protocol support** for header modifications (add/remove headers, subject rewriting)
 - ZSTD compression for faster transmission (enabled by default)
 - HTTPCrypt encryption for secure communication
 - Automatic metadata extraction (IP, HELO, sender, recipient)
@@ -170,7 +171,66 @@ end)
 ]]
 
 --[[
-# Example 5: Advanced Setup with HTTPCrypt Encryption
+# Example 5: Milter Actions - Header Modifications
+
+Rspamd can suggest header modifications via the milter protocol:
+- Add headers (X-Spam-*, custom headers, etc.)
+- Remove headers
+- Rewrite Subject line
+
+Milter actions are applied automatically by default.
+]]
+
+--[[
+local client = kumo.rspamd.build_client {
+  base_url = 'http://localhost:11333',
+  use_file_path = true,
+  zstd = true,
+}
+
+kumo.on('smtp_server_message_received', function(msg, conn_meta)
+  if conn_meta:get_meta 'authn_id' then
+    return
+  end
+
+  -- Scan the message
+  local result = rspamd.scan_message(client, msg, conn_meta, {use_file_path = true})
+
+  -- Milter actions are automatically applied by rspamd.apply_action()
+  -- This includes:
+  -- - Adding headers from result.milter.add_headers
+  -- - Removing headers from result.milter.remove_headers
+  -- - Subject rewriting if Rspamd suggests it
+
+  -- Apply actions including milter modifications
+  rspamd.apply_action(msg, result)
+
+  -- You can also apply milter actions independently:
+  -- rspamd.apply_milter_actions(msg, result)
+
+  -- Log what milter actions were applied
+  if result.milter then
+    if result.milter.add_headers then
+      for header_name, header_data in pairs(result.milter.add_headers) do
+        kumo.log_info(
+          string.format('Milter: Adding header %s: %s', header_name, header_data.value)
+        )
+      end
+    end
+    if result.milter.remove_headers then
+      for header_name, _ in pairs(result.milter.remove_headers) do
+        kumo.log_info(string.format('Milter: Removing header %s', header_name))
+      end
+    end
+  end
+
+  msg:set_meta('rspamd_score', result.score)
+  msg:set_meta('rspamd_action', result.action)
+end)
+]]
+
+--[[
+# Example 6: Advanced Setup with HTTPCrypt Encryption
 
 Use HTTPCrypt for encrypted communication with Rspamd:
 
@@ -245,7 +305,7 @@ kumo.on('smtp_server_message_received', function(msg, conn_meta)
 end)
 
 --[[
-# Example 6: Direct API Usage (Low-Level)
+# Example 7: Direct API Usage (Low-Level)
 
 For maximum control, use the client API directly:
 ]]
@@ -282,6 +342,11 @@ kumo.on('smtp_server_message_received', function(msg, conn_meta)
   print('Action:', result.action)
   for symbol, data in pairs(result.symbols or {}) do
     print('Symbol:', symbol, 'Score:', data.score or 0)
+  end
+
+  -- Manually apply milter actions if needed
+  if result.milter then
+    rspamd.apply_milter_actions(msg, result)
   end
 end)
 ]]
