@@ -64,12 +64,16 @@ impl fmt::Display for IpDisplay {
 }
 
 pub fn ptr_host(ip: IpAddr) -> String {
-    let mut out = IpDisplay { ip, reverse: true }.to_string();
+    let mut out = reverse_ip(ip);
     out.push_str(match ip {
         IpAddr::V4(_) => ".in-addr.arpa",
         IpAddr::V6(_) => ".ip6.arpa",
     });
     out
+}
+
+pub fn reverse_ip(ip: IpAddr) -> String {
+    IpDisplay { ip, reverse: true }.to_string()
 }
 
 #[derive(Debug)]
@@ -143,14 +147,39 @@ pub trait Resolver: Send + Sync + 'static {
     async fn resolve(&self, name: Name, rrtype: RecordType) -> Result<Answer, DnsError>;
 }
 
+#[async_trait]
+impl Resolver for Box<dyn Resolver> {
+    async fn resolve_ip(&self, host: &str) -> Result<Vec<IpAddr>, DnsError> {
+        (**self).resolve_ip(host).await
+    }
+
+    async fn resolve_mx(&self, host: &str) -> Result<Vec<Name>, DnsError> {
+        (**self).resolve_mx(host).await
+    }
+
+    async fn resolve_ptr(&self, ip: IpAddr) -> Result<Vec<Name>, DnsError> {
+        (**self).resolve_ptr(ip).await
+    }
+
+    async fn resolve_txt(&self, name: &str) -> Result<Answer, DnsError> {
+        (**self).resolve_txt(name).await
+    }
+
+    async fn resolve(&self, name: Name, rrtype: RecordType) -> Result<Answer, DnsError> {
+        (**self).resolve(name, rrtype).await
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct TestResolver {
     records: BTreeMap<Name, BTreeMap<RrKey, RecordSet>>,
 }
 
 impl TestResolver {
-    pub fn with_zone(mut self, zone: &str) -> Self {
-        let (mut name, records) = Parser::new(zone, None, None).parse().unwrap();
+    pub fn with_zone(mut self, zone: &str) -> Result<Self, String> {
+        let (mut name, records) = Parser::new(zone, None, None)
+            .parse()
+            .map_err(|err| format!("{err:#}"))?;
         // The parser can create results with varying FQDN-ness, so let's
         // ensure that they're all marked as FQDN, otherwise our get()
         // function can fail to resolve data from the zone.
@@ -168,7 +197,7 @@ impl TestResolver {
             })
             .collect();
         self.records.insert(name, fqdn_records);
-        self
+        Ok(self)
     }
 
     pub fn with_txt(self, domain: &str, value: impl Into<String>) -> Self {
@@ -291,12 +320,6 @@ impl Resolver for TestResolver {
         }
 
         Ok(values)
-    }
-
-    async fn resolve_txt(&self, full: &str) -> Result<Answer, DnsError> {
-        let name = Name::from_str_relaxed(full)
-            .map_err(|err| DnsError::InvalidName(format!("invalid name {full}: {err}")))?;
-        self.get(&name, RecordType::TXT)
     }
 
     async fn resolve_ptr(&self, ip: IpAddr) -> Result<Vec<Name>, DnsError> {
@@ -552,6 +575,121 @@ impl Resolver for HickoryResolver {
 impl From<TokioResolver> for HickoryResolver {
     fn from(inner: TokioResolver) -> Self {
         Self { inner }
+    }
+}
+
+/// AggregateResolver aggregates the results from multiple
+/// resolver instances.
+/// This is most useful when you want to overlay or otherwise
+/// force in test data to take precedence over real resolver
+/// results.  In that situation, you'd push a TestResolver
+/// ahead of the HickoryResolver that you want to use for
+/// real DNS resolution.
+pub struct AggregateResolver {
+    resolvers: Vec<Box<dyn Resolver>>,
+}
+
+impl AggregateResolver {
+    pub fn new() -> Self {
+        Self { resolvers: vec![] }
+    }
+
+    pub fn push_resolver(&mut self, resolver: Box<dyn Resolver>) {
+        self.resolvers.push(resolver);
+    }
+}
+
+#[async_trait]
+impl Resolver for AggregateResolver {
+    async fn resolve_ip(&self, full: &str) -> Result<Vec<IpAddr>, DnsError> {
+        let mut errors = vec![];
+        for resolver in &self.resolvers {
+            match resolver.resolve_ip(full).await {
+                Ok(ips) if ips.is_empty() => {}
+                Ok(ips) => {
+                    return Ok(ips);
+                }
+                Err(err) => errors.push(err),
+            }
+        }
+
+        if let Some(err) = errors.pop() {
+            Err(err)
+        } else {
+            Ok(vec![])
+        }
+    }
+
+    async fn resolve_mx(&self, full: &str) -> Result<Vec<Name>, DnsError> {
+        let mut errors = vec![];
+        for resolver in &self.resolvers {
+            match resolver.resolve_mx(full).await {
+                Ok(ips) if ips.is_empty() => {}
+                Ok(ips) => {
+                    return Ok(ips);
+                }
+                Err(err) => errors.push(err),
+            }
+        }
+
+        if let Some(err) = errors.pop() {
+            Err(err)
+        } else {
+            Ok(vec![])
+        }
+    }
+
+    async fn resolve_ptr(&self, ip: IpAddr) -> Result<Vec<Name>, DnsError> {
+        let mut errors = vec![];
+        for resolver in &self.resolvers {
+            match resolver.resolve_ptr(ip).await {
+                Ok(ips) if ips.is_empty() => {}
+                Ok(ips) => {
+                    return Ok(ips);
+                }
+                Err(err) => errors.push(err),
+            }
+        }
+
+        if let Some(err) = errors.pop() {
+            Err(err)
+        } else {
+            Ok(vec![])
+        }
+    }
+
+    async fn resolve(&self, name: Name, rrtype: RecordType) -> Result<Answer, DnsError> {
+        let mut errors = vec![];
+        let mut nxdomain = None;
+        for resolver in &self.resolvers {
+            match resolver.resolve(name.clone(), rrtype).await {
+                Ok(answer) => {
+                    if !answer.nxdomain {
+                        return Ok(answer);
+                    }
+                    nxdomain.replace(answer);
+                }
+                Err(err) => errors.push(err),
+            }
+        }
+
+        if let Some(err) = errors.pop() {
+            Err(err)
+        } else {
+            match nxdomain.take() {
+                Some(answer) => Ok(answer),
+                None => Ok(Answer {
+                    canon_name: None,
+                    records: vec![],
+                    nxdomain: true,
+                    secure: false,
+                    bogus: false,
+                    why_bogus: None,
+                    expires: Instant::now() + Duration::from_secs(60),
+                    response_code: ResponseCode::NXDomain,
+                }),
+            }
+        }
     }
 }
 

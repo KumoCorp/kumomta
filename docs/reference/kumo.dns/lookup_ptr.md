@@ -1,7 +1,7 @@
 # lookup_ptr
 
 ```lua
-kumo.dns.lookup_ptr(IP)
+kumo.dns.lookup_ptr(IP, OPT_RESOLVER_NAME)
 ```
 
 {{since('2025.10.06-5ec871ab')}}
@@ -20,3 +20,9 @@ if ok then
   end
 end
 ```
+
+{{since('dev')}}
+
+The `OPT_RESOLVER_NAME` is an optional string parameter that specifies the name
+of a alternate resolver defined via [define_resolver](define_resolver.md).  You
+can omit this parameter and the default resolver will be used.

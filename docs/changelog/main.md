@@ -49,6 +49,10 @@
  * [kumo.amqp.build_client](../reference/kumo.amqp/build_client.md) is
    deprecated in favor of
    [kumo.amqp.basic_publish](../reference/kumo.amqp/basic_publish.md).
+ * New [kumo.dns.ptr_host](../reference/kumo.dns/ptr_host.md),
+   [kumo.dns.reverse_ip](../reference/kumo.dns/reverse_ip.md),
+   [kumo.dns.define_resolver](../reference/kumo.dns/define_resolver.md) and
+   [kumo.dns.rbl_lookup](../reference/kumo.dns/rbl_lookup.md) functions. #269
 
 ## Fixes
 
