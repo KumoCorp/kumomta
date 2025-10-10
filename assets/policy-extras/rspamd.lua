@@ -11,6 +11,7 @@ rspamd-client Rust library.
 
 - Native async Rust client for high performance
 - **File header optimization** for local scanning (avoids sending message body over socket)
+- **Body rewriting** support for message modifications (requires rspamd-client 0.4+)
 - **Milter protocol support** for header modifications (add/remove headers, subject rewriting)
 - **ZSTD compression** for faster message transmission (enabled by default)
 - **HTTPCrypt encryption** for secure communication with Rspamd
@@ -134,6 +135,7 @@ local ACTION_HANDLERS = {
 -- Options:
 --   use_file_path: if true and Rspamd is on localhost/unix socket, use File header
 --                  to avoid sending message body (significant performance improvement)
+--   body_block: if true, request rewritten body in response (for body modifications)
 function mod.extract_metadata(msg, conn_meta, options)
   options = options or {}
   local metadata = {}
@@ -168,6 +170,12 @@ function mod.extract_metadata(msg, conn_meta, options)
         metadata.file_path = spool_path
       end
     end
+
+    -- Request rewritten body if modifications are expected
+    -- This enables Rspamd to return the modified message body
+    if options.body_block then
+      metadata.body_block = true
+    end
   end
 
   return metadata
@@ -176,6 +184,7 @@ end
 -- Scan a message using the Rspamd client
 -- Options:
 --   use_file_path: if true, use File header for local scanning (recommended for localhost)
+--   body_block: if true, request rewritten body in response
 function mod.scan_message(client, msg, conn_meta, options)
   options = options or {}
   local metadata = mod.extract_metadata(msg, conn_meta, options)
@@ -185,21 +194,26 @@ function mod.scan_message(client, msg, conn_meta, options)
 
   -- Scan with metadata
   -- If file_path is set, Rspamd will read from disk instead of using message_data
+  -- If body_block is set, rewritten body will be in result.rewritten_body
   local result = client:scan(message_data, metadata)
 
   return result
 end
 
+-- Apply body rewriting from Rspamd response
+-- Replaces the entire message body if Rspamd returned a rewritten version
+function mod.apply_body_rewrite(msg, result)
+  if not result.rewritten_body then
+    return false
+  end
+
+  -- Replace entire message with rewritten version
+  msg:set_data(result.rewritten_body)
+  return true
+end
+
 -- Apply milter actions from Rspamd response
 -- Handles add_headers, remove_headers, and subject rewriting
---
--- Note: Body rewriting is not currently supported by rspamd-client crate.
--- Rspamd can suggest body modifications, but the current protocol implementation
--- returns header changes only. For body modifications, you would need to:
--- 1. Configure Rspamd to save modified messages
--- 2. Fetch the modified message from Rspamd
--- 3. Replace the message body in KumoMTA
--- This is left for future implementation.
 function mod.apply_milter_actions(msg, result)
   if not result.milter then
     return
@@ -239,12 +253,22 @@ end
 -- Apply the Rspamd action recommendation
 -- Options:
 --   apply_milter: if true, apply milter actions (default: true)
+--   apply_body: if true, apply body rewriting (default: true)
 function mod.apply_action(msg, result, custom_handlers, options)
   options = options or {}
   local apply_milter = options.apply_milter ~= false -- default true
+  local apply_body = options.apply_body ~= false -- default true
 
   local handlers = custom_handlers or ACTION_HANDLERS
   local action = result.action
+
+  -- Apply body rewriting first (if present)
+  -- This replaces the entire message including headers
+  if apply_body and mod.apply_body_rewrite(msg, result) then
+    kumo.log_info 'Applied body rewrite from Rspamd'
+    -- Body was rewritten, milter actions are already applied in the rewritten body
+    return
+  end
 
   local handler = handlers[action]
   if handler then
@@ -262,6 +286,7 @@ function mod.apply_action(msg, result, custom_handlers, options)
   end
 
   -- Apply milter actions (headers, subject rewrite, etc.)
+  -- Only if body wasn't rewritten (milter actions are in the rewritten body)
   if apply_milter then
     mod.apply_milter_actions(msg, result)
   end
@@ -289,6 +314,7 @@ function mod:setup(config)
   -- Scan options
   local scan_options = {
     use_file_path = config.use_file_path, -- Use File header for local scanning
+    body_block = config.body_block, -- Request rewritten body if modifications occur
   }
 
   -- Create scan function
@@ -307,28 +333,38 @@ function mod:setup(config)
 
     -- Apply action based on config
     if config.action == 'none' then
-      -- Just store metadata and apply milter actions
+      -- Just store metadata and apply modifications
+      mod.apply_body_rewrite(msg, result)
       mod.apply_milter_actions(msg, result)
       return
     elseif config.action == 'tag' then
-      -- Only add headers
-      ACTION_HANDLERS['add header'](msg, result)
-      mod.apply_milter_actions(msg, result)
+      -- Apply body rewrite if present
+      if not mod.apply_body_rewrite(msg, result) then
+        -- Only add headers if body wasn't rewritten
+        ACTION_HANDLERS['add header'](msg, result)
+        mod.apply_milter_actions(msg, result)
+      end
     elseif config.action == 'reject' then
       -- Reject if Rspamd says to reject
       if result.action == 'reject' or result.action == 'soft reject' or result.action == 'greylist' then
         mod.apply_action(msg, result, config.custom_handlers)
       else
-        ACTION_HANDLERS['add header'](msg, result)
-        mod.apply_milter_actions(msg, result)
+        if not mod.apply_body_rewrite(msg, result) then
+          ACTION_HANDLERS['add header'](msg, result)
+          mod.apply_milter_actions(msg, result)
+        end
       end
     elseif config.action == 'quarantine' then
       -- Send spam to quarantine queue
       if result.action == 'reject' or result.score > (config.quarantine_threshold or 5) then
         msg:set_meta('queue', config.quarantine_queue or 'quarantine')
-        ACTION_HANDLERS['add header'](msg, result)
+        if not mod.apply_body_rewrite(msg, result) then
+          ACTION_HANDLERS['add header'](msg, result)
+        end
       end
-      mod.apply_milter_actions(msg, result)
+      if not mod.apply_body_rewrite(msg, result) then
+        mod.apply_milter_actions(msg, result)
+      end
     else
       -- Follow Rspamd's recommendation
       mod.apply_action(msg, result, config.custom_handlers)

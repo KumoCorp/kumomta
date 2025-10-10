@@ -157,6 +157,7 @@ struct EnvelopeDataLua {
     hostname: Option<String>,
     queue_id: Option<String>,
     file_path: Option<String>,
+    body_block: bool,
     additional_headers: HashMap<String, String>,
 }
 
@@ -171,6 +172,7 @@ impl EnvelopeDataLua {
             hostname: table.get("hostname").ok(),
             queue_id: table.get("queue_id").ok(),
             file_path: table.get("file_path").ok(),
+            body_block: table.get("body_block").unwrap_or(false),
             additional_headers: table.get("additional_headers").unwrap_or_default(),
         })
     }
@@ -191,6 +193,7 @@ impl EnvelopeDataLua {
             helo: self.helo,
             hostname: self.hostname,
             file_path: self.file_path,
+            body_block: self.body_block,
             additional_headers: self.additional_headers,
         }
     }

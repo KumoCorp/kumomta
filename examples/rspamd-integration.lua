@@ -13,6 +13,7 @@ This example demonstrates how to integrate Rspamd spam scanning with KumoMTA.
 
 - Native async Rspamd client
 - **File header optimization** for local scanning (avoids sending message body)
+- **Body rewriting** for message modifications (rspamd-client 0.4+)
 - **Milter protocol support** for header modifications (add/remove headers, subject rewriting)
 - ZSTD compression for faster transmission (enabled by default)
 - HTTPCrypt encryption for secure communication
@@ -230,7 +231,81 @@ end)
 ]]
 
 --[[
-# Example 6: Advanced Setup with HTTPCrypt Encryption
+# Example 6: Body Rewriting
+
+Request and apply full message body rewriting from Rspamd.
+This is useful when Rspamd modules make modifications beyond just headers
+(e.g., stripping attachments, adding disclaimers, modifying MIME parts).
+
+Note: Requires rspamd-client 0.4.0+
+]]
+
+--[[
+local client = kumo.rspamd.build_client {
+  base_url = 'http://localhost:11333',
+  use_file_path = true,
+  zstd = true,
+}
+
+kumo.on('smtp_server_message_received', function(msg, conn_meta)
+  if conn_meta:get_meta 'authn_id' then
+    return
+  end
+
+  -- Scan with body_block enabled to receive rewritten message
+  local result = rspamd.scan_message(client, msg, conn_meta, {
+    use_file_path = true,
+    body_block = true,  -- Request rewritten body if Rspamd modifies it
+  })
+
+  -- Check if body was rewritten
+  if result.rewritten_body then
+    kumo.log_info(
+      string.format(
+        'Rspamd rewrote message body (%d bytes)',
+        #result.rewritten_body
+      )
+    )
+    -- Apply the rewritten body
+    rspamd.apply_body_rewrite(msg, result)
+  else
+    -- No body modifications, just apply headers
+    rspamd.apply_milter_actions(msg, result)
+  end
+
+  -- Apply action recommendations
+  if result.action == 'reject' then
+    kumo.reject(550, '5.7.1 Message rejected as spam')
+  elseif result.score > 5 then
+    msg:set_first_named_header('X-Spam-Flag', 'YES')
+  end
+
+  msg:set_meta('rspamd_score', result.score)
+  msg:set_meta('rspamd_action', result.action)
+end)
+]]
+
+--[[
+# Example 7: Automatic Body Rewriting with Setup
+
+The setup() helper automatically handles body rewriting when configured:
+]]
+
+--[[
+rspamd:setup {
+  base_url = 'http://localhost:11333',
+  use_file_path = true,
+  body_block = true,  -- Enable body rewriting support
+  action = 'tag',  -- Tag spam, don't reject
+  zstd = true,
+}
+
+kumo.on('smtp_server_message_received', rspamd.scan)
+-- Body rewriting is applied automatically if Rspamd returns modified message
+]]
+
+--[[
+# Example 8: Advanced Setup with HTTPCrypt Encryption
 
 Use HTTPCrypt for encrypted communication with Rspamd:
 
@@ -305,7 +380,7 @@ kumo.on('smtp_server_message_received', function(msg, conn_meta)
 end)
 
 --[[
-# Example 7: Direct API Usage (Low-Level)
+# Example 9: Direct API Usage (Low-Level)
 
 For maximum control, use the client API directly:
 ]]
@@ -328,6 +403,8 @@ kumo.on('smtp_server_message_received', function(msg, conn_meta)
     hostname = conn_meta:get_meta 'hostname',
     -- Optional: use file_path for local scanning (avoids body transfer)
     file_path = msg:get_meta 'spool_path',
+    -- Optional: request body rewriting
+    body_block = true,
   }
 
   -- Get message data (not transmitted if file_path is set)
@@ -335,6 +412,7 @@ kumo.on('smtp_server_message_received', function(msg, conn_meta)
 
   -- Scan with compression and optional encryption
   -- If file_path is set, Rspamd reads from disk instead
+  -- If body_block is set, rewritten body will be in result.rewritten_body
   local result = client:scan(message_data, metadata)
 
   -- Process results as needed
@@ -344,9 +422,14 @@ kumo.on('smtp_server_message_received', function(msg, conn_meta)
     print('Symbol:', symbol, 'Score:', data.score or 0)
   end
 
-  -- Manually apply milter actions if needed
-  if result.milter then
-    rspamd.apply_milter_actions(msg, result)
+  -- Apply body rewriting if present
+  if result.rewritten_body then
+    rspamd.apply_body_rewrite(msg, result)
+  else
+    -- Manually apply milter actions if needed
+    if result.milter then
+      rspamd.apply_milter_actions(msg, result)
+    end
   end
 end)
 ]]
