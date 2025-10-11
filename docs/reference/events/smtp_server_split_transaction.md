@@ -90,7 +90,7 @@ Every incoming recipient is placed into a separate batch and tracked separately.
 kumo.on('smtp_server_split_transaction', function(message, conn_meta)
   local split = {}
   for _, recip in ipairs(message:recipient_list()) do
-    table.insert(split, recip)
+    table.insert(split, { recip })
   end
   return split
 end)
