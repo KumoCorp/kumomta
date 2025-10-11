@@ -2965,6 +2965,11 @@ impl ConnectionMetaData {
         meta.get(name.as_ref()).cloned()
     }
 
+    pub fn get_meta_string<N: AsRef<str>>(&self, name: N) -> Option<String> {
+        self.get_meta(name)
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+    }
+
     pub fn clone_inner(&self) -> serde_json::Value {
         self.map.lock().clone()
     }
