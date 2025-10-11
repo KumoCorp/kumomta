@@ -142,16 +142,16 @@ kumo.on('smtp_server_message_received', function(msg, conn_meta)
     kumo.reject(550, string.format('5.7.1 Spam detected (score: %.2f)', result.score))
   elseif result.score >= 5 then
     -- Probable spam - tag and route to quarantine
-    msg:set_first_named_header('X-Spam-Flag', 'YES')
-    msg:set_first_named_header('X-Spam-Score', tostring(result.score))
+    msg:prepend_header('X-Spam-Flag', 'YES')
+    msg:prepend_header('X-Spam-Score', tostring(result.score))
     msg:set_meta('queue', 'quarantine')
   elseif result.score >= 0 then
     -- Uncertain - just tag
-    msg:set_first_named_header('X-Spam-Score', tostring(result.score))
+    msg:prepend_header('X-Spam-Score', tostring(result.score))
   else
     -- Ham
-    msg:set_first_named_header('X-Spam-Flag', 'NO')
-    msg:set_first_named_header('X-Spam-Score', tostring(result.score))
+    msg:prepend_header('X-Spam-Flag', 'NO')
+    msg:prepend_header('X-Spam-Score', tostring(result.score))
   end
 
   -- Store full results for logging
@@ -277,7 +277,7 @@ kumo.on('smtp_server_message_received', function(msg, conn_meta)
   if result.action == 'reject' then
     kumo.reject(550, '5.7.1 Message rejected as spam')
   elseif result.score > 5 then
-    msg:set_first_named_header('X-Spam-Flag', 'YES')
+    msg:prepend_header('X-Spam-Flag', 'YES')
   end
 
   msg:set_meta('rspamd_score', result.score)
@@ -357,8 +357,8 @@ local custom_handlers = {
   ['soft reject'] = function(msg, result)
     -- Instead of greylisting, accept but quarantine
     msg:set_meta('queue', 'greylist_review')
-    msg:set_first_named_header('X-Greylist', 'YES')
-    msg:set_first_named_header('X-Spam-Score', tostring(result.score))
+    msg:prepend_header('X-Greylist', 'YES')
+    msg:prepend_header('X-Spam-Score', tostring(result.score))
   end,
 }
 

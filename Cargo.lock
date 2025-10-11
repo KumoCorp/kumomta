@@ -4710,6 +4710,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "config",
+ "data-loader",
  "duration-serde",
  "humantime",
  "mlua",
@@ -6429,9 +6430,9 @@ checksum = "aaa718df596fbe6cdcb5ac9210c59ccd435cb27d02894d5f445b922b58b6bc25"
 
 [[package]]
 name = "rspamd-client"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc752a9a9f0f10ea40e40a5e7c0c49ac0f56ae00c9a60180f0831f9ae4492da9"
+checksum = "6298ac7d9e91936dc75ad7cb33566d6dfedc5fcb4cc213583df1fec62c134985"
 dependencies = [
  "async-trait",
  "blake2b_simd",
@@ -6449,7 +6450,7 @@ dependencies = [
  "rspamd-base32",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-stream",
  "typed-builder",
@@ -8418,18 +8419,18 @@ dependencies = [
 
 [[package]]
 name = "typed-builder"
-version = "0.20.1"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd9d30e3a08026c78f246b173243cf07b3696d274debd26680773b6773c2afc7"
+checksum = "398a3a3c918c96de527dc11e6e846cd549d4508030b8a33e1da12789c856b81a"
 dependencies = [
  "typed-builder-macro",
 ]
 
 [[package]]
 name = "typed-builder-macro"
-version = "0.20.1"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c36781cc0e46a83726d9879608e4cf6c2505237e263a8eb8c24502989cfdb28"
+checksum = "0e48cea23f68d1f78eb7bc092881b6bb88d3d6b5b7e6234f6f9c911da1ffb221"
 dependencies = [
  "proc-macro2 1.0.101",
  "quote 1.0.41",

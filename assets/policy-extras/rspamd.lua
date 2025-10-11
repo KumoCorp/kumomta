@@ -98,15 +98,16 @@ local ACTION_HANDLERS = {
     -- But we can also do it manually if milter doesn't provide it
     local subject = msg:get_first_named_header_value 'Subject' or ''
     if not result.milter or not result.milter.add_headers or not result.milter.add_headers.Subject then
-      msg:set_first_named_header('Subject', '***SPAM*** ' .. subject)
+      msg:remove_all_named_headers('Subject')
+      msg:prepend_header('Subject', '***SPAM*** ' .. subject)
     end
-    msg:set_first_named_header('X-Spam-Flag', 'YES')
-    msg:set_first_named_header('X-Spam-Score', tostring(result.score))
+    msg:prepend_header('X-Spam-Flag', 'YES')
+    msg:prepend_header('X-Spam-Score', tostring(result.score))
   end,
 
   ['add header'] = function(msg, result)
-    msg:set_first_named_header('X-Spam-Flag', 'YES')
-    msg:set_first_named_header('X-Spam-Score', tostring(result.score))
+    msg:prepend_header('X-Spam-Flag', 'YES')
+    msg:prepend_header('X-Spam-Score', tostring(result.score))
 
     -- Add symbol list
     local symbols = {}
@@ -114,13 +115,13 @@ local ACTION_HANDLERS = {
       table.insert(symbols, name)
     end
     if #symbols > 0 then
-      msg:set_first_named_header('X-Spam-Symbols', table.concat(symbols, ', '))
+      msg:prepend_header('X-Spam-Symbols', table.concat(symbols, ', '))
     end
   end,
 
   ['no action'] = function(msg, result)
-    msg:set_first_named_header('X-Spam-Flag', 'NO')
-    msg:set_first_named_header('X-Spam-Score', tostring(result.score))
+    msg:prepend_header('X-Spam-Flag', 'NO')
+    msg:prepend_header('X-Spam-Score', tostring(result.score))
   end,
 
   greylist = function(msg, result)
@@ -240,7 +241,8 @@ function mod.apply_milter_actions(msg, result)
     for header_name, header_data in pairs(milter.add_headers) do
       -- Special handling for Subject rewriting
       if header_name == 'Subject' then
-        msg:set_first_named_header('Subject', header_data.value)
+        msg:remove_all_named_headers('Subject')
+        msg:prepend_header('Subject', header_data.value)
       else
         -- Add the header
         -- The order field could be used for insertion ordering if needed
@@ -281,8 +283,8 @@ function mod.apply_action(msg, result, custom_handlers, options)
         action
       )
     )
-    msg:set_first_named_header('X-Spam-Status', action)
-    msg:set_first_named_header('X-Spam-Score', tostring(result.score))
+    msg:prepend_header('X-Spam-Status', action)
+    msg:prepend_header('X-Spam-Score', tostring(result.score))
   end
 
   -- Apply milter actions (headers, subject rewrite, etc.)

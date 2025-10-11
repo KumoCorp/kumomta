@@ -1,4 +1,5 @@
 use config::{any_err, from_lua_value, get_or_create_sub_module};
+use data_loader::KeySource;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, LuaSerdeExt, UserDataMethods, Value};
 use rspamd_client::config::{Config, EnvelopeData};
@@ -49,17 +50,17 @@ struct RspamdClientConfig {
     #[serde(default)]
     proxy_password: Option<String>,
 
-    /// Optional TLS certificate path
+    /// Optional TLS certificate
     #[serde(default)]
-    tls_cert_path: Option<String>,
+    tls_certificate: Option<KeySource>,
 
-    /// Optional TLS key path
+    /// Optional TLS private key
     #[serde(default)]
-    tls_key_path: Option<String>,
+    tls_private_key: Option<KeySource>,
 
-    /// Optional TLS CA path
+    /// Optional TLS CA certificate
     #[serde(default)]
-    tls_ca_path: Option<String>,
+    tls_ca_certificate: Option<KeySource>,
 }
 
 fn default_true() -> bool {
@@ -83,13 +84,45 @@ impl RspamdClient {
             }
         });
 
+        // Extract file paths from KeySource
+        // For now, we only support File variant; Data/Vault would require temporary files
+        let extract_path = |key_source: &KeySource, param_name: &str| -> anyhow::Result<String> {
+            match key_source {
+                KeySource::File(path) => Ok(path.clone()),
+                KeySource::Data { .. } => {
+                    anyhow::bail!(
+                        "{} does not support inline data; please use a file path. \
+                        Consider writing the data to a file first.",
+                        param_name
+                    )
+                }
+                KeySource::Vault { .. } => {
+                    anyhow::bail!(
+                        "{} does not support Vault secrets; please use a file path. \
+                        Consider using a file-based secret management approach.",
+                        param_name
+                    )
+                }
+            }
+        };
+
         // Prepare optional TLS settings
-        let tls_settings = match (lua_config.tls_cert_path, lua_config.tls_key_path) {
-            (Some(cert), Some(key)) => Some(rspamd_client::config::TlsSettings {
-                cert_path: cert,
-                key_path: key,
-                ca_path: lua_config.tls_ca_path.clone(),
-            }),
+        let tls_settings = match (&lua_config.tls_certificate, &lua_config.tls_private_key) {
+            (Some(cert_source), Some(key_source)) => {
+                let cert_path = extract_path(cert_source, "tls_certificate")?;
+                let key_path = extract_path(key_source, "tls_private_key")?;
+                let ca_path = lua_config
+                    .tls_ca_certificate
+                    .as_ref()
+                    .map(|ca| extract_path(ca, "tls_ca_certificate"))
+                    .transpose()?;
+
+                Some(rspamd_client::config::TlsSettings {
+                    cert_path,
+                    key_path,
+                    ca_path,
+                })
+            }
             _ => None,
         };
 
@@ -131,12 +164,8 @@ impl LuaUserData for RspamdClient {
         // Main scan method
         methods.add_async_method(
             "scan",
-            |lua, this, (message, metadata): (String, Option<mlua::Table>)| async move {
-                let envelope = if let Some(meta) = metadata {
-                    EnvelopeDataLua::from_table(&meta)?
-                } else {
-                    EnvelopeDataLua::default()
-                };
+            |lua, this, (message, metadata): (String, Option<EnvelopeDataLua>)| async move {
+                let envelope = metadata.unwrap_or_default();
 
                 let result = this.scan(message, envelope).await.map_err(any_err)?;
 
@@ -147,7 +176,7 @@ impl LuaUserData for RspamdClient {
 }
 
 /// Lua-friendly envelope data structure
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, mlua::FromLua)]
 struct EnvelopeDataLua {
     from: Option<String>,
     rcpt: Vec<String>,
@@ -158,30 +187,15 @@ struct EnvelopeDataLua {
     queue_id: Option<String>,
     file_path: Option<String>,
     body_block: bool,
-    additional_headers: HashMap<String, String>,
+    additional_headers: Option<HashMap<String, String>>,
 }
 
 impl EnvelopeDataLua {
-    fn from_table(table: &mlua::Table) -> mlua::Result<Self> {
-        Ok(Self {
-            from: table.get("from").ok(),
-            rcpt: table.get("rcpt").unwrap_or_default(),
-            ip: table.get("ip").ok(),
-            user: table.get("user").ok(),
-            helo: table.get("helo").ok(),
-            hostname: table.get("hostname").ok(),
-            queue_id: table.get("queue_id").ok(),
-            file_path: table.get("file_path").ok(),
-            body_block: table.get("body_block").unwrap_or(false),
-            additional_headers: table.get("additional_headers").unwrap_or_default(),
-        })
-    }
-
-    fn into_envelope_data(mut self) -> EnvelopeData {
-        // Add queue_id to additional headers if present
+    fn into_envelope_data(self) -> EnvelopeData {
+        // Build additional headers, adding queue_id if present
+        let mut additional_headers = self.additional_headers.unwrap_or_default();
         if let Some(queue_id) = self.queue_id {
-            self.additional_headers
-                .insert("Queue-Id".to_string(), queue_id);
+            additional_headers.insert("Queue-Id".to_string(), queue_id);
         }
 
         // Construct EnvelopeData directly since all fields are public
@@ -194,7 +208,7 @@ impl EnvelopeDataLua {
             hostname: self.hostname,
             file_path: self.file_path,
             body_block: self.body_block,
-            additional_headers: self.additional_headers,
+            additional_headers,
         }
     }
 }
