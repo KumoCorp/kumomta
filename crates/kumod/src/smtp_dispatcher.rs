@@ -63,7 +63,7 @@ impl MxListEntry {
         match self {
             Self::Name(a) => {
                 if let Some((label, port)) = has_colon_port(a) {
-                    let resolved = resolve_a_or_aaaa(label)
+                    let resolved = resolve_a_or_aaaa(label, None)
                         .await
                         .with_context(|| format!("resolving mx_list entry {a}"))?;
                     for mut r in resolved {
@@ -75,7 +75,7 @@ impl MxListEntry {
                 }
 
                 addresses.append(
-                    &mut resolve_a_or_aaaa(a)
+                    &mut resolve_a_or_aaaa(a, None)
                         .await
                         .with_context(|| format!("resolving mx_list entry {a}"))?,
                 );

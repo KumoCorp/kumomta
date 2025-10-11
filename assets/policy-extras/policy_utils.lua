@@ -83,6 +83,25 @@ function mod.assert_eq(a, b, message)
   end
 end
 
+function mod.assert_ne(a, b, message)
+  if mod.equals(a, b) then
+    if message then
+      message = string.format('%s. ', message)
+    else
+      message = ''
+    end
+    error(
+      string.format(
+        '%sexpected\n%s\n != \n%s',
+        message,
+        kumo.json_encode(a),
+        kumo.json_encode(b)
+      ),
+      2
+    )
+  end
+end
+
 function mod.assert_matches(a, pattern, message)
   local re = kumo.regex.compile(pattern)
   if not re:is_match(a) then

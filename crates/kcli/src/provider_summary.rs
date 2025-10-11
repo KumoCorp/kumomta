@@ -4,12 +4,13 @@ use clap::Parser;
 use dns_resolver::MailExchanger;
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
+use itertools::Itertools;
 use lexicmp::natural_lexical_cmp;
 use message::message::QueueNameComponents;
 use num_format::{Locale, ToFormattedString};
 use reqwest::Url;
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use tabout::{Alignment, Column};
 
@@ -205,13 +206,13 @@ impl ProviderSummaryCommand {
         })
         .await?;
 
-        let mut site_to_domains: HashMap<String, Vec<String>> = HashMap::new();
+        let mut site_to_domains: HashMap<String, BTreeSet<String>> = HashMap::new();
         while let Some(Ok((domain, result))) = domain_resolution.next().await {
             if let Ok(mx) = result {
                 site_to_domains
                     .entry(mx.site_name.to_string())
                     .or_default()
-                    .push(domain);
+                    .insert(domain);
             }
         }
 
@@ -362,12 +363,11 @@ impl ProviderSummaryCommand {
 }
 
 fn resolve_domains(
-    site_to_domains: &mut HashMap<String, Vec<String>>,
+    site_to_domains: &mut HashMap<String, BTreeSet<String>>,
     site: &str,
 ) -> Option<String> {
     if let Some(domains) = site_to_domains.get_mut(site) {
-        domains.sort();
-        Some(domains.join(", "))
+        Some(domains.iter().join(", "))
     } else {
         None
     }

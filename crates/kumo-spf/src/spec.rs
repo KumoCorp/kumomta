@@ -371,6 +371,7 @@ $ORIGIN 2.0.192.in-addr.arpa.
 3   600 PTR email.example.com.
         "#,
             )
+            .unwrap()
             .with_zone(
                 r#"
 $ORIGIN example.com.
@@ -378,7 +379,8 @@ $ORIGIN example.com.
         A     192.0.2.3
 email   A     192.0.2.3
         "#,
-            );
+            )
+            .unwrap();
 
         for (input, expect) in &[
             ("%{s}", "strong-bad@email.example.com"),

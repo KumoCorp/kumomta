@@ -495,7 +495,7 @@ $ORIGIN brisbane._domainkey.football.example.com
           TXT "v=DKIM1; k=ed25519; p=11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
 "#;
 
-        let resolver = TestResolver::default().with_zone(DKIM_BRISBANE);
+        let resolver = TestResolver::default().with_zone(DKIM_BRISBANE).unwrap();
 
         verify_email_header(
             &resolver,

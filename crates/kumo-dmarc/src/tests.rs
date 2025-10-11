@@ -6,12 +6,15 @@ use std::net::{IpAddr, Ipv4Addr};
 
 #[tokio::test]
 async fn dmarc_dkim_relaxed_subdomain() {
-    let resolver = TestResolver::default().with_zone(EXAMPLE_COM).with_txt(
-        "sample.example.com",
-        "v=DMARC1; p=reject; adkim=r; \
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "sample.example.com",
+            "v=DMARC1; p=reject; adkim=r; \
             rua=mailto:dmarc-feedback@example.com"
-            .to_string(),
-    );
+                .to_string(),
+        );
 
     let result = evaluate_ip(
         Ipv4Addr::LOCALHOST,
@@ -27,12 +30,15 @@ async fn dmarc_dkim_relaxed_subdomain() {
 
 #[tokio::test]
 async fn dmarc_dkim_strict_subdomain() {
-    let resolver = TestResolver::default().with_zone(EXAMPLE_COM).with_txt(
-        "example.com",
-        "v=DMARC1; p=reject; adkim=s; \
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "example.com",
+            "v=DMARC1; p=reject; adkim=s; \
             rua=mailto:dmarc-feedback@example.com"
-            .to_string(),
-    );
+                .to_string(),
+        );
 
     let result = evaluate_ip(
         Ipv4Addr::LOCALHOST,
@@ -48,12 +54,15 @@ async fn dmarc_dkim_strict_subdomain() {
 
 #[tokio::test]
 async fn dmarc_dkim_relaxed_illformed() {
-    let resolver = TestResolver::default().with_zone(EXAMPLE_COM).with_txt(
-        "example.com",
-        "v=DMARC1; p=reject; adkim=r; \
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "example.com",
+            "v=DMARC1; p=reject; adkim=r; \
             rua=mailto:dmarc-feedback@example.com"
-            .to_string(),
-    );
+                .to_string(),
+        );
 
     let result = evaluate_ip(
         Ipv4Addr::LOCALHOST,
@@ -70,12 +79,15 @@ async fn dmarc_dkim_relaxed_illformed() {
 
 #[tokio::test]
 async fn dmarc_dkim_strict_illformed() {
-    let resolver = TestResolver::default().with_zone(EXAMPLE_COM).with_txt(
-        "example.com",
-        "v=DMARC1; p=reject; adkim=s; \
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "example.com",
+            "v=DMARC1; p=reject; adkim=s; \
             rua=mailto:dmarc-feedback@example.com"
-            .to_string(),
-    );
+                .to_string(),
+        );
 
     let result = evaluate_ip(
         Ipv4Addr::LOCALHOST,
@@ -92,12 +104,15 @@ async fn dmarc_dkim_strict_illformed() {
 
 #[tokio::test]
 async fn dmarc_spf_relaxed_subdomain() {
-    let resolver = TestResolver::default().with_zone(EXAMPLE_COM).with_txt(
-        "example.com",
-        "v=DMARC1; p=reject; aspf=r; \
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "example.com",
+            "v=DMARC1; p=reject; aspf=r; \
             rua=mailto:dmarc-feedback@example.com"
-            .to_string(),
-    );
+                .to_string(),
+        );
 
     let result = evaluate_ip(
         Ipv4Addr::LOCALHOST,
@@ -113,12 +128,15 @@ async fn dmarc_spf_relaxed_subdomain() {
 
 #[tokio::test]
 async fn dmarc_spf_strict_subdomain() {
-    let resolver = TestResolver::default().with_zone(EXAMPLE_COM).with_txt(
-        "example.com",
-        "v=DMARC1; p=reject; aspf=s; \
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "example.com",
+            "v=DMARC1; p=reject; aspf=s; \
             rua=mailto:dmarc-feedback@example.com"
-            .to_string(),
-    );
+                .to_string(),
+        );
 
     let result = evaluate_ip(
         Ipv4Addr::LOCALHOST,
@@ -136,12 +154,15 @@ async fn dmarc_spf_strict_subdomain() {
 async fn dmarc_pct_rate() {
     let mut total_failures = 0;
 
-    let resolver = TestResolver::default().with_zone(EXAMPLE_COM).with_txt(
-        "example.com",
-        "v=DMARC1; p=reject; aspf=s; pct=50; \
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "example.com",
+            "v=DMARC1; p=reject; aspf=s; pct=50; \
                 rua=mailto:dmarc-feedback@example.com"
-            .to_string(),
-    );
+                .to_string(),
+        );
 
     for _ in 0..10000 {
         let result = evaluate_ip(

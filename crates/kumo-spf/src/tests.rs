@@ -7,6 +7,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 async fn all() {
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
+        .unwrap()
         .with_txt("example.com", "v=spf1 +all".to_string());
 
     let result = evaluate_ip(Ipv4Addr::LOCALHOST, &resolver).await;
@@ -25,6 +26,7 @@ async fn all() {
 async fn a() {
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
+        .unwrap()
         .with_txt("example.com", "v=spf1 a -all".to_string());
 
     let result = evaluate_ip(Ipv4Addr::LOCALHOST, &resolver).await;
@@ -49,7 +51,9 @@ async fn a() {
 
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
+        .unwrap()
         .with_zone(EXAMPLE_ORG)
+        .unwrap()
         .with_txt("example.com", "v=spf1 a:example.org -all".to_string());
 
     let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 10]), &resolver).await;
@@ -68,6 +72,7 @@ async fn a() {
 async fn mx() {
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
+        .unwrap()
         .with_txt("example.com", "v=spf1 mx -all".to_string());
 
     let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 129]), &resolver).await;
@@ -82,7 +87,9 @@ async fn mx() {
 
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
+        .unwrap()
         .with_zone(EXAMPLE_ORG)
+        .unwrap()
         .with_txt("example.com", "v=spf1 mx:example.org -all".to_string());
 
     let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 140]), &resolver).await;
@@ -97,7 +104,9 @@ async fn mx() {
 
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
+        .unwrap()
         .with_zone(EXAMPLE_ORG)
+        .unwrap()
         .with_txt(
             "example.com",
             "v=spf1 mx/30 mx:example.org/30 -all".to_string(),
@@ -128,6 +137,7 @@ async fn mx() {
 async fn underscores() {
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
+        .unwrap()
         .with_txt(
             "under_score.com",
             "v=spf1 ip4:192.0.2.128/28 -all".to_string(),
@@ -153,6 +163,7 @@ async fn underscores() {
 async fn ip4() {
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
+        .unwrap()
         .with_txt("example.com", "v=spf1 ip4:192.0.2.128/28 -all".to_string());
 
     let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 65]), &resolver).await;
@@ -177,6 +188,7 @@ async fn ip4() {
 
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
+        .unwrap()
         .with_txt("example.com", "v=spf1 ip4:192.0.2.128 -all".to_string());
 
     let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 65]), &resolver).await;
@@ -202,10 +214,13 @@ async fn ip4() {
 
 #[tokio::test]
 async fn ip6() {
-    let resolver = TestResolver::default().with_zone(EXAMPLE_COM).with_txt(
-        "example.com",
-        "v=spf1 ip6:2a01:111:f400::/48 -all".to_string(),
-    );
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "example.com",
+            "v=spf1 ip6:2a01:111:f400::/48 -all".to_string(),
+        );
 
     let result = evaluate_ip(
         Ipv6Addr::from([
@@ -243,6 +258,7 @@ async fn ip6() {
 
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
+        .unwrap()
         .with_txt("example.com", "v=spf1 ip6:2a01:111:f400:: -all".to_string());
 
     let result = evaluate_ip(
@@ -284,13 +300,15 @@ async fn ip6() {
 // <https://datatracker.ietf.org/doc/html/rfc7208#section-3.3>
 #[tokio::test]
 async fn txt_record_joining() {
-    let resolver = TestResolver::default().with_zone(
-        r#"; https://datatracker.ietf.org/doc/html/rfc7208#section-3.3
+    let resolver = TestResolver::default()
+        .with_zone(
+            r#"; https://datatracker.ietf.org/doc/html/rfc7208#section-3.3
 $ORIGIN example.com.
 @       600 TXT "v=spf1 " "?all"
             TXT "something else"
 "#,
-    );
+        )
+        .unwrap();
     let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 65]), &resolver).await;
     k9::snapshot!(
         result,
@@ -305,12 +323,14 @@ SpfResult {
 
 #[tokio::test]
 async fn txt_but_no_spf() {
-    let resolver = TestResolver::default().with_zone(
-        r#"; https://datatracker.ietf.org/doc/html/rfc7208#section-3.3
+    let resolver = TestResolver::default()
+        .with_zone(
+            r#"; https://datatracker.ietf.org/doc/html/rfc7208#section-3.3
 $ORIGIN example.com.
 @       600 TXT "not spf"
 "#,
-    );
+        )
+        .unwrap();
     let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 65]), &resolver).await;
     k9::snapshot!(
         result,
@@ -360,8 +380,11 @@ SpfResult {
 async fn ptr() {
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
+        .unwrap()
         .with_zone(ADDR_192)
+        .unwrap()
         .with_zone(ADDR_10)
+        .unwrap()
         .with_txt("example.com", "v=spf1 ptr -all".to_string());
 
     let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 65]), &resolver).await;
@@ -397,7 +420,7 @@ async fn ptr() {
 
 #[tokio::test]
 async fn lookup_limits() {
-    let mut resolver = TestResolver::default().with_zone(EXAMPLE_COM);
+    let mut resolver = TestResolver::default().with_zone(EXAMPLE_COM).unwrap();
     for i in 1..=15 {
         resolver = resolver.with_txt(
             &format!("inc{i}.com"),

@@ -27,7 +27,7 @@ event handler.
 
 ```lua
 kumo.start_esmtp_listener {
-  batch_handling = '"BatchByDomain"',
+  batch_handling = 'BatchByDomain',
 }
 ```
 
