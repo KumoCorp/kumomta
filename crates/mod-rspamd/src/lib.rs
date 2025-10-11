@@ -1,5 +1,6 @@
 use config::{any_err, from_lua_value, get_or_create_sub_module};
 use data_loader::KeySource;
+use message::Message;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, LuaSerdeExt, UserDataMethods, Value};
 use rspamd_client::config::{Config, EnvelopeData};
@@ -61,26 +62,37 @@ struct RspamdClientConfig {
     /// Optional TLS CA certificate
     #[serde(default)]
     tls_ca_certificate: Option<KeySource>,
+
+    /// If true, add X-Spam-* headers to the message (default: true)
+    #[serde(default = "default_true")]
+    add_headers: bool,
+
+    /// If true, prefix the Subject header with "***SPAM*** " (default: false)
+    #[serde(default)]
+    prefix_subject: bool,
+
+    /// If true, reject spam messages (default: false)
+    #[serde(default)]
+    reject_spam: bool,
+
+    /// If true, and reject_spam is true, use 4xx instead of 5xx rejection (default: false)
+    #[serde(default)]
+    reject_soft: bool,
 }
 
 fn default_true() -> bool {
     true
 }
 
-/// Wrapper around rspamd-client Config for Lua
-#[derive(Clone)]
-struct RspamdClient {
-    config: Arc<Config>,
-}
-
-impl RspamdClient {
-    fn new(lua_config: RspamdClientConfig) -> anyhow::Result<Self> {
+impl RspamdClientConfig {
+    /// Build rspamd-client Config from this configuration
+    fn make_client_config(&self) -> anyhow::Result<Config> {
         // Prepare optional proxy config
-        let proxy_config = lua_config.proxy_url.map(|proxy_url| {
+        let proxy_config = self.proxy_url.as_ref().map(|proxy_url| {
             rspamd_client::config::ProxyConfig {
-                proxy_url,
-                username: lua_config.proxy_username.clone(),
-                password: lua_config.proxy_password.clone(),
+                proxy_url: proxy_url.clone(),
+                username: self.proxy_username.clone(),
+                password: self.proxy_password.clone(),
             }
         });
 
@@ -107,11 +119,11 @@ impl RspamdClient {
         };
 
         // Prepare optional TLS settings
-        let tls_settings = match (&lua_config.tls_certificate, &lua_config.tls_private_key) {
+        let tls_settings = match (&self.tls_certificate, &self.tls_private_key) {
             (Some(cert_source), Some(key_source)) => {
                 let cert_path = extract_path(cert_source, "tls_certificate")?;
                 let key_path = extract_path(key_source, "tls_private_key")?;
-                let ca_path = lua_config
+                let ca_path = self
                     .tls_ca_certificate
                     .as_ref()
                     .map(|ca| extract_path(ca, "tls_ca_certificate"))
@@ -127,17 +139,28 @@ impl RspamdClient {
         };
 
         // Construct Config directly since all fields are public
-        let config = Config {
-            base_url: lua_config.base_url,
-            password: lua_config.password,
-            timeout: lua_config.timeout.map(|t| t.as_secs_f64()).unwrap_or(30.0),
-            retries: lua_config.retries.unwrap_or(1),
+        Ok(Config {
+            base_url: self.base_url.clone(),
+            password: self.password.clone(),
+            timeout: self.timeout.map(|t| t.as_secs_f64()).unwrap_or(30.0),
+            retries: self.retries.unwrap_or(1),
             tls_settings,
             proxy_config,
-            zstd: lua_config.zstd,
-            encryption_key: lua_config.encryption_key,
-        };
+            zstd: self.zstd,
+            encryption_key: self.encryption_key.clone(),
+        })
+    }
+}
 
+/// Wrapper around rspamd-client Config for Lua
+#[derive(Clone)]
+struct RspamdClient {
+    config: Arc<Config>,
+}
+
+impl RspamdClient {
+    fn new(lua_config: RspamdClientConfig) -> anyhow::Result<Self> {
+        let config = lua_config.make_client_config()?;
         Ok(Self {
             config: Arc::new(config),
         })
@@ -222,6 +245,81 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(|lua, options: Value| {
             let config: RspamdClientConfig = from_lua_value(lua, options)?;
             RspamdClient::new(config).map_err(any_err)
+        })?,
+    )?;
+
+    rspamd_mod.set(
+        "scan_message",
+        lua.create_async_function(|lua, (config_value, msg): (Value, Message)| async move {
+            let config: RspamdClientConfig = from_lua_value(&lua, config_value)?;
+
+            // Extract envelope data from message
+            let envelope_data = EnvelopeData {
+                from: msg.sender().map(|s| s.to_string()).ok(),
+                rcpt: msg.recipient_list_string().unwrap_or_default(),
+                ip: msg.get_meta_string("received_from").ok().flatten(),
+                user: msg.get_meta_string("authn_id").ok().flatten(),
+                helo: msg.get_meta_string("ehlo_domain").ok().flatten(),
+                hostname: msg.get_meta_string("hostname").ok().flatten(),
+                // We don't have a reliable file path in most cases
+                file_path: None,
+                body_block: false,
+                additional_headers: HashMap::default(),
+            };
+
+            // Build client config and scan
+            // Convert Arc<Box<[u8]>> to Vec<u8> for scan_async
+            let message_data = msg.get_data();
+            let message_bytes: Vec<u8> = message_data.as_ref().to_vec();
+
+            let client_config = config.make_client_config().map_err(any_err)?;
+            let reply = scan_async(&client_config, message_bytes, envelope_data)
+                .await
+                .map_err(any_err)?;
+
+            // Apply default actions based on config
+            if config.add_headers {
+                // Add X-Spam-* headers
+                msg.prepend_header(
+                    Some("X-Spam-Flag"),
+                    if reply.score > 0.0 { "YES" } else { "NO" },
+                );
+                msg.prepend_header(Some("X-Spam-Score"), &reply.score.to_string());
+                msg.prepend_header(Some("X-Spam-Action"), &reply.action);
+
+                // Add symbols if available
+                if !reply.symbols.is_empty() {
+                    let symbols: Vec<String> = reply.symbols.keys().cloned().collect();
+                    msg.prepend_header(Some("X-Spam-Symbols"), &symbols.join(", "));
+                }
+            }
+
+            if config.prefix_subject && reply.action == "reject" {
+                // Prefix subject with SPAM marker
+                if let Ok(Some(subject)) = msg.get_first_named_header_value("Subject") {
+                    msg.remove_all_named_headers("Subject").map_err(any_err)?;
+                    msg.prepend_header(Some("Subject"), &format!("***SPAM*** {}", subject));
+                }
+            }
+
+            if config.reject_spam && reply.action == "reject" {
+                // Call kumo.reject via Lua runtime
+                let globals = lua.globals();
+                let kumo: mlua::Table = globals.get("kumo")?;
+                let reject: mlua::Function = kumo.get("reject")?;
+
+                let code = if config.reject_soft { 451 } else { 550 };
+                let message = format!(
+                    "{} Spam detected (score: {:.2})",
+                    if config.reject_soft { "4.7.1" } else { "5.7.1" },
+                    reply.score
+                );
+
+                reject.call::<()>((code, message))?;
+            }
+
+            // Return the scan reply
+            lua.to_value(&reply)
         })?,
     )?;
 

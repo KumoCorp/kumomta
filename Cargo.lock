@@ -4713,6 +4713,7 @@ dependencies = [
  "data-loader",
  "duration-serde",
  "humantime",
+ "message",
  "mlua",
  "rspamd-client",
  "serde",

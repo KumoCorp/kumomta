@@ -47,7 +47,72 @@ local kumo = require 'kumo'
 local rspamd = require 'policy-extras.rspamd'
 
 --[[
-# Example 1: Simple Setup with Automatic Actions
+# Example 1: Simplified API with Built-in Actions
+
+The kumo.rspamd.scan_message() function provides a streamlined interface
+that automatically extracts message metadata and applies default actions.
+]]
+
+--[[
+kumo.on('smtp_server_message_received', function(msg)
+  -- Simple config with default actions
+  local config = {
+    base_url = 'http://localhost:11333',
+    add_headers = true,     -- Add X-Spam-* headers (default: true)
+    reject_spam = true,     -- Reject spam messages (default: false)
+    reject_soft = false,    -- Use 4xx instead of 5xx (default: false)
+    prefix_subject = false, -- Prefix subject with ***SPAM*** (default: false)
+  }
+
+  -- Scan and apply default actions
+  local result = kumo.rspamd.scan_message(config, msg)
+
+  -- Result contains the full Rspamd response
+  -- Default actions have already been applied based on config
+  msg:set_meta('rspamd_score', result.score)
+  msg:set_meta('rspamd_action', result.action)
+end)
+]]
+
+--[[
+# Example 1a: Simplified API with Encryption
+
+Using HTTPCrypt encryption with the simplified API.
+
+Generate encryption keypair on Rspamd server:
+```bash
+rspamadm keypair -u
+```
+This outputs a public key (for Rspamd config) and private key (for KumoMTA).
+
+Add to Rspamd worker config (/etc/rspamd/worker-normal.inc):
+```
+keypair {
+  pubkey = "your-public-key-here";
+  privkey = "your-private-key-here";
+}
+```
+]]
+
+--[[
+kumo.on('smtp_server_message_received', function(msg)
+  local config = {
+    base_url = 'http://localhost:11333',
+    encryption_key = os.getenv('RSPAMD_ENCRYPTION_KEY'), -- HTTPCrypt encryption
+    password = os.getenv('RSPAMD_PASSWORD'),              -- Optional password
+    add_headers = true,
+    reject_spam = true,
+  }
+
+  local result = kumo.rspamd.scan_message(config, msg)
+
+  msg:set_meta('rspamd_score', result.score)
+  msg:set_meta('rspamd_action', result.action)
+end)
+]]
+
+--[[
+# Example 2: Setup Helper with Automatic Actions
 
 This follows Rspamd's recommendations:
 - reject → 550 error
@@ -70,7 +135,7 @@ kumo.on('smtp_server_message_received', rspamd.scan)
 ]]
 
 --[[
-# Example 2: Tag-Only Mode
+# Example 3: Tag-Only Mode
 
 Add headers but never reject:
 ]]
@@ -87,7 +152,7 @@ kumo.on('smtp_server_message_received', rspamd.scan)
 ]]
 
 --[[
-# Example 3: Quarantine Mode
+# Example 4: Quarantine Mode
 
 High-scoring spam goes to quarantine instead of bouncing:
 ]]
@@ -106,7 +171,7 @@ kumo.on('smtp_server_message_received', rspamd.scan)
 ]]
 
 --[[
-# Example 4: Custom Action Handling
+# Example 5: Custom Action Handling
 
 Full control over actions based on Rspamd results:
 ]]
@@ -172,7 +237,7 @@ end)
 ]]
 
 --[[
-# Example 5: Milter Actions - Header Modifications
+# Example 6: Milter Actions - Header Modifications
 
 Rspamd can suggest header modifications via the milter protocol:
 - Add headers (X-Spam-*, custom headers, etc.)
@@ -231,7 +296,7 @@ end)
 ]]
 
 --[[
-# Example 6: Body Rewriting
+# Example 7: Body Rewriting
 
 Request and apply full message body rewriting from Rspamd.
 This is useful when Rspamd modules make modifications beyond just headers
@@ -286,7 +351,7 @@ end)
 ]]
 
 --[[
-# Example 7: Automatic Body Rewriting with Setup
+# Example 8: Automatic Body Rewriting with Setup
 
 The setup() helper automatically handles body rewriting when configured:
 ]]
@@ -305,7 +370,7 @@ kumo.on('smtp_server_message_received', rspamd.scan)
 ]]
 
 --[[
-# Example 8: Advanced Setup with HTTPCrypt Encryption
+# Example 9: Advanced Setup with HTTPCrypt Encryption
 
 Use HTTPCrypt for encrypted communication with Rspamd:
 
@@ -380,7 +445,7 @@ kumo.on('smtp_server_message_received', function(msg, conn_meta)
 end)
 
 --[[
-# Example 9: Direct API Usage (Low-Level)
+# Example 10: Direct API Usage (Low-Level)
 
 For maximum control, use the client API directly:
 ]]
