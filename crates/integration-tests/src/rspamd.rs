@@ -1,5 +1,5 @@
 #![cfg(test)]
-use crate::kumod::{generate_message_text, DaemonWithMaildir, MailGenParams};
+use crate::kumod::{generate_message_text, MailGenParams};
 use anyhow::Context;
 use std::time::Duration;
 use testcontainers_modules::testcontainers::core::{ContainerPort, WaitFor};
@@ -14,7 +14,7 @@ async fn test_rspamd_scan_message() -> anyhow::Result<()> {
     // Start Rspamd container
     let rspamd_image = GenericImage::new("rspamd/rspamd", "latest")
         .with_exposed_port(ContainerPort::Tcp(11333))
-        .with_wait_for(WaitFor::message_on_stdout("rspamd main process started"));
+        .with_wait_for(WaitFor::seconds(5));
 
     let rspamd_container = rspamd_image.start().await?;
 
@@ -24,8 +24,26 @@ async fn test_rspamd_scan_message() -> anyhow::Result<()> {
 
     eprintln!("Started Rspamd at {rspamd_url}");
 
-    // Wait a bit for Rspamd to fully initialize
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // Wait for Rspamd to fully initialize and verify it's responding
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    // Verify Rspamd is responding
+    let client = reqwest::Client::new();
+    for attempt in 1..=10 {
+        match client.get(format!("{}/ping", rspamd_url)).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                eprintln!("Rspamd is ready after {} attempts", attempt);
+                break;
+            }
+            _ => {
+                if attempt == 10 {
+                    anyhow::bail!("Rspamd did not become ready in time");
+                }
+                eprintln!("Waiting for Rspamd to be ready (attempt {})", attempt);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
 
     // Create temporary Lua config file
     let lua_config = format!(
@@ -39,6 +57,16 @@ kumo.on('init', function()
 
   kumo.start_http_listener {{
     listen = '127.0.0.1:0',
+  }}
+
+  kumo.define_spool {{
+    name = 'data',
+    path = '/tmp/kumo-test-spool/data',
+  }}
+
+  kumo.define_spool {{
+    name = 'meta',
+    path = '/tmp/kumo-test-spool/meta',
   }}
 end)
 
@@ -111,7 +139,7 @@ async fn test_rspamd_reject_spam() -> anyhow::Result<()> {
     // Start Rspamd container
     let rspamd_image = GenericImage::new("rspamd/rspamd", "latest")
         .with_exposed_port(ContainerPort::Tcp(11333))
-        .with_wait_for(WaitFor::message_on_stdout("rspamd main process started"));
+        .with_wait_for(WaitFor::seconds(5));
 
     let rspamd_container = rspamd_image.start().await?;
 
@@ -121,8 +149,26 @@ async fn test_rspamd_reject_spam() -> anyhow::Result<()> {
 
     eprintln!("Started Rspamd at {rspamd_url}");
 
-    // Wait for Rspamd to initialize
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // Wait for Rspamd to fully initialize and verify it's responding
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    // Verify Rspamd is responding
+    let client = reqwest::Client::new();
+    for attempt in 1..=10 {
+        match client.get(format!("{}/ping", rspamd_url)).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                eprintln!("Rspamd is ready after {} attempts", attempt);
+                break;
+            }
+            _ => {
+                if attempt == 10 {
+                    anyhow::bail!("Rspamd did not become ready in time");
+                }
+                eprintln!("Waiting for Rspamd to be ready (attempt {})", attempt);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
 
     // Create temporary Lua config file with rejection enabled
     let lua_config = format!(
@@ -136,6 +182,16 @@ kumo.on('init', function()
 
   kumo.start_http_listener {{
     listen = '127.0.0.1:0',
+  }}
+
+  kumo.define_spool {{
+    name = 'data',
+    path = '/tmp/kumo-test-spool/data',
+  }}
+
+  kumo.define_spool {{
+    name = 'meta',
+    path = '/tmp/kumo-test-spool/meta',
   }}
 end)
 
@@ -206,7 +262,7 @@ async fn test_rspamd_headers() -> anyhow::Result<()> {
     // Start Rspamd container
     let rspamd_image = GenericImage::new("rspamd/rspamd", "latest")
         .with_exposed_port(ContainerPort::Tcp(11333))
-        .with_wait_for(WaitFor::message_on_stdout("rspamd main process started"));
+        .with_wait_for(WaitFor::seconds(5));
 
     let rspamd_container = rspamd_image.start().await?;
 
@@ -216,8 +272,26 @@ async fn test_rspamd_headers() -> anyhow::Result<()> {
 
     eprintln!("Started Rspamd at {rspamd_url}");
 
-    // Wait for Rspamd to initialize
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // Wait for Rspamd to fully initialize and verify it's responding
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    // Verify Rspamd is responding
+    let client = reqwest::Client::new();
+    for attempt in 1..=10 {
+        match client.get(format!("{}/ping", rspamd_url)).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                eprintln!("Rspamd is ready after {} attempts", attempt);
+                break;
+            }
+            _ => {
+                if attempt == 10 {
+                    anyhow::bail!("Rspamd did not become ready in time");
+                }
+                eprintln!("Waiting for Rspamd to be ready (attempt {})", attempt);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
 
     // Create temporary Lua config file with header addition
     let lua_config = format!(
@@ -231,6 +305,16 @@ kumo.on('init', function()
 
   kumo.start_http_listener {{
     listen = '127.0.0.1:0',
+  }}
+
+  kumo.define_spool {{
+    name = 'data',
+    path = '/tmp/kumo-test-spool/data',
+  }}
+
+  kumo.define_spool {{
+    name = 'meta',
+    path = '/tmp/kumo-test-spool/meta',
   }}
 end)
 
