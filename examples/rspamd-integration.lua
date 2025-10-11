@@ -75,9 +75,9 @@ end)
 ]]
 
 --[[
-# Example 1a: Simplified API with Encryption
+# Example 1a: Simplified API with Secure Credentials
 
-Using HTTPCrypt encryption with the simplified API.
+Using HTTPCrypt encryption and secure credential storage with KeySource.
 
 Generate encryption keypair on Rspamd server:
 ```bash
@@ -92,14 +92,28 @@ keypair {
   privkey = "your-private-key-here";
 }
 ```
+
+Sensitive fields (password, encryption_key, proxy_username, proxy_password)
+support KeySource for secure storage:
+- Inline string: 'my-secret-key'
+- File: {path = '/path/to/secret'}
+- Data: {key_data = 'inline-secret', format = 'text'}
 ]]
 
 --[[
 kumo.on('smtp_server_message_received', function(msg)
   local config = {
     base_url = 'http://localhost:11333',
-    encryption_key = os.getenv('RSPAMD_ENCRYPTION_KEY'), -- HTTPCrypt encryption
-    password = os.getenv('RSPAMD_PASSWORD'),              -- Optional password
+
+    -- Encryption key from file (recommended for production)
+    encryption_key = { path = '/etc/kumo/rspamd_key.txt' },
+
+    -- Or inline for simple deployments
+    -- encryption_key = { key_data = os.getenv('RSPAMD_ENCRYPTION_KEY'), format = 'text' },
+
+    -- Password also supports KeySource
+    password = { path = '/etc/kumo/rspamd_password.txt' },
+
     add_headers = true,
     reject_spam = true,
   }

@@ -1,3 +1,4 @@
+use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_sub_module};
 use data_loader::KeySource;
 use message::Message;
@@ -14,11 +15,12 @@ use std::sync::Arc;
 #[derive(Deserialize, Debug, Clone)]
 struct RspamdClientConfig {
     /// Base URL for Rspamd server (e.g., "http://localhost:11333")
-    base_url: String,
+    /// Must be a valid URL
+    base_url: url::Url,
 
     /// Optional password for Rspamd authentication
     #[serde(default)]
-    password: Option<String>,
+    password: Option<KeySource>,
 
     /// Optional timeout in seconds (default: 30.0)
     #[serde(default, with = "duration_serde")]
@@ -36,20 +38,23 @@ struct RspamdClientConfig {
     /// Optional HTTPCrypt encryption key (base32 format)
     /// When set, enables encrypted communication with Rspamd
     /// Generate with: rspamadm keypair
+    /// Supports KeySource for secure storage
     #[serde(default)]
-    encryption_key: Option<String>,
+    encryption_key: Option<KeySource>,
 
     /// Optional proxy URL (e.g., "http://proxy.example.com:8080")
     #[serde(default)]
     proxy_url: Option<String>,
 
     /// Optional proxy username
+    /// Supports KeySource for secure storage
     #[serde(default)]
-    proxy_username: Option<String>,
+    proxy_username: Option<KeySource>,
 
     /// Optional proxy password
+    /// Supports KeySource for secure storage
     #[serde(default)]
-    proxy_password: Option<String>,
+    proxy_password: Option<KeySource>,
 
     /// Optional TLS certificate
     #[serde(default)]
@@ -87,17 +92,7 @@ fn default_true() -> bool {
 impl RspamdClientConfig {
     /// Build rspamd-client Config from this configuration
     fn make_client_config(&self) -> anyhow::Result<Config> {
-        // Prepare optional proxy config
-        let proxy_config = self.proxy_url.as_ref().map(|proxy_url| {
-            rspamd_client::config::ProxyConfig {
-                proxy_url: proxy_url.clone(),
-                username: self.proxy_username.clone(),
-                password: self.proxy_password.clone(),
-            }
-        });
-
-        // Extract file paths from KeySource
-        // For now, we only support File variant; Data/Vault would require temporary files
+        // Helper to extract file paths from KeySource (for TLS certificates)
         let extract_path = |key_source: &KeySource, param_name: &str| -> anyhow::Result<String> {
             match key_source {
                 KeySource::File(path) => Ok(path.clone()),
@@ -116,6 +111,62 @@ impl RspamdClientConfig {
                     )
                 }
             }
+        };
+
+        // Helper to extract string value from KeySource (for passwords/keys)
+        let extract_string =
+            |key_source: &KeySource, param_name: &str| -> anyhow::Result<String> {
+                match key_source {
+                    KeySource::File(path) => {
+                        std::fs::read_to_string(path).with_context(|| {
+                            format!("Failed to read {} from file: {}", param_name, path)
+                        })
+                    }
+                    KeySource::Data { key_data, .. } => Ok(key_data.clone()),
+                    KeySource::Vault { .. } => {
+                        anyhow::bail!(
+                            "{} does not support Vault secrets yet. \
+                            Consider using a file or inline data instead.",
+                            param_name
+                        )
+                    }
+                }
+            };
+
+        // Extract password if provided
+        let password = self
+            .password
+            .as_ref()
+            .map(|p| extract_string(p, "password"))
+            .transpose()?;
+
+        // Extract encryption key if provided
+        let encryption_key = self
+            .encryption_key
+            .as_ref()
+            .map(|k| extract_string(k, "encryption_key"))
+            .transpose()?;
+
+        // Prepare optional proxy config
+        let proxy_config = if let Some(proxy_url) = &self.proxy_url {
+            let username = self
+                .proxy_username
+                .as_ref()
+                .map(|u| extract_string(u, "proxy_username"))
+                .transpose()?;
+            let proxy_password = self
+                .proxy_password
+                .as_ref()
+                .map(|p| extract_string(p, "proxy_password"))
+                .transpose()?;
+
+            Some(rspamd_client::config::ProxyConfig {
+                proxy_url: proxy_url.clone(),
+                username,
+                password: proxy_password,
+            })
+        } else {
+            None
         };
 
         // Prepare optional TLS settings
@@ -140,14 +191,14 @@ impl RspamdClientConfig {
 
         // Construct Config directly since all fields are public
         Ok(Config {
-            base_url: self.base_url.clone(),
-            password: self.password.clone(),
+            base_url: self.base_url.to_string(),
+            password,
             timeout: self.timeout.map(|t| t.as_secs_f64()).unwrap_or(30.0),
             retries: self.retries.unwrap_or(1),
             tls_settings,
             proxy_config,
             zstd: self.zstd,
-            encryption_key: self.encryption_key.clone(),
+            encryption_key,
         })
     }
 }
