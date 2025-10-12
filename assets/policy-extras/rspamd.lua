@@ -28,7 +28,7 @@ local rspamd = require 'policy-extras.rspamd'
 
 rspamd:setup {
   base_url = 'http://localhost:11333',
-  action = 'reject',  -- or 'tag', 'discard', 'quarantine'
+  action = 'reject',  -- or 'tag', 'none', 'quarantine'
   use_file_path = true,  -- Use File header for local scanning (recommended)
   zstd = true,  -- Enable compression (default: true)
   encryption_key = os.getenv('RSPAMD_KEY'),  -- Optional HTTPCrypt encryption
@@ -129,6 +129,34 @@ This pattern provides:
 - Access to recipient-specific settings (quotas, preferences, etc.)
 
 ]]
+
+-- Valid Rspamd actions (as returned by Rspamd server)
+local VALID_RSPAMD_ACTIONS = {
+  ['no action'] = true,
+  ['add header'] = true,
+  ['rewrite subject'] = true,
+  ['soft reject'] = true,
+  greylist = true,
+  reject = true,
+}
+
+-- Valid module action configurations (for setup() config.action parameter)
+local VALID_MODULE_ACTIONS = {
+  none = true, -- Don't reject, just store metadata and apply modifications
+  tag = true, -- Add headers but never reject
+  reject = true, -- Follow Rspamd's recommendation for rejections
+  quarantine = true, -- Send spam to quarantine queue
+}
+
+-- Helper function to get keys from a table
+local function table_keys(t)
+  local keys = {}
+  for k, _ in pairs(t) do
+    table.insert(keys, k)
+  end
+  table.sort(keys)
+  return keys
+end
 
 -- Default action handlers
 local ACTION_HANDLERS = {
@@ -340,10 +368,20 @@ function mod.apply_action(msg, result, custom_handlers, options)
   if handler then
     handler(msg, result)
   else
-    -- Default: add headers for unknown actions
+    -- Unknown action: this is an error condition
+    if not VALID_RSPAMD_ACTIONS[action] then
+      error(
+        string.format(
+          "Unknown Rspamd action '%s' received from server. Valid actions are: %s",
+          action,
+          table.concat(table_keys(VALID_RSPAMD_ACTIONS), ', ')
+        )
+      )
+    end
+    -- Valid Rspamd action but no handler defined - add headers as fallback
     kumo.log_warn(
       string.format(
-        "Unknown Rspamd action '%s', adding headers only",
+        "No handler defined for Rspamd action '%s', adding headers only",
         action
       )
     )
@@ -360,7 +398,22 @@ end
 
 -- Simple setup helper
 function mod:setup(config)
+  if mod.CONFIGURED then
+    error 'rspamd module has already been configured'
+  end
+
   config = config or {}
+
+  -- Validate action parameter if specified
+  if config.action and not VALID_MODULE_ACTIONS[config.action] then
+    error(
+      string.format(
+        "Invalid action '%s' in rspamd configuration. Valid actions are: %s",
+        config.action,
+        table.concat(table_keys(VALID_MODULE_ACTIONS), ', ')
+      )
+    )
+  end
 
   -- Build the client
   local client_config = {
@@ -441,7 +494,99 @@ function mod:setup(config)
   mod.scan = scan_handler
   mod.client = client
 
+  -- Store configuration for validation
+  mod.CONFIGURED = {
+    config = config,
+    client_config = client_config,
+  }
+
   return scan_handler
 end
+
+-- Validation hook for kumo --validate
+kumo.on('validate_config', function()
+  if not mod.CONFIGURED then
+    return
+  end
+
+  local config = mod.CONFIGURED.config
+  local failed = false
+
+  local function show_error(message)
+    if not failed then
+      failed = true
+      kumo.validation_failed()
+      print 'Issues found in rspamd configuration:'
+    end
+    print(string.format('  - %s', message))
+  end
+
+  -- Validate action parameter
+  if config.action and not VALID_MODULE_ACTIONS[config.action] then
+    show_error(
+      string.format(
+        "Invalid action '%s'. Valid actions are: %s",
+        config.action,
+        table.concat(table_keys(VALID_MODULE_ACTIONS), ', ')
+      )
+    )
+  end
+
+  -- Validate base_url if it's a string (it should be, but check anyway)
+  if config.base_url and type(config.base_url) == 'string' then
+    if not config.base_url:match '^https?://' then
+      show_error(
+        string.format(
+          "base_url '%s' should start with 'http://' or 'https://'",
+          config.base_url
+        )
+      )
+    end
+  end
+
+  -- Validate quarantine settings
+  if config.action == 'quarantine' then
+    if
+      config.quarantine_threshold
+      and type(config.quarantine_threshold) ~= 'number'
+    then
+      show_error 'quarantine_threshold must be a number'
+    end
+    if
+      config.quarantine_queue
+      and type(config.quarantine_queue) ~= 'string'
+    then
+      show_error 'quarantine_queue must be a string'
+    end
+  end
+
+  -- Validate custom_handlers if present
+  if config.custom_handlers then
+    if type(config.custom_handlers) ~= 'table' then
+      show_error 'custom_handlers must be a table'
+    else
+      for action, handler in pairs(config.custom_handlers) do
+        if not VALID_RSPAMD_ACTIONS[action] then
+          show_error(
+            string.format(
+              "custom_handlers contains unknown action '%s'. Valid actions are: %s",
+              action,
+              table.concat(table_keys(VALID_RSPAMD_ACTIONS), ', ')
+            )
+          )
+        end
+        if type(handler) ~= 'function' then
+          show_error(
+            string.format(
+              "custom_handlers['%s'] must be a function, got %s",
+              action,
+              type(handler)
+            )
+          )
+        end
+      end
+    end
+  end
+end)
 
 return mod
