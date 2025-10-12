@@ -534,6 +534,114 @@ kumo.on('smtp_server_data', function(msg, conn_meta)
 end)
 ]]
 
+--[[
+# Example 11: Per-Recipient Spam Thresholds
+
+For per-recipient spam policies, scan once in smtp_server_data but apply
+recipient-specific thresholds in smtp_server_message_received.
+
+This pattern provides:
+- Efficient scanning (once per SMTP transaction)
+- Per-recipient policy decisions
+- Ability to reject before final message acceptance
+- Access to recipient-specific settings (quotas, preferences, etc.)
+]]
+
+--[[
+local client = kumo.rspamd.build_client {
+  base_url = 'http://localhost:11333',
+  zstd = true,
+}
+
+-- Example function to get per-user spam threshold
+-- In production, this would query a database or lookup service
+local function get_spam_threshold_for_user(recipient)
+  -- Example thresholds by domain
+  if recipient:match '@vip%.example%.com$' then
+    return 15.0 -- VIP users: lenient threshold
+  elseif recipient:match '@staff%.example%.com$' then
+    return 10.0 -- Staff: moderate threshold
+  else
+    return 5.0 -- Default: strict threshold
+  end
+end
+
+-- Scan once per batch in smtp_server_data
+kumo.on('smtp_server_data', function(msg, conn_meta)
+  -- Skip authenticated users
+  if conn_meta:get_meta 'authn_id' then
+    return
+  end
+
+  -- Scan with file path optimization
+  -- This scans once for all recipients in the SMTP transaction
+  local result = rspamd.scan_message(client, msg, conn_meta, {use_file_path = true})
+
+  -- Store results in metadata for later use
+  msg:set_meta('rspamd_score', result.score)
+  msg:set_meta('rspamd_action', result.action)
+
+  -- Log scan results
+  kumo.log_info(
+    string.format(
+      'Rspamd scan: score=%.2f action=%s recipients=%d',
+      result.score,
+      result.action,
+      #msg:recipient_list()
+    )
+  )
+
+  -- Add headers but don't reject yet
+  -- Per-recipient decisions will be made in smtp_server_message_received
+  msg:prepend_header('X-Spam-Score', tostring(result.score))
+  msg:prepend_header('X-Spam-Action', result.action)
+
+  -- Apply milter actions (header modifications from Rspamd)
+  rspamd.apply_milter_actions(msg, result)
+end)
+
+-- Apply per-recipient thresholds in smtp_server_message_received
+kumo.on('smtp_server_message_received', function(msg)
+  local score = msg:get_meta 'rspamd_score'
+  if not score then
+    return -- No scan results available
+  end
+
+  -- Get recipient-specific threshold
+  local recipient = tostring(msg:recipient())
+  local threshold = get_spam_threshold_for_user(recipient)
+
+  kumo.log_info(
+    string.format(
+      'Applying spam policy for %s: score=%.2f threshold=%.2f',
+      recipient,
+      score,
+      threshold
+    )
+  )
+
+  -- Apply recipient-specific policy
+  if score > threshold then
+    kumo.reject(
+      550,
+      string.format(
+        '5.7.1 Message rejected as spam (score: %.2f, threshold: %.2f)',
+        score,
+        threshold
+      )
+    )
+  elseif score > threshold * 0.7 then
+    -- Close to threshold: route to junk folder
+    msg:set_meta('queue', 'suspect')
+    msg:prepend_header('X-Spam-Flag', 'SUSPECT')
+  end
+
+  -- Store per-recipient decision for logging
+  msg:set_meta('spam_threshold', threshold)
+  msg:set_meta('threshold_exceeded', score > threshold)
+end)
+]]
+
 -- Basic init configuration (adjust for your environment)
 kumo.on('init', function()
   kumo.start_esmtp_listener {

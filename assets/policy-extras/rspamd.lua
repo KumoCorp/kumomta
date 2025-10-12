@@ -78,6 +78,56 @@ kumo.on('smtp_server_data', function(msg, conn_meta)
 end)
 ```
 
+## Per-Recipient Spam Thresholds
+
+For per-recipient spam policies, scan once in `smtp_server_data` but apply
+recipient-specific thresholds in `smtp_server_message_received`:
+
+```lua
+local rspamd = require 'policy-extras.rspamd'
+local client = kumo.rspamd.build_client {
+  base_url = 'http://localhost:11333',
+  zstd = true,
+}
+
+-- Scan once per batch in smtp_server_data
+kumo.on('smtp_server_data', function(msg, conn_meta)
+  local result = rspamd.scan_message(client, msg, conn_meta, {use_file_path = true})
+
+  -- Store results in metadata for later use
+  msg:set_meta('rspamd_score', result.score)
+  msg:set_meta('rspamd_action', result.action)
+
+  -- Add headers but don't reject yet
+  rspamd.apply_milter_actions(msg, result)
+end)
+
+-- Apply per-recipient thresholds in smtp_server_message_received
+kumo.on('smtp_server_message_received', function(msg)
+  local score = msg:get_meta('rspamd_score')
+  if not score then
+    return -- No scan results available
+  end
+
+  -- Get recipient-specific threshold
+  local recipient = tostring(msg:recipient())
+  local threshold = get_spam_threshold_for_user(recipient) -- Your custom function
+
+  if score > threshold then
+    kumo.reject(550, string.format(
+      '5.7.1 Message rejected as spam (score: %.2f, threshold: %.2f)',
+      score, threshold
+    ))
+  end
+end)
+```
+
+This pattern provides:
+- Efficient scanning (once per SMTP transaction)
+- Per-recipient policy decisions
+- Ability to reject before final message acceptance
+- Access to recipient-specific settings (quotas, preferences, etc.)
+
 ]]
 
 -- Default action handlers

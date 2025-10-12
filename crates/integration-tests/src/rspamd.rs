@@ -382,3 +382,164 @@ end)
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_rspamd_per_recipient_threshold() -> anyhow::Result<()> {
+    if std::env::var("KUMOD_TESTCONTAINERS").unwrap_or_else(|_| String::new()) != "1" {
+        return Ok(());
+    }
+
+    // Start Rspamd container
+    let rspamd_image = GenericImage::new("rspamd/rspamd", "latest")
+        .with_exposed_port(ContainerPort::Tcp(11333))
+        .with_wait_for(WaitFor::seconds(5));
+
+    let rspamd_container = rspamd_image.start().await?;
+
+    let rspamd_host = rspamd_container.get_host().await?;
+    let rspamd_port = rspamd_container.get_host_port_ipv4(11333).await?;
+    let rspamd_url = format!("http://{rspamd_host}:{rspamd_port}");
+
+    eprintln!("Started Rspamd at {rspamd_url}");
+
+    // Wait for Rspamd to fully initialize and verify it's responding
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    // Verify Rspamd is responding
+    let client = reqwest::Client::new();
+    for attempt in 1..=10 {
+        match client.get(format!("{}/ping", rspamd_url)).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                eprintln!("Rspamd is ready after {} attempts", attempt);
+                break;
+            }
+            _ => {
+                if attempt == 10 {
+                    anyhow::bail!("Rspamd did not become ready in time");
+                }
+                eprintln!("Waiting for Rspamd to be ready (attempt {})", attempt);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+
+    // Create temporary Lua config file demonstrating per-recipient thresholds
+    let lua_config = format!(
+        r#"
+local kumo = require 'kumo'
+local rspamd = require 'policy-extras.rspamd'
+
+kumo.on('init', function()
+  kumo.start_esmtp_listener {{{{
+    listen = '0.0.0.0:0',
+  }}}}
+
+  kumo.start_http_listener {{{{
+    listen = '127.0.0.1:0',
+  }}}}
+
+  kumo.define_spool {{{{
+    name = 'data',
+    path = '/tmp/kumo-test-spool/data',
+  }}}}
+
+  kumo.define_spool {{{{
+    name = 'meta',
+    path = '/tmp/kumo-test-spool/meta',
+  }}}}
+end)
+
+-- Build client
+local client = kumo.rspamd.build_client {{{{
+  base_url = '{rspamd_url}',
+  zstd = true,
+}}}}
+
+-- Per-recipient threshold function
+local function get_spam_threshold_for_user(recipient)
+  if recipient:match '@vip%.example%.com$' then
+    return 100.0  -- Very lenient for VIP (won't reject normal messages)
+  else
+    return 5.0  -- Strict for others
+  end
+end
+
+-- Scan once per batch in smtp_server_data
+kumo.on('smtp_server_data', function(msg, conn_meta)
+  local result = rspamd.scan_message(client, msg, conn_meta, {{{{use_file_path = true}}}})
+
+  -- Store results in metadata for later use
+  msg:set_meta('rspamd_score', result.score)
+  msg:set_meta('rspamd_action', result.action)
+
+  print(string.format('Rspamd scan: score=%.2f action=%s', result.score, result.action))
+
+  -- Add headers but don't reject yet
+  rspamd.apply_milter_actions(msg, result)
+end)
+
+-- Apply per-recipient thresholds in smtp_server_message_received
+kumo.on('smtp_server_message_received', function(msg)
+  local score = msg:get_meta 'rspamd_score'
+  if not score then
+    return
+  end
+
+  local recipient = tostring(msg:recipient())
+  local threshold = get_spam_threshold_for_user(recipient)
+
+  print(string.format('Checking recipient %s: score=%.2f threshold=%.2f',
+    recipient, score, threshold))
+
+  if score > threshold then
+    kumo.reject(550, string.format(
+      '5.7.1 Message rejected as spam (score: %.2f, threshold: %.2f)',
+      score, threshold
+    ))
+  end
+
+  msg:set_meta('spam_threshold', threshold)
+end)
+"#
+    );
+
+    let config_file = std::env::temp_dir().join("rspamd_test_per_recipient_config.lua");
+    std::fs::write(&config_file, lua_config).context("write lua config")?;
+
+    let mut daemon = crate::kumod::DaemonWithMaildirOptions::new()
+        .policy_file(config_file.to_string_lossy().to_string())
+        .start()
+        .await?;
+
+    eprintln!("Sending test message to VIP recipient");
+    let mut client = daemon.smtp_client().await.context("make smtp_client")?;
+
+    // Send to VIP recipient (should be accepted even with any score)
+    let body = generate_message_text(512, 78);
+    let response = MailGenParams {
+        body: Some(&body),
+        recip: Some("user@vip.example.com"),
+        ..Default::default()
+    }
+    .send(&mut client)
+    .await
+    .context("send message to VIP")?;
+
+    eprintln!("SMTP response for VIP: {response:?}");
+    anyhow::ensure!(
+        response.code == 250,
+        "Expected 250 response for VIP recipient, got {}",
+        response.code
+    );
+
+    daemon
+        .wait_for_maildir_count(1, Duration::from_secs(10))
+        .await;
+
+    eprintln!("VIP message delivered successfully");
+
+    daemon.stop_both().await.context("stop_both")?;
+    eprintln!("Test completed successfully");
+
+    Ok(())
+}
