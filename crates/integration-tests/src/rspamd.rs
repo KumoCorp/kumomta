@@ -70,7 +70,8 @@ kumo.on('init', function()
   }}
 end)
 
-kumo.on('smtp_server_message_received', function(msg)
+-- Use smtp_server_data for per-batch scanning
+kumo.on('smtp_server_data', function(msg)
   local config = {{
     base_url = '{rspamd_url}',
     add_headers = true,
@@ -195,7 +196,8 @@ kumo.on('init', function()
   }}
 end)
 
-kumo.on('smtp_server_message_received', function(msg)
+-- Use smtp_server_data for per-batch scanning
+kumo.on('smtp_server_data', function(msg)
   local config = {{
     base_url = '{rspamd_url}',
     add_headers = true,
@@ -318,7 +320,8 @@ kumo.on('init', function()
   }}
 end)
 
-kumo.on('smtp_server_message_received', function(msg)
+-- Use smtp_server_data for per-batch scanning
+kumo.on('smtp_server_data', function(msg)
   local config = {{
     base_url = '{rspamd_url}',
     add_headers = true,

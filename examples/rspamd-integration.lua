@@ -51,10 +51,13 @@ local rspamd = require 'policy-extras.rspamd'
 
 The kumo.rspamd.scan_message() function provides a streamlined interface
 that automatically extracts message metadata and applies default actions.
+
+Note: Use smtp_server_data for efficient per-batch scanning. This scans once
+per SMTP transaction instead of once per recipient, avoiding duplicate scans.
 ]]
 
 --[[
-kumo.on('smtp_server_message_received', function(msg)
+kumo.on('smtp_server_data', function(msg)
   -- Simple config with default actions
   local config = {
     base_url = 'http://localhost:11333',
@@ -65,6 +68,7 @@ kumo.on('smtp_server_message_received', function(msg)
   }
 
   -- Scan and apply default actions
+  -- Scans once per batch (all recipients in this SMTP transaction)
   local result = kumo.rspamd.scan_message(config, msg)
 
   -- Result contains the full Rspamd response
@@ -101,7 +105,7 @@ support KeySource for secure storage:
 ]]
 
 --[[
-kumo.on('smtp_server_message_received', function(msg)
+kumo.on('smtp_server_data', function(msg)
   local config = {
     base_url = 'http://localhost:11333',
 
@@ -118,6 +122,7 @@ kumo.on('smtp_server_message_received', function(msg)
     reject_spam = true,
   }
 
+  -- Scans once per SMTP transaction (batch)
   local result = kumo.rspamd.scan_message(config, msg)
 
   msg:set_meta('rspamd_score', result.score)
@@ -134,6 +139,8 @@ This follows Rspamd's recommendations:
 - rewrite subject → prepend ***SPAM***
 - add header → add X-Spam-* headers
 - no action → add X-Spam-Flag: NO
+
+Uses smtp_server_data for efficient per-batch scanning.
 ]]
 
 -- Simple setup - uncomment to use
@@ -145,7 +152,7 @@ rspamd:setup {
   skip_authenticated = true,  -- Don't scan messages from authenticated users
 }
 
-kumo.on('smtp_server_message_received', rspamd.scan)
+kumo.on('smtp_server_data', rspamd.scan)
 ]]
 
 --[[
@@ -162,7 +169,7 @@ rspamd:setup {
   zstd = true,  -- Compression enabled by default
 }
 
-kumo.on('smtp_server_message_received', rspamd.scan)
+kumo.on('smtp_server_data', rspamd.scan)
 ]]
 
 --[[
@@ -181,13 +188,14 @@ rspamd:setup {
   zstd = true,  -- Compression enabled
 }
 
-kumo.on('smtp_server_message_received', rspamd.scan)
+kumo.on('smtp_server_data', rspamd.scan)
 ]]
 
 --[[
 # Example 5: Custom Action Handling
 
-Full control over actions based on Rspamd results:
+Full control over actions based on Rspamd results.
+Uses smtp_server_data for per-batch scanning.
 ]]
 
 --[[
@@ -197,13 +205,14 @@ local client = kumo.rspamd.build_client {
   zstd = true,  -- Compression enabled
 }
 
-kumo.on('smtp_server_message_received', function(msg, conn_meta)
+kumo.on('smtp_server_data', function(msg, conn_meta)
   -- Skip authenticated users
   if conn_meta:get_meta 'authn_id' then
     return
   end
 
   -- Scan the message with file path optimization
+  -- Scans once for all recipients in this SMTP transaction
   local result = rspamd.scan_message(client, msg, conn_meta, {use_file_path = true})
 
   -- Log the result
@@ -259,6 +268,7 @@ Rspamd can suggest header modifications via the milter protocol:
 - Rewrite Subject line
 
 Milter actions are applied automatically by default.
+Uses smtp_server_data for per-batch scanning.
 ]]
 
 --[[
@@ -268,7 +278,7 @@ local client = kumo.rspamd.build_client {
   zstd = true,
 }
 
-kumo.on('smtp_server_message_received', function(msg, conn_meta)
+kumo.on('smtp_server_data', function(msg, conn_meta)
   if conn_meta:get_meta 'authn_id' then
     return
   end
@@ -317,6 +327,7 @@ This is useful when Rspamd modules make modifications beyond just headers
 (e.g., stripping attachments, adding disclaimers, modifying MIME parts).
 
 Note: Requires rspamd-client 0.4.0+
+Uses smtp_server_data for per-batch scanning.
 ]]
 
 --[[
@@ -326,7 +337,7 @@ local client = kumo.rspamd.build_client {
   zstd = true,
 }
 
-kumo.on('smtp_server_message_received', function(msg, conn_meta)
+kumo.on('smtp_server_data', function(msg, conn_meta)
   if conn_meta:get_meta 'authn_id' then
     return
   end
@@ -367,7 +378,8 @@ end)
 --[[
 # Example 8: Automatic Body Rewriting with Setup
 
-The setup() helper automatically handles body rewriting when configured:
+The setup() helper automatically handles body rewriting when configured.
+Uses smtp_server_data for per-batch scanning.
 ]]
 
 --[[
@@ -379,7 +391,7 @@ rspamd:setup {
   zstd = true,
 }
 
-kumo.on('smtp_server_message_received', rspamd.scan)
+kumo.on('smtp_server_data', rspamd.scan)
 -- Body rewriting is applied automatically if Rspamd returns modified message
 ]]
 
@@ -441,13 +453,15 @@ local custom_handlers = {
   end,
 }
 
-kumo.on('smtp_server_message_received', function(msg, conn_meta)
+-- Use smtp_server_data for per-batch scanning
+kumo.on('smtp_server_data', function(msg, conn_meta)
   -- Skip authenticated users
   if conn_meta:get_meta 'authn_id' then
     return
   end
 
   -- Scan with file path optimization
+  -- Scans once for all recipients in this SMTP transaction
   local result = rspamd.scan_message(client, msg, conn_meta, {use_file_path = true})
 
   -- Apply custom actions
@@ -461,7 +475,8 @@ end)
 --[[
 # Example 10: Direct API Usage (Low-Level)
 
-For maximum control, use the client API directly:
+For maximum control, use the client API directly.
+Uses smtp_server_data for per-batch scanning.
 ]]
 
 --[[
@@ -471,13 +486,19 @@ local client = kumo.rspamd.build_client {
   encryption_key = os.getenv 'RSPAMD_KEY',  -- Optional HTTPCrypt
 }
 
-kumo.on('smtp_server_message_received', function(msg, conn_meta)
+kumo.on('smtp_server_data', function(msg, conn_meta)
   -- Build scan metadata manually
+  -- In smtp_server_data, recipient_list() returns all recipients in the batch
+  local recipients = {}
+  for _, recip in ipairs(msg:recipient_list()) do
+    table.insert(recipients, tostring(recip))
+  end
+
   local metadata = {
     ip = conn_meta:get_meta 'received_from',
     helo = conn_meta:get_meta 'ehlo_domain',
     from = tostring(msg:sender()),
-    rcpt = { tostring(msg:recipient()) },
+    rcpt = recipients,
     queue_id = msg:id(),
     hostname = conn_meta:get_meta 'hostname',
     -- Optional: use file_path for local scanning (avoids body transfer)

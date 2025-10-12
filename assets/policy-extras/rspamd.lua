@@ -34,7 +34,8 @@ rspamd:setup {
   encryption_key = os.getenv('RSPAMD_KEY'),  -- Optional HTTPCrypt encryption
 }
 
-kumo.on('smtp_server_message_received', rspamd.scan)
+-- Use smtp_server_data for per-batch scanning (recommended)
+kumo.on('smtp_server_data', rspamd.scan)
 ```
 
 ## Advanced Usage
@@ -52,13 +53,15 @@ local client = kumo.rspamd.build_client {
   retries = 2,  -- Retry failed requests
 }
 
-kumo.on('smtp_server_message_received', function(msg, conn_meta)
+-- Use smtp_server_data for per-batch scanning
+kumo.on('smtp_server_data', function(msg, conn_meta)
   -- Skip scanning for authenticated users
   if conn_meta:get_meta('authn_id') then
     return
   end
 
   -- Scan the message with file path optimization
+  -- This scans once per SMTP transaction (batch), not once per recipient
   local result = rspamd.scan_message(client, msg, conn_meta, {use_file_path = true})
 
   -- Custom action handling
@@ -137,6 +140,9 @@ local ACTION_HANDLERS = {
 --   use_file_path: if true and Rspamd is on localhost/unix socket, use File header
 --                  to avoid sending message body (significant performance improvement)
 --   body_block: if true, request rewritten body in response (for body modifications)
+--
+-- Note: This function works with both smtp_server_data (batch scanning) and
+-- smtp_server_message_received (per-message scanning) events.
 function mod.extract_metadata(msg, conn_meta, options)
   options = options or {}
   local metadata = {}
@@ -154,11 +160,15 @@ function mod.extract_metadata(msg, conn_meta, options)
     metadata.from = tostring(msg:sender())
     metadata.queue_id = msg:id()
 
-    -- Get recipients
+    -- Get recipients - handles both single and multiple recipients
+    -- In smtp_server_data, this returns all recipients in the batch
+    -- In smtp_server_message_received, this returns a single recipient
     local recipients = {}
-    local recip = msg:recipient()
-    if recip then
-      table.insert(recipients, tostring(recip))
+    local recip_list = msg:recipient_list()
+    if recip_list then
+      for _, recip in ipairs(recip_list) do
+        table.insert(recipients, tostring(recip))
+      end
     end
     metadata.rcpt = recipients
 
@@ -186,6 +196,10 @@ end
 -- Options:
 --   use_file_path: if true, use File header for local scanning (recommended for localhost)
 --   body_block: if true, request rewritten body in response
+--
+-- Best Practice: Use this in smtp_server_data for per-batch scanning to avoid
+-- duplicate scans when a message has multiple recipients. The scan result should
+-- be stored in message metadata for use in later events.
 function mod.scan_message(client, msg, conn_meta, options)
   options = options or {}
   local metadata = mod.extract_metadata(msg, conn_meta, options)
