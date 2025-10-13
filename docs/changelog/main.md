@@ -66,3 +66,6 @@
  * kumo.spf.check_host: `%{h}` will be assumed to have the value of the
    `domain` field when `sender` is not set, as `ehlo_domain` won't be set in
    the connection context until after `smtp_server_ehlo` returns successfully.
+ * Increased the default value of
+   [kumo.start_esmtp_listener.line_length_hard_limit](../reference/kumo/start_esmtp_listener/line_length_hard_limit.md)
+   to 1000 to reflect that we are including the CRLF in the measured amount.

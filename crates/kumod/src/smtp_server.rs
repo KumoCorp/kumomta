@@ -2999,8 +2999,9 @@ impl UserData for ConnectionMetaData {
 #[error("Error writing to client")]
 struct WriteError;
 
-/// The maximum line length defined by the SMTP RFCs
-const MAX_LINE_LEN: usize = 998;
+/// The maximum line length defined by the SMTP RFCs.
+/// This includes the CRLF.
+const MAX_LINE_LEN: usize = 1000;
 
 #[derive(PartialEq)]
 enum ReadLine {
