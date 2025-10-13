@@ -61,3 +61,8 @@
    were exceeded.
  * spf: a `NoRecordsFound` response from DNS during an `exists:` rule check
    could cause the result to incorrectly be reported a `temperror`
+ * spf: `%{h}` macro expansion could incorrectly enclose the domain in double quotes
+ * spf: relax macro parsing to allow spaces in, for example, explanation txt records
+ * kumo.spf.check_host: `%{h}` will be assumed to have the value of the
+   `domain` field when `sender` is not set, as `ehlo_domain` won't be set in
+   the connection context until after `smtp_server_ehlo` returns successfully.

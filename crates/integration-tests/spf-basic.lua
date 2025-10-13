@@ -32,8 +32,9 @@ kumo.on('init', function()
     [[
 $ORIGIN localhost.
 @        600 TXT "v=spf1 all"
-denied       TXT "v=spf1 -all"
+denied       TXT "v=spf1 -all exp=explain._spf.localhost."
 allowed      TXT "v=spf1 +all"
+explain._spf TXT "helo=%{h}"
 ]],
   }
   kumo.dns.configure_test_resolver(zones)
@@ -51,7 +52,7 @@ kumo.on('smtp_server_ehlo', function(domain, conn_meta)
   local result = kumo.spf.check_host(domain, conn_meta, nil)
   print('SPF-ehlo', kumo.json_encode_pretty(result))
   if result.disposition == 'fail' then
-    kumo.reject(550, '5.7.1 SPF EHLO check failed')
+    kumo.reject(550, '5.7.1 SPF EHLO check failed ' .. result.result.reason)
   end
 end)
 
@@ -60,7 +61,10 @@ kumo.on('smtp_server_mail_from', function(sender, conn_meta)
     kumo.spf.check_host(sender.domain, conn_meta, tostring(sender))
   print('SPF-mail-from', kumo.json_encode_pretty(result))
   if result.disposition == 'fail' then
-    kumo.reject(550, '5.7.1 SPF MAIL FROM check failed')
+    kumo.reject(
+      550,
+      '5.7.1 SPF MAIL FROM check failed ' .. result.result.reason
+    )
   end
 end)
 

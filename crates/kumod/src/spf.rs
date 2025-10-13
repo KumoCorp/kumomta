@@ -26,7 +26,11 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                     .and_then(|v| SocketAddr::from_str(v.as_str()?).ok())
                     .expect("`received_from` is always set, and always to a value representing a `SocketAddr`");
 
-                let ehlo_domain = meta.get_meta_string("ehlo_domain");
+                let ehlo_domain = if sender.is_some() {
+                    meta.get_meta_string("ehlo_domain")
+                } else {
+                    Some(domain.clone())
+                };
                 let relaying_host_name = meta.get_meta_string("hostname");
 
                 let resolver = dns_resolver::get_resolver();
