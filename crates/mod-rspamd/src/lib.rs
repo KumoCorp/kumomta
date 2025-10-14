@@ -56,33 +56,21 @@ struct RspamdClientConfig {
     #[serde(default)]
     proxy_password: Option<KeySource>,
 
-    /// Optional TLS certificate
-    #[serde(default)]
-    tls_certificate: Option<KeySource>,
-
-    /// Optional TLS private key
-    #[serde(default)]
-    tls_private_key: Option<KeySource>,
-
-    /// Optional TLS CA certificate
-    #[serde(default)]
-    tls_ca_certificate: Option<KeySource>,
-
     /// If true, add X-Spam-* headers to the message (default: true)
+    /// Headers added: X-Spam-Flag, X-Spam-Score, X-Spam-Action, X-Spam-Symbols
     #[serde(default = "default_true")]
     add_headers: bool,
 
-    /// If true, prefix the Subject header with "***SPAM*** " (default: false)
+    /// If true, prefix the Subject header with "***SPAM*** " when action is "rewrite subject" (default: false)
+    /// Note: This only applies when Rspamd returns action "rewrite subject"
     #[serde(default)]
     prefix_subject: bool,
 
-    /// If true, reject spam messages (default: false)
+    /// If true, reject messages when Rspamd action is "reject" (default: false)
+    /// If false, messages with action "reject" will still be delivered with spam headers
+    /// Note: Action "soft reject" always results in 451 temporary failure (greylisting)
     #[serde(default)]
     reject_spam: bool,
-
-    /// If true, and reject_spam is true, use 4xx instead of 5xx rejection (default: false)
-    #[serde(default)]
-    reject_soft: bool,
 }
 
 fn default_true() -> bool {
@@ -91,74 +79,38 @@ fn default_true() -> bool {
 
 impl RspamdClientConfig {
     /// Build rspamd-client Config from this configuration
-    fn make_client_config(&self) -> anyhow::Result<Config> {
-        // Helper to extract file paths from KeySource (for TLS certificates)
-        let extract_path = |key_source: &KeySource, param_name: &str| -> anyhow::Result<String> {
-            match key_source {
-                KeySource::File(path) => Ok(path.clone()),
-                KeySource::Data { .. } => {
-                    anyhow::bail!(
-                        "{} does not support inline data; please use a file path. \
-                        Consider writing the data to a file first.",
-                        param_name
-                    )
-                }
-                KeySource::Vault { .. } => {
-                    anyhow::bail!(
-                        "{} does not support Vault secrets; please use a file path. \
-                        Consider using a file-based secret management approach.",
-                        param_name
-                    )
-                }
-            }
+    async fn make_client_config(&self) -> anyhow::Result<Config> {
+        // Extract password if provided
+        let password = if let Some(p) = &self.password {
+            let bytes = p.get().await?;
+            Some(String::from_utf8(bytes.to_vec()).context("password is not valid UTF-8")?)
+        } else {
+            None
         };
 
-        // Helper to extract string value from KeySource (for passwords/keys)
-        let extract_string =
-            |key_source: &KeySource, param_name: &str| -> anyhow::Result<String> {
-                match key_source {
-                    KeySource::File(path) => {
-                        std::fs::read_to_string(path).with_context(|| {
-                            format!("Failed to read {} from file: {}", param_name, path)
-                        })
-                    }
-                    KeySource::Data { key_data, .. } => Ok(key_data.clone()),
-                    KeySource::Vault { .. } => {
-                        anyhow::bail!(
-                            "{} does not support Vault secrets yet. \
-                            Consider using a file or inline data instead.",
-                            param_name
-                        )
-                    }
-                }
-            };
-
-        // Extract password if provided
-        let password = self
-            .password
-            .as_ref()
-            .map(|p| extract_string(p, "password"))
-            .transpose()?;
-
         // Extract encryption key if provided
-        let encryption_key = self
-            .encryption_key
-            .as_ref()
-            .map(|k| extract_string(k, "encryption_key"))
-            .transpose()?;
+        let encryption_key = if let Some(k) = &self.encryption_key {
+            let bytes = k.get().await?;
+            Some(String::from_utf8(bytes.to_vec()).context("encryption_key is not valid UTF-8")?)
+        } else {
+            None
+        };
 
         // Prepare optional proxy config
         let proxy_config = if let Some(proxy_url) = &self.proxy_url {
-            let username = self
-                .proxy_username
-                .as_ref()
-                .map(|u| extract_string(u, "proxy_username"))
-                .transpose()?;
-            let proxy_password = self
-                .proxy_password
-                .as_ref()
-                .map(|p| extract_string(p, "proxy_password"))
-                .transpose()?;
+            let username = if let Some(u) = &self.proxy_username {
+                let bytes = u.get().await?;
+                Some(String::from_utf8(bytes.to_vec()).context("proxy_username is not valid UTF-8")?)
+            } else {
+                None
+            };
+
+            let proxy_password = if let Some(p) = &self.proxy_password {
+                let bytes = p.get().await?;
+                Some(String::from_utf8(bytes.to_vec()).context("proxy_password is not valid UTF-8")?)
+            } else {
+                None
+            };
 
             Some(rspamd_client::config::ProxyConfig {
                 proxy_url: proxy_url.clone(),
@@ -169,33 +121,14 @@ impl RspamdClientConfig {
             None
         };
 
-        // Prepare optional TLS settings
-        let tls_settings = match (&self.tls_certificate, &self.tls_private_key) {
-            (Some(cert_source), Some(key_source)) => {
-                let cert_path = extract_path(cert_source, "tls_certificate")?;
-                let key_path = extract_path(key_source, "tls_private_key")?;
-                let ca_path = self
-                    .tls_ca_certificate
-                    .as_ref()
-                    .map(|ca| extract_path(ca, "tls_ca_certificate"))
-                    .transpose()?;
-
-                Some(rspamd_client::config::TlsSettings {
-                    cert_path,
-                    key_path,
-                    ca_path,
-                })
-            }
-            _ => None,
-        };
-
         // Construct Config directly since all fields are public
+        // Note: use HTTPCrypt encryption_key for secure communication
         Ok(Config {
             base_url: self.base_url.to_string(),
             password,
             timeout: self.timeout.map(|t| t.as_secs_f64()).unwrap_or(30.0),
             retries: self.retries.unwrap_or(1),
-            tls_settings,
+            tls_settings: None, // use httpcrypt instead of tls
             proxy_config,
             zstd: self.zstd,
             encryption_key,
@@ -210,8 +143,8 @@ struct RspamdClient {
 }
 
 impl RspamdClient {
-    fn new(lua_config: RspamdClientConfig) -> anyhow::Result<Self> {
-        let config = lua_config.make_client_config()?;
+    async fn new(lua_config: RspamdClientConfig) -> anyhow::Result<Self> {
+        let config = lua_config.make_client_config().await?;
         Ok(Self {
             config: Arc::new(config),
         })
@@ -293,9 +226,9 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     rspamd_mod.set(
         "build_client",
-        lua.create_function(|lua, options: Value| {
-            let config: RspamdClientConfig = from_lua_value(lua, options)?;
-            RspamdClient::new(config).map_err(any_err)
+        lua.create_async_function(|lua, options: Value| async move {
+            let config: RspamdClientConfig = from_lua_value(&lua, options)?;
+            RspamdClient::new(config).await.map_err(any_err)
         })?,
     )?;
 
@@ -319,21 +252,22 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             };
 
             // Build client config and scan
-            // Convert Arc<Box<[u8]>> to Vec<u8> for scan_async
-            let message_data = msg.get_data();
-            let message_bytes: Vec<u8> = message_data.as_ref().to_vec();
-
-            let client_config = config.make_client_config().map_err(any_err)?;
-            let reply = scan_async(&client_config, message_bytes, envelope_data)
+            // scan_async accepts Into<Bytes>, so we convert Arc<Box<[u8]>> to Vec<u8>
+            // which then gets wrapped in Bytes. This minimizes intermediate allocations.
+            let client_config = config.make_client_config().await.map_err(any_err)?;
+            let reply = scan_async(&client_config, (*msg.get_data()).to_vec(), envelope_data)
                 .await
                 .map_err(any_err)?;
 
-            // Apply default actions based on config
+            // Apply default actions based on Rspamd's action field
+            // X-Spam-Flag: YES for everything except "no action"
+            let is_spam = reply.action != "no action";
+
             if config.add_headers {
                 // Add X-Spam-* headers
                 msg.prepend_header(
                     Some("X-Spam-Flag"),
-                    if reply.score > 0.0 { "YES" } else { "NO" },
+                    if is_spam { "YES" } else { "NO" },
                 );
                 msg.prepend_header(Some("X-Spam-Score"), &reply.score.to_string());
                 msg.prepend_header(Some("X-Spam-Action"), &reply.action);
@@ -345,28 +279,56 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 }
             }
 
-            if config.prefix_subject && reply.action == "reject" {
-                // Prefix subject with SPAM marker
-                if let Ok(Some(subject)) = msg.get_first_named_header_value("Subject") {
-                    msg.remove_all_named_headers("Subject").map_err(any_err)?;
-                    msg.prepend_header(Some("Subject"), &format!("***SPAM*** {}", subject));
+            // Handle Rspamd actions
+            match reply.action.as_str() {
+                "no action" => {
+                    // Ham - deliver normally
                 }
-            }
+                "soft reject" => {
+                    // Temporary failure - greylisting
+                    // Always use 451 for greylisting (sender should retry later)
+                    let globals = lua.globals();
+                    let kumo: mlua::Table = globals.get("kumo")?;
+                    let reject: mlua::Function = kumo.get("reject")?;
 
-            if config.reject_spam && reply.action == "reject" {
-                // Call kumo.reject via Lua runtime
-                let globals = lua.globals();
-                let kumo: mlua::Table = globals.get("kumo")?;
-                let reject: mlua::Function = kumo.get("reject")?;
+                    // Use Rspamd's smtp_message if provided, otherwise use default
+                    let message = reply.messages.get("smtp_message")
+                        .map(|s| s.as_str())
+                        .unwrap_or("4.7.1 Greylisted, please try again later");
 
-                let code = if config.reject_soft { 451 } else { 550 };
-                let message = format!(
-                    "{} Spam detected (score: {:.2})",
-                    if config.reject_soft { "4.7.1" } else { "5.7.1" },
-                    reply.score
-                );
+                    reject.call::<()>((451, message))?;
+                }
+                "add header" => {
+                    // Just add headers (already done above) and deliver
+                }
+                "rewrite subject" => {
+                    // Rewrite subject if prefix_subject is enabled
+                    if config.prefix_subject {
+                        if let Ok(Some(subject)) = msg.get_first_named_header_value("Subject") {
+                            msg.remove_all_named_headers("Subject").map_err(any_err)?;
+                            msg.prepend_header(Some("Subject"), &format!("***SPAM*** {}", subject));
+                        }
+                    }
+                }
+                "reject" => {
+                    // Reject spam if reject_spam is enabled
+                    // Always use 550 (permanent failure) for spam
+                    if config.reject_spam {
+                        let globals = lua.globals();
+                        let kumo: mlua::Table = globals.get("kumo")?;
+                        let reject: mlua::Function = kumo.get("reject")?;
 
-                reject.call::<()>((code, message))?;
+                        // Use Rspamd's smtp_message if provided, otherwise use default
+                        let message = reply.messages.get("smtp_message")
+                            .map(|s| s.as_str())
+                            .unwrap_or("5.7.1 Spam message rejected");
+
+                        reject.call::<()>((550, message))?;
+                    }
+                }
+                _ => {
+                    // Unknown action - deliver with headers
+                }
             }
 
             // Return the scan reply

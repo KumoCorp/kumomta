@@ -2619,9 +2619,12 @@ impl SmtpServerSession {
                     )
                 };
 
-                let mut body = Vec::with_capacity(data.len() + received.len());
+                // Use base_message.get_data() instead of original data to preserve
+                // any modifications made in smtp_server_data hook (e.g., Rspamd headers)
+                let base_data = base_message.get_data();
+                let mut body = Vec::with_capacity(base_data.len() + received.len());
                 body.extend_from_slice(received.as_bytes());
-                body.extend_from_slice(&data);
+                body.extend_from_slice(&base_data);
                 Arc::new(body.into_boxed_slice())
             } else {
                 base_message.get_data()
