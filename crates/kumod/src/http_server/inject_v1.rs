@@ -1062,7 +1062,7 @@ Content-Type: text/plain;\r
 Content-Transfer-Encoding: quoted-printable\r
 From: Me <me@example.com>\r
 Subject: =?UTF-8?q?A_test_=F0=9F=9B=B3=EF=B8=8F?=\r
-To: James Smythe <user@example.com>\r
+To: "James Smythe" <user@example.com>\r
 Mime-Version: 1.0\r
 \r
 This is a test message to James Smythe, with some =F0=9F=91=BB=F0=9F=8D=89=\r
@@ -1110,7 +1110,7 @@ Content-Type: text/plain;\r
 Content-Transfer-Encoding: quoted-printable\r
 From: Me <me@example.com>\r
 Subject: =?UTF-8?q?=D8=AA=D8=B3=D8=AA_=DB=8C=DA=A9_=D8=AF=D9=88_=D8=B3=D9=87?=\r
-To: James Smythe <user@example.com>\r
+To: "James Smythe" <user@example.com>\r
 Mime-Version: 1.0\r
 \r
 This is a test message to James Smythe, with some =F0=9F=91=BB=F0=9F=8D=89=\r

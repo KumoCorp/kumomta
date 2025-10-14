@@ -567,7 +567,7 @@ Ok(
         });
         assert_eq!(
             sender.to_header_string(),
-            "Sender: John Smith <john.smith@example.com>\r\n"
+            "Sender: \"John Smith\" <john.smith@example.com>\r\n"
         );
 
         sender.assign(Mailbox {

@@ -48,7 +48,7 @@ utils.assert_eq(
 
 headers:set_reply_to {
   {
-    name = 'Some One',
+    name = 'Test [hello]',
     address = {
       local_part = 'some.one',
       domain = 'example.com',
@@ -57,7 +57,7 @@ headers:set_reply_to {
 }
 utils.assert_eq(
   headers:get_first_named('Reply-To').raw_value,
-  'Some One <some.one@example.com>'
+  '"Test [hello]" <some.one@example.com>'
 )
 
 headers:set_cc {
@@ -77,7 +77,7 @@ headers:set_cc {
 }
 utils.assert_eq(
   headers:get_first_named('Cc').raw_value,
-  'Other Person <other.person@example.com>,\r\n\t<just.email.address@example.com>'
+  '"Other Person" <other.person@example.com>,\r\n\t<just.email.address@example.com>'
 )
 
 -- Group syntax

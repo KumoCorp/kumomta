@@ -70,3 +70,5 @@
    could by off-by-two in certain cases when applied to DATA, and could
    sometimes allow up to 1024 bytes for a single SMTP command outside of DATA,
    even though the limit was set smaller.
+ * Message builder API didn't quote every possible character that needed to be
+   quoted in the display name of a mailbox. #428

@@ -2031,18 +2031,15 @@ fn test_qp_encode() {
     );
 }
 
-/// Quote input string `s`, using a backslash escape,
-/// any of the characters listed in needs_quote,
-/// or if the string contains an @ or comma.
-pub(crate) fn quote_string(s: &str, needs_quote: &str) -> String {
-    const QUOTE_OVERALL: &str = "@,";
-    if s.chars()
-        .any(|c| needs_quote.contains(c) || QUOTE_OVERALL.contains(c))
-    {
+/// Quote input string `s`, using a backslash escape, if any
+/// of the characters is NOT atext.  When quoting, the input
+/// string is enclosed in quotes.
+fn quote_string(s: &str) -> String {
+    if s.chars().any(|c| !is_atext(c)) {
         let mut result = String::with_capacity(s.len() + 4);
         result.push('"');
         for c in s.chars() {
-            if needs_quote.contains(c) {
+            if c != ' ' && !is_qtext(c) && !is_atext(c) {
                 result.push('\\');
             }
             result.push(c);
@@ -2057,16 +2054,16 @@ pub(crate) fn quote_string(s: &str, needs_quote: &str) -> String {
 #[cfg(test)]
 #[test]
 fn test_quote_string() {
-    let nq = "\\\"";
-    k9::snapshot!(quote_string("hello", nq), "hello");
-    k9::snapshot!(quote_string("hello there", nq), "hello there");
-    k9::snapshot!(quote_string("hello, there", nq), "\"hello, there\"");
     k9::snapshot!(
-        quote_string("hello \"there\"", nq),
-        r#""hello \\"there\\"""#
+        quote_string("TEST [ne_pas_repondre]"),
+        r#""TEST [ne_pas_repondre]""#
     );
+    k9::snapshot!(quote_string("hello"), "hello");
+    k9::snapshot!(quote_string("hello there"), r#""hello there""#);
+    k9::snapshot!(quote_string("hello, there"), "\"hello, there\"");
+    k9::snapshot!(quote_string("hello \"there\""), r#""hello \\"there\\"""#);
     k9::snapshot!(
-        quote_string("hello c:\\backslash", nq),
+        quote_string("hello c:\\backslash"),
         r#""hello c:\\\\backslash""#
     );
 }
@@ -2076,7 +2073,7 @@ impl EncodeHeaderValue for Mailbox {
         match &self.name {
             Some(name) => {
                 let mut value = if name.is_ascii() {
-                    quote_string(name, "\\\"")
+                    quote_string(name)
                 } else {
                     qp_encode(name)
                 };
@@ -2609,7 +2606,7 @@ Some(
 Content-Type: text/plain;\r
 \tcharset="us-ascii"\r
 Content-Transfer-Encoding: quoted-printable\r
-From: Keith Moore <moore@cs.utk.edu>\r
+From: "Keith Moore" <moore@cs.utk.edu>\r
 To: =?UTF-8?q?Keld_J=C3=B8rn_Simonsen?= <keld@dkuug.dk>\r
 Cc: =?UTF-8?q?Andr=C3=A9_Pirard?= <PIRARD@vm1.ulg.ac.be>\r
 Subject: Hello If you can read this you understand the example.\r
@@ -2636,7 +2633,7 @@ Subject: Hello If you can read this you understand the example.\r
         k9::snapshot!(
             list.encode_value(),
             r#"
-A Group:Ed Jones <c@a.test>,\r
+A Group:"Ed Jones" <c@a.test>,\r
 \t<joe@where.test>,\r
 \tJohn <jdoe@one.test>;
 "#
