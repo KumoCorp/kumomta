@@ -1333,7 +1333,7 @@ impl SmtpServerSession {
 
         loop {
             if let Some(i) = CRLF.find(&self.read_buffer) {
-                if too_long {
+                if i > self.params.line_length_hard_limit || too_long {
                     self.read_buffer.drain(0..i + 2);
                     SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                         conn_meta: self.meta.clone_inner(),
@@ -1355,17 +1355,20 @@ impl SmtpServerSession {
             tracing::trace!("read_buffer len is {}", self.read_buffer.len());
             if self.read_buffer.len() > override_limit.unwrap_or(self.params.line_length_hard_limit)
             {
+                tracing::trace!("line is too long, clearing buffer and setting flag");
                 self.read_buffer.clear();
                 too_long = true;
             }
 
             // Didn't find a complete line, fill up the rest of the buffer
             let mut data = [0u8; 1024];
+            let limit = data.len().min(self.params.line_length_hard_limit);
+            let data = &mut data[0..limit];
             tokio::select! {
                 _ = tokio::time::sleep(self.params.client_timeout) => {
                     return Ok(ReadLine::TimedOut);
                 }
-                size = self.socket.as_mut().unwrap().read(&mut data) => {
+                size = self.socket.as_mut().unwrap().read(data) => {
                     match size {
                         Err(err) => {
                             tracing::trace!("error reading: {err:#}");
@@ -3000,8 +3003,8 @@ impl UserData for ConnectionMetaData {
 struct WriteError;
 
 /// The maximum line length defined by the SMTP RFCs.
-/// This includes the CRLF.
-const MAX_LINE_LEN: usize = 1000;
+/// This does not include the CRLF.
+const MAX_LINE_LEN: usize = 998;
 
 #[derive(PartialEq)]
 enum ReadLine {
@@ -3045,7 +3048,7 @@ fn check_line_lengths(data: &[u8], limit: usize) -> bool {
         if idx - last_index > limit {
             return false;
         }
-        last_index = idx;
+        last_index = idx + 2 /* CRLF */;
     }
     data.len() - last_index <= limit
 }
@@ -3244,5 +3247,6 @@ mod test {
             b"hello there\r\nanother line over there\r\n",
             12
         ));
+        assert!(check_line_lengths(b"hello there\r\nhello there\r\n", 12));
     }
 }
