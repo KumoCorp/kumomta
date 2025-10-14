@@ -153,18 +153,21 @@ async fn dmarc_spf_strict_subdomain() {
 #[tokio::test]
 async fn dmarc_pct_rate() {
     let mut total_failures = 0;
+    let iters = 10_000;
+    let pct = 50;
 
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
             "example.com",
-            "v=DMARC1; p=reject; aspf=s; pct=50; \
+            format!(
+                "v=DMARC1; p=reject; aspf=s; pct={pct}; \
                 rua=mailto:dmarc-feedback@example.com"
-                .to_string(),
+            ),
         );
 
-    for _ in 0..10000 {
+    for _ in 0..iters {
         let result = evaluate_ip(
             Ipv4Addr::LOCALHOST,
             "example.com",
@@ -178,7 +181,13 @@ async fn dmarc_pct_rate() {
             total_failures += 1;
         }
     }
-    k9::assert_lesser_than!((total_failures - 5000i32).abs(), 1000);
+
+    // Allow 10% slack either side
+    let upper_bound = iters * (pct + 10) / 100;
+    let lower_bound = iters * (pct - 10) / 100;
+
+    k9::assert_lesser_than!(total_failures, upper_bound);
+    k9::assert_greater_than!(total_failures, lower_bound);
 }
 
 async fn evaluate_ip(

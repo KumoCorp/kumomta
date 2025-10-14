@@ -41,6 +41,7 @@ pub struct MailGenParams<'a> {
 
 /// Generate a single nonsense string with no spaces with
 /// length at least that specified
+#[allow(dead_code)]
 pub fn generate_nonsense_string(n_bytes: usize) -> String {
     let mut chain = lipsum::MarkovChain::new();
     chain.learn(lipsum::LIBER_PRIMUS);

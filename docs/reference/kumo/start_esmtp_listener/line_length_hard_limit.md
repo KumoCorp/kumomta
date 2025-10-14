@@ -7,7 +7,7 @@ protocol.  The limit exists because there are SMTP implementations that are
 simply not capable of reading longer lines.
 
 This option sets the limit on line length that is enforced by KumoMTA. The
-default matches the RFC specified limit of `998`.  When the line length
+default matches the RFC specified limit of `998` + CRLF.  When the line length
 limit is exceeded, KumoMTA will return a "line too long" error to the
 client.
 

@@ -521,6 +521,37 @@ async fn initial_processing() {
     assert_eq!(result.context, "no SPF records found for example.com");
 }
 
+#[tokio::test]
+async fn test_exp() {
+    let resolver = TestResolver::default()
+        .with_txt(
+            "explain.example.com",
+            "%{i} is not one of %{d}'s designated mail servers. \
+            See http://%{d}/why.html?s=%{S}&i=%{I}. Helo was %{h}",
+        )
+        .with_txt("example.com", "v=spf1 mx -all exp=explain.example.com");
+
+    let cx = SpfContext::new(
+        "sender@example.com",
+        "example.com",
+        Ipv4Addr::LOCALHOST.into(),
+    )
+    .unwrap()
+    .with_ehlo_domain(Some("hi.example.com"))
+    .with_relaying_host_name(Some("mx.example.com"));
+
+    let result = cx.check(&resolver, true).await;
+    eprintln!("{result:#?}");
+    assert_eq!(result.disposition, SpfDisposition::Fail);
+    assert_eq!(
+        result.context,
+        "127.0.0.1 is not one of example.com's \
+        designated mail servers. See \
+        http://example.com/why.html?s=sender%40example.com&i=127.0.0.1. \
+        Helo was hi.example.com"
+    );
+}
+
 /// This test is a little bit disingenuous, because the issue it is testing
 /// is impossible to reproduce with the TestResolver.  The issue was that
 /// the underlying resolver would propagate a NoRecordsFound hickory error
