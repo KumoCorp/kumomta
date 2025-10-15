@@ -101,6 +101,6 @@ jobs:
           context: .
           file: Dockerfile.builder
           platforms: ${{ matrix.platform }}
-          tags: ghcr.io/kumocorp/builder-for${{ matrix.REPOARM }}-${{ matrix.IMAGE }}
+          tags: ghcr.io/kumocorp/builder-for${{ matrix.REPOARM }}-${{ matrix.IMAGE }}:${{ matrix.VERSION }}
           push: ${{ github.event_name != 'pull_request' }}
 

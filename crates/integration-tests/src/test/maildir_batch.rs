@@ -34,7 +34,7 @@ async fn maildir_batch() -> anyhow::Result<()> {
     anyhow::ensure!(status.response.code == 250);
 
     daemon
-        .wait_for_maildir_count(2, Duration::from_secs(10))
+        .wait_for_maildir_count(5, Duration::from_secs(10))
         .await;
 
     daemon.stop_both().await.context("stop_both")?;

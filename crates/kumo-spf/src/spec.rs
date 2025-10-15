@@ -38,7 +38,7 @@ impl MacroSpec {
 
         fn is_macro_literal(c: char) -> bool {
             let c = c as u32;
-            (0x21..=0x24).contains(&c) || (0x26..=0x7e).contains(&c)
+            (0x20..=0x24).contains(&c) || (0x26..=0x7e).contains(&c)
         }
 
         let mut s = s;
@@ -102,7 +102,7 @@ impl MacroSpec {
             }
 
             if !is_macro_literal(s.chars().next().unwrap()) {
-                return Err(format!("invalid macro char in {s}"));
+                return Err(format!("invalid macro char in '{s}'"));
             }
 
             add_literal(&mut elements, &s[0..1]);
@@ -371,6 +371,7 @@ $ORIGIN 2.0.192.in-addr.arpa.
 3   600 PTR email.example.com.
         "#,
             )
+            .unwrap()
             .with_zone(
                 r#"
 $ORIGIN example.com.
@@ -378,7 +379,8 @@ $ORIGIN example.com.
         A     192.0.2.3
 email   A     192.0.2.3
         "#,
-            );
+            )
+            .unwrap();
 
         for (input, expect) in &[
             ("%{s}", "strong-bad@email.example.com"),

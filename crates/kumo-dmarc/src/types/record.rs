@@ -38,9 +38,9 @@ impl Record {
             Mode::Relaxed => {
                 for dkim in cx.dkim {
                     if let Some(result) = dkim.get("header.d") {
-                        if cx.from_domain != result
-                            && !cx.from_domain.ends_with(&format!(".{}", result))
-                        {
+                        let organizational_domain = psl::domain_str(cx.from_domain);
+
+                        if cx.from_domain != result && organizational_domain != Some(result) {
                             return DmarcResultWithContext {
                                 result: DmarcResult::Fail,
                                 context: "DMARC: DKIM relaxed check failed".into(),
@@ -76,8 +76,10 @@ impl Record {
         match self.align_spf {
             Mode::Relaxed => {
                 if let Some(mail_from_domain) = cx.mail_from_domain {
+                    let organizational_domain = psl::domain_str(mail_from_domain);
+
                     if mail_from_domain != cx.from_domain
-                        && !mail_from_domain.ends_with(&format!(".{}", cx.from_domain))
+                        && organizational_domain != Some(cx.from_domain)
                     {
                         return DmarcResultWithContext {
                             result: DmarcResult::Fail,

@@ -7,6 +7,7 @@ edition = "2021"
 anyhow = {workspace=true}
 arc-swap = {workspace=true}
 axum = {workspace=true}
+axum-client-ip = {workspace=true, features=["forwarded-header"]}
 axum-server = {workspace=true, features=["tls-rustls"]}
 axum-streams = {workspace=true}
 backtrace = {workspace=true}
@@ -36,6 +37,7 @@ mod-dns-resolver = {path="../mod-dns-resolver"}
 mod-encode = {path="../mod-encode"}
 mod-crypto = {path="../mod-crypto"}
 mod-filesystem = {path="../mod-filesystem"}
+mod-file-type = {path="../mod-file-type"}
 mod-http = {path="../mod-http"}
 mod-kafka = {path="../mod-kafka"}
 mod-memoize = {path="../mod-memoize"}

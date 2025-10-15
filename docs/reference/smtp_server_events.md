@@ -35,7 +35,8 @@ sequenceDiagram
   S->>C: 354 send message
   C->>S: message / CRLF.CRLF
   S<<->>Lua: smtp_server_data
-  Note right of S: split multi-recipient in batches<br>following steps are per split message
+  S<<->>Lua: smtp_server_split_transaction
+  Note right of S: following steps are per split message
   Note right of S: add trace/supplemental headers
   S<<->>Lua: smtp_server_message_received
   S<<->>Lua: get_listener_domain(MAIL FROM)
@@ -61,5 +62,6 @@ listed in the same sequence as the diagram:
   * [get_listener_domain](events/get_listener_domain.md)
   * [smtp_server_rcpt_to](events/smtp_server_rcpt_to.md)
   * [smtp_server_data](events/smtp_server_data.md)
+  * [smtp_server_split_transaction](events/smtp_server_split_transaction.md)
   * [smtp_server_message_received](events/smtp_server_message_received.md)
   * [get_queue_config](events/get_queue_config.md)

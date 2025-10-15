@@ -4,6 +4,7 @@ use futures::StreamExt;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, LuaSerdeExt, UserDataMethods, Value};
 use rdkafka::message::{Header, OwnedHeaders};
+use rdkafka::producer::future_producer::Delivery;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
@@ -84,7 +85,11 @@ impl LuaUserData for Producer {
                 timestamp: None,
             };
 
-            let (partition, offset) = this
+            let Delivery {
+                partition,
+                offset,
+                timestamp: _,
+            } = this
                 .get_producer()?
                 .send(
                     future_record,

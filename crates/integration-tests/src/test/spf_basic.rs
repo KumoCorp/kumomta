@@ -25,7 +25,11 @@ async fn spf_basic() -> anyhow::Result<()> {
     match daemon.smtp_client("denied.localhost").await {
         Ok(_) => panic!("expected rejection"),
         Err(err) => match err.downcast_ref::<ClientError>() {
-            Some(ClientError::Rejected(Response { code: 550, .. })) => {}
+            Some(ClientError::Rejected(Response {
+                code: 550, content, ..
+            })) => {
+                assert_eq!(content, "SPF EHLO check failed helo=denied.localhost");
+            }
             _ => panic!("expected ClientError"),
         },
     }
@@ -71,11 +75,19 @@ async fn spf_basic() -> anyhow::Result<()> {
                 assert_eq!(results.len(), 1);
                 assert_eq!(results[0].result, "none");
                 assert_eq!(results[0].method, "spf");
+                assert_eq!(
+                    results[0].reason.as_deref().unwrap(),
+                    "no SPF records found for example.com"
+                );
             }
             "allowed.localhost" => {
                 assert_eq!(results.len(), 1);
                 assert_eq!(results[0].result, "pass");
                 assert_eq!(results[0].method, "spf");
+                assert_eq!(
+                    results[0].reason.as_deref().unwrap(),
+                    "matched 'all' directive"
+                );
             }
             _ => unreachable!(),
         }

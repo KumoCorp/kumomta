@@ -1,12 +1,12 @@
 {
-  "openapi": "3.0.3",
+  "openapi": "3.1.0",
   "info": {
     "title": "tsa-daemon",
     "description": "",
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2025.07.21-fc739b66"
+    "version": "2025.10.08-4be75084"
   },
   "paths": {
     "/api/admin/bump-config-epoch": {
@@ -14,8 +14,7 @@
         "tags": [
           "config"
         ],
-        "summary": "Allows the system operator to trigger a configuration epoch bump,",
-        "description": "which causes various configs that are using the Epoch strategy to\nbe re-evaluated by triggering the appropriate callbacks.",
+        "summary": "Allows the system operator to trigger a configuration epoch bump,\nwhich causes various configs that are using the Epoch strategy to\nbe re-evaluated by triggering the appropriate callbacks.",
         "operationId": "bump_config_epoch",
         "responses": {
           "200": {
@@ -29,11 +28,9 @@
         "tags": [
           "logging"
         ],
-        "summary": "Changes the diagnostic log filter dynamically.",
-        "description": "See <https://docs.kumomta.com/reference/kumo/set_diagnostic_log_filter/>\nfor more information on diagnostic log filters.",
+        "summary": "Changes the diagnostic log filter dynamically.\nSee <https://docs.kumomta.com/reference/kumo/set_diagnostic_log_filter/>\nfor more information on diagnostic log filters.",
         "operationId": "set_diagnostic_log_filter_v1",
         "requestBody": {
-          "description": "",
           "content": {
             "application/json": {
               "schema": {

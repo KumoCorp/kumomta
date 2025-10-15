@@ -36,6 +36,7 @@ members = [
   "crates/mod-mpsc",
   "crates/run-lua-tests",
   "crates/mod-mimepart",
+  "crates/mod-file-type",
 ]
 resolver = "2"
 
@@ -50,10 +51,10 @@ anyhow = "1.0"
 arc-swap = "1.6"
 async-stream = "0.3"
 async-trait = "0.1"
-axum = "0.7"
-axum-client-ip = "0.6"
+axum = "0.8"
+axum-client-ip = "1.1"
 axum-server = "0.7"
-axum-streams = {version="0.19", features=["text"]}
+axum-streams = {version="0.23", features=["text"]}
 backtrace = "0.3"
 bitflags = "2.3"
 bitstring = "0.2"
@@ -71,10 +72,10 @@ clap = {version="4.5", features=["derive", "wrap_help"]}
 clap-markdown = "0.1"
 colorgrad = "0.7"
 crc32fast = "1.5.0"
-criterion = "0.5"
+criterion = "0.7"
 crossbeam-queue= "0.3"
 crossbeam-skiplist= "0.1"
-crossterm = { version = "0.28.0", features = ["event-stream"] }
+crossterm = { version = "0.28.0", features = ["event-stream"] } # sync with ratatui
 dashmap = "6.1"
 data-encoding = "2.6"
 data-encoding-macro = "0.1"
@@ -83,17 +84,18 @@ derive-where = "1.2.7"
 ed25519-dalek = "2.0"
 encoding_rs = "0.8.35"
 env_logger = "0.11"
-fancy-regex = "0.14"
+fancy-regex = "0.16"
 filenamegen = "0.2.7"
+file_type = "0.8"
 flume = "0.11"
-foreign-types = "0.3"
+foreign-types = "0.3" # sync with openssl
 futures = "0.3.28"
 futures-util = "0.3"
 futures-lite = "2.3"
 flate2 = "1.0"
 gcd = "2.3"
-gethostname = "0.5"
-getrandom = "0.2"
+gethostname = "1.0"
+getrandom = "0.3"
 git2 = { version = "0.20", default-features = false }
 hdrhistogram = "7.5"
 hex = "0.4"
@@ -113,10 +115,11 @@ indoc = "2.0.5"
 instant-xml = "0.5"
 intrusive-collections = "0.9.7"
 json_comments = "0.2"
+itertools = "0.14"
 jwalk = "0.8"
 k9 = "0.12"
 lapin = {version="2.5", default-features=false, features=["native-tls"]}
-lexicmp = "0.1"
+lexicmp = "0.2"
 libc = "0.2.139"
 linkme = "0.3"
 libunbound = {git="https://github.com/KumoCorp/libunbound-rs.git", rev="19b39a551b3cf7cbc69a7eb24fef4801e66c6260"}
@@ -130,34 +133,34 @@ maplit = "1.0"
 map_vec = "0.6"
 memchr = "2.5"
 metrics = "0.24"
-metrics-prometheus = "0.8"
-metrics-tracing-context = "0.17"
+metrics-prometheus = "0.11"
+metrics-tracing-context = "0.18"
 minijinja = {version="2.7.0",features=["loader", "builtins", "json", "loop_controls"]}
 minijinja-contrib = {version="2.7.0",features=["datetime", "pycompat", "rand", "textwrap", "unicode_wordwrap", "wordcount", "timezone"]}
-mlua = "0.10"
-nix = "0.28"
+mlua = "0.11"
+nix = "0.30"
 nom = "7.1.0"
 nom_locate = "4.1"
-notify = "7"
+notify = "8"
 nucleo-matcher = "0.3"
 num-format = "0.4.4"
 openssl = { version="=0.10.72" } # pinned; see patch below
 openssl-sys = { version="0.9" }
 ordermap = {version="0.5", features=["serde"]}
 parking_lot = "0.12"
-paste = "1"
+pastey = "0.1"
 percent-encoding = "2.3"
 pest = "2.7"
 pest_derive = "2.7"
 ppp = "2.2"
-prometheus = "0.13"
+prometheus = "0.14"
 psl = "2.1.46"
 quoted_printable = "0.5"
 rand = "0.8"
 ratatui = { version = "0.29.0", features = ["crossterm", "unstable-widget-ref"] }
 rcgen = "0.13"
-rdkafka = "0.36"
-redis = {version="0.29", features=["cluster", "cluster-async", "connection-manager", "tokio-comp", "tls-native-tls", "tokio-native-tls-comp"]}
+rdkafka = "0.38"
+redis = {version="0.32", features=["cluster", "cluster-async", "connection-manager", "tokio-comp", "tls-native-tls", "tokio-native-tls-comp"]}
 regex = "1.7"
 reqwest = {version="0.12", default-features=false, features=["rustls-tls", "rustls-tls-native-roots"]}
 ring = "0.17"
@@ -180,41 +183,41 @@ sha2 = "0.10"
 slog = "2.7"
 smallvec = "1.13"
 socksv5 = {version="0.3", default-features=false, features=["tokio"]}
-sqlite = "0.36"
-strum = { version = "0.26", features = ["derive"] }
+sqlite = "0.37"
+strum = { version = "0.27", features = ["derive"] }
 tabout = "0.3"
 tempfile = "3.10"
 test-log = {version="0.2", features = ["trace"]}
-testcontainers-modules = { version = "0.11", default-features = false }
+testcontainers-modules = { version = "0.13", default-features = false }
 textwrap = "0.16"
-thiserror = "1"
+thiserror = "2"
 tikv-jemallocator = {version="0.5", features=["background_threads", "stats"]}
-tikv-jemalloc-ctl = {version="0.5"}
+tikv-jemalloc-ctl = {version="0.5", features=[]}
 tikv-jemalloc-sys = {version="0.5", features=["profiling", "unprefixed_malloc_on_supported_platforms", "stats"]}
 tokio = "1.32"
 tokio-executor-trait = "2.1.0"
-tokio-metrics = "0.3.1"
-tokio-metrics-collector = "0.2.1"
+tokio-metrics = "0.4.5"
+tokio-metrics-collector = "0.3.1"
 tokio-openssl = "0.6.4"
 tokio-reactor-trait = "1.1.0"
 tokio-rustls = "0.26"
 tokio-splice = "0.2"
-tokio-tungstenite = "0.24"
-toml = "0.8"
-toml_edit = "0.22"
+tokio-tungstenite = "0.28"
+toml = "0.9"
+toml_edit = "0.23"
 tower-http = {version="0.6", features=["trace", "compression-deflate", "compression-gzip", "decompression-deflate", "decompression-gzip"]}
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = {version="0.3", features=["env-filter", "std", "fmt", "json"]}
 tui-prompts = "0.5"
-utoipa = {version="4", features=["axum_extras", "time", "uuid"]}
-utoipa-rapidoc = { version="4.0", features = ["axum"] }
+utoipa = {version="5", features=["axum_extras", "time", "uuid", "url", "chrono"]}
+utoipa-rapidoc = { version="6.0", features = ["axum"] }
 url = "2.4"
 uuid = "1.4"
 uuid-helper = { path = "crates/uuid-helper" }
 vaultrs = "0.7"
 walkdir = "2.3"
-which = "7"
+which = "8"
 zstd = "0.13"
 zstd-safe = {version="7.0", features=["std"]}
 

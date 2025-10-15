@@ -21,7 +21,10 @@ use tokio::time::timeout;
 mod resolver;
 #[cfg(feature = "unbound")]
 pub use resolver::UnboundResolver;
-pub use resolver::{ptr_host, DnsError, HickoryResolver, IpDisplay, Resolver, TestResolver};
+pub use resolver::{
+    ptr_host, reverse_ip, AggregateResolver, DnsError, HickoryResolver, IpDisplay, Resolver,
+    TestResolver,
+};
 
 // An `ArcSwap` can only hold `Sized` types, so we cannot stuff a `dyn Resolver` directly into it.
 // Instead, the documentation recommends adding a level of indirection, so we wrap the `Resolver`
@@ -164,7 +167,7 @@ pub fn get_resolver() -> Arc<Box<dyn Resolver>> {
 pub async fn resolve_dane(hostname: &str, port: u16) -> anyhow::Result<Vec<TLSA>> {
     let name = fully_qualify(&format!("_{port}._tcp.{hostname}"))?;
     let answer = RESOLVER.load().resolve(name, RecordType::TLSA).await?;
-    tracing::info!("resolve_dane {hostname}:{port} TLSA answer is: {answer:?}");
+    tracing::debug!("resolve_dane {hostname}:{port} TLSA answer is: {answer:?}");
 
     if answer.bogus {
         // Bogus records are either tampered with, or due to misconfiguration
@@ -304,7 +307,10 @@ impl DomainClassification {
     }
 }
 
-pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<ResolvedAddress>> {
+pub async fn resolve_a_or_aaaa(
+    domain_name: &str,
+    resolver: Option<&dyn Resolver>,
+) -> anyhow::Result<Vec<ResolvedAddress>> {
     if domain_name.starts_with('[') {
         // It's a literal address, no DNS lookup necessary
 
@@ -356,7 +362,7 @@ pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<Resolved
         }
     }
 
-    match ip_lookup(domain_name).await {
+    match ip_lookup(domain_name, resolver).await {
         Ok((addrs, _expires)) => {
             let addrs = addrs
                 .iter()
@@ -515,7 +521,7 @@ impl MailExchanger {
                     continue;
                 }
 
-                match ip_lookup(mx_host).await {
+                match ip_lookup(mx_host, None).await {
                     Err(err) => {
                         tracing::error!("failed to resolve {mx_host}: {err:#}");
                         continue;
@@ -618,13 +624,19 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
     Ok((records, mx_lookup.expires))
 }
 
-pub async fn ip_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
+pub async fn ip_lookup(
+    key: &str,
+    resolver: Option<&dyn Resolver>,
+) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(lookup) = IP_CACHE.lookup(&key_fq) {
-        return Ok((lookup.item, lookup.expiration.into()));
+
+    if resolver.is_none() {
+        if let Some(lookup) = IP_CACHE.lookup(&key_fq) {
+            return Ok((lookup.item, lookup.expiration.into()));
+        }
     }
 
-    let (v4, v6) = tokio::join!(ipv4_lookup(key), ipv6_lookup(key));
+    let (v4, v6) = tokio::join!(ipv4_lookup(key, resolver), ipv6_lookup(key, resolver));
 
     let mut results = vec![];
     let mut errors = vec![];
@@ -662,43 +674,69 @@ pub async fn ip_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)>
     let addr = Arc::new(results);
     let exp = expires.take().unwrap_or_else(Instant::now);
 
-    IP_CACHE.insert(key_fq, addr.clone(), exp.into()).await;
+    if resolver.is_none() {
+        IP_CACHE.insert(key_fq, addr.clone(), exp.into()).await;
+    }
     Ok((addr, exp))
 }
 
-pub async fn ipv4_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
+pub async fn ipv4_lookup(
+    key: &str,
+    resolver: Option<&dyn Resolver>,
+) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(lookup) = IPV4_CACHE.lookup(&key_fq) {
-        return Ok((lookup.item, lookup.expiration.into()));
+    if resolver.is_none() {
+        if let Some(lookup) = IPV4_CACHE.lookup(&key_fq) {
+            return Ok((lookup.item, lookup.expiration.into()));
+        }
     }
 
-    let answer = RESOLVER
-        .load()
-        .resolve(key_fq.clone(), RecordType::A)
-        .await?;
+    let answer = match resolver {
+        Some(r) => r.resolve(key_fq.clone(), RecordType::A).await?,
+        None => {
+            RESOLVER
+                .load()
+                .resolve(key_fq.clone(), RecordType::A)
+                .await?
+        }
+    };
     let ips = answer.as_addr();
 
     let ips = Arc::new(ips);
     let expires = answer.expires;
-    IPV4_CACHE.insert(key_fq, ips.clone(), expires.into()).await;
+    if resolver.is_none() {
+        IPV4_CACHE.insert(key_fq, ips.clone(), expires.into()).await;
+    }
     Ok((ips, expires))
 }
 
-pub async fn ipv6_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
+pub async fn ipv6_lookup(
+    key: &str,
+    resolver: Option<&dyn Resolver>,
+) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(lookup) = IPV6_CACHE.lookup(&key_fq) {
-        return Ok((lookup.item, lookup.expiration.into()));
+    if resolver.is_none() {
+        if let Some(lookup) = IPV6_CACHE.lookup(&key_fq) {
+            return Ok((lookup.item, lookup.expiration.into()));
+        }
     }
 
-    let answer = RESOLVER
-        .load()
-        .resolve(key_fq.clone(), RecordType::AAAA)
-        .await?;
+    let answer = match resolver {
+        Some(r) => r.resolve(key_fq.clone(), RecordType::AAAA).await?,
+        None => {
+            RESOLVER
+                .load()
+                .resolve(key_fq.clone(), RecordType::AAAA)
+                .await?
+        }
+    };
     let ips = answer.as_addr();
 
     let ips = Arc::new(ips);
     let expires = answer.expires;
-    IPV6_CACHE.insert(key_fq, ips.clone(), expires.into()).await;
+    if resolver.is_none() {
+        IPV6_CACHE.insert(key_fq, ips.clone(), expires.into()).await;
+    }
     Ok((ips, expires))
 }
 
@@ -1263,7 +1301,7 @@ MailExchanger {
     #[cfg(feature = "live-dns-tests")]
     #[tokio::test]
     async fn txt_lookup_gmail() {
-        let name = Name::from_utf8("_mta-sts.gmail.com").unwrap();
+        let name = Name::from_str_relaxed("_mta-sts.gmail.com").unwrap();
         let answer = get_resolver().resolve(name, RecordType::TXT).await.unwrap();
         k9::snapshot!(
             answer.as_txt(),

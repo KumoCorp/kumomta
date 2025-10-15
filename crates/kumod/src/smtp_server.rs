@@ -4,6 +4,7 @@ use crate::http_server::admin_trace_smtp_server_v1::{
 };
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::logging::rejection::{log_rejection, LogRejection};
+use crate::metrics_helper::smtp_rejected_for_service;
 use crate::queue::{DeliveryProto, IncrementAttempts, InsertReason, QueueConfig, QueueManager};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
@@ -1149,6 +1150,8 @@ impl SmtpServerSession {
                     recipient = state.recipients.last().map(|r| r.to_string());
                 }
 
+                smtp_rejected_for_service("total").inc();
+                smtp_rejected_for_service(&self.my_address.to_string()).inc();
                 log_rejection(LogRejection {
                     meta: self.meta.clone_inner(),
                     peer_address: ResolvedAddress {
@@ -1333,7 +1336,7 @@ impl SmtpServerSession {
 
         loop {
             if let Some(i) = CRLF.find(&self.read_buffer) {
-                if too_long {
+                if i > self.params.line_length_hard_limit || too_long {
                     self.read_buffer.drain(0..i + 2);
                     SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                         conn_meta: self.meta.clone_inner(),
@@ -1355,17 +1358,20 @@ impl SmtpServerSession {
             tracing::trace!("read_buffer len is {}", self.read_buffer.len());
             if self.read_buffer.len() > override_limit.unwrap_or(self.params.line_length_hard_limit)
             {
+                tracing::trace!("line is too long, clearing buffer and setting flag");
                 self.read_buffer.clear();
                 too_long = true;
             }
 
             // Didn't find a complete line, fill up the rest of the buffer
             let mut data = [0u8; 1024];
+            let limit = data.len().min(self.params.line_length_hard_limit);
+            let data = &mut data[0..limit];
             tokio::select! {
                 _ = tokio::time::sleep(self.params.client_timeout) => {
                     return Ok(ReadLine::TimedOut);
                 }
-                size = self.socket.as_mut().unwrap().read(&mut data) => {
+                size = self.socket.as_mut().unwrap().read(data) => {
                     match size {
                         Err(err) => {
                             tracing::trace!("error reading: {err:#}");
@@ -2465,6 +2471,7 @@ impl SmtpServerSession {
             self.meta.clone_inner(),
             Arc::new(data.clone().into_boxed_slice()),
         )?;
+        drop(data);
 
         match timeout_at(
             deadline.into(),
@@ -2619,6 +2626,7 @@ impl SmtpServerSession {
                     )
                 };
 
+                let data = base_message.get_data();
                 let mut body = Vec::with_capacity(data.len() + received.len());
                 body.extend_from_slice(received.as_bytes());
                 body.extend_from_slice(&data);
@@ -2965,6 +2973,11 @@ impl ConnectionMetaData {
         meta.get(name.as_ref()).cloned()
     }
 
+    pub fn get_meta_string<N: AsRef<str>>(&self, name: N) -> Option<String> {
+        self.get_meta(name)
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+    }
+
     pub fn clone_inner(&self) -> serde_json::Value {
         self.map.lock().clone()
     }
@@ -2994,7 +3007,8 @@ impl UserData for ConnectionMetaData {
 #[error("Error writing to client")]
 struct WriteError;
 
-/// The maximum line length defined by the SMTP RFCs
+/// The maximum line length defined by the SMTP RFCs.
+/// This does not include the CRLF.
 const MAX_LINE_LEN: usize = 998;
 
 #[derive(PartialEq)]
@@ -3039,7 +3053,7 @@ fn check_line_lengths(data: &[u8], limit: usize) -> bool {
         if idx - last_index > limit {
             return false;
         }
-        last_index = idx;
+        last_index = idx + 2 /* CRLF */;
     }
     data.len() - last_index <= limit
 }
@@ -3238,5 +3252,6 @@ mod test {
             b"hello there\r\nanother line over there\r\n",
             12
         ));
+        assert!(check_line_lengths(b"hello there\r\nhello there\r\n", 12));
     }
 }

@@ -8,7 +8,7 @@ use anyhow::Context;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use axum::extract::{Json, State};
-use axum_client_ip::InsecureClientIp;
+use axum_client_ip::ClientIp;
 use config::{any_err, get_or_create_sub_module, load_config, CallbackSignature, LuaConfig};
 use kumo_chrono_helper::Utc;
 use kumo_log_types::ResolvedAddress;
@@ -834,7 +834,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 )]
 pub async fn inject_v1(
     auth: AuthKind,
-    InsecureClientIp(peer_address): InsecureClientIp,
+    ClientIp(peer_address): ClientIp,
     State(app_state): State<AppState>,
     // Note: Json<> must be last in the param list
     Json(request): Json<InjectV1Request>,
@@ -1062,7 +1062,7 @@ Content-Type: text/plain;\r
 Content-Transfer-Encoding: quoted-printable\r
 From: Me <me@example.com>\r
 Subject: =?UTF-8?q?A_test_=F0=9F=9B=B3=EF=B8=8F?=\r
-To: James Smythe <user@example.com>\r
+To: "James Smythe" <user@example.com>\r
 Mime-Version: 1.0\r
 \r
 This is a test message to James Smythe, with some =F0=9F=91=BB=F0=9F=8D=89=\r
@@ -1110,7 +1110,7 @@ Content-Type: text/plain;\r
 Content-Transfer-Encoding: quoted-printable\r
 From: Me <me@example.com>\r
 Subject: =?UTF-8?q?=D8=AA=D8=B3=D8=AA_=DB=8C=DA=A9_=D8=AF=D9=88_=D8=B3=D9=87?=\r
-To: James Smythe <user@example.com>\r
+To: "James Smythe" <user@example.com>\r
 Mime-Version: 1.0\r
 \r
 This is a test message to James Smythe, with some =F0=9F=91=BB=F0=9F=8D=89=\r

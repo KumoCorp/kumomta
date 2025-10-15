@@ -13,6 +13,11 @@
    review your log processors to ensure that they are able to handle the
    `recipient` field being either an array or a string, or otherwise adjusting
    your log templates accordingly.
+ * HTTP injections no longer consider the `Forwarded` header as a source of
+   information to populate the `received_from` metadata.  Instead, only the
+   directly connecting IP information will be used.  See the [upstream
+   issue](https://github.com/imbolc/axum-client-ip/issues/32) for more
+   information.
 
 ## Other Changes and Enhancements
 
@@ -39,9 +44,35 @@
    corresponding HTTP API endpoints:
    [xfer](../reference/rapidoc.md/#post-/api/admin/xfer/v1) and
    [xfer-cancel](../reference/rapidoc.md/#post-/api/admin/xfer/cancel/v1) #311
+ * New [kumo.file_type](../reference/kumo.file_type/index.md) module provides
+   functions for reasoning about file types.
+ * [kumo.amqp.build_client](../reference/kumo.amqp/build_client.md) is
+   deprecated in favor of
+   [kumo.amqp.basic_publish](../reference/kumo.amqp/basic_publish.md).
+ * New [kumo.dns.ptr_host](../reference/kumo.dns/ptr_host.md),
+   [kumo.dns.reverse_ip](../reference/kumo.dns/reverse_ip.md),
+   [kumo.dns.define_resolver](../reference/kumo.dns/define_resolver.md) and
+   [kumo.dns.rbl_lookup](../reference/kumo.dns/rbl_lookup.md) functions. #269
+ * new `smtp_server_rejections` counter to track the number of `Rejection` log
+   records produced by the smtp listener. The service key is the listener
+   address and port, and there is a `total` key that represents the total across
+   all listeners.
 
 ## Fixes
 
  * smtp server would incorrectly return a 451 instead of a 452 status when
    `max_recipients_per_message` or `max_messages_per_connection` limits
    were exceeded.
+ * spf: a `NoRecordsFound` response from DNS during an `exists:` rule check
+   could cause the result to incorrectly be reported a `temperror`
+ * spf: `%{h}` macro expansion could incorrectly enclose the domain in double quotes
+ * spf: relax macro parsing to allow spaces in, for example, explanation txt records
+ * kumo.spf.check_host: `%{h}` will be assumed to have the value of the
+   `domain` field when `sender` is not set, as `ehlo_domain` won't be set in
+   the connection context until after `smtp_server_ehlo` returns successfully.
+ * [kumo.start_esmtp_listener.line_length_hard_limit](../reference/kumo/start_esmtp_listener/line_length_hard_limit.md)
+   could by off-by-two in certain cases when applied to DATA, and could
+   sometimes allow up to 1024 bytes for a single SMTP command outside of DATA,
+   even though the limit was set smaller.
+ * Message builder API didn't quote every possible character that needed to be
+   quoted in the display name of a mailbox. #428

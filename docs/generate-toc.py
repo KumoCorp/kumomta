@@ -414,6 +414,10 @@ TOC = [
                 "reference/kumo.domain_map",
             ),
             Gen(
+                "module: kumo.file_type",
+                "reference/kumo.file_type",
+            ),
+            Gen(
                 "module: kumo.fs",
                 "reference/kumo.fs",
             ),

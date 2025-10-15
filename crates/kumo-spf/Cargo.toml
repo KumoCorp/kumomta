@@ -3,6 +3,12 @@ name = "kumo-spf"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# Enable this feature to run real DNS lookups.
+# Resulting tests may be flaky and, if the upstream
+# has changed their records, may be wrong.
+live-dns-tests = []
+
 [dependencies]
 dns-resolver = {path="../dns-resolver"}
 hickory-resolver = {workspace=true}
