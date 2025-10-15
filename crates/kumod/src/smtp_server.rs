@@ -2471,6 +2471,7 @@ impl SmtpServerSession {
             self.meta.clone_inner(),
             Arc::new(data.clone().into_boxed_slice()),
         )?;
+        drop(data);
 
         match timeout_at(
             deadline.into(),
@@ -2625,6 +2626,7 @@ impl SmtpServerSession {
                     )
                 };
 
+                let data = base_message.get_data();
                 let mut body = Vec::with_capacity(data.len() + received.len());
                 body.extend_from_slice(received.as_bytes());
                 body.extend_from_slice(&data);
