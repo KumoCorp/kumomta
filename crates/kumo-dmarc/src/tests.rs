@@ -2,7 +2,15 @@ use crate::types::results::DmarcResultWithContext;
 use crate::{DmarcContext, DmarcResult};
 use dns_resolver::{Resolver, TestResolver};
 use std::collections::BTreeMap;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::Ipv4Addr;
+
+struct TestData<'a> {
+    client_ip: Ipv4Addr,
+    from_domain: &'a str,
+    mail_from_domain: &'a str,
+    dkim_domains: &'a [Option<&'a str>],
+    resolver: &'a dyn Resolver,
+}
 
 #[tokio::test]
 async fn dmarc_dkim_relaxed_subdomain() {
@@ -16,13 +24,13 @@ async fn dmarc_dkim_relaxed_subdomain() {
                 .to_string(),
         );
 
-    let result = evaluate_ip(
-        Ipv4Addr::LOCALHOST,
-        "sample.example.com",
-        "sample.example.com",
-        &[Some("example.com")],
-        &resolver,
-    )
+    let result = evaluate_ip(TestData {
+        client_ip: Ipv4Addr::LOCALHOST,
+        from_domain: "sample.example.com",
+        mail_from_domain: "sample.example.com",
+        dkim_domains: &[Some("example.com")],
+        resolver: &resolver,
+    })
     .await;
 
     k9::assert_equal!(result.result, DmarcResult::Pass);
@@ -40,13 +48,13 @@ async fn dmarc_dkim_relaxed_subdomain_deep() {
                 .to_string(),
         );
 
-    let result = evaluate_ip(
-        Ipv4Addr::LOCALHOST,
-        "a.b.c.sample.example.com",
-        "a.b.c.sample.example.com",
-        &[Some("example.com")],
-        &resolver,
-    )
+    let result = evaluate_ip(TestData {
+        client_ip: Ipv4Addr::LOCALHOST,
+        from_domain: "a.b.c.sample.example.com",
+        mail_from_domain: "a.b.c.sample.example.com",
+        dkim_domains: &[Some("example.com")],
+        resolver: &resolver,
+    })
     .await;
 
     k9::assert_equal!(result.result, DmarcResult::Pass);
@@ -64,13 +72,13 @@ async fn dmarc_dkim_relaxed_subdomain_fail() {
                 .to_string(),
         );
 
-    let result = evaluate_ip(
-        Ipv4Addr::LOCALHOST,
-        "sample.example.com",
-        "sample.example.com",
-        &[Some("example.org")],
-        &resolver,
-    )
+    let result = evaluate_ip(TestData {
+        client_ip: Ipv4Addr::LOCALHOST,
+        from_domain: "sample.example.com",
+        mail_from_domain: "sample.example.com",
+        dkim_domains: &[Some("example.org")],
+        resolver: &resolver,
+    })
     .await;
 
     k9::assert_equal!(result.result, DmarcResult::Fail);
@@ -88,13 +96,13 @@ async fn dmarc_dkim_strict_subdomain() {
                 .to_string(),
         );
 
-    let result = evaluate_ip(
-        Ipv4Addr::LOCALHOST,
-        "sample.example.com",
-        "example.com",
-        &[Some("example.com")],
-        &resolver,
-    )
+    let result = evaluate_ip(TestData {
+        client_ip: Ipv4Addr::LOCALHOST,
+        from_domain: "sample.example.com",
+        mail_from_domain: "example.com",
+        dkim_domains: &[Some("example.com")],
+        resolver: &resolver,
+    })
     .await;
 
     k9::assert_equal!(result.result, DmarcResult::Fail);
@@ -112,13 +120,13 @@ async fn dmarc_dkim_relaxed_illformed() {
                 .to_string(),
         );
 
-    let result = evaluate_ip(
-        Ipv4Addr::LOCALHOST,
-        "example.com",
-        "example.com",
-        &[None],
-        &resolver,
-    )
+    let result = evaluate_ip(TestData {
+        client_ip: Ipv4Addr::LOCALHOST,
+        from_domain: "example.com",
+        mail_from_domain: "example.com",
+        dkim_domains: &[None],
+        resolver: &resolver,
+    })
     .await;
 
     k9::assert_equal!(result.result, DmarcResult::Fail);
@@ -137,13 +145,13 @@ async fn dmarc_dkim_strict_illformed() {
                 .to_string(),
         );
 
-    let result = evaluate_ip(
-        Ipv4Addr::LOCALHOST,
-        "example.com",
-        "example.com",
-        &[None],
-        &resolver,
-    )
+    let result = evaluate_ip(TestData {
+        client_ip: Ipv4Addr::LOCALHOST,
+        from_domain: "example.com",
+        mail_from_domain: "example.com",
+        dkim_domains: &[None],
+        resolver: &resolver,
+    })
     .await;
 
     k9::assert_equal!(result.result, DmarcResult::Fail);
@@ -162,13 +170,13 @@ async fn dmarc_spf_relaxed_subdomain() {
                 .to_string(),
         );
 
-    let result = evaluate_ip(
-        Ipv4Addr::LOCALHOST,
-        "example.com",
-        "helper.example.com",
-        &[],
-        &resolver,
-    )
+    let result = evaluate_ip(TestData {
+        client_ip: Ipv4Addr::LOCALHOST,
+        from_domain: "example.com",
+        mail_from_domain: "helper.example.com",
+        dkim_domains: &[],
+        resolver: &resolver,
+    })
     .await;
 
     k9::assert_equal!(result.result, DmarcResult::Pass);
@@ -186,13 +194,13 @@ async fn dmarc_spf_relaxed_subdomain_deep() {
                 .to_string(),
         );
 
-    let result = evaluate_ip(
-        Ipv4Addr::LOCALHOST,
-        "example.com",
-        "a.b.c.helper.example.com",
-        &[],
-        &resolver,
-    )
+    let result = evaluate_ip(TestData {
+        client_ip: Ipv4Addr::LOCALHOST,
+        from_domain: "example.com",
+        mail_from_domain: "a.b.c.helper.example.com",
+        dkim_domains: &[],
+        resolver: &resolver,
+    })
     .await;
 
     k9::assert_equal!(result.result, DmarcResult::Pass);
@@ -210,13 +218,13 @@ async fn dmarc_spf_relaxed_subdomain_fail() {
                 .to_string(),
         );
 
-    let result = evaluate_ip(
-        Ipv4Addr::LOCALHOST,
-        "example.com",
-        "helper.example.org",
-        &[],
-        &resolver,
-    )
+    let result = evaluate_ip(TestData {
+        client_ip: Ipv4Addr::LOCALHOST,
+        from_domain: "example.com",
+        mail_from_domain: "helper.example.org",
+        dkim_domains: &[],
+        resolver: &resolver,
+    })
     .await;
 
     k9::assert_equal!(result.result, DmarcResult::Fail);
@@ -234,13 +242,13 @@ async fn dmarc_spf_strict_subdomain() {
                 .to_string(),
         );
 
-    let result = evaluate_ip(
-        Ipv4Addr::LOCALHOST,
-        "example.com",
-        "helper.example.com",
-        &[],
-        &resolver,
-    )
+    let result = evaluate_ip(TestData {
+        client_ip: Ipv4Addr::LOCALHOST,
+        from_domain: "example.com",
+        mail_from_domain: "helper.example.com",
+        dkim_domains: &[],
+        resolver: &resolver,
+    })
     .await;
 
     k9::assert_equal!(result.result, DmarcResult::Fail);
@@ -264,13 +272,13 @@ async fn dmarc_pct_rate() {
         );
 
     for _ in 0..iters {
-        let result = evaluate_ip(
-            Ipv4Addr::LOCALHOST,
-            "example.com",
-            "helper.example.com",
-            &[],
-            &resolver,
-        )
+        let result = evaluate_ip(TestData {
+            client_ip: Ipv4Addr::LOCALHOST,
+            from_domain: "example.com",
+            mail_from_domain: "helper.example.com",
+            dkim_domains: &[],
+            resolver: &resolver,
+        })
         .await;
 
         if matches!(result.result, DmarcResult::Fail) {
@@ -286,12 +294,14 @@ async fn dmarc_pct_rate() {
     k9::assert_greater_than!(total_failures, lower_bound);
 }
 
-async fn evaluate_ip(
-    client_ip: impl Into<IpAddr>,
-    from_domain: &str,
-    mail_from_domain: &str,
-    dkim_domains: &[Option<&str>],
-    resolver: &dyn Resolver,
+async fn evaluate_ip<'a>(
+    TestData {
+        client_ip,
+        from_domain,
+        mail_from_domain,
+        dkim_domains,
+        resolver,
+    }: TestData<'a>,
 ) -> DmarcResultWithContext {
     let mut dkim_vec = vec![];
 
