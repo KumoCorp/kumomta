@@ -53,6 +53,10 @@
    [kumo.dns.reverse_ip](../reference/kumo.dns/reverse_ip.md),
    [kumo.dns.define_resolver](../reference/kumo.dns/define_resolver.md) and
    [kumo.dns.rbl_lookup](../reference/kumo.dns/rbl_lookup.md) functions. #269
+ * new `smtp_server_rejections` counter to track the number of `Rejection` log
+   records produced by the smtp listener. The service key is the listener
+   address and port, and there is a `total` key that represents the total across
+   all listeners.
 
 ## Fixes
 

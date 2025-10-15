@@ -4,6 +4,7 @@ use crate::http_server::admin_trace_smtp_server_v1::{
 };
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::logging::rejection::{log_rejection, LogRejection};
+use crate::metrics_helper::smtp_rejected_for_service;
 use crate::queue::{DeliveryProto, IncrementAttempts, InsertReason, QueueConfig, QueueManager};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
@@ -1149,6 +1150,8 @@ impl SmtpServerSession {
                     recipient = state.recipients.last().map(|r| r.to_string());
                 }
 
+                smtp_rejected_for_service("total").inc();
+                smtp_rejected_for_service(&self.my_address.to_string()).inc();
                 log_rejection(LogRejection {
                     meta: self.meta.clone_inner(),
                     peer_address: ResolvedAddress {
