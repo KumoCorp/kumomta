@@ -43,6 +43,12 @@ pub static CONN_GAUGE_BY_PROVIDER_AND_POOL: LazyLock<PruningCounterRegistry<Prov
             "number of active connections",
         )
     });
+pub static SMTP_SERVER_REJECTIONS: LazyLock<CounterRegistry<ServiceKey>> = LazyLock::new(|| {
+    CounterRegistry::register(
+        "smtp_server_rejections",
+        "number of Rejection records logged by the smtp server",
+    )
+});
 pub static CONN_DENIED: LazyLock<PruningCounterRegistry<ServiceKey>> = LazyLock::new(|| {
     PruningCounterRegistry::register(
         "total_connections_denied",
@@ -177,6 +183,11 @@ pub fn deliver_message_rollup_for_service(service: &str) -> Histogram {
     DELIVER_MESSAGE_LATENCY_ROLLUP
         .get_metric_with_label_values(&[service])
         .unwrap()
+}
+
+pub fn smtp_rejected_for_service(service: &str) -> AtomicCounter {
+    let service = BorrowedServiceKey { service };
+    SMTP_SERVER_REJECTIONS.get_or_create(&service as &dyn ServiceKeyTrait)
 }
 
 pub fn connection_denied_for_service(service: &str) -> AtomicCounter {

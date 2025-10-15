@@ -4,6 +4,7 @@ use crate::http_server::admin_trace_smtp_server_v1::{
 };
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::logging::rejection::{log_rejection, LogRejection};
+use crate::metrics_helper::smtp_rejected_for_service;
 use crate::queue::{DeliveryProto, IncrementAttempts, InsertReason, QueueConfig, QueueManager};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
@@ -1149,6 +1150,8 @@ impl SmtpServerSession {
                     recipient = state.recipients.last().map(|r| r.to_string());
                 }
 
+                smtp_rejected_for_service("total").inc();
+                smtp_rejected_for_service(&self.my_address.to_string()).inc();
                 log_rejection(LogRejection {
                     meta: self.meta.clone_inner(),
                     peer_address: ResolvedAddress {
@@ -2468,6 +2471,7 @@ impl SmtpServerSession {
             self.meta.clone_inner(),
             Arc::new(data.clone().into_boxed_slice()),
         )?;
+        drop(data);
 
         match timeout_at(
             deadline.into(),
@@ -2622,10 +2626,8 @@ impl SmtpServerSession {
                     )
                 };
 
-                // Use base_message.get_data() instead of original data to preserve
-                // any modifications made in smtp_server_data hook (e.g., Rspamd headers)
-                let base_data = base_message.get_data();
-                let mut body = Vec::with_capacity(base_data.len() + received.len());
+                let data = base_message.get_data();
+                let mut body = Vec::with_capacity(data.len() + received.len());
                 body.extend_from_slice(received.as_bytes());
                 body.extend_from_slice(&base_data);
                 Arc::new(body.into_boxed_slice())

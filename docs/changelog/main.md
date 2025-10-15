@@ -53,6 +53,10 @@
    [kumo.dns.reverse_ip](../reference/kumo.dns/reverse_ip.md),
    [kumo.dns.define_resolver](../reference/kumo.dns/define_resolver.md) and
    [kumo.dns.rbl_lookup](../reference/kumo.dns/rbl_lookup.md) functions. #269
+ * new `smtp_server_rejections` counter to track the number of `Rejection` log
+   records produced by the smtp listener. The service key is the listener
+   address and port, and there is a `total` key that represents the total across
+   all listeners.
 
 ## Fixes
 
@@ -70,3 +74,5 @@
    could by off-by-two in certain cases when applied to DATA, and could
    sometimes allow up to 1024 bytes for a single SMTP command outside of DATA,
    even though the limit was set smaller.
+ * Message builder API didn't quote every possible character that needed to be
+   quoted in the display name of a mailbox. #428
