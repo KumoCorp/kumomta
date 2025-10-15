@@ -2629,7 +2629,7 @@ impl SmtpServerSession {
                 let data = base_message.get_data();
                 let mut body = Vec::with_capacity(data.len() + received.len());
                 body.extend_from_slice(received.as_bytes());
-                body.extend_from_slice(&base_data);
+                body.extend_from_slice(&data);
                 Arc::new(body.into_boxed_slice())
             } else {
                 base_message.get_data()
