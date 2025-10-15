@@ -11,6 +11,16 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Zero-copy wrapper for Arc<Box<[u8]>> that implements AsRef<[u8]>
+/// This allows passing message data to rspamd-client without allocating or copying
+struct MessageDataWrapper(Arc<Box<[u8]>>);
+
+impl AsRef<[u8]> for MessageDataWrapper {
+    fn as_ref(&self) -> &[u8] {
+        &*self.0
+    }
+}
+
 /// Configuration for Rspamd client (Lua-friendly wrapper)
 #[derive(Deserialize, Debug, Clone)]
 struct RspamdClientConfig {
@@ -159,7 +169,7 @@ impl RspamdClient {
         message: String,
         envelope: EnvelopeDataLua,
     ) -> anyhow::Result<RspamdScanReply> {
-        let config = self.get_config().map_err(|e| anyhow::anyhow!("{}", e))?;
+        let config = self.get_config().map_err(|e| anyhow::anyhow!("{e}"))?;
         let envelope_data = envelope.into_envelope_data();
         let result = scan_async(config, message, envelope_data).await?;
         Ok(result)
@@ -252,10 +262,11 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             };
 
             // Build client config and scan
-            // scan_async accepts Into<Bytes>, so we convert Arc<Box<[u8]>> to Vec<u8>
-            // which then gets wrapped in Bytes. This minimizes intermediate allocations.
+            // Wrap the Arc<Box<[u8]>> in MessageDataWrapper to implement AsRef<[u8]>
+            // This enables true zero-copy operation (no allocation or copying of message data)
             let client_config = config.make_client_config().await.map_err(any_err)?;
-            let reply = scan_async(&client_config, (*msg.get_data()).to_vec(), envelope_data)
+            let data = MessageDataWrapper(msg.get_data());
+            let reply = scan_async(&client_config, data, envelope_data)
                 .await
                 .map_err(any_err)?;
 
@@ -301,30 +312,24 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 "add header" => {
                     // Just add headers (already done above) and deliver
                 }
-                "rewrite subject" => {
-                    // Rewrite subject if prefix_subject is enabled
-                    if config.prefix_subject {
-                        if let Ok(Some(subject)) = msg.get_first_named_header_value("Subject") {
-                            msg.remove_all_named_headers("Subject").map_err(any_err)?;
-                            msg.prepend_header(Some("Subject"), &format!("***SPAM*** {}", subject));
-                        }
+                "rewrite subject" if config.prefix_subject => {
+                    if let Ok(Some(subject)) = msg.get_first_named_header_value("Subject") {
+                        msg.remove_all_named_headers("Subject").map_err(any_err)?;
+                        msg.prepend_header(Some("Subject"), &format!("***SPAM*** {}", subject));
                     }
                 }
-                "reject" => {
-                    // Reject spam if reject_spam is enabled
+                "reject" if config.reject_spam => {
                     // Always use 550 (permanent failure) for spam
-                    if config.reject_spam {
-                        let globals = lua.globals();
-                        let kumo: mlua::Table = globals.get("kumo")?;
-                        let reject: mlua::Function = kumo.get("reject")?;
+                    let globals = lua.globals();
+                    let kumo: mlua::Table = globals.get("kumo")?;
+                    let reject: mlua::Function = kumo.get("reject")?;
 
-                        // Use Rspamd's smtp_message if provided, otherwise use default
-                        let message = reply.messages.get("smtp_message")
-                            .map(|s| s.as_str())
-                            .unwrap_or("5.7.1 Spam message rejected");
+                    // Use Rspamd's smtp_message if provided, otherwise use default
+                    let message = reply.messages.get("smtp_message")
+                        .map(|s| s.as_str())
+                        .unwrap_or("5.7.1 Spam message rejected");
 
-                        reject.call::<()>((550, message))?;
-                    }
+                    reject.call::<()>((550, message))?;
                 }
                 _ => {
                     // Unknown action - deliver with headers

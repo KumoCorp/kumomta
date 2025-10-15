@@ -11,7 +11,7 @@ duration-serde = {path="../duration-serde"}
 humantime.workspace=true
 message = {path="../message"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize", "macros"]}
-rspamd-client = {version = "0.4.1", features = ["async"]}
+rspamd-client = {version = "0.5.0", features = ["async"]}
 serde.workspace=true
 serde_json.workspace=true
 tokio.workspace=true
