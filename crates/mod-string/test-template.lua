@@ -43,3 +43,26 @@ utils.assert_eq(
   ),
   [[{{ name }}]]
 )
+
+-- Handlebars
+
+-- Has no json escaper
+utils.assert_eq(
+  kumo.string.eval_template(
+    'example.json',
+    [[{{ name }}]],
+    { name = 'John' },
+    'Handlebars'
+  ),
+  [[John]]
+)
+-- Does have html escaping
+utils.assert_eq(
+  kumo.string.eval_template(
+    'example.html',
+    [[{{ name }}]],
+    { name = 'John & Co' },
+    'Handlebars'
+  ),
+  [[John &amp; Co]]
+)

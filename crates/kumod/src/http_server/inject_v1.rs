@@ -168,6 +168,7 @@ pub enum TemplateDialectWithSchema {
     #[default]
     Jinja,
     Static,
+    Handlebars,
 }
 
 impl Into<TemplateDialect> for TemplateDialectWithSchema {
@@ -175,6 +176,7 @@ impl Into<TemplateDialect> for TemplateDialectWithSchema {
         match self {
             Self::Jinja => TemplateDialect::Jinja,
             Self::Static => TemplateDialect::Static,
+            Self::Handlebars => TemplateDialect::Handlebars,
         }
     }
 }
@@ -1392,6 +1394,82 @@ Some(
             r#"
 Some(
     "hello {{ name }}",
+)
+"#
+        );
+    }
+
+    #[tokio::test]
+    async fn test_builder_handlebars_dialect() {
+        let mut request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: Some("James Smythe".to_string()),
+                substitutions: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Builder {
+                text_body: Some("I am the plain text, {{ name }}. 😀".to_string()),
+                html_body: Some(
+                    "I am the <b>html</b> text, {{ name }}. 👾 <img src=\"cid:my-image\"/>"
+                        .to_string(),
+                ),
+                subject: Some("hello {{ name }}".to_string()),
+                from: Some(FromHeader {
+                    email: "from@example.com".to_string(),
+                    name: Some("Sender Name".to_string()),
+                }),
+                reply_to: None,
+                headers: Default::default(),
+                attachments: vec![],
+            },
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+            template_dialect: TemplateDialectWithSchema::Handlebars,
+        };
+
+        request.normalize().unwrap();
+        let compiled = request.compile().unwrap();
+        let generated = compiled
+            .expand_for_recip(
+                &request.recipients[0],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap();
+
+        println!("{generated}");
+        let parsed = MimePart::parse(generated.as_str()).unwrap();
+        println!("{parsed:?}");
+        let structure = parsed.simplified_structure().unwrap();
+        eprintln!("{structure:?}");
+
+        k9::snapshot!(
+            structure.html,
+            r#"
+Some(
+    "I am the <b>html</b> text, James Smythe. 👾 <img src="cid:my-image"/>\r
+",
+)
+"#
+        );
+        k9::snapshot!(
+            structure.text,
+            r#"
+Some(
+    "I am the plain text, James Smythe. 😀\r
+",
+)
+"#
+        );
+
+        k9::snapshot!(
+            structure.headers.subject().unwrap(),
+            r#"
+Some(
+    "hello James Smythe",
 )
 "#
         );

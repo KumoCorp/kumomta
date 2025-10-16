@@ -370,7 +370,7 @@ impl LogThreadState {
 
         if let Some(file) = self.file_map.get_mut(&file_key) {
             let mut record_text = Vec::new();
-            self.template_engine.add_global("log_record", &record);
+            self.template_engine.add_global("log_record", &record)?;
 
             if let Some(template) =
                 Self::resolve_template(&self.params, &self.template_engine, record.kind)

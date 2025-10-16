@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow.workspace = true
-handlebars.workspace = true
+handlebars = {workspace = true, features=["string_helpers"]}
 minijinja-contrib.workspace = true
 minijinja.workspace = true
 self_cell.workspace = true

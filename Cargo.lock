@@ -2487,6 +2487,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "759e2d5aea3287cb1190c8ec394f42866cb5bf74fcbf213f354e3c856ea26098"
 dependencies = [
  "derive_builder 0.20.2",
+ "heck",
  "log",
  "num-order",
  "pest",

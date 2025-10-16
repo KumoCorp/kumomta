@@ -1502,7 +1502,8 @@
         "type": "string",
         "enum": [
           "Jinja",
-          "Static"
+          "Static",
+          "Handlebars"
         ]
       },
       "TraceHeaders": {
