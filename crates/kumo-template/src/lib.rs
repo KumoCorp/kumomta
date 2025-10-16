@@ -1,9 +1,9 @@
 use minijinja::{Environment, Template as JinjaTemplate, Value as JinjaValue};
 use minijinja_contrib::add_to_environment;
 use self_cell::self_cell;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TemplateDialect {
     #[default]
     Jinja,
