@@ -194,8 +194,14 @@ impl Response {
     pub fn is_too_many_recipients(&self) -> bool {
         // RFC 5321 4.5.3.1.10: RFC 821 incorrectly ... "too many recipients" ..
         // as having reply code 552 ... the correct reply ... is 452.
-        // Clients should treat 552 ... as a temporary
-        self.code == 452 || self.code == 552
+        // Clients should treat 552 ... as a temporary (for RCPT TO)
+        self.code == 452
+            || (self.code == 552
+                && self
+                    .command
+                    .as_deref()
+                    .map(|c| c.starts_with("RCPT"))
+                    .unwrap_or(false))
     }
 
     pub fn with_code_and_message(code: u16, message: &str) -> Self {

@@ -76,3 +76,5 @@
    even though the limit was set smaller.
  * Message builder API didn't quote every possible character that needed to be
    quoted in the display name of a mailbox. #428
+ * Incorrectly treated a 552 as a transient failure for non-RCPT-TO 552
+   responses. #431
