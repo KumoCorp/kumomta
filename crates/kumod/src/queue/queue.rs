@@ -29,7 +29,7 @@ use kumo_api_types::xfer::XferProtocol;
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on};
-use kumo_template::{context, TemplateEngine};
+use kumo_template::TemplateEngine;
 use message::queue_name::QueueNameComponents;
 use message::Message;
 use parking_lot::FairMutex;
@@ -1532,20 +1532,20 @@ impl Queue {
                     let expanded_maildir_path = engine.render(
                         "maildir_path",
                         maildir_path,
-                        context! {
-                            meta => msg.get_meta_obj()?,
-                            queue => queue_name,
-                            campaign => components.campaign,
-                            tenant => components.tenant,
-                            domain => components.domain,
-                            routing_domain => components.routing_domain,
-                            local_part => recipient.user(),
-                            domain_part => recipient.domain(),
-                            email => recipient.to_string(),
-                            sender_local_part => sender.user(),
-                            sender_domain_part => sender.domain(),
-                            sender_email => sender.to_string(),
-                        },
+                        serde_json::json! ({
+                            "meta": msg.get_meta_obj()?,
+                            "queue": queue_name,
+                            "campaign": components.campaign,
+                            "tenant": components.tenant,
+                            "domain": components.domain,
+                            "routing_domain": components.routing_domain,
+                            "local_part": recipient.user(),
+                            "domain_part" : recipient.domain(),
+                            "email": recipient.to_string(),
+                            "sender_local_part": sender.user(),
+                            "sender_domain_part": sender.domain(),
+                            "sender_email": sender.to_string(),
+                        }),
                     )?;
 
                     tracing::trace!(

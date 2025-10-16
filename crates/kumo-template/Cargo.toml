@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow.workspace = true
+handlebars.workspace = true
 minijinja-contrib.workspace = true
 minijinja.workspace = true
 self_cell.workspace = true
 serde.workspace = true
+serde_json.workspace = true

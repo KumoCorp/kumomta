@@ -1,57 +1,106 @@
-use minijinja::Environment;
-pub use minijinja::{context, Error, Template, Value};
+use minijinja::{Environment, Template as JinjaTemplate, Value as JinjaValue};
 use minijinja_contrib::add_to_environment;
 use self_cell::self_cell;
+use serde::Serialize;
+
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum TemplateDialect {
+    #[default]
+    Jinja,
+}
+
+enum Engine {
+    Jinja { env: Environment<'static> },
+}
+
+pub enum Template<'env, 'source> {
+    Jinja(JinjaTemplate<'env, 'source>),
+}
+
+impl<'env, 'source> Template<'env, 'source> {
+    pub fn render<S: Serialize>(&self, ctx: S) -> anyhow::Result<String> {
+        match &self {
+            Self::Jinja(t) => Ok(t.render(ctx)?),
+        }
+    }
+
+    pub fn render_to_write<S: Serialize, W: std::io::Write>(
+        &self,
+        ctx: S,
+        w: W,
+    ) -> anyhow::Result<()> {
+        match &self {
+            Self::Jinja(t) => {
+                t.render_to_write(ctx, w)?;
+                Ok(())
+            }
+        }
+    }
+}
 
 /// Holds a set of templates
 pub struct TemplateEngine {
-    env: Environment<'static>,
-}
-
-impl Default for TemplateEngine {
-    fn default() -> Self {
-        Self::new()
-    }
+    engine: Engine,
 }
 
 impl TemplateEngine {
     pub fn new() -> Self {
-        let mut env = Environment::new();
-        env.set_unknown_method_callback(minijinja_contrib::pycompat::unknown_method_callback);
-        add_to_environment(&mut env);
-        Self { env }
+        Self::with_dialect(TemplateDialect::default())
+    }
+
+    pub fn with_dialect(dialect: TemplateDialect) -> Self {
+        match dialect {
+            TemplateDialect::Jinja => {
+                let mut env = Environment::new();
+                env.set_unknown_method_callback(
+                    minijinja_contrib::pycompat::unknown_method_callback,
+                );
+                add_to_environment(&mut env);
+                Self {
+                    engine: Engine::Jinja { env },
+                }
+            }
+        }
     }
 
     /// Add a named template with the specified source.
     /// If name ends with `.html` then automatical escaping of html entities
     /// will be performed on substitutions.
-    pub fn add_template<N, S>(&mut self, name: N, source: S) -> Result<(), Error>
+    pub fn add_template<N, S>(&mut self, name: N, source: S) -> anyhow::Result<()>
     where
         N: Into<String>,
         S: Into<String>,
     {
-        self.env.add_template_owned(name.into(), source.into())
+        match &mut self.engine {
+            Engine::Jinja { env } => Ok(env.add_template_owned(name.into(), source.into())?),
+        }
     }
 
     /// Get a reference to a named template
-    pub fn get_template(&self, name: &str) -> Result<Template<'_, '_>, Error> {
-        self.env.get_template(name)
+    pub fn get_template(&self, name: &str) -> anyhow::Result<Template<'_, '_>> {
+        match &self.engine {
+            Engine::Jinja { env } => Ok(Template::Jinja(env.get_template(name)?)),
+        }
     }
 
     /// Define a global value that can be reference by all templates
     pub fn add_global<N, V>(&mut self, name: N, value: V)
     where
         N: Into<String>,
-        V: Into<Value>,
+        V: Serialize,
     {
-        self.env.add_global(name.into(), value)
+        match &mut self.engine {
+            Engine::Jinja { env } => env.add_global(name.into(), JinjaValue::from_serialize(value)),
+        }
     }
 
-    pub fn render<CTX>(&self, name: &str, source: &str, context: CTX) -> Result<String, Error>
+    pub fn render<CTX>(&self, name: &str, source: &str, context: CTX) -> anyhow::Result<String>
     where
         CTX: serde::Serialize,
     {
-        self.env.render_named_str(name, source, context)
+        match &self.engine {
+            Engine::Jinja { env } => Ok(env.render_named_str(name, source, context)?),
+        }
     }
 }
 
