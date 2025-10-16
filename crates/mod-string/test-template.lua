@@ -28,8 +28,18 @@ utils.assert_eq(
   kumo.string.eval_template(
     'example.txt',
     [[{{ name }}]],
-    { name = 'John & Co' }
+    { name = 'John & Co' },
+    'Jinja'
   ),
-  [[John & Co]],
-  'Jinja'
+  [[John & Co]]
+)
+
+utils.assert_eq(
+  kumo.string.eval_template(
+    'example.txt',
+    [[{{ name }}]],
+    { name = 'John & Co' },
+    'Static'
+  ),
+  [[{{ name }}]]
 )

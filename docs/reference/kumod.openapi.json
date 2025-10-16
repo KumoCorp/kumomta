@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2025.10.08-4be75084"
+    "version": "2025.10.15-42b65b22"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -975,6 +975,15 @@
               "campaign_title": "Fall Campaign"
             }
           },
+          "template_dialect": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TemplateDialectWithSchema",
+                "description": "Specify the template dialect to be used"
+              }
+            ],
+            "default": "Jinja"
+          },
           "trace_headers": {
             "$ref": "#/components/schemas/HttpTraceHeaders",
             "description": "Controls which trace headers will be added to the message."
@@ -1488,6 +1497,13 @@
             "description": "The id of the suspension. This can be used later to cancel\nthe suspension."
           }
         }
+      },
+      "TemplateDialectWithSchema": {
+        "type": "string",
+        "enum": [
+          "Jinja",
+          "Static"
+        ]
       },
       "TraceHeaders": {
         "type": "object",
