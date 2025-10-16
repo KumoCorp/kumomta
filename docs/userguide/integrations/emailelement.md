@@ -1,7 +1,7 @@
 # EmailElement KumoMTA Integration
 
 ## Introduction
-EmailElement is an all-in-one email email marketing solution where you can build your marketing campaigns from the ground up across multiple brands and mail channels. One of the mail channels supported is KumoMTA. These instructions will show you how to set up your KumoMTA server with EmailElement.
+[EmailElement](https://emailelement.com) is an all-in-one email email marketing solution where you can build your marketing campaigns from the ground up across multiple brands and mail channels. One of the mail channels supported is KumoMTA. These instructions will show you how to set up your KumoMTA server with EmailElement.
 
 ## Instructions
 
