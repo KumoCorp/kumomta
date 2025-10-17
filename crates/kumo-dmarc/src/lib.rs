@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::types::record::Record;
-use crate::types::results::DmarcResultWithContext;
+pub use crate::types::results::{Disposition, DispositionWithContext};
 use dns_resolver::Resolver;
 use std::collections::BTreeMap;
 use std::net::IpAddr;
@@ -32,7 +32,7 @@ pub struct CheckHostParams {
 }
 
 impl CheckHostParams {
-    pub async fn check(self, resolver: &dyn Resolver) -> DmarcResultWithContext {
+    pub async fn check(self, resolver: &dyn Resolver) -> DispositionWithContext {
         let Self {
             from_domain,
             mail_from_domain,
@@ -50,6 +50,11 @@ impl CheckHostParams {
             Err(result) => result,
         }
     }
+}
+
+pub enum SenderLocation {
+    Domain,
+    Subdomain,
 }
 
 struct DmarcContext<'a> {
@@ -71,7 +76,7 @@ impl<'a> DmarcContext<'a> {
         mail_from_domain: Option<&'a str>,
         client_ip: IpAddr,
         dkim: &'a [BTreeMap<String, String>],
-    ) -> Result<Self, DmarcResultWithContext> {
+    ) -> Result<Self, DispositionWithContext> {
         Ok(Self {
             from_domain,
             mail_from_domain,
@@ -81,46 +86,74 @@ impl<'a> DmarcContext<'a> {
         })
     }
 
-    pub async fn check(&self, resolver: &dyn Resolver) -> DmarcResultWithContext {
-        let initial_txt = match resolver.resolve_txt(self.from_domain).await {
-            Ok(answer) => {
-                if answer.records.is_empty() || answer.nxdomain {
-                    return DmarcResultWithContext {
-                        result: DmarcResult::Fail,
+    pub async fn check(&self, resolver: &dyn Resolver) -> DispositionWithContext {
+        if let Some(records) =
+            fetch_dmarc_records(&format!("_dmarc.{}", self.from_domain), resolver).await
+        {
+            for record in records {
+                return record.evaluate(self, SenderLocation::Domain).await;
+            }
+        } else if let Some(organizational_domain) = psl::domain_str(self.from_domain) {
+            if organizational_domain != self.from_domain {
+                if let Some(records) =
+                    fetch_dmarc_records(&format!("_dmarc.{}", organizational_domain), resolver)
+                        .await
+                {
+                    for record in records {
+                        return record.evaluate(self, SenderLocation::Subdomain).await;
+                    }
+                } else {
+                    return DispositionWithContext {
+                        result: Disposition::None,
                         context: format!("no DMARC records found for {}", &self.from_domain),
                     };
-                } else {
-                    answer.as_txt()
                 }
-            }
-            Err(err) => {
-                return DmarcResultWithContext {
-                    result: DmarcResult::Fail,
-                    context: format!("{err}"),
+            } else {
+                return DispositionWithContext {
+                    result: Disposition::None,
+                    context: format!("no DMARC records found for {}", &self.from_domain),
                 };
             }
+        } else {
+            return DispositionWithContext {
+                result: Disposition::None,
+                context: format!("no DMARC records found for {}", &self.from_domain),
+            };
         };
 
-        // TXT records can contain all sorts of stuff, let's walk through
-        // the set that we retrieved and take the first one that parses
-        for txt in initial_txt {
-            if txt.starts_with("v=DMARC1") {
-                match Record::from_str(&txt) {
-                    Ok(record) => {
-                        return record.evaluate(self, resolver).await;
-                    }
-                    Err(err) => {
-                        return DmarcResultWithContext {
-                            result: DmarcResult::Fail,
-                            context: format!("failed to parse DMARC record: {err}"),
-                        };
-                    }
-                }
-            }
-        }
-        DmarcResultWithContext {
-            result: DmarcResult::Fail,
+        DispositionWithContext {
+            result: Disposition::None,
             context: format!("no DMARC records found for {}", &self.from_domain),
         }
     }
+}
+
+pub async fn fetch_dmarc_records(address: &str, resolver: &dyn Resolver) -> Option<Vec<Record>> {
+    let initial_txt = match resolver.resolve_txt(address).await {
+        Ok(answer) => {
+            if answer.records.is_empty() || answer.nxdomain {
+                return None;
+            } else {
+                eprintln!("answer: {:?}", answer);
+                answer.as_txt()
+            }
+        }
+        Err(_) => {
+            return None;
+        }
+    };
+
+    let mut records = vec![];
+
+    // TXT records can contain all sorts of stuff, let's walk through
+    // the set that we retrieved and take the first one that parses
+    for txt in initial_txt {
+        if txt.starts_with("v=DMARC1;") {
+            if let Ok(record) = Record::from_str(&txt) {
+                records.push(record);
+            }
+        }
+    }
+
+    Some(records)
 }
