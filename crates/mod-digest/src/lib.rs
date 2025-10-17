@@ -24,18 +24,18 @@ fn digest_recursive(value: &Value, ctx: &mut Context) -> anyhow::Result<()> {
 fn digest_helper(
     algorithm: &'static Algorithm,
     args: Variadic<Value>,
-) -> anyhow::Result<DigestResult> {
+) -> anyhow::Result<BinaryResult> {
     let mut ctx = Context::new(algorithm);
     for item in args.iter() {
         digest_recursive(item, &mut ctx)?;
     }
     let digest = ctx.finish();
-    Ok(DigestResult(digest.as_ref().to_vec()))
+    Ok(BinaryResult(digest.as_ref().to_vec()))
 }
 
-struct DigestResult(Vec<u8>);
+pub struct BinaryResult(pub Vec<u8>);
 
-impl LuaUserData for DigestResult {
+impl LuaUserData for BinaryResult {
     fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("hex", |_, this| Ok(HEXLOWER.encode(&this.0)));
 
@@ -114,7 +114,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 }
             }
             let crc = hasher.finalize();
-            Ok(DigestResult(crc.to_be_bytes().to_vec()))
+            Ok(BinaryResult(crc.to_be_bytes().to_vec()))
         })?,
     )?;
     Ok(())
