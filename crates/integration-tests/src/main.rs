@@ -1,5 +1,6 @@
 mod kumod;
 mod rabbit;
+mod rspamd;
 mod test;
 mod tsa;
 mod webhook;
