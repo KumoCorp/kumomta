@@ -352,11 +352,12 @@ TOC = [
                 "Integrations",
                 "userguide/integrations/index.md",
                 children=[
-                    Page("Postmastery", "userguide/integrations/postmastery.md"),
+                    Page("EmailElement","userguide/integrations/emailelement.md"),
                     Page(
                         "Ongage",
                         "userguide/integrations/ongage.md",
                     ),
+                    Page("Postmastery", "userguide/integrations/postmastery.md"),
                     Page(
                         "Prometheus",
                         "userguide/integrations/prometheus.md",
