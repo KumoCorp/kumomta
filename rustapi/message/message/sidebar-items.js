@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["CheckFixSettings","Message","MessageList","MessageListIter","WeakMessage"]};

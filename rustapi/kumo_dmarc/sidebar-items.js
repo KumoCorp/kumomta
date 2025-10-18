@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DmarcResult"],"struct":["CheckHostParams"]};

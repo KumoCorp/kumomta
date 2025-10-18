@@ -1,0 +1,1 @@
+searchState.loadedDescShard("kumo_dmarc", 0, "IP address of the SMTP client that is emitting the mail …\nThe results of the DKIM part of the checks\nReturns the argument unchanged.\nReturns the argument unchanged.\nDomain of the sender in the “From:”\nCalls <code>U::from(self)</code>.\nCalls <code>U::from(self)</code>.\nDomain that provides the sought-after authorization …")
