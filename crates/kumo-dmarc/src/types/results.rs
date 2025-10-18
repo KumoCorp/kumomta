@@ -79,11 +79,42 @@ impl fmt::Display for DmarcResult {
     }
 }
 
+// A coverage of both success and various failure modes
+#[derive(Debug, Eq, PartialEq, ToXml, Serialize, Clone, Copy)]
+#[xml(scalar)]
+pub enum Disposition {
+    Pass,
+    None,
+    Quarantine,
+    Reject,
+}
+
+impl ToString for Disposition {
+    fn to_string(&self) -> String {
+        match self {
+            Disposition::None => "None".to_string(),
+            Disposition::Pass => "Pass".to_string(),
+            Disposition::Quarantine => "Quarantine".to_string(),
+            Disposition::Reject => "Reject".to_string(),
+        }
+    }
+}
+
+impl Into<Disposition> for Policy {
+    fn into(self) -> Disposition {
+        match self {
+            Policy::None => Disposition::None,
+            Policy::Quarantine => Disposition::Quarantine,
+            Policy::Reject => Disposition::Reject,
+        }
+    }
+}
+
 // A synthetic type to bundle the result with a reason
 #[derive(Debug, Eq, PartialEq, ToXml, Serialize)]
 #[xml(rename_all = "lowercase")]
-pub struct DmarcResultWithContext {
-    pub result: DmarcResult,
+pub struct DispositionWithContext {
+    pub result: Disposition,
     pub context: String,
 }
 

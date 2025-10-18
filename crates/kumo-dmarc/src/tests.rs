@@ -1,5 +1,5 @@
-use crate::types::results::DmarcResultWithContext;
-use crate::{DmarcContext, DmarcResult};
+use crate::types::results::DispositionWithContext;
+use crate::{Disposition, DmarcContext};
 use dns_resolver::{Resolver, TestResolver};
 use std::collections::BTreeMap;
 use std::net::Ipv4Addr;
@@ -18,7 +18,7 @@ async fn dmarc_dkim_relaxed_subdomain() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "sample.example.com",
+            "_dmarc.sample.example.com",
             "v=DMARC1; p=reject; adkim=r; \
             rua=mailto:dmarc-feedback@example.com"
                 .to_string(),
@@ -33,7 +33,7 @@ async fn dmarc_dkim_relaxed_subdomain() {
     })
     .await;
 
-    k9::assert_equal!(result.result, DmarcResult::Pass);
+    k9::assert_equal!(result.result, Disposition::Pass);
 }
 
 #[tokio::test]
@@ -42,7 +42,7 @@ async fn dmarc_dkim_relaxed_subdomain_deep() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "a.b.c.sample.example.com",
+            "_dmarc.a.b.c.sample.example.com",
             "v=DMARC1; p=reject; adkim=r; \
             rua=mailto:dmarc-feedback@example.com"
                 .to_string(),
@@ -57,7 +57,7 @@ async fn dmarc_dkim_relaxed_subdomain_deep() {
     })
     .await;
 
-    k9::assert_equal!(result.result, DmarcResult::Pass);
+    k9::assert_equal!(result.result, Disposition::Pass);
 }
 
 #[tokio::test]
@@ -66,7 +66,7 @@ async fn dmarc_dkim_relaxed_subdomain_fail() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "sample.example.com",
+            "_dmarc.sample.example.com",
             "v=DMARC1; p=reject; adkim=r; \
             rua=mailto:dmarc-feedback@example.com"
                 .to_string(),
@@ -81,7 +81,31 @@ async fn dmarc_dkim_relaxed_subdomain_fail() {
     })
     .await;
 
-    k9::assert_equal!(result.result, DmarcResult::Fail);
+    k9::assert_equal!(result.result, Disposition::Reject);
+}
+
+#[tokio::test]
+async fn dmarc_dkim_relaxed_subdomain_sp_quarantine_fail() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "_dmarc.example.com",
+            "v=DMARC1; p=reject; sp=quarantine; adkim=r; \
+            rua=mailto:dmarc-feedback@example.com"
+                .to_string(),
+        );
+
+    let result = evaluate_ip(TestData {
+        client_ip: Ipv4Addr::LOCALHOST,
+        from_domain: "sample.example.com",
+        mail_from_domain: "sample.example.com",
+        dkim_domains: &[Some("example.org")],
+        resolver: &resolver,
+    })
+    .await;
+
+    k9::assert_equal!(result.result, Disposition::Quarantine);
 }
 
 #[tokio::test]
@@ -90,7 +114,31 @@ async fn dmarc_dkim_strict_subdomain() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "example.com",
+            "_dmarc.example.com",
+            "v=DMARC1; p=reject; adkim=s; \
+            rua=mailto:dmarc-feedback@example.com"
+                .to_string(),
+        );
+
+    let result = evaluate_ip(TestData {
+        client_ip: Ipv4Addr::LOCALHOST,
+        from_domain: "example.com",
+        mail_from_domain: "example.com",
+        dkim_domains: &[Some("example.com")],
+        resolver: &resolver,
+    })
+    .await;
+
+    k9::assert_equal!(result.result, Disposition::Pass);
+}
+
+#[tokio::test]
+async fn dmarc_dkim_strict_subdomain_fail() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "_dmarc.example.com",
             "v=DMARC1; p=reject; adkim=s; \
             rua=mailto:dmarc-feedback@example.com"
                 .to_string(),
@@ -105,7 +153,7 @@ async fn dmarc_dkim_strict_subdomain() {
     })
     .await;
 
-    k9::assert_equal!(result.result, DmarcResult::Fail);
+    k9::assert_equal!(result.result, Disposition::Reject);
 }
 
 #[tokio::test]
@@ -114,7 +162,7 @@ async fn dmarc_dkim_relaxed_illformed() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "example.com",
+            "_dmarc.example.com",
             "v=DMARC1; p=reject; adkim=r; \
             rua=mailto:dmarc-feedback@example.com"
                 .to_string(),
@@ -129,7 +177,7 @@ async fn dmarc_dkim_relaxed_illformed() {
     })
     .await;
 
-    k9::assert_equal!(result.result, DmarcResult::Fail);
+    k9::assert_equal!(result.result, Disposition::Reject);
     k9::assert_equal!(result.context.contains("d="), true);
 }
 
@@ -139,7 +187,7 @@ async fn dmarc_dkim_strict_illformed() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "example.com",
+            "_dmarc.example.com",
             "v=DMARC1; p=reject; adkim=s; \
             rua=mailto:dmarc-feedback@example.com"
                 .to_string(),
@@ -154,7 +202,7 @@ async fn dmarc_dkim_strict_illformed() {
     })
     .await;
 
-    k9::assert_equal!(result.result, DmarcResult::Fail);
+    k9::assert_equal!(result.result, Disposition::Reject);
     k9::assert_equal!(result.context.contains("d="), true);
 }
 
@@ -164,7 +212,7 @@ async fn dmarc_spf_relaxed_subdomain() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "example.com",
+            "_dmarc.example.com",
             "v=DMARC1; p=reject; aspf=r; \
             rua=mailto:dmarc-feedback@example.com"
                 .to_string(),
@@ -179,7 +227,7 @@ async fn dmarc_spf_relaxed_subdomain() {
     })
     .await;
 
-    k9::assert_equal!(result.result, DmarcResult::Pass);
+    k9::assert_equal!(result.result, Disposition::Pass);
 }
 
 #[tokio::test]
@@ -188,7 +236,7 @@ async fn dmarc_spf_relaxed_subdomain_deep() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "example.com",
+            "_dmarc.example.com",
             "v=DMARC1; p=reject; aspf=r; \
             rua=mailto:dmarc-feedback@example.com"
                 .to_string(),
@@ -203,7 +251,7 @@ async fn dmarc_spf_relaxed_subdomain_deep() {
     })
     .await;
 
-    k9::assert_equal!(result.result, DmarcResult::Pass);
+    k9::assert_equal!(result.result, Disposition::Pass);
 }
 
 #[tokio::test]
@@ -212,7 +260,7 @@ async fn dmarc_spf_relaxed_subdomain_fail() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "example.com",
+            "_dmarc.example.com",
             "v=DMARC1; p=reject; aspf=r; \
             rua=mailto:dmarc-feedback@example.com"
                 .to_string(),
@@ -227,7 +275,7 @@ async fn dmarc_spf_relaxed_subdomain_fail() {
     })
     .await;
 
-    k9::assert_equal!(result.result, DmarcResult::Fail);
+    k9::assert_equal!(result.result, Disposition::Reject);
 }
 
 #[tokio::test]
@@ -236,7 +284,7 @@ async fn dmarc_spf_strict_subdomain() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "example.com",
+            "_dmarc.example.com",
             "v=DMARC1; p=reject; aspf=s; \
             rua=mailto:dmarc-feedback@example.com"
                 .to_string(),
@@ -251,7 +299,7 @@ async fn dmarc_spf_strict_subdomain() {
     })
     .await;
 
-    k9::assert_equal!(result.result, DmarcResult::Fail);
+    k9::assert_equal!(result.result, Disposition::Reject);
 }
 
 #[tokio::test]
@@ -264,7 +312,7 @@ async fn dmarc_pct_rate() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "example.com",
+            "_dmarc.example.com",
             format!(
                 "v=DMARC1; p=reject; aspf=s; pct={pct}; \
                 rua=mailto:dmarc-feedback@example.com"
@@ -281,7 +329,7 @@ async fn dmarc_pct_rate() {
         })
         .await;
 
-        if matches!(result.result, DmarcResult::Fail) {
+        if matches!(result.result, Disposition::Reject) {
             total_failures += 1;
         }
     }
@@ -302,7 +350,7 @@ async fn evaluate_ip<'a>(
         dkim_domains,
         resolver,
     }: TestData<'a>,
-) -> DmarcResultWithContext {
+) -> DispositionWithContext {
     let mut dkim_vec = vec![];
 
     for dkim_domain in dkim_domains {
@@ -336,7 +384,8 @@ $ORIGIN example.com.
             A   192.0.2.11
 amy         A   192.0.2.65
 bob         A   192.0.2.66
-sample      A   192.0.2.67
+_dmarc      A   192.0.2.67
+sample      A   192.0.2.68
 mail-a      A   192.0.2.129
 mail-b      A   192.0.2.130
 www         CNAME example.com."#;

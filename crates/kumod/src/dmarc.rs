@@ -1,6 +1,6 @@
 use crate::smtp_server::ConnectionMetaData;
 use config::{get_or_create_sub_module, serialize_options};
-use kumo_dmarc::{CheckHostParams, DmarcResult};
+use kumo_dmarc::{CheckHostParams, Disposition};
 use mailparsing::AuthenticationResult;
 use message::Message;
 use mlua::{Lua, LuaSerdeExt, UserDataRef};
@@ -11,7 +11,7 @@ use std::str::FromStr;
 
 #[derive(Debug, Serialize)]
 struct CheckHostOutput {
-    disposition: DmarcResult,
+    disposition: Disposition,
     result: AuthenticationResult,
 }
 
@@ -44,9 +44,10 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                     if let Ok(from_domain) = from.domain() {
                         from_domain.to_string()
                     } else {
+                        // Handling a missing RFC5322.From domain is outside of dmarc
                         return Ok(lua.to_value_with(
                             &CheckHostOutput {
-                                disposition: DmarcResult::Fail,
+                                disposition: Disposition::None,
                                 result: AuthenticationResult {
                                     method: "dmarc".to_string(),
                                     method_version: None,
@@ -59,9 +60,10 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                         ))
                     }
                 } else {
+                    // The current implementation expects only a single RFC5322.From domain
                     return Ok(lua.to_value_with(
                         &CheckHostOutput {
-                            disposition: DmarcResult::Fail,
+                            disposition: Disposition::None,
                             result: AuthenticationResult {
                                 method: "dmarc".to_string(),
                                 method_version: None,
