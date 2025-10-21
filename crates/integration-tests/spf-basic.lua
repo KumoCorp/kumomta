@@ -70,11 +70,7 @@ end)
 
 kumo.on('smtp_server_message_received', function(msg, conn_meta)
   msg:set_meta('queue', 'maildir')
-  local result = kumo.spf.check_host(
-    msg:sender().domain,
-    conn_meta,
-    tostring(msg:sender())
-  )
+  local result = kumo.spf.check_msg(msg)
   local results = {
     result.result,
   }

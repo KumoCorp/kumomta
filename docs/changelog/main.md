@@ -57,6 +57,9 @@
    records produced by the smtp listener. The service key is the listener
    address and port, and there is a `total` key that represents the total across
    all listeners.
+ * new [kumo.spf.check_msg](../reference/kumo.spf/check_msg.md) convenience
+   function for checking SPF and producing Authentication-Results once the
+   data has been received.
 
 ## Fixes
 
@@ -78,3 +81,4 @@
    quoted in the display name of a mailbox. #428
  * Incorrectly treated a 552 as a transient failure for non-RCPT-TO 552
    responses. #431
+ * spf: we now populate `smtp.mailfrom` in the Authentication-Results props map.
