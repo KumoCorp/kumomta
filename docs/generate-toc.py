@@ -352,7 +352,7 @@ TOC = [
                 "Integrations",
                 "userguide/integrations/index.md",
                 children=[
-                    Page("EmailElement","userguide/integrations/emailelement.md"),
+                    Page("EmailElement", "userguide/integrations/emailelement.md"),
                     Page(
                         "Ongage",
                         "userguide/integrations/ongage.md",
