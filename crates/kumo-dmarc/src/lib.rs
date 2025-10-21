@@ -52,9 +52,13 @@ impl CheckHostParams {
     }
 }
 
-pub enum SenderLocation {
-    Domain,
-    Subdomain,
+pub(crate) enum SenderDomainAlignment {
+    /// Sender domain is an exact match to the dmarc record
+    Exact,
+
+    /// Sender domain has no exact matching dmarc record
+    /// but its organizational domain does
+    OrganizationalDomain,
 }
 
 struct DmarcContext<'a> {
@@ -91,7 +95,7 @@ impl<'a> DmarcContext<'a> {
             fetch_dmarc_records(&format!("_dmarc.{}", self.from_domain), resolver).await
         {
             for record in records {
-                return record.evaluate(self, SenderLocation::Domain).await;
+                return record.evaluate(self, SenderDomainAlignment::Exact).await;
             }
         } else if let Some(organizational_domain) = psl::domain_str(self.from_domain) {
             if organizational_domain != self.from_domain {
@@ -100,7 +104,9 @@ impl<'a> DmarcContext<'a> {
                         .await
                 {
                     for record in records {
-                        return record.evaluate(self, SenderLocation::Subdomain).await;
+                        return record
+                            .evaluate(self, SenderDomainAlignment::OrganizationalDomain)
+                            .await;
                     }
                 } else {
                     return DispositionWithContext {
@@ -153,6 +159,10 @@ pub async fn fetch_dmarc_records(address: &str, resolver: &dyn Resolver) -> Opti
                 records.push(record);
             }
         }
+    }
+
+    if records.is_empty() {
+        return None;
     }
 
     Some(records)

@@ -4,7 +4,7 @@ use crate::types::mode::Mode;
 use crate::types::policy::Policy;
 use crate::types::report_failure::ReportFailure;
 use crate::types::results::{Disposition, DispositionWithContext};
-use crate::{DmarcContext, SenderLocation};
+use crate::{DmarcContext, SenderDomainAlignment};
 use std::str::FromStr;
 
 #[derive(Debug)]
@@ -25,7 +25,7 @@ impl Record {
     pub(crate) async fn evaluate(
         &self,
         cx: &DmarcContext<'_>,
-        sender_location: SenderLocation,
+        sender_location: SenderDomainAlignment,
     ) -> DispositionWithContext {
         if rand::random::<u8>() % 100 >= self.rate {
             return DispositionWithContext {
@@ -105,16 +105,16 @@ impl Record {
         }
     }
 
-    fn select_failure_mode(&self, sender_location: SenderLocation) -> Disposition {
+    fn select_failure_mode(&self, sender_location: SenderDomainAlignment) -> Disposition {
         match sender_location {
-            SenderLocation::Subdomain => {
+            SenderDomainAlignment::OrganizationalDomain => {
                 if let Some(policy) = self.subdomain_policy {
                     policy.into()
                 } else {
                     self.policy.into()
                 }
             }
-            SenderLocation::Domain => self.policy.into(),
+            SenderDomainAlignment::Exact => self.policy.into(),
         }
     }
 }
