@@ -13,7 +13,8 @@ use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 pub enum KeySource {
     File(String),
     Data {
-        key_data: String,
+        #[serde(with = "serde_bytes")]
+        key_data: Vec<u8>,
     },
     Vault {
         vault_address: Option<String>,
@@ -34,7 +35,7 @@ impl KeySource {
     pub async fn get(&self) -> anyhow::Result<Vec<u8>> {
         match self {
             Self::File(path) => Ok(tokio::fs::read(path).await?),
-            Self::Data { key_data } => Ok(key_data.as_bytes().to_vec()),
+            Self::Data { key_data } => Ok(key_data.to_vec()),
             Self::Vault {
                 vault_address,
                 vault_token,

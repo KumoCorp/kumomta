@@ -32,6 +32,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         mod_regex::register,
         mod_serde::register,
         mod_sqlite::register,
+        mod_crypto::register,
         mod_string::register,
         mod_time::register,
         mod_dns_resolver::register,

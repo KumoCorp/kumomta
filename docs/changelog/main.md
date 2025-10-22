@@ -60,6 +60,8 @@
  * new [kumo.spf.check_msg](../reference/kumo.spf/check_msg.md) convenience
    function for checking SPF and producing Authentication-Results once the
    data has been received.
+ * new [kumo.crypto](../reference/kumo.crypto/index.md) module. Thanks to
+   @dariomaiocchi! #395
 
 ## Fixes
 
@@ -82,3 +84,6 @@
  * Incorrectly treated a 552 as a transient failure for non-RCPT-TO 552
    responses. #431
  * spf: we now populate `smtp.mailfrom` in the Authentication-Results props map.
+ * [keysource](../reference/keysource.md) now supports inline binary bytes
+   being passed via `key_data`.  Previously, only UTF-8 strings could be
+   passed that way.

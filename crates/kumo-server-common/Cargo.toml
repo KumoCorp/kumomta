@@ -35,6 +35,7 @@ mod-amqp = {path="../mod-amqp"}
 mod-digest = {path="../mod-digest"}
 mod-dns-resolver = {path="../mod-dns-resolver"}
 mod-encode = {path="../mod-encode"}
+mod-crypto = {path="../mod-crypto"}
 mod-filesystem = {path="../mod-filesystem"}
 mod-file-type = {path="../mod-file-type"}
 mod-http = {path="../mod-http"}
