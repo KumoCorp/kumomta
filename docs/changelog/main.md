@@ -62,6 +62,8 @@
    data has been received.
  * new [kumo.crypto](../reference/kumo.crypto/index.md) module. Thanks to
    @dariomaiocchi! #395
+ * new [Time](../reference/kumo.time/Time.md) and
+   [TimeDelta](../reference/kumo.time/TimeDelta.md) objects.
 
 ## Fixes
 
