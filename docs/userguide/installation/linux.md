@@ -1,6 +1,6 @@
 # Installing on Linux
 
-Pre-built releases are available for CentOS 7, Rocky Linux 8/9, and Ubuntu 20.04/22.04.
+Pre-built releases are available for Rocky Linux 8/9, Ubuntu 20.04/22.04, and Amazon Linux 2/2023.
 
 A repository is provided to ease installation on supported platforms.
 
