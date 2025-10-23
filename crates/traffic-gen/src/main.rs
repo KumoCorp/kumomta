@@ -84,6 +84,14 @@ struct Opt {
     #[arg(long, value_parser=ValueParser::new(parse_throttle))]
     throttle: Option<ThrottleSpec>,
 
+    /// Add one or more custom headers to generated messages.
+    ///
+    /// You can repeat the flag to specify multiple headers, for example:
+    /// --header "X-Custom-Header: 1234" --header "X-Tenant: MyTenant"
+    /// --header X-Custom-Header:1234 --header X-Tenant:"My Tenant"
+    #[arg(long = "header", value_parser = ValueParser::new(parse_header))]
+    headers: Vec<(String, String)>,
+
     /// When generating the body, use at least this
     /// many bytes of nonsense words
     #[arg(long, default_value = "1024")]
@@ -116,6 +124,28 @@ struct Opt {
 
     #[arg(skip)]
     domain_weights: Option<Arc<WeightedIndex<f32>>>,
+}
+
+fn parse_header(s: &str) -> Result<(String, String), String> {
+    let (k, v) = s
+        .split_once(':')
+        .ok_or_else(|| format!("invalid header (missing ':'): {s}"))?;
+
+    let key = k.trim();
+    if key.is_empty() {
+        return Err("invalid header: empty name".into());
+    }
+
+    let value = {
+        let v = v.trim();
+        if v.contains(['\r', '\n']) {
+            v.replace(['\r', '\n'], " ")
+        } else {
+            v.to_string()
+        }
+    };
+
+    Ok((key.to_string(), value))
 }
 
 fn parse_throttle(arg: &str) -> Result<ThrottleSpec, String> {
@@ -366,15 +396,20 @@ impl Opt {
 
         let body = self.body_size_content.get().unwrap();
 
-        format!(
+        let mut message = format!(
             "From: <{sender}>\r\n\
              To: <{recip}>\r\n\
              Subject: test {datestamp}\r\n\
              Message-Id: {id}\r\n\
-             X-Mailer: KumoMta traffic-gen\r\n\
-             \r\n\
-             {body}"
-        )
+                          X-Mailer: KumoMta traffic-gen\r\n"
+        );
+        for (name, value) in self.headers.iter() {
+            message.push_str(&format!("{name}: {value}\r\n"));
+        }
+
+        message.push_str("\r\n");
+        message.push_str(body);
+        message
     }
 
     fn generate_message(&self) -> (ReversePath, ForwardPath, String) {
