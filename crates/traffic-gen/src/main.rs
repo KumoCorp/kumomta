@@ -401,7 +401,7 @@ impl Opt {
              To: <{recip}>\r\n\
              Subject: test {datestamp}\r\n\
              Message-Id: {id}\r\n\
-                          X-Mailer: KumoMta traffic-gen\r\n"
+             X-Mailer: KumoMta traffic-gen\r\n"
         );
         for (name, value) in self.headers.iter() {
             message.push_str(&format!("{name}: {value}\r\n"));
