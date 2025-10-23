@@ -5,7 +5,9 @@ edition = "2021"
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
 config = {path="../config"}
+humantime.workspace = true
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 prometheus.workspace = true
 tokio.workspace = true
