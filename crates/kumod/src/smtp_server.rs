@@ -395,6 +395,9 @@ pub struct ConcreteEsmtpListenerParams {
 
     invalid_line_endings: ConformanceDisposition,
     line_length_hard_limit: usize,
+
+    pub proxy_mode: ProxyMode,
+    pub trusted_proxy_hosts: CidrSet,
 }
 
 impl ConcreteEsmtpListenerParams {
@@ -511,6 +514,12 @@ impl ConcreteEsmtpListenerParams {
                 self.apply_generic(*via_params.clone(), my_address, peer_address, meta);
             }
         }
+        if let Some(proxy_mode) = base.proxy_mode {
+            self.proxy_mode = proxy_mode;
+        }
+        if let Some(trusted_proxy_hosts) = base.trusted_proxy_hosts {
+            self.trusted_proxy_hosts = trusted_proxy_hosts
+        }
     }
 }
 
@@ -553,6 +562,17 @@ impl Default for ConcreteEsmtpListenerParams {
             allow_xclient: false,
         }
     }
+}
+
+#[derive(Deserialize, Serialize, Copy, Clone, Debug, Default, PartialEq)]
+pub enum BatchHandling {
+    /// Every incoming recipient is given a separate message batch,
+    /// so they each have a batch of 1
+    #[default]
+    BifurcateAlways,
+    /// Extract the domains of the recipients and batch the recipients
+    /// by domain
+    BatchByDomain,
 }
 
 #[derive(Deserialize, Serialize, Copy, Clone, Debug, Default, PartialEq)]
@@ -671,6 +691,7 @@ impl EsmtpListenerParams {
 
         let mut shutting_down = ShutdownSubcription::get();
         let connection_limiter = Arc::new(tokio::sync::Semaphore::new(self.max_connections));
+        let proxy_mode = self.base.proxy_mode.unwrap_or(ProxyMode::None);
         spawn(format!("esmtp_listener {addr:?}"), async move {
             let denied = connection_denied_counter();
             loop {
@@ -724,13 +745,37 @@ impl EsmtpListenerParams {
                         socket.set_nodelay(true)?;
                         let my_address = socket.local_addr()?;
                         let params = self.clone();
+                        let proxy_mode = proxy_mode;
                         SMTPSRV.spawn(
-                            format!("SmtpServerSession {peer_address:?}"),
+                            format!("SmtpServerSession {orig_peer_address:?}"),
                             async move {
+                                let (peer_address, client_address) = if proxy_mode.is_proxy_protocol_v2() {
+                                    match tokio::time::timeout(
+                                        Duration::from_secs(2),
+                                        extract_proxy_protocol_peer_address(&mut socket, orig_peer_address)
+                                    ).await {
+                                        Ok(Ok(addr)) => (orig_peer_address, addr),
+                                        Ok(Err(_)) | Err(_) => {
+                                            tracing::warn!("Proxy protocol v2 header invalid or timeout");
+                                            let response = format!("421 4.7.1 {hostname} {} proxy protocol required\r\n", orig_peer_address);
+                                            let _ = tokio::time::timeout(
+                                                Duration::from_secs(2),
+                                                async {
+                                                    let _ = socket.write_all(response.as_bytes()).await;
+                                                    let _ = socket.flush().await;
+                                                    let _ = socket.shutdown().await;
+                                                }
+                                            ).await;
+                                            return;
+                                        }
+                                    }
+                                } else {
+                                    (orig_peer_address, orig_peer_address)
+                                };
                                 if let Err(err) =
-                                    Box::pin(SmtpServerSession::run(socket, my_address, peer_address, params)).await
-                                    {
-                                        tracing::error!("SmtpServerSession::run: {err:#}");
+                                    Box::pin(SmtpServerSession::run(socket, my_address, peer_address, client_address, params)).await
+                                {
+                                    tracing::error!("SmtpServerSession::run: {err:#}");
                                 }
                                 drop(permit);
                             }
@@ -921,6 +966,7 @@ impl SmtpServerSession {
         socket: T,
         my_address: SocketAddr,
         peer_address: SocketAddr,
+        client_address: SocketAddr,
         params: EsmtpListenerParams,
     ) -> anyhow::Result<()>
     where
@@ -930,7 +976,7 @@ impl SmtpServerSession {
         let mut meta = ConnectionMetaData::new();
         meta.set_meta("reception_protocol", "ESMTP");
         meta.set_meta("received_via", my_address.to_string());
-        meta.set_meta("received_from", peer_address.to_string());
+        meta.set_meta("client_address", client_address.to_string());
 
         let mut concrete_params = ConcreteEsmtpListenerParams::default();
         meta.set_meta("hostname", concrete_params.hostname.to_string());
@@ -963,6 +1009,7 @@ impl SmtpServerSession {
             domains: HashMap::new(),
             config_params: params,
         };
+
 
         connection_gauge().inc();
 
@@ -997,8 +1044,8 @@ impl SmtpServerSession {
         Ok(())
     }
 
-    fn peer_in_cidr_list(&self, cidr: &CidrSet) -> bool {
-        cidr.contains(self.peer_address.ip())
+    fn client_in_cidr_list(&self, cidr: &CidrSet) -> bool {
+        cidr.contains(self.client_address.unwrap().ip())
     }
 
     async fn lookup_listener_domain(
@@ -1077,13 +1124,13 @@ impl SmtpServerSession {
         sender: &EnvelopeAddress,
         recipient: &EnvelopeAddress,
     ) -> anyhow::Result<RelayDisposition> {
-        let relay_hosts_allowed = self.peer_in_cidr_list(&self.params.relay_hosts);
+        let relay_hosts_allowed = self.client_in_cidr_list(&self.params.relay_hosts);
 
         let sender_domain = sender.domain();
         let mut relay_from_allowed = false;
 
         if let Some(dom) = self.lookup_listener_domain(&sender_domain).await? {
-            relay_from_allowed = self.peer_in_cidr_list(&dom.relay_from);
+            relay_from_allowed = self.client_in_cidr_list(&dom.relay_from);
         }
 
         let recipient_domain = recipient.domain();
