@@ -150,7 +150,9 @@ impl LogThreadState {
     pub async fn logger_thread(&mut self) {
         tracing::debug!("LogFileParams: {:#?}", self.params);
 
-        self.mark_existing_logs_as_done();
+        if !config::is_validating() {
+            self.mark_existing_logs_as_done();
+        }
         let mut expire_counter = 0u16;
 
         let mut memory_status = subscribe_to_memory_status_changes_async().await;
