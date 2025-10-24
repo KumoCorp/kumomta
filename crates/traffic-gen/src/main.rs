@@ -133,7 +133,10 @@ fn parse_header(arg: &str) -> Result<MailHeader<'static>, String> {
     if consumed < arg.len() {
         let remaining = &arg[consumed..];
         if !remaining.trim().is_empty() {
-            return Err(format!("Unexpected trailing data after header: {:?}", remaining));
+            return Err(format!(
+                "Unexpected trailing data after header: {:?}",
+                remaining
+            ));
         }
     }
     Ok(header.to_owned())
