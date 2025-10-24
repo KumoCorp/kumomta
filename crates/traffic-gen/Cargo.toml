@@ -13,6 +13,7 @@ hdrhistogram = {workspace=true}
 humansize = {workspace=true}
 humanize-rs = {workspace=true}
 lipsum = {workspace=true}
+mailparsing = {path="../mailparsing"}
 nix = {workspace=true, features=["resource"]}
 num-format = {workspace=true}
 rand = {workspace=true}
