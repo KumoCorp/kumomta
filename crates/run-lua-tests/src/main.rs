@@ -122,11 +122,28 @@ end)
     }
 
     async fn run_crate_test(test_file: &str) -> anyhow::Result<TestResult> {
-        let mut script_file = NamedTempFile::new().context("failed to make temp file")?;
+        let content = tokio::fs::read_to_string(test_file).await?;
+        if content.contains("kumo.on('main'") {
+            // The script is self-contained and can be run directly
+            Self::run_test_script(test_file, test_file).await
+        } else {
+            if content.contains("kumo.on(") {
+                // Hmm, ideally the sanity check that is in kumo.on itself would
+                // suffice for this, but it special cases the `main` callback handler,
+                // which we use below, to exclude it from its overall check.
+                // That exclusion is required for some of the config validation
+                // handling logic to work appropriately, so let's not touch that
+                // other code just now and do a sanity check here that is suitable
+                // for our test harness.
+                anyhow::bail!(
+                    "{test_file} attempts to use kumo.on but needs to define kumo.on('kumo.main') for that to work"
+                );
+            }
+            let mut script_file = NamedTempFile::new().context("failed to make temp file")?;
 
-        write!(
-            script_file,
-            r#"
+            write!(
+                script_file,
+                r#"
 local kumo = require 'kumo'
 package.path = 'assets/?.lua;' .. package.path
 
@@ -134,16 +151,17 @@ kumo.on('main', function()
   dofile "{test_file}"
 end)
 "#
-        )?;
+            )?;
 
-        Self::run_test_script(
-            script_file
-                .path()
-                .to_str()
-                .context("temp file is not utf8")?,
-            test_file,
-        )
-        .await
+            Self::run_test_script(
+                script_file
+                    .path()
+                    .to_str()
+                    .context("temp file is not utf8")?,
+                test_file,
+            )
+            .await
+        }
     }
 
     async fn run_test_script(script: &str, test_file: &str) -> anyhow::Result<TestResult> {

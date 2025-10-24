@@ -89,3 +89,6 @@
  * [keysource](../reference/keysource.md) now supports inline binary bytes
    being passed via `key_data`.  Previously, only UTF-8 strings could be
    passed that way.
+ * [keysource](../reference/keysource.md) now supports callback/event based
+   data loading, which is similar to inline `key_data`, but allows for more
+   efficient cache keys that use less RAM.
