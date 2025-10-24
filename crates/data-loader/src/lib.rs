@@ -38,7 +38,9 @@ fn default_vault_key() -> String {
 impl KeySource {
     pub async fn get(&self) -> anyhow::Result<Vec<u8>> {
         match self {
-            Self::File(path) => Ok(tokio::fs::read(path).await?),
+            Self::File(path) => Ok(tokio::fs::read(path)
+                .await
+                .with_context(|| format!("KeySource failed to load data from file `{}`", path))?),
             Self::Data { key_data } => Ok(key_data.to_vec()),
             Self::Vault {
                 vault_address,
