@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Disposition","DmarcResult"],"fn":["fetch_dmarc_records"],"struct":["CheckHostParams","DispositionWithContext"]};
