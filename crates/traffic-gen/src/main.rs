@@ -6,6 +6,7 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
 use hdrhistogram::sync::Recorder;
 use hdrhistogram::Histogram;
+use mailparsing::Header as MailHeader;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use num_format::{Locale, ToFormattedString};
 use rand::distributions::WeightedIndex;
@@ -89,8 +90,8 @@ struct Opt {
     /// You can repeat the flag to specify multiple headers, for example:
     /// --header "X-Custom-Header: 1234" --header "X-Tenant: MyTenant"
     /// --header X-Custom-Header:1234 --header X-Tenant:"My Tenant"
-    #[arg(long = "header", value_parser = ValueParser::new(parse_header))]
-    headers: Vec<(String, String)>,
+    #[arg(long = "header", value_parser=ValueParser::new(parse_header))]
+    headers: Vec<MailHeader<'static>>,
 
     /// When generating the body, use at least this
     /// many bytes of nonsense words
@@ -126,26 +127,16 @@ struct Opt {
     domain_weights: Option<Arc<WeightedIndex<f32>>>,
 }
 
-fn parse_header(s: &str) -> Result<(String, String), String> {
-    let (k, v) = s
-        .split_once(':')
-        .ok_or_else(|| format!("invalid header (missing ':'): {s}"))?;
-
-    let key = k.trim();
-    if key.is_empty() {
-        return Err("invalid header: empty name".into());
-    }
-
-    let value = {
-        let v = v.trim();
-        if v.contains(['\r', '\n']) {
-            v.replace(['\r', '\n'], " ")
-        } else {
-            v.to_string()
+fn parse_header(arg: &str) -> Result<MailHeader<'static>, String> {
+    let (header, consumed) = MailHeader::parse(arg).map_err(|err| err.to_string())?;
+    // Checks that there is no invalid residual data
+    if consumed < arg.len() {
+        let remaining = &arg[consumed..];
+        if !remaining.trim().is_empty() {
+            return Err(format!("Unexpected trailing data after header: {:?}", remaining));
         }
-    };
-
-    Ok((key.to_string(), value))
+    }
+    Ok(header.to_owned())
 }
 
 fn parse_throttle(arg: &str) -> Result<ThrottleSpec, String> {
@@ -403,8 +394,8 @@ impl Opt {
              Message-Id: {id}\r\n\
              X-Mailer: KumoMta traffic-gen\r\n"
         );
-        for (name, value) in self.headers.iter() {
-            message.push_str(&format!("{name}: {value}\r\n"));
+        for header in self.headers.iter() {
+            message.push_str(&header.to_header_string());
         }
 
         message.push_str("\r\n");
