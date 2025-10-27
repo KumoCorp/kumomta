@@ -49,8 +49,9 @@ sources:setup { '/opt/kumomta/etc/policy/sources.toml' }
 -- Configure DKIM signing. In this case we use the dkim_sign.lua policy helper.
 -- WARNING: THIS WILL NOT LOAD WITHOUT the dkim_data.toml FILE IN PLACE
 -- See https://docs.kumomta.com/userguide/configuration/dkim/
-local dkim_signer =
-  dkim_sign:setup { '/opt/kumomta/etc/policy/dkim_data.toml' }
+local dkim_signer = dkim_sign:setup {
+  files = { '/opt/kumomta/etc/policy/dkim_data.toml' },
+}
 
 -- Load Traffic Shaping Automation Helper
 local shaper = shaping:setup_with_automation {

@@ -50,7 +50,9 @@ A more straightforward implementation can be performed by using the DKIM signing
 
 ```lua
 local dkim_sign = require 'policy-extras.dkim_sign'
-local dkim_signer = dkim_sign:setup { '/opt/kumomta/etc/dkim_data.toml' }
+local dkim_signer = dkim_sign:setup {
+  files = { '/opt/kumomta/etc/policy/dkim_data.toml' },
+}
 
 kumo.on('smtp_server_message_received', function(msg)
   -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES

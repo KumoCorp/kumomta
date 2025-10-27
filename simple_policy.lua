@@ -71,7 +71,7 @@ local queue_helper = queue_module:setup {
 
 local dkim_sign = require 'policy-extras.dkim_sign'
 local dkim_signer = dkim_sign:setup {
-  {
+  files = {
     base = {
       selector = 'woot',
       headers = { 'From', 'To', 'Subject' },

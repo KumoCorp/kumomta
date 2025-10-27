@@ -45,6 +45,7 @@ local DkimSignConfig = Record('DkimSignConfig', {
       header_canonicalization = Option(String),
       body_canonicalization = Option(String),
       over_sign = Option(Bool),
+      key_data = Option(String),
     })
   )),
 
@@ -61,6 +62,7 @@ local DkimSignConfig = Record('DkimSignConfig', {
       header_canonicalization = Option(String),
       body_canonicalization = Option(String),
       over_sign = Option(Bool),
+      key_data = Option(String),
     })
   )),
 })
@@ -69,7 +71,9 @@ local DkimSignConfig = Record('DkimSignConfig', {
 Usage example:
 
 local dkim_sign = require 'policy-extras.dkim_sign'
-local dkim_signer = dkim_sign:setup({'/opt/kumomta/etc/dkim_data.toml'})
+local dkim_signer = dkim_sign:setup {
+  files = { '/opt/kumomta/etc/policy/dkim_data.toml' },
+}
 
 kumo.on('smtp_server_message_received', function(msg)
   dkim_signer(msg)
@@ -180,6 +184,37 @@ local function load_dkim_data(dkim_data_files, no_compile)
           )
         )
       end
+
+      local signature = data.signature[signame]
+      local domain_name = signature.domain
+
+      local selector = signature.selector or data.base.selector
+      if not selector then
+        error(
+          ("dkim domain '%s' missing selector and no base.selector"):format(
+            domain_name
+          )
+        )
+      end
+
+      local path = signature.filename
+        or ('%s/%s/%s.key'):format(DKIM_PATH, domain_name, selector)
+      local f, err = io.open(path, 'rb')
+      if not f then
+        error(
+          ('dkim key read failed: domain=%s selector=%s file=%s err=%s'):format(
+            domain_name,
+            selector,
+            tostring(path),
+            tostring(err)
+          )
+        )
+      end
+      local pem = f:read '*a'
+      f:close()
+      signature.key_data = pem
+
+      data.signature[signame] = signature
     end
   end
 
@@ -192,6 +227,34 @@ local function load_dkim_data(dkim_data_files, no_compile)
         )
       )
     end
+
+    local selector = domain.selector or data.base.selector
+    if not selector then
+      error(
+        ("dkim domain '%s' missing selector and no base.selector"):format(
+          domain_name
+        )
+      )
+    end
+
+    local path = domain.filename
+      or ('%s/%s/%s.key'):format(DKIM_PATH, domain_name, selector)
+    local f, err = io.open(path, 'rb')
+    if not f then
+      error(
+        ('dkim key read failed: domain=%s selector=%s file=%s err=%s'):format(
+          domain_name,
+          selector,
+          tostring(path),
+          tostring(err)
+        )
+      )
+    end
+    local pem = f:read '*a'
+    f:close()
+    domain.key_data = pem
+
+    data.domain[domain_name] = domain
   end
 
   -- Compile the domain map for pattern matching
@@ -200,22 +263,6 @@ local function load_dkim_data(dkim_data_files, no_compile)
   end
 
   return data
-end
-
-local function make_signer(params, algo)
-  algo = algo or 'sha256'
-
-  if algo == 'sha256' then
-    return kumo.dkim.rsa_sha256_signer(params)
-  end
-
-  if algo == 'ed25519' then
-    return kumo.dkim.ed25519_signer(params)
-  end
-
-  error(
-    string.format("invalid algo '%s' for domain '%s'", algo, params.domain)
-  )
 end
 
 local function do_dkim_sign(msg, data)
@@ -227,6 +274,10 @@ local function do_dkim_sign(msg, data)
     )
   end
   local sender_domain = from_header.domain
+  local dkim_option = msg:get_first_named_header_value 'x-dkim-options'
+  if dkim_option then
+    sender_domain = string.match(dkim_option, 'd=(.*)') or from_header.domain
+  end
 
   local signed_domain = false
   local domain_config = data.domain[sender_domain]
@@ -271,13 +322,9 @@ local function do_dkim_sign(msg, data)
         ),
       }
     else
-      params.key = domain_config.filename
-        or string.format(
-          '%s/%s/%s.key',
-          DKIM_PATH,
-          params.domain,
-          params.selector
-        )
+      params.key = {
+        key_data = domain_config.key_data,
+      }
     end
 
     local signer = make_signer(params, domain_config.algo)
@@ -323,13 +370,9 @@ local function do_dkim_sign(msg, data)
             ),
           }
         else
-          params.key = sig_config.filename
-            or string.format(
-              '%s/%s/%s.key',
-              DKIM_PATH,
-              params.domain,
-              params.selector
-            )
+          params.key = {
+            key_data = sig_config.key_data,
+          }
         end
 
         local signer = make_signer(params, sig_config.algo)
@@ -339,25 +382,41 @@ local function do_dkim_sign(msg, data)
   end
 end
 
-function mod:setup(dkim_data_files)
+local function make_signer(params, algo)
+  algo = algo or 'sha256'
+
+  if algo == 'sha256' then
+    return kumo.dkim.rsa_sha256_signer(params)
+  end
+
+  if algo == 'ed25519' then
+    return kumo.dkim.ed25519_signer(params)
+  end
+
+  error(
+    string.format("invalid algo '%s' for domain '%s'", algo, params.domain)
+  )
+end
+
+function mod:setup(options)
   if mod.CONFIGURED then
     error 'dkim_sign module has already been configured'
   end
 
   local cached_load_data = kumo.memoize(load_dkim_data, {
     name = 'dkim_signing_data',
-    ttl = '5 minutes',
-    capacity = 10,
-    invalidate_with_epoch = true,
+    ttl = options.ttl or '5 minutes',
+    capacity = options.capacity or 10,
+    invalidate_with_epoch = options.invalidate_with_epoch or true,
   })
 
   local sign_message = function(msg)
-    local data = cached_load_data(dkim_data_files)
+    local data = cached_load_data(options.files)
     do_dkim_sign(msg, data)
   end
 
   mod.CONFIGURED = {
-    data_files = dkim_data_files,
+    data_files = options.files,
   }
 
   return sign_message
