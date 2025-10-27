@@ -259,7 +259,7 @@ local function load_dkim_data(dkim_data_files, no_compile)
 
   -- Compile the domain map for pattern matching
   if not no_compile then
-    data.domain = kumo.domain_map.new(data.domain)
+    -- data.domain = kumo.domain_map.new(data.domain)
   end
 
   return data
