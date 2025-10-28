@@ -50,7 +50,7 @@ sources:setup { '/opt/kumomta/etc/policy/sources.toml' }
 -- WARNING: THIS WILL NOT LOAD WITHOUT the dkim_data.toml FILE IN PLACE
 -- See https://docs.kumomta.com/userguide/configuration/dkim/
 local dkim_signer = dkim_sign:setup {
-  files = { '/opt/kumomta/etc/policy/dkim_data.toml' },
+  '/opt/kumomta/etc/policy/dkim_data.toml',
 }
 
 -- Load Traffic Shaping Automation Helper

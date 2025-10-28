@@ -71,26 +71,24 @@ local queue_helper = queue_module:setup {
 
 local dkim_sign = require 'policy-extras.dkim_sign'
 local dkim_signer = dkim_sign:setup {
-  files = {
-    base = {
-      selector = 'woot',
-      headers = { 'From', 'To', 'Subject' },
-      additional_signatures = { 'MyEsp' },
+  base = {
+    selector = 'woot',
+    headers = { 'From', 'To', 'Subject' },
+    additional_signatures = { 'MyEsp' },
+  },
+  domain = {
+    ['example.com'] = {
+      policy = 'Always',
+      filename = 'example-private-dkim-key.pem',
+      -- algo = 'sha256',
+      -- policy = "SignOnlyIfInDNS",
     },
-    domain = {
-      ['example.com'] = {
-        policy = 'Always',
-        filename = 'example-private-dkim-key.pem',
-        -- algo = 'sha256',
-        -- policy = "SignOnlyIfInDNS",
-      },
-    },
-    signature = {
-      MyEsp = {
-        domain = 'example.com',
-        policy = 'OnlyIfMissingDomainBlock',
-        filename = 'example-private-dkim-key.pem',
-      },
+  },
+  signature = {
+    MyEsp = {
+      domain = 'example.com',
+      policy = 'OnlyIfMissingDomainBlock',
+      filename = 'example-private-dkim-key.pem',
     },
   },
 }

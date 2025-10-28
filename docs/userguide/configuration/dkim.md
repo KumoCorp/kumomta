@@ -157,7 +157,7 @@ To use the policy helper, add the following to your default policy:
 ```lua
 local dkim_sign = require 'policy-extras.dkim_sign'
 local dkim_signer = dkim_sign:setup {
-  files = { '/opt/kumomta/etc/policy/dkim_data.toml' },
+  '/opt/kumomta/etc/policy/dkim_data.toml',
 }
 
 kumo.on('smtp_server_message_received', function(msg)

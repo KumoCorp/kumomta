@@ -265,6 +265,22 @@ local function load_dkim_data(dkim_data_files, no_compile)
   return data
 end
 
+local function make_signer(params, algo)
+  algo = algo or 'sha256'
+
+  if algo == 'sha256' then
+    return kumo.dkim.rsa_sha256_signer(params)
+  end
+
+  if algo == 'ed25519' then
+    return kumo.dkim.ed25519_signer(params)
+  end
+
+  error(
+    string.format("invalid algo '%s' for domain '%s'", algo, params.domain)
+  )
+end
+
 local function do_dkim_sign(msg, data)
   local from_header = msg:from_header()
   if not from_header then
@@ -382,25 +398,18 @@ local function do_dkim_sign(msg, data)
   end
 end
 
-local function make_signer(params, algo)
-  algo = algo or 'sha256'
-
-  if algo == 'sha256' then
-    return kumo.dkim.rsa_sha256_signer(params)
-  end
-
-  if algo == 'ed25519' then
-    return kumo.dkim.ed25519_signer(params)
-  end
-
-  error(
-    string.format("invalid algo '%s' for domain '%s'", algo, params.domain)
-  )
-end
-
-function mod:setup(options)
+function mod:setup(files, options)
   if mod.CONFIGURED then
     error 'dkim_sign module has already been configured'
+  end
+
+  if not options then
+    options = {
+      name = 'dkim_signing_data',
+      ttl = '5 minutes',
+      capacity = 10,
+      invalidate_with_epoch = true,
+    }
   end
 
   local cached_load_data = kumo.memoize(load_dkim_data, {
@@ -411,12 +420,12 @@ function mod:setup(options)
   })
 
   local sign_message = function(msg)
-    local data = cached_load_data(options.files)
+    local data = cached_load_data(files)
     do_dkim_sign(msg, data)
   end
 
   mod.CONFIGURED = {
-    data_files = options.files,
+    data_files = files,
   }
 
   return sign_message
