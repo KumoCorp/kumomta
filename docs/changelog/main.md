@@ -74,6 +74,8 @@
  * new [headermap:append](../reference/headermap/append.md) method for
    appending a header. This supplements the already available `:prepend`
    method.
+ * new [kumo.string.wrap](../reference/string/wrap.md) function that
+   enables manual wrapping of strings for use in, for example, header values.
 
 ## Fixes
 

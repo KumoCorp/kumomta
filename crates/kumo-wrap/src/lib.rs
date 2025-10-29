@@ -9,7 +9,7 @@ pub fn wrap(value: &str) -> String {
 /// algorithm that tries to fill up to the desired width, allowing
 /// for overflow if there is a word that is too long to fit in
 /// the header, but breaking after a hard limit threshold.
-fn wrap_impl(value: &str, soft_width: usize, hard_width: usize) -> String {
+pub fn wrap_impl(value: &str, soft_width: usize, hard_width: usize) -> String {
     let mut result = String::new();
     let mut line = String::new();
 

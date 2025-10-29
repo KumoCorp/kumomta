@@ -109,5 +109,18 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         )?,
     )?;
 
+    string_mod.set(
+        "wrap",
+        lua.create_function(
+            move |_, (text, soft, hard): (String, Option<usize>, Option<usize>)| {
+                let soft = soft.unwrap_or(75);
+                let hard = hard.unwrap_or(900);
+                Ok(kumo_wrap::wrap_impl(&text, soft, hard)
+                    .trim_end()
+                    .to_string())
+            },
+        )?,
+    )?;
+
     Ok(())
 }
