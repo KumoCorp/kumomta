@@ -64,6 +64,9 @@
    @dariomaiocchi! #395
  * new [Time](../reference/kumo.time/Time.md) and
    [TimeDelta](../reference/kumo.time/TimeDelta.md) objects.
+ * new
+   [smtp_server_rewrite_response](../reference/events/smtp_server_rewrite_response.md)
+   event.
 
 ## Fixes
 
@@ -89,3 +92,6 @@
  * [keysource](../reference/keysource.md) now supports inline binary bytes
    being passed via `key_data`.  Previously, only UTF-8 strings could be
    passed that way.
+ * [keysource](../reference/keysource.md) now supports callback/event based
+   data loading, which is similar to inline `key_data`, but allows for more
+   efficient cache keys that use less RAM.

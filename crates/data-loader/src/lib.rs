@@ -24,6 +24,10 @@ pub enum KeySource {
         #[serde(default = "default_vault_key")]
         vault_key: String,
     },
+    Event {
+        event_name: String,
+        event_args: Vec<serde_json::Value>,
+    },
 }
 
 fn default_vault_key() -> String {
@@ -34,7 +38,9 @@ fn default_vault_key() -> String {
 impl KeySource {
     pub async fn get(&self) -> anyhow::Result<Vec<u8>> {
         match self {
-            Self::File(path) => Ok(tokio::fs::read(path).await?),
+            Self::File(path) => Ok(tokio::fs::read(path)
+                .await
+                .with_context(|| format!("KeySource failed to load data from file `{}`", path))?),
             Self::Data { key_data } => Ok(key_data.to_vec()),
             Self::Vault {
                 vault_address,
@@ -83,6 +89,20 @@ impl KeySource {
                     })?;
 
                 Ok(value.as_bytes().to_vec())
+            }
+            Self::Event {
+                event_name,
+                event_args,
+            } => {
+                let mut config = config::load_config().await?;
+                let sig = config::CallbackSignature::<mlua::MultiValue, mlua::String>::new(
+                    event_name.clone(),
+                );
+
+                let args = config.convert_args_to_multi(event_args)?;
+                let result = config.async_call_callback_non_default(&sig, args).await?;
+
+                Ok(result.as_bytes().to_vec())
             }
         }
     }

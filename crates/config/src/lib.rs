@@ -195,6 +195,20 @@ impl LuaConfig {
             .set("_KUMO_CURRENT_EVENT", name.to_string())
     }
 
+    /// Convert an array of args into a MultiValue that can be passed
+    /// to a callback signature
+    pub fn convert_args_to_multi<A: Serialize>(
+        &self,
+        args: &[A],
+    ) -> anyhow::Result<mlua::MultiValue> {
+        let lua = self.inner.as_ref().unwrap();
+        let mut arg_vec = vec![];
+        for a in args.iter() {
+            arg_vec.push(lua.lua.to_value(a)?);
+        }
+        Ok(mlua::MultiValue::from_vec(arg_vec))
+    }
+
     /// Intended to be used together with kumo.spawn_task
     pub async fn convert_args_and_call_callback<A: Serialize>(
         &mut self,

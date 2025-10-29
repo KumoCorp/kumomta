@@ -8129,6 +8129,7 @@ dependencies = [
  "humanize-rs",
  "humansize",
  "lipsum",
+ "mailparsing",
  "nix 0.30.1",
  "num-format",
  "rand 0.8.5",

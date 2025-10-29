@@ -6,6 +6,7 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
 use hdrhistogram::sync::Recorder;
 use hdrhistogram::Histogram;
+use mailparsing::Header as MailHeader;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use num_format::{Locale, ToFormattedString};
 use rand::distributions::WeightedIndex;
@@ -84,6 +85,14 @@ struct Opt {
     #[arg(long, value_parser=ValueParser::new(parse_throttle))]
     throttle: Option<ThrottleSpec>,
 
+    /// Add one or more custom headers to generated messages.
+    ///
+    /// You can repeat the flag to specify multiple headers, for example:
+    /// --header "X-Custom-Header: 1234" --header "X-Tenant: MyTenant"
+    /// --header X-Custom-Header:1234 --header X-Tenant:"My Tenant"
+    #[arg(long = "header", value_parser=ValueParser::new(parse_header))]
+    headers: Vec<MailHeader<'static>>,
+
     /// When generating the body, use at least this
     /// many bytes of nonsense words
     #[arg(long, default_value = "1024")]
@@ -116,6 +125,21 @@ struct Opt {
 
     #[arg(skip)]
     domain_weights: Option<Arc<WeightedIndex<f32>>>,
+}
+
+fn parse_header(arg: &str) -> Result<MailHeader<'static>, String> {
+    let (header, consumed) = MailHeader::parse(arg).map_err(|err| err.to_string())?;
+    // Checks that there is no invalid residual data
+    if consumed < arg.len() {
+        let remaining = &arg[consumed..];
+        if !remaining.trim().is_empty() {
+            return Err(format!(
+                "Unexpected trailing data after header: {:?}",
+                remaining
+            ));
+        }
+    }
+    Ok(header.to_owned())
 }
 
 fn parse_throttle(arg: &str) -> Result<ThrottleSpec, String> {
@@ -366,15 +390,20 @@ impl Opt {
 
         let body = self.body_size_content.get().unwrap();
 
-        format!(
+        let mut message = format!(
             "From: <{sender}>\r\n\
              To: <{recip}>\r\n\
              Subject: test {datestamp}\r\n\
              Message-Id: {id}\r\n\
-             X-Mailer: KumoMta traffic-gen\r\n\
-             \r\n\
-             {body}"
-        )
+             X-Mailer: KumoMta traffic-gen\r\n"
+        );
+        for header in self.headers.iter() {
+            message.push_str(&header.to_header_string());
+        }
+
+        message.push_str("\r\n");
+        message.push_str(body);
+        message
     }
 
     fn generate_message(&self) -> (ReversePath, ForwardPath, String) {

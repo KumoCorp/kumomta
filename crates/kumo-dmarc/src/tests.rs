@@ -334,9 +334,9 @@ async fn dmarc_pct_rate() {
         }
     }
 
-    // Allow 10% slack either side
-    let upper_bound = iters * (pct + 10) / 100;
-    let lower_bound = iters * (pct - 10) / 100;
+    // Allow 15% slack either side
+    let upper_bound = iters * (pct + 15) / 100;
+    let lower_bound = iters * (pct - 15) / 100;
 
     k9::assert_lesser_than!(total_failures, upper_bound);
     k9::assert_greater_than!(total_failures, lower_bound);

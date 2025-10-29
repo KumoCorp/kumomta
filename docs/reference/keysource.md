@@ -24,6 +24,9 @@ local file_signer = kumo.dkim.rsa_sha256_signer {
 
 ### Caller Provided Data
 
+!!! note
+    Please also take a look at the callback/event based example further below
+
 When the value is a table with the field `key_data`,
 the value of the `key_data` field will be used as the key
 data when needed:
@@ -113,3 +116,45 @@ And store it in vault like this:
 ```console
 $ vault kv put -mount=secret dkim/example.org private_key=@example-private-dkim-key.pem
 ```
+
+### Callback/Event based Data Source
+
+{{since('dev')}}
+
+You may define an event handling function to perform parameterized data
+fetching.  This is in some ways similar to using the `key_data` form described
+above, but has the advantage of allowing deferred rather than eager access to
+the data.
+
+For example, you could enhance the sqlite dkim example above to use this form;
+the advantage is that the cache keys become smaller and more efficient, and the
+key source object is then a bit more declarative:
+
+```lua
+-- Define the event handling callback. The name must match up to the
+-- event_name field used in the keysource object below
+kumo.on('fetch-my-domain-key', function(domain, selector)
+  local db = sqlite:open '/opt/kumomta/etc/dkim/keys.db'
+  local result = db:execute(
+    'select data from keys where domain=? and selector=?',
+    domain,
+    selector
+  )
+  -- The callback must return a string which, depending on
+  -- the code that is consuming the keysource, may be binary.
+  -- DKIM keys are PEM encoded ASCII.
+  return result[1]
+end)
+
+local sqlite_signer = kumo.dkim.rsa_sha256_signer {
+  key = {
+    -- name of the event handling callback you
+    -- have registered via kumo.on.
+    event_name = 'fetch-my-domain-key',
+    -- The list of parameters that will be passed to
+    -- the event handling callback
+    event_args = { msg:from_header().domain, 'default' },
+  },
+}
+```
+

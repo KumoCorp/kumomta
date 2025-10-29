@@ -1566,11 +1566,16 @@ impl Queue {
                                 md.set_file_mode(file_mode);
                                 md.create_dirs().with_context(|| {
                                     format!(
-                                    "creating dirs for maildir {expanded_maildir_path} in queue {}",
-                                    name
-                                )
+                                        "failed to create maildir \
+                                        {expanded_maildir_path} for queue {name}"
+                                    )
                                 })?;
-                                Ok(md.store_new(&msg.get_data())?)
+                                Ok(md.store_new(&msg.get_data()).with_context(|| {
+                                    format!(
+                                        "failed to store message to maildir \
+                                        {expanded_maildir_path} for queue {name}"
+                                    )
+                                })?)
                             }
                         },
                         &get_main_runtime(),
