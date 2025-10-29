@@ -104,3 +104,5 @@
  * [keysource](../reference/keysource.md) now supports callback/event based
    data loading, which is similar to inline `key_data`, but allows for more
    efficient cache keys that use less RAM.
+ * dkim verification would incorrectly treat `i=@fexample.net` as a valid
+   subdomain of `d=example.net`.

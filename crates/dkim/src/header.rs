@@ -1,4 +1,5 @@
 use crate::{parser, DKIMError, HeaderList};
+use dns_resolver::Name;
 use indexmap::map::IndexMap;
 use std::str::FromStr;
 use textwrap::core::Word;
@@ -192,8 +193,15 @@ impl DKIMHeader {
         // of the "i=" tag
         if let Some(user) = header.get_tag("i") {
             let signing_domain = header.get_required_tag("d");
-            // TODO: naive check, should switch to parsing the domains/email
-            if !user.ends_with(&signing_domain) {
+            let Some((_local, domain)) = user.split_once('@') else {
+                return Err(DKIMError::DomainMismatch);
+            };
+
+            let i_domain = Name::from_str_relaxed(domain).map_err(|_| DKIMError::DomainMismatch)?;
+            let d_domain =
+                Name::from_str_relaxed(signing_domain).map_err(|_| DKIMError::DomainMismatch)?;
+
+            if !d_domain.zone_of(&i_domain) {
                 return Err(DKIMError::DomainMismatch);
             }
         }

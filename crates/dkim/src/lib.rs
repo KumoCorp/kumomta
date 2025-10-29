@@ -406,6 +406,13 @@ b=dzdVyOfAKCdLXdJOc9G2q8LoXSlEniSbav+yuU4zGeeruD00lszZ
             DKIMHeader::parse(header).unwrap_err(),
             DKIMError::DomainMismatch
         );
+
+        let header = r#"v=1; a=rsa-sha256; d=example.net; s=brisbane.net; i=foo@fexample.net; h=headers; bh=hash; b=hash
+        "#;
+        assert_eq!(
+            DKIMHeader::parse(header).unwrap_err(),
+            DKIMError::DomainMismatch
+        );
     }
 
     #[test]
