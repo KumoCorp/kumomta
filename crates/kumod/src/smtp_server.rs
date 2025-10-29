@@ -3249,8 +3249,8 @@ enum ReadData {
     Data(Vec<u8>),
     TooLong,
     TooBig,
-    TimedOut,
     ShuttingDown,
+    TimedOut,
     Disconnected,
 }
 
