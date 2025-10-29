@@ -349,6 +349,44 @@ impl ARCMessageSignatureHeader {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ARCSealHeader {
+    tagged: TaggedHeader,
+}
+
+impl std::ops::Deref for ARCSealHeader {
+    type Target = TaggedHeader;
+    fn deref(&self) -> &TaggedHeader {
+        &self.tagged
+    }
+}
+impl std::ops::DerefMut for ARCSealHeader {
+    fn deref_mut(&mut self) -> &mut TaggedHeader {
+        &mut self.tagged
+    }
+}
+
+impl ARCSealHeader {
+    pub fn parse(value: &str) -> Result<Self, DKIMError> {
+        let tagged = TaggedHeader::parse(value)?;
+        let header = Self { tagged };
+
+        header.validate_required_tags()?;
+
+        Ok(header)
+    }
+
+    fn validate_required_tags(&self) -> Result<(), DKIMError> {
+        const REQUIRED_TAGS: &[&str] = &["a", "b", "d", "s"];
+        for required in REQUIRED_TAGS {
+            if self.get_tag(required).is_none() {
+                return Err(DKIMError::SignatureMissingRequiredTag(required));
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,5 +446,17 @@ v=2;\r
     R1xuhMKD+bSlx130Rz2/5jFsVgLS7CfbTKK5CtqS3hl6EaLw/REBZeCYCHltzRWF
     wt38/NIzJ3ykCswwds2YQ==";
         let header = ARCMessageSignatureHeader::parse(sig).unwrap();
+    }
+
+    #[test]
+    fn test_parse_as() {
+        let seal = "i=1; a=rsa-sha256; cv=none; d=messagingengine.com; s=fm3; t=
+    1761717439; b=Q1E9HuR4H0paxIiz15H8P3tGfzDp0XmYKhvyzGsPEBHr2xg610
+    ZV1nU6gLWmUl693usMKVxWGrIXbSZb13ICRK0gp1MfVJSQ/4IGM0VD9P5d9Vv7aL
+    Q/lx/a8Ar1ks1yEHeBRuZ6Q5GdYur8rgYr7UoOTJGwOOPTJ4C2TWGoHHIRoVECJv
+    mMa6jpcJ6SE6iK/76elugk65BheumbQ1YEnbjitchUsLAwSXMuO+mhLYGtmvBhOn
+    v3ewYQvD2jZzl2W+O73A08dQ/oeODDPqt6Fpv3XK572cTYPHhzmSbsxh9Lp7Z9MV
+    x2TACmO51Adnp3C1CcEw8K9ajAgyjNMW4ELA==";
+        let header = ARCSealHeader::parse(seal).unwrap();
     }
 }
