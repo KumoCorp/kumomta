@@ -36,7 +36,7 @@ members = [
   "crates/mod-mpsc",
   "crates/run-lua-tests",
   "crates/mod-mimepart",
-  "crates/mod-file-type",
+  "crates/mod-file-type", "crates/kumo-wrap",
 ]
 resolver = "2"
 

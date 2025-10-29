@@ -146,6 +146,18 @@ async fn xclient_switch_via_addr() -> anyhow::Result<()> {
         "still advertising xclient"
     );
 
+    tracer
+        .wait_for(
+            |events| {
+                events.iter().any(|event| {
+                    matches!(&event.payload, Callback{name,..}
+                        if name == "smtp_server_get_dynamic_parameters")
+                })
+            },
+            Duration::from_secs(10),
+        )
+        .await;
+
     let trace_events = tracer.stop().await?;
     eprintln!("{trace_events:#?}");
 

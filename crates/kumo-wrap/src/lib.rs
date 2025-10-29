@@ -1,6 +1,6 @@
 pub fn wrap(value: &str) -> String {
     const SOFT_WIDTH: usize = 75;
-    const HARD_WIDTH: usize = 1000;
+    const HARD_WIDTH: usize = 900;
     wrap_impl(value, SOFT_WIDTH, HARD_WIDTH)
 }
 
@@ -9,7 +9,7 @@ pub fn wrap(value: &str) -> String {
 /// algorithm that tries to fill up to the desired width, allowing
 /// for overflow if there is a word that is too long to fit in
 /// the header, but breaking after a hard limit threshold.
-fn wrap_impl(value: &str, soft_width: usize, hard_width: usize) -> String {
+pub fn wrap_impl(value: &str, soft_width: usize, hard_width: usize) -> String {
     let mut result = String::new();
     let mut line = String::new();
 

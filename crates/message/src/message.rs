@@ -1477,15 +1477,27 @@ impl UserData for Message {
 
         methods.add_method(
             "prepend_header",
-            move |_, this, (name, value): (String, String)| {
-                this.prepend_header(Some(&name), &value);
+            move |_, this, (name, value, encode): (String, String, Option<bool>)| {
+                let encode = encode.unwrap_or(false);
+                if encode {
+                    let header = Header::new_unstructured(name.clone(), value);
+                    this.prepend_header(Some(&name), header.get_raw_value());
+                } else {
+                    this.prepend_header(Some(&name), &value);
+                }
                 Ok(())
             },
         );
         methods.add_method(
             "append_header",
-            move |_, this, (name, value): (String, String)| {
-                this.append_header(Some(&name), &value);
+            move |_, this, (name, value, encode): (String, String, Option<bool>)| {
+                let encode = encode.unwrap_or(false);
+                if encode {
+                    let header = Header::new_unstructured(name.clone(), value);
+                    this.append_header(Some(&name), header.get_raw_value());
+                } else {
+                    this.append_header(Some(&name), &value);
+                }
                 Ok(())
             },
         );

@@ -7,5 +7,6 @@ edition = "2021"
 anyhow = {workspace=true}
 config = {path="../config"}
 kumo-template = {path="../kumo-template"}
+kumo-wrap = {path="../kumo-wrap"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 psl = {workspace=true}

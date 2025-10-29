@@ -122,7 +122,7 @@ impl<'a> Header<'a> {
         let value = value.into();
 
         let value = if value.is_ascii() {
-            crate::textwrap::wrap(&value)
+            kumo_wrap::wrap(&value)
         } else {
             crate::rfc5322_parser::qp_encode(&value)
         }
