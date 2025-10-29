@@ -26,6 +26,7 @@ mod rebind_event_defined;
 mod rebind_event_missing;
 mod rebind_port;
 mod retry_schedule;
+mod rewrite_server_response;
 mod source_selection_rate;
 mod source_selection_rate_pool;
 mod spf_basic;

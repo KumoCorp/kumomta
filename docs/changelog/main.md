@@ -64,6 +64,9 @@
    @dariomaiocchi! #395
  * new [Time](../reference/kumo.time/Time.md) and
    [TimeDelta](../reference/kumo.time/TimeDelta.md) objects.
+ * new
+   [smtp_server_rewrite_response](../reference/events/smtp_server_rewrite_response.md)
+   event.
 
 ## Fixes
 
