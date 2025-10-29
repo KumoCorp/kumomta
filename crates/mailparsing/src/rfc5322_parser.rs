@@ -957,18 +957,41 @@ fn unstructured(input: Span) -> IResult<Span, String> {
     Ok((loc, result))
 }
 
+fn arc_authentication_results(input: Span) -> IResult<Span, ARCAuthenticationResults> {
+    context(
+        "arc_authentication_results",
+        map(
+            tuple((
+                preceded(opt(cfws), char('i')),
+                preceded(opt(cfws), char('=')),
+                preceded(opt(cfws), nom::character::complete::u8),
+                preceded(opt(cfws), char(';')),
+                preceded(opt(cfws), value),
+                opt(preceded(cfws, nom::character::complete::u32)),
+                alt((no_result, many1(resinfo))),
+                opt(cfws),
+            )),
+            |(_i, _eq, instance, _semic, serv_id, version, results, _)| ARCAuthenticationResults {
+                instance,
+                serv_id,
+                version,
+                results,
+            },
+        ),
+    )(input)
+}
+
 fn authentication_results(input: Span) -> IResult<Span, AuthenticationResults> {
     context(
         "authentication_results",
         map(
             tuple((
-                opt(cfws),
-                value,
+                preceded(opt(cfws), value),
                 opt(preceded(cfws, nom::character::complete::u32)),
                 alt((no_result, many1(resinfo))),
                 opt(cfws),
             )),
-            |(_, serv_id, version, results, _)| AuthenticationResults {
+            |(serv_id, version, results, _)| AuthenticationResults {
                 serv_id,
                 version,
                 results,
@@ -1408,6 +1431,19 @@ impl Parser {
     pub fn parse_authentication_results_header(text: &str) -> Result<AuthenticationResults> {
         parse_with(text, authentication_results)
     }
+
+    pub fn parse_arc_authentication_results_header(text: &str) -> Result<ARCAuthenticationResults> {
+        parse_with(text, arc_authentication_results)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ARCAuthenticationResults {
+    pub instance: u8,
+    pub serv_id: String,
+    pub version: Option<u32>,
+    pub results: Vec<AuthenticationResult>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -3316,6 +3352,67 @@ AuthenticationResults {
 foo.example.net 1;\r
 \tdkim/1=fail\r
 \tpolicy.expired=1362471462
+"#
+        );
+    }
+
+    #[test]
+    fn arc_authentication_results_1() {
+        let ar = Header::with_name_value(
+            "ARC-Authentication-Results",
+            "i=3; clochette.example.org; spf=fail
+    smtp.from=jqd@d1.example; dkim=fail (512-bit key)
+    header.i=@d1.example; dmarc=fail; arc=pass (as.2.gmail.example=pass,
+    ams.2.gmail.example=pass, as.1.lists.example.org=pass,
+    ams.1.lists.example.org=fail (message has been altered))",
+        );
+        let ar = match ar.as_arc_authentication_results() {
+            Err(err) => panic!("\n{err}"),
+            Ok(ar) => ar,
+        };
+
+        k9::snapshot!(
+            &ar,
+            r#"
+ARCAuthenticationResults {
+    instance: 3,
+    serv_id: "clochette.example.org",
+    version: None,
+    results: [
+        AuthenticationResult {
+            method: "spf",
+            method_version: None,
+            result: "fail",
+            reason: None,
+            props: {
+                "smtp.from": "jqd@d1.example",
+            },
+        },
+        AuthenticationResult {
+            method: "dkim",
+            method_version: None,
+            result: "fail",
+            reason: None,
+            props: {
+                "header.i": "@d1.example",
+            },
+        },
+        AuthenticationResult {
+            method: "dmarc",
+            method_version: None,
+            result: "fail",
+            reason: None,
+            props: {},
+        },
+        AuthenticationResult {
+            method: "arc",
+            method_version: None,
+            result: "pass",
+            reason: None,
+            props: {},
+        },
+    ],
+}
 "#
         );
     }
