@@ -1,6 +1,6 @@
 pub fn wrap(value: &str) -> String {
     const SOFT_WIDTH: usize = 75;
-    const HARD_WIDTH: usize = 1000;
+    const HARD_WIDTH: usize = 900;
     wrap_impl(value, SOFT_WIDTH, HARD_WIDTH)
 }
 

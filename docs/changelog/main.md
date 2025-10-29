@@ -67,6 +67,13 @@
  * new
    [smtp_server_rewrite_response](../reference/events/smtp_server_rewrite_response.md)
    event.
+ * [msg:append_header](../reference/message/append_header.md) and
+   [msg:prepend_header](../reference/message/prepend_header.md) both now accept
+   an optional `ENCODE` parameter that opts in to wrapping or quoted-printable
+   encoding the value as appropriate.
+ * new [headermap:append](../reference/headermap/append.md) method for
+   appending a header. This supplements the already available `:prepend`
+   method.
 
 ## Fixes
 
