@@ -2378,8 +2378,12 @@ impl SmtpServerSession {
                     _ => {}
                 }
             }
-            HeaderResult::V1(Err(error)) => return Err(anyhow!("proxy protocol v1 parsing error: {error}")),
-            HeaderResult::V2(Err(error)) => return Err(anyhow!("proxy protocol v2 parsing error: {error}")),
+            HeaderResult::V1(Err(error)) => {
+                return Err(anyhow!("proxy protocol v1 parsing error: {error}"))
+            }
+            HeaderResult::V2(Err(error)) => {
+                return Err(anyhow!("proxy protocol v2 parsing error: {error}"))
+            }
         }
         self.read_buffer.clear();
 
@@ -2388,12 +2392,17 @@ impl SmtpServerSession {
 
         self.peer_address = (addr.unwrap(), port.unwrap()).into();
         self.my_address = (dest_addr.unwrap(), dest_port.unwrap()).into();
-        self.meta.set_meta("orig_received_from", self.orig_peer_address.to_string());
-        self.meta.set_meta("received_from", self.peer_address.to_string());
-        self.meta.set_meta("orig_received_via", self.orig_my_address.to_string());
-        self.meta.set_meta("received_via", self.my_address.to_string());
+        self.meta
+            .set_meta("orig_received_from", self.orig_peer_address.to_string());
+        self.meta
+            .set_meta("received_from", self.peer_address.to_string());
+        self.meta
+            .set_meta("orig_received_via", self.orig_my_address.to_string());
+        self.meta
+            .set_meta("received_via", self.my_address.to_string());
 
-        SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+        SmtpServerTraceManager::submit(|| {
+            SmtpServerTraceEvent {
             conn_meta: self.meta.clone_inner(),
             payload: SmtpServerTraceEventPayload::Diagnostic {
                 level: Level::INFO,
@@ -2403,6 +2412,7 @@ impl SmtpServerSession {
                 ),
             },
             when: Utc::now(),
+        }
         });
 
         // re-evaluate parameters based on new IP info
