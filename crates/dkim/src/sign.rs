@@ -229,7 +229,7 @@ impl Signer {
             .add_tag("b", &BASE64.encode(&signature))
             .build();
 
-        Ok(format!("{}: {}", HEADER, dkim_header.raw_bytes))
+        Ok(format!("{}: {}", HEADER, dkim_header.raw()))
     }
 
     fn dkim_header_builder(

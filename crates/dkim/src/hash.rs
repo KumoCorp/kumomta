@@ -277,7 +277,7 @@ pub(crate) fn compute_headers_hash<'a>(
     // signature (b) first.
     {
         let sign = dkim_header.get_required_raw_tag("b");
-        let value = dkim_header.raw_bytes.replace(sign, "");
+        let value = dkim_header.raw().replace(sign, "");
         let mut canonicalized_value = vec![];
         canonicalization_type.canon_header_into(HEADER, value.as_bytes(), &mut canonicalized_value);
 

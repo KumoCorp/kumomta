@@ -4,17 +4,15 @@ use std::str::FromStr;
 use textwrap::core::Word;
 
 pub(crate) const HEADER: &str = "DKIM-Signature";
-const REQUIRED_TAGS: &[&str] = &["v", "a", "b", "bh", "d", "h", "s"];
 const SIGN_EXPIRATION_DRIFT_MINS: i64 = 15;
 
-#[derive(Debug, Clone)]
-pub(crate) struct DKIMHeader {
+#[derive(Clone, Debug, Default)]
+pub struct TaggedHeader {
     tags: IndexMap<String, parser::Tag>,
-    pub raw_bytes: String,
+    raw_bytes: String,
 }
 
-impl DKIMHeader {
-    /// <https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.1>
+impl TaggedHeader {
     pub fn parse(value: &str) -> Result<Self, DKIMError> {
         let (_, tags) = parser::tag_list(value)
             .map_err(|err| DKIMError::SignatureSyntaxError(err.to_string()))?;
@@ -23,10 +21,162 @@ impl DKIMHeader {
         for tag in &tags {
             tags_map.insert(tag.name.clone(), tag.clone());
         }
-        let header = DKIMHeader {
+        Ok(Self {
             tags: tags_map,
             raw_bytes: value.to_owned(),
-        };
+        })
+    }
+
+    pub fn get_tag(&self, name: &str) -> Option<&str> {
+        self.tags.get(name).map(|v| v.value.as_str())
+    }
+
+    /// Get the named tag.
+    /// Attempt to parse it into an `R`
+    pub fn parse_tag<R>(&self, name: &str) -> Result<Option<R>, DKIMError>
+    where
+        R: FromStr,
+        <R as FromStr>::Err: std::fmt::Display,
+    {
+        match self.get_tag(name) {
+            None => Ok(None),
+            Some(value) => {
+                let value: R = value.parse().map_err(|err| {
+                    DKIMError::SignatureSyntaxError(format!(
+                        "invalid \"{name}\" tag value: {err:#}"
+                    ))
+                })?;
+                Ok(Some(value))
+            }
+        }
+    }
+
+    pub fn get_raw_tag(&self, name: &str) -> Option<&str> {
+        self.tags.get(name).map(|v| v.raw_value.as_str())
+    }
+
+    pub fn get_required_tag(&self, name: &str) -> &str {
+        // Required tags are guaranteed by the parser to be present so it's safe
+        // to assert and unwrap.
+        match self.get_tag(name) {
+            Some(value) => value,
+            None => panic!("required tag {name} is not present"),
+        }
+    }
+
+    pub fn get_required_raw_tag(&self, name: &str) -> &str {
+        // Required tags are guaranteed by the parser to be present so it's safe
+        // to assert and unwrap.
+        match self.get_raw_tag(name) {
+            Some(value) => value,
+            None => panic!("required tag {name} is not present"),
+        }
+    }
+
+    pub fn raw(&self) -> &str {
+        &self.raw_bytes
+    }
+
+    /// Generate the DKIM-Signature header from the tags
+    fn serialize(&self) -> String {
+        let mut out = String::new();
+
+        for (key, tag) in &self.tags {
+            let mut value = &tag.value;
+            let value_storage;
+
+            if !out.is_empty() {
+                if key == "b" {
+                    // Always emit b on a separate line for the sake of
+                    // consistency of the hash, which is generated in two
+                    // passes; the first with an empty b value and the second
+                    // with it populated.
+                    // If we don't push it to the next line, the two passes
+                    // may produce inconsistent results as a result of the
+                    // textwrap::fill operation and the signature will be invalid
+                    out.push_str("\r\n");
+                } else if key == "h" {
+                    // header lists can be rather long, and we want to control
+                    // how they wrap with a bit more nuance. We'll put these
+                    // on a line of their own, and explicitly wrap the value
+                    out.push_str("\r\n");
+                    value_storage = textwrap::fill(
+                        value,
+                        textwrap::Options::new(75)
+                            .initial_indent("")
+                            .line_ending(textwrap::LineEnding::CRLF)
+                            .word_separator(textwrap::WordSeparator::Custom(|line| {
+                                let mut start = 0;
+                                let mut prev_was_colon = false;
+                                let mut char_indices = line.char_indices();
+
+                                Box::new(std::iter::from_fn(move || {
+                                    for (idx, ch) in char_indices.by_ref() {
+                                        if ch == ':' {
+                                            prev_was_colon = true;
+                                        } else if prev_was_colon {
+                                            prev_was_colon = false;
+                                            let word = Word::from(&line[start..idx]);
+                                            start = idx;
+
+                                            return Some(word);
+                                        }
+                                    }
+                                    if start < line.len() {
+                                        let word = Word::from(&line[start..]);
+                                        start = line.len();
+                                        return Some(word);
+                                    }
+                                    None
+                                }))
+                            }))
+                            .word_splitter(textwrap::WordSplitter::NoHyphenation)
+                            .subsequent_indent("\t"),
+                    );
+                    value = &value_storage;
+                } else {
+                    out.push(' ');
+                }
+            }
+            out.push_str(key);
+            out.push('=');
+            out.push_str(value);
+            out.push(';');
+        }
+        textwrap::fill(
+            &out,
+            textwrap::Options::new(75)
+                .initial_indent("")
+                .line_ending(textwrap::LineEnding::CRLF)
+                .word_separator(textwrap::WordSeparator::AsciiSpace)
+                .word_splitter(textwrap::WordSplitter::NoHyphenation)
+                .subsequent_indent("\t"),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DKIMHeader {
+    tagged: TaggedHeader,
+}
+
+impl std::ops::Deref for DKIMHeader {
+    type Target = TaggedHeader;
+    fn deref(&self) -> &TaggedHeader {
+        &self.tagged
+    }
+}
+impl std::ops::DerefMut for DKIMHeader {
+    fn deref_mut(&mut self) -> &mut TaggedHeader {
+        &mut self.tagged
+    }
+}
+
+impl DKIMHeader {
+    /// <https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.1>
+    pub fn parse(value: &str) -> Result<Self, DKIMError> {
+        let tagged = TaggedHeader::parse(value)?;
+        let header = DKIMHeader { tagged };
 
         header.validate_required_tags()?;
 
@@ -80,53 +230,8 @@ impl DKIMHeader {
         Ok(header)
     }
 
-    pub fn get_tag(&self, name: &str) -> Option<&str> {
-        self.tags.get(name).map(|v| v.value.as_str())
-    }
-
-    /// Get the named tag.
-    /// Attempt to parse it into an `R`
-    pub fn parse_tag<R>(&self, name: &str) -> Result<Option<R>, DKIMError>
-    where
-        R: FromStr,
-        <R as FromStr>::Err: std::fmt::Display,
-    {
-        match self.get_tag(name) {
-            None => Ok(None),
-            Some(value) => {
-                let value: R = value.parse().map_err(|err| {
-                    DKIMError::SignatureSyntaxError(format!(
-                        "invalid \"{name}\" tag value: {err:#}"
-                    ))
-                })?;
-                Ok(Some(value))
-            }
-        }
-    }
-
-    pub fn get_raw_tag(&self, name: &str) -> Option<&str> {
-        self.tags.get(name).map(|v| v.raw_value.as_str())
-    }
-
-    pub fn get_required_tag(&self, name: &str) -> &str {
-        // Required tags are guaranteed by the parser to be present so it's safe
-        // to assert and unwrap.
-        match self.get_tag(name) {
-            Some(value) => value,
-            None => panic!("required tag {name} is not present"),
-        }
-    }
-
-    pub fn get_required_raw_tag(&self, name: &str) -> &str {
-        // Required tags are guaranteed by the parser to be present so it's safe
-        // to assert and unwrap.
-        match self.get_raw_tag(name) {
-            Some(value) => value,
-            None => panic!("required tag {name} is not present"),
-        }
-    }
-
     fn validate_required_tags(&self) -> Result<(), DKIMError> {
+        const REQUIRED_TAGS: &[&str] = &["v", "a", "b", "bh", "d", "h", "s"];
         for required in REQUIRED_TAGS {
             if self.get_tag(required).is_none() {
                 return Err(DKIMError::SignatureMissingRequiredTag(required));
@@ -134,83 +239,6 @@ impl DKIMHeader {
         }
         Ok(())
     }
-}
-
-/// Generate the DKIM-Signature header from the tags
-fn serialize(header: DKIMHeader) -> String {
-    let mut out = String::new();
-
-    for (key, tag) in &header.tags {
-        let mut value = &tag.value;
-        let value_storage;
-
-        if !out.is_empty() {
-            if key == "b" {
-                // Always emit b on a separate line for the sake of
-                // consistency of the hash, which is generated in two
-                // passes; the first with an empty b value and the second
-                // with it populated.
-                // If we don't push it to the next line, the two passes
-                // may produce inconsistent results as a result of the
-                // textwrap::fill operation and the signature will be invalid
-                out.push_str("\r\n");
-            } else if key == "h" {
-                // header lists can be rather long, and we want to control
-                // how they wrap with a bit more nuance. We'll put these
-                // on a line of their own, and explicitly wrap the value
-                out.push_str("\r\n");
-                value_storage = textwrap::fill(
-                    value,
-                    textwrap::Options::new(75)
-                        .initial_indent("")
-                        .line_ending(textwrap::LineEnding::CRLF)
-                        .word_separator(textwrap::WordSeparator::Custom(|line| {
-                            let mut start = 0;
-                            let mut prev_was_colon = false;
-                            let mut char_indices = line.char_indices();
-
-                            Box::new(std::iter::from_fn(move || {
-                                for (idx, ch) in char_indices.by_ref() {
-                                    if ch == ':' {
-                                        prev_was_colon = true;
-                                    } else if prev_was_colon {
-                                        prev_was_colon = false;
-                                        let word = Word::from(&line[start..idx]);
-                                        start = idx;
-
-                                        return Some(word);
-                                    }
-                                }
-                                if start < line.len() {
-                                    let word = Word::from(&line[start..]);
-                                    start = line.len();
-                                    return Some(word);
-                                }
-                                None
-                            }))
-                        }))
-                        .word_splitter(textwrap::WordSplitter::NoHyphenation)
-                        .subsequent_indent("\t"),
-                );
-                value = &value_storage;
-            } else {
-                out.push(' ');
-            }
-        }
-        out.push_str(key);
-        out.push('=');
-        out.push_str(value);
-        out.push(';');
-    }
-    textwrap::fill(
-        &out,
-        textwrap::Options::new(75)
-            .initial_indent("")
-            .line_ending(textwrap::LineEnding::CRLF)
-            .word_separator(textwrap::WordSeparator::AsciiSpace)
-            .word_splitter(textwrap::WordSplitter::NoHyphenation)
-            .subsequent_indent("\t"),
-    )
 }
 
 #[derive(Clone)]
@@ -221,10 +249,7 @@ pub(crate) struct DKIMHeaderBuilder {
 impl DKIMHeaderBuilder {
     pub(crate) fn new() -> Self {
         DKIMHeaderBuilder {
-            header: DKIMHeader {
-                tags: IndexMap::new(),
-                raw_bytes: "".to_owned(),
-            },
+            header: DKIMHeader::default(),
             time: None,
         }
     }
@@ -259,7 +284,7 @@ impl DKIMHeaderBuilder {
     }
 
     pub(crate) fn build(mut self) -> DKIMHeader {
-        self.header.raw_bytes = serialize(self.header.clone());
+        self.header.raw_bytes = self.header.serialize();
         self.header
     }
 }
@@ -274,7 +299,7 @@ mod tests {
             .add_tag("v", "1")
             .add_tag("a", "something")
             .build();
-        k9::snapshot!(header.raw_bytes, "v=1; a=something;");
+        k9::snapshot!(header.raw(), "v=1; a=something;");
     }
 
     fn signed_header_list(headers: &[&str]) -> HeaderList {
@@ -288,7 +313,7 @@ mod tests {
             .set_signed_headers(&signed_header_list(&["header1", "header2", "header3"]))
             .build();
         k9::snapshot!(
-            header.raw_bytes,
+            header.raw(),
             r#"
 v=2;\r
 \th=header1:header2:header3;
@@ -307,6 +332,6 @@ v=2;\r
             .set_expiry(chrono::Duration::try_hours(3).expect("3 hours ok"))
             .unwrap()
             .build();
-        k9::snapshot!(header.raw_bytes, "t=1609459201; x=1609470001;");
+        k9::snapshot!(header.raw(), "t=1609459201; x=1609470001;");
     }
 }
