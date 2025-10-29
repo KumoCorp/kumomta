@@ -1,5 +1,8 @@
 use crate::header::DKIMHeaderBuilder;
-use crate::{canonicalization, hash, DKIMError, DkimPrivateKey, HeaderList, ParsedEmail, HEADER};
+use crate::{
+    canonicalization, hash, DKIMError, DkimPrivateKey, HeaderList, ParsedEmail,
+    DKIM_SIGNATURE_HEADER_NAME,
+};
 use data_encoding::BASE64;
 use ed25519_dalek::Signer as _;
 use std::sync::Arc;
@@ -229,7 +232,10 @@ impl Signer {
             .add_tag("b", &BASE64.encode(&signature))
             .build();
 
-        Ok(format!("{}: {}", HEADER, dkim_header.raw()))
+        Ok(format!(
+            "{DKIM_SIGNATURE_HEADER_NAME}: {}",
+            dkim_header.raw()
+        ))
     }
 
     fn dkim_header_builder(

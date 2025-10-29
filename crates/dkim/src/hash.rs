@@ -1,4 +1,4 @@
-use crate::header::HEADER;
+use crate::header::DKIM_SIGNATURE_HEADER_NAME;
 use crate::{canonicalization, DKIMError, DKIMHeader, ParsedEmail};
 use data_encoding::BASE64;
 use sha1::{Digest as _, Sha1};
@@ -279,7 +279,11 @@ pub(crate) fn compute_headers_hash<'a>(
         let sign = dkim_header.get_required_raw_tag("b");
         let value = dkim_header.raw().replace(sign, "");
         let mut canonicalized_value = vec![];
-        canonicalization_type.canon_header_into(HEADER, value.as_bytes(), &mut canonicalized_value);
+        canonicalization_type.canon_header_into(
+            DKIM_SIGNATURE_HEADER_NAME,
+            value.as_bytes(),
+            &mut canonicalized_value,
+        );
 
         // remove trailing "\r\n"
         canonicalized_value.truncate(canonicalized_value.len() - 2);

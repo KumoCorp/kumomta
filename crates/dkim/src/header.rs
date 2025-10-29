@@ -4,7 +4,7 @@ use indexmap::map::IndexMap;
 use std::str::FromStr;
 use textwrap::core::Word;
 
-pub(crate) const HEADER: &str = "DKIM-Signature";
+pub(crate) const DKIM_SIGNATURE_HEADER_NAME: &str = "DKIM-Signature";
 const SIGN_EXPIRATION_DRIFT_MINS: i64 = 15;
 
 #[derive(Clone, Debug, Default)]

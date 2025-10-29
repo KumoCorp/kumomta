@@ -24,7 +24,7 @@ mod roundtrip_test;
 mod sign;
 
 pub use errors::DKIMError;
-use header::{DKIMHeader, HEADER};
+use header::{DKIMHeader, DKIM_SIGNATURE_HEADER_NAME};
 pub use parsed_email::ParsedEmail;
 pub use parser::{tag_list as parse_tag_list, Tag};
 pub use sign::{Signer, SignerBuilder};
@@ -252,7 +252,7 @@ pub async fn verify_email_with_resolver<'a>(
 
     let mut dkim_headers = vec![];
 
-    for h in email.get_headers().iter_named(HEADER) {
+    for h in email.get_headers().iter_named(DKIM_SIGNATURE_HEADER_NAME) {
         if results.len() > 10 {
             // Limit DoS impact if a malicious message is filled
             // with signatures
@@ -491,7 +491,7 @@ Joe."#
         let email = ParsedEmail::parse(raw_email).unwrap();
         let raw_header_dkim = email
             .get_headers()
-            .iter_named(HEADER)
+            .iter_named(DKIM_SIGNATURE_HEADER_NAME)
             .next()
             .unwrap()
             .get_raw_value();
@@ -545,7 +545,7 @@ Joe.
         let email = ParsedEmail::parse(raw_email).unwrap();
         let raw_header_rsa = email
             .get_headers()
-            .iter_named(HEADER)
+            .iter_named(DKIM_SIGNATURE_HEADER_NAME)
             .next()
             .unwrap()
             .get_raw_value();
