@@ -154,6 +154,39 @@ impl TaggedHeader {
                 .subsequent_indent("\t"),
         )
     }
+
+    /// Check things common to DKIM-Signature and ARC-Message-Signature
+    fn check_common_tags(&self) -> Result<(), DKIMError> {
+        // Check that "h=" tag includes the From header
+        if !self
+            .get_required_tag("h")
+            .split(':')
+            .any(|h| h.eq_ignore_ascii_case("from"))
+        {
+            return Err(DKIMError::FromFieldNotSigned);
+        }
+
+        if let Some(query_method) = self.get_tag("q") {
+            if query_method != "dns/txt" {
+                return Err(DKIMError::UnsupportedQueryMethod);
+            }
+        }
+
+        // Check that "x=" tag isn't expired
+        if let Some(expiration) = self.get_tag("x") {
+            let mut expiration =
+                chrono::DateTime::from_timestamp(expiration.parse::<i64>().unwrap_or_default(), 0)
+                    .ok_or(DKIMError::SignatureExpired)?;
+            expiration += chrono::Duration::try_minutes(SIGN_EXPIRATION_DRIFT_MINS)
+                .expect("drift to be in-range");
+            let now = chrono::Utc::now();
+            if now > expiration {
+                return Err(DKIMError::SignatureExpired);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -182,11 +215,8 @@ impl DKIMHeader {
         header.validate_required_tags()?;
 
         // Check version
-        {
-            let version = header.get_required_tag("v");
-            if version != "1" {
-                return Err(DKIMError::IncompatibleVersion);
-            }
+        if header.get_required_tag("v") != "1" {
+            return Err(DKIMError::IncompatibleVersion);
         }
 
         // Check that "d=" tag is the same as or a parent domain of the domain part
@@ -206,34 +236,7 @@ impl DKIMHeader {
             }
         }
 
-        // Check that "h=" tag includes the From header
-        {
-            let value = header.get_required_tag("h");
-            let headers = value.split(':');
-            let headers: Vec<String> = headers.map(|h| h.to_lowercase()).collect();
-            if !headers.contains(&"from".to_string()) {
-                return Err(DKIMError::FromFieldNotSigned);
-            }
-        }
-
-        if let Some(query_method) = header.get_tag("q") {
-            if query_method != "dns/txt" {
-                return Err(DKIMError::UnsupportedQueryMethod);
-            }
-        }
-
-        // Check that "x=" tag isn't expired
-        if let Some(expiration) = header.get_tag("x") {
-            let mut expiration =
-                chrono::DateTime::from_timestamp(expiration.parse::<i64>().unwrap_or_default(), 0)
-                    .ok_or(DKIMError::SignatureExpired)?;
-            expiration += chrono::Duration::try_minutes(SIGN_EXPIRATION_DRIFT_MINS)
-                .expect("drift to be in-range");
-            let now = chrono::Utc::now();
-            if now > expiration {
-                return Err(DKIMError::SignatureExpired);
-            }
-        }
+        header.check_common_tags()?;
 
         Ok(header)
     }
@@ -297,6 +300,55 @@ impl DKIMHeaderBuilder {
     }
 }
 
+/// <https://datatracker.ietf.org/doc/html/rfc8617#section-4.1.2> says
+/// The AMS header field has the same syntax and semantics as the
+/// DKIM-Signature field [RFC6376], with three (3) differences
+/// * the name of the header field itself;
+/// * no version tag ("v") is defined for the AMS header field.
+///   As required for undefined tags (in
+///   [RFC6376]), if seen, a version tag MUST be ignored.
+/// * the "i" (Agent or User Identifier (AUID)) tag is not imported from
+///   DKIM; instead, this tag is replaced by the instance tag as defined
+///   in Section 4.2.1.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ARCMessageSignatureHeader {
+    tagged: TaggedHeader,
+}
+
+impl std::ops::Deref for ARCMessageSignatureHeader {
+    type Target = TaggedHeader;
+    fn deref(&self) -> &TaggedHeader {
+        &self.tagged
+    }
+}
+impl std::ops::DerefMut for ARCMessageSignatureHeader {
+    fn deref_mut(&mut self) -> &mut TaggedHeader {
+        &mut self.tagged
+    }
+}
+
+impl ARCMessageSignatureHeader {
+    pub fn parse(value: &str) -> Result<Self, DKIMError> {
+        let tagged = TaggedHeader::parse(value)?;
+        let header = Self { tagged };
+
+        header.validate_required_tags()?;
+        header.check_common_tags()?;
+
+        Ok(header)
+    }
+
+    fn validate_required_tags(&self) -> Result<(), DKIMError> {
+        const REQUIRED_TAGS: &[&str] = &["a", "b", "bh", "d", "h", "s"];
+        for required in REQUIRED_TAGS {
+            if self.get_tag(required).is_none() {
+                return Err(DKIMError::SignatureMissingRequiredTag(required));
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,5 +393,20 @@ v=2;\r
             .unwrap()
             .build();
         k9::snapshot!(header.raw(), "t=1609459201; x=1609470001;");
+    }
+
+    #[test]
+    fn test_parse_ams() {
+        let sig = "i=1; a=rsa-sha256; c=relaxed/relaxed; d=
+    messagingengine.com; h=date:from:reply-to:to:message-id:subject
+    :mime-version:content-type:content-transfer-encoding; s=fm3; t=
+    1761717439; bh=+BM/Umiva3F0xjsh9a2BcwzO1nr0Ru6oGRmgkMy9T3M=; b=I
+    M7xjn2qSjOx5fDFvQY+pEPJ74+w3h/UOZUKvdAt7gRP8rAe9C+Tz72izVJyY82xw
+    7LT7CBXnwk2DQpg9erhq1yYept4M5CKWLXoQHHUJam8mV4RMUnHgTLVlColIVUtY
+    hNAomZdsGNiG1iRGX0C4y81zYANJ11TXKOTvfuMLhG2uDIa8768O5jBa4jlBtGHd
+    Dn/87/T/J+plO/ZPiSwWKa+ZttR6yjwm0fdpXf+4y8u0+I8iYSw2EN0vgWMYEEMp
+    R1xuhMKD+bSlx130Rz2/5jFsVgLS7CfbTKK5CtqS3hl6EaLw/REBZeCYCHltzRWF
+    wt38/NIzJ3ykCswwds2YQ==";
+        let header = ARCMessageSignatureHeader::parse(sig).unwrap();
     }
 }
