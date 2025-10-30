@@ -136,7 +136,13 @@ fn verify_signature(
             let md = match hash_algo {
                 hash::HashAlgo::RsaSha1 => Md::sha1(),
                 hash::HashAlgo::RsaSha256 => Md::sha256(),
-                hash => return Err(DKIMError::UnsupportedHashAlgorithm(format!("{:?}", hash))),
+                hash @ hash::HashAlgo::Ed25519Sha256 => {
+                    // Algo is not compatible with RSA.
+                    // This case can happen when we're looking a DKIM-Header
+                    // with a=ed25519-sha256, but where domain publishes both
+                    // an rsa and an ed25519 public key in dns
+                    return Err(DKIMError::UnsupportedHashAlgorithm(format!("{hash:?}")));
+                }
             };
 
             let mut ctx = PkeyCtx::new(&public_key).map_err(|err| {

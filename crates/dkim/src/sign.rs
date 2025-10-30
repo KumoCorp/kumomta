@@ -199,10 +199,9 @@ impl Signer {
                         match self.hash_algo {
                             hash::HashAlgo::RsaSha1 => openssl_sys::NID_sha1,
                             hash::HashAlgo::RsaSha256 => openssl_sys::NID_sha256,
-                            hash => {
+                            hash @ hash::HashAlgo::Ed25519Sha256 => {
                                 return Err(DKIMError::UnsupportedHashAlgorithm(format!(
-                                    "{:?}",
-                                    hash
+                                    "{hash:?}",
                                 )))
                             }
                         },

@@ -31,7 +31,6 @@ tracing = {workspace=true}
 [dev-dependencies]
 criterion = {workspace=true}
 k9 = {workspace=true}
-regex = {workspace=true}
 tokio = { workspace=true, features = ["macros"] }
 
 [[bench]]
