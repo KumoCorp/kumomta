@@ -362,6 +362,11 @@ TOC = [
                         "Prometheus",
                         "userguide/integrations/prometheus.md",
                     ),
+                    Page(
+                        "Tatami Monitor",
+                        "userguide/integrations/tatamimonitor.md",
+                    ),
+
                 ],
             ),
         ],
