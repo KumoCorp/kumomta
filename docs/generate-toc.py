@@ -366,7 +366,6 @@ TOC = [
                         "Tatami Monitor",
                         "userguide/integrations/tatamimonitor.md",
                     ),
-
                 ],
             ),
         ],
