@@ -1058,7 +1058,7 @@ fn keyword(input: Span) -> IResult<Span, String> {
     context(
         "keyword",
         map(
-            take_while1(|c: char| c.is_ascii_alphanumeric() || c == '+'),
+            take_while1(|c: char| c.is_ascii_alphanumeric() || c == '+' || c == '-'),
             |s: Span| s.to_string(),
         ),
     )(input)

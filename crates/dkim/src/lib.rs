@@ -2,6 +2,7 @@
 
 use crate::errors::Status;
 use crate::hash::HeaderList;
+use crate::header::TaggedHeader;
 use dns_resolver::{HickoryResolver, Resolver};
 use ed25519_dalek::pkcs8::DecodePrivateKey;
 use ed25519_dalek::SigningKey;
@@ -12,6 +13,7 @@ use openssl::pkey_ctx::PkeyCtx;
 use openssl::rsa::{Padding, Rsa};
 use std::collections::BTreeMap;
 
+pub mod arc;
 pub mod canonicalization;
 mod errors;
 mod hash;
@@ -175,7 +177,8 @@ fn verify_signature(
 
 async fn verify_email_header<'a>(
     resolver: &dyn Resolver,
-    dkim_header: &'a DKIMHeader,
+    signature_header_name: &str,
+    dkim_header: &'a TaggedHeader,
     email: &'a ParsedEmail<'a>,
 ) -> Result<(), DKIMError> {
     let public_keys = public_key::retrieve_public_keys(
@@ -188,12 +191,6 @@ async fn verify_email_header<'a>(
     let (header_canonicalization_type, body_canonicalization_type) =
         parser::parse_canonicalization(dkim_header.get_tag("c"))?;
     let hash_algo = parser::parse_hash_algo(dkim_header.get_required_tag("a"))?;
-    let computed_body_hash = hash::compute_body_hash(
-        body_canonicalization_type,
-        dkim_header.parse_tag("l")?,
-        hash_algo,
-        email,
-    )?;
 
     let header_list: Vec<String> = dkim_header
         .get_required_tag("h")
@@ -207,12 +204,20 @@ async fn verify_email_header<'a>(
         hash_algo,
         dkim_header,
         email,
+        signature_header_name,
     )?;
-    tracing::debug!("body_hash {:?}", computed_body_hash);
 
-    let header_body_hash = dkim_header.get_required_tag("bh");
-    if header_body_hash != computed_body_hash {
-        return Err(DKIMError::BodyHashDidNotVerify);
+    if let Some(header_body_hash) = dkim_header.get_tag("bh") {
+        let computed_body_hash = hash::compute_body_hash(
+            body_canonicalization_type,
+            dkim_header.parse_tag("l")?,
+            hash_algo,
+            email,
+        )?;
+        tracing::debug!("body_hash {:?}", computed_body_hash);
+        if header_body_hash != computed_body_hash {
+            return Err(DKIMError::BodyHashDidNotVerify);
+        }
     }
 
     let signature = data_encoding::BASE64
@@ -320,25 +325,28 @@ pub async fn verify_email_with_resolver<'a>(
         props.insert("header.b".to_string(), b_tag);
 
         let mut reason = None;
-        let result = match verify_email_header(resolver, dkim_header, email).await {
-            Ok(()) => {
-                if signing_domain.eq_ignore_ascii_case(from_domain) {
-                    "pass"
-                } else {
-                    let why = "mail-from-mismatch-signing-domain".to_string();
-                    reason.replace(why.clone());
-                    props.insert("policy.dkim-rules".to_string(), why);
-                    "policy"
+        let result =
+            match verify_email_header(resolver, DKIM_SIGNATURE_HEADER_NAME, dkim_header, email)
+                .await
+            {
+                Ok(()) => {
+                    if signing_domain.eq_ignore_ascii_case(from_domain) {
+                        "pass"
+                    } else {
+                        let why = "mail-from-mismatch-signing-domain".to_string();
+                        reason.replace(why.clone());
+                        props.insert("policy.dkim-rules".to_string(), why);
+                        "policy"
+                    }
                 }
-            }
-            Err(err) => {
-                reason.replace(format!("{err}"));
-                match err.status() {
-                    Status::Tempfail => "temperror",
-                    Status::Permfail => "permerror",
+                Err(err) => {
+                    reason.replace(format!("{err}"));
+                    match err.status() {
+                        Status::Tempfail => "temperror",
+                        Status::Permfail => "permerror",
+                    }
                 }
-            }
-        };
+            };
 
         results.push(AuthenticationResult {
             method: "dkim".to_string(),
@@ -506,6 +514,7 @@ $ORIGIN brisbane._domainkey.football.example.com
 
         verify_email_header(
             &resolver,
+            DKIM_SIGNATURE_HEADER_NAME,
             &DKIMHeader::parse(raw_header_dkim).unwrap(),
             &email,
         )
@@ -555,6 +564,7 @@ Joe.
 
         verify_email_header(
             &resolver,
+            DKIM_SIGNATURE_HEADER_NAME,
             &DKIMHeader::parse(raw_header_rsa).unwrap(),
             &email,
         )

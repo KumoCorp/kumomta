@@ -295,6 +295,7 @@ impl Signer {
             self.hash_algo,
             &dkim_header,
             email,
+            DKIM_SIGNATURE_HEADER_NAME,
         )
     }
 }

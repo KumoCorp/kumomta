@@ -1,3 +1,4 @@
+use crate::arc::MAX_ARC_INSTANCE;
 use crate::{parser, DKIMError, HeaderList};
 use dns_resolver::Name;
 use indexmap::map::IndexMap;
@@ -76,6 +77,19 @@ impl TaggedHeader {
 
     pub fn raw(&self) -> &str {
         &self.raw_bytes
+    }
+
+    pub fn arc_instance(&self) -> Result<u8, DKIMError> {
+        let instance = self
+            .get_required_tag("i")
+            .parse::<u8>()
+            .map_err(|_| DKIMError::InvalidARCInstance)?;
+
+        if instance == 0 || instance > MAX_ARC_INSTANCE {
+            return Err(DKIMError::InvalidARCInstance);
+        }
+
+        Ok(instance)
     }
 
     /// Generate the DKIM-Signature header from the tags
@@ -311,7 +325,7 @@ impl DKIMHeaderBuilder {
 ///   DKIM; instead, this tag is replaced by the instance tag as defined
 ///   in Section 4.2.1.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct ARCMessageSignatureHeader {
+pub struct ARCMessageSignatureHeader {
     tagged: TaggedHeader,
 }
 
@@ -334,12 +348,13 @@ impl ARCMessageSignatureHeader {
 
         header.validate_required_tags()?;
         header.check_common_tags()?;
+        header.arc_instance()?;
 
         Ok(header)
     }
 
     fn validate_required_tags(&self) -> Result<(), DKIMError> {
-        const REQUIRED_TAGS: &[&str] = &["a", "b", "bh", "d", "h", "s"];
+        const REQUIRED_TAGS: &[&str] = &["a", "b", "bh", "d", "h", "s", "i"];
         for required in REQUIRED_TAGS {
             if self.get_tag(required).is_none() {
                 return Err(DKIMError::SignatureMissingRequiredTag(required));
@@ -350,7 +365,7 @@ impl ARCMessageSignatureHeader {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct ARCSealHeader {
+pub struct ARCSealHeader {
     tagged: TaggedHeader,
 }
 
@@ -369,15 +384,39 @@ impl std::ops::DerefMut for ARCSealHeader {
 impl ARCSealHeader {
     pub fn parse(value: &str) -> Result<Self, DKIMError> {
         let tagged = TaggedHeader::parse(value)?;
-        let header = Self { tagged };
+        let mut header = Self { tagged };
 
         header.validate_required_tags()?;
+        header.arc_instance()?;
+
+        if header.get_tag("h").is_some() {
+            // TODO: MUST result in cv status of fail, see Section 5.1.1
+        }
+
+        // Force in some values so that we can re-use the rest of
+        // the dkim infra on this header type
+        header.set_tag(
+            "h",
+            "ARC-Authentication-Results:ARC-Message-Signature:ARC-Seal",
+        );
+        header.set_tag("c", "relaxed");
 
         Ok(header)
     }
 
+    fn set_tag(&mut self, name: &str, value: &str) {
+        self.tagged.tags.insert(
+            name.to_string(),
+            parser::Tag {
+                name: name.to_string(),
+                value: value.to_string(),
+                raw_value: value.to_string(),
+            },
+        );
+    }
+
     fn validate_required_tags(&self) -> Result<(), DKIMError> {
-        const REQUIRED_TAGS: &[&str] = &["a", "b", "d", "s"];
+        const REQUIRED_TAGS: &[&str] = &["a", "b", "d", "s", "i"];
         for required in REQUIRED_TAGS {
             if self.get_tag(required).is_none() {
                 return Err(DKIMError::SignatureMissingRequiredTag(required));
