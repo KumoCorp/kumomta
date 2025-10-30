@@ -363,12 +363,24 @@ TOC = [
                     ),
                     Page("Postmastery", "userguide/integrations/postmastery.md"),
                     Page(
+                        "Tatami Monitor",
+                        "userguide/integrations/tatamimonitor.md",
+                    ),
+                    Page(
                         "Prometheus",
                         "userguide/integrations/prometheus.md",
                     ),
                     Page(
-                        "Tatami Monitor",
-                        "userguide/integrations/tatamimonitor.md",
+                        "Grafana",
+                        "userguide/integrations/grafana.md",
+                    ),
+                    Page(
+                        "Hornetsecurity Spam Filter",
+                        "userguide/integrations/hornetsecurity.md",
+                    ),
+                    Page(
+                        "Rspamd Spam filter",
+                        "userguide/integrations/rspamd.md",
                     ),
                 ],
             ),
