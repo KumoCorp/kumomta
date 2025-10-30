@@ -357,10 +357,18 @@ TOC = [
                         "Ongage",
                         "userguide/integrations/ongage.md",
                     ),
+                    Page(
+                        "Mautic",
+                        "userguide/integrations/mautic.md",
+                    ),
                     Page("Postmastery", "userguide/integrations/postmastery.md"),
                     Page(
                         "Prometheus",
                         "userguide/integrations/prometheus.md",
+                    ),
+                    Page(
+                        "Tatami Monitor",
+                        "userguide/integrations/tatamimonitor.md",
                     ),
                 ],
             ),
