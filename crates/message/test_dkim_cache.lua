@@ -23,8 +23,8 @@ local metrics = kumo.prometheus_metrics()
 assert(metrics.lruttl_lookup_count.value.cache_name.dkim_key_cache == 1)
 assert(metrics.lruttl_lookup_count.value.cache_name.dkim_signer_cache == 1)
 
-assert(metrics.lruttl_insert_count.value.cache_name.dkim_key_cache == 1)
-assert(metrics.lruttl_insert_count.value.cache_name.dkim_signer_cache == 1)
+assert(metrics.lruttl_populated_count.value.cache_name.dkim_key_cache == 1)
+assert(metrics.lruttl_populated_count.value.cache_name.dkim_signer_cache == 1)
 
 assert(metrics.lruttl_evict_count.value.cache_name.dkim_key_cache == 0)
 assert(metrics.lruttl_evict_count.value.cache_name.dkim_signer_cache == 0)

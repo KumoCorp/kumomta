@@ -9,7 +9,7 @@ use prometheus::{Counter, Histogram};
 use serde::Deserialize;
 use std::sync::{Arc, LazyLock, OnceLock};
 use tokio::runtime::Runtime;
-use tokio::time::{Duration, Instant};
+use tokio::time::Duration;
 
 declare_cache! {
 static SIGNER_CACHE: LruCacheWithTtl<SignerConfig, Arc<CFSigner>>::new("dkim_signer_cache", 1024);
@@ -206,22 +206,24 @@ impl LuaUserData for Signer {}
 
 async fn cached_key_load(key: &KeySource, ttl: Duration) -> anyhow::Result<Arc<DkimPrivateKey>> {
     KEY_CACHE_LOOKUP.inc();
-    if let Some(pkey) = KEY_CACHE.get(key) {
-        KEY_CACHE_HIT.inc();
-        return Ok(pkey);
-    }
-
-    KEY_CACHE_MISS.inc();
-    let key_fetch_timer = SIGNER_KEY_FETCH.start_timer();
-    let data = key.get().await?;
-
-    let pkey = Arc::new(DkimPrivateKey::key(&data)?);
-    key_fetch_timer.stop_and_record();
-
     KEY_CACHE
-        .insert(key.clone(), pkey.clone(), Instant::now() + ttl)
-        .await;
-    Ok(pkey)
+        .get_or_try_insert(key, |_| ttl, async {
+            let key_fetch_timer = SIGNER_KEY_FETCH.start_timer();
+            let data = key.get().await?;
+            let pkey = Arc::new(DkimPrivateKey::key(&data)?);
+            key_fetch_timer.stop_and_record();
+            Ok::<Arc<DkimPrivateKey>, anyhow::Error>(pkey)
+        })
+        .await
+        .map_err(|err| anyhow::anyhow!("{err:#}"))
+        .map(|lookup| {
+            if !lookup.is_fresh {
+                KEY_CACHE_HIT.inc();
+            } else {
+                KEY_CACHE_MISS.inc();
+            }
+            lookup.item
+        })
 }
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
@@ -242,69 +244,48 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             Ok(())
         })?,
     )?;
+
+    async fn generic_signer_ctor(lua: Lua, params: Value) -> mlua::Result<Signer> {
+        let params: SignerConfig = from_lua_value(&lua, params)?;
+
+        SIGNER_CACHE_LOOKUP.inc();
+        SIGNER_CACHE
+            .get_or_try_insert(&params, |_| params.ttl, async {
+                let signer_creation_timer = SIGNER_CREATE.start_timer();
+
+                let key = cached_key_load(&params.key, params.ttl)
+                    .await
+                    .map_err(|err| anyhow::anyhow!("{:?}: {err:#}", params.key))?;
+
+                let signer = params
+                    .configure_kumo_dkim(key)
+                    .map_err(|err| anyhow::anyhow!("{err:#}"))?;
+
+                let inner = Arc::new(CFSigner { signer });
+
+                signer_creation_timer.stop_and_record();
+                Ok::<Arc<CFSigner>, anyhow::Error>(inner)
+            })
+            .await
+            .map_err(any_err)
+            .map(|lookup| {
+                if !lookup.is_fresh {
+                    SIGNER_CACHE_HIT.inc();
+                } else {
+                    SIGNER_CACHE_MISS.inc();
+                }
+                Signer(lookup.item)
+            })
+    }
+
     dkim_mod.set(
         "rsa_sha256_signer",
-        lua.create_async_function(|lua, params: Value| async move {
-            let params: SignerConfig = from_lua_value(&lua, params)?;
-
-            SIGNER_CACHE_LOOKUP.inc();
-            if let Some(inner) = SIGNER_CACHE.get(&params) {
-                SIGNER_CACHE_HIT.inc();
-                return Ok(Signer(inner));
-            }
-            SIGNER_CACHE_MISS.inc();
-
-            let signer_creation_timer = SIGNER_CREATE.start_timer();
-
-            let key = cached_key_load(&params.key, params.ttl)
-                .await
-                .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;
-
-            let signer = params
-                .configure_kumo_dkim(key)
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
-
-            let inner = Arc::new(CFSigner { signer });
-
-            let expiration = Instant::now() + params.ttl;
-            SIGNER_CACHE
-                .insert(params, Arc::clone(&inner), expiration)
-                .await;
-
-            signer_creation_timer.stop_and_record();
-            Ok(Signer(inner))
-        })?,
+        lua.create_async_function(generic_signer_ctor)?,
     )?;
 
     dkim_mod.set(
         "ed25519_signer",
-        lua.create_async_function(|lua, params: Value| async move {
-            let params: SignerConfig = from_lua_value(&lua, params)?;
-
-            if let Some(inner) = SIGNER_CACHE.get(&params) {
-                return Ok(Signer(inner));
-            }
-
-            let signer_creation_timer = SIGNER_CREATE.start_timer();
-
-            let key = cached_key_load(&params.key, params.ttl)
-                .await
-                .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;
-
-            let signer = params
-                .configure_kumo_dkim(key)
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
-
-            let inner = Arc::new(CFSigner { signer });
-
-            let expiration = Instant::now() + params.ttl;
-            SIGNER_CACHE
-                .insert(params, Arc::clone(&inner), expiration)
-                .await;
-
-            signer_creation_timer.stop_and_record();
-            Ok(Signer(inner))
-        })?,
+        lua.create_async_function(generic_signer_ctor)?,
     )?;
     Ok(())
 }

@@ -78,6 +78,8 @@
    enables manual wrapping of strings for use in, for example, header values.
  * new [msg:arc_verify](../reference/message/arc_verify.md) and
    [msg:arc_seal](../reference/message/arc_seal.md) functions. #16
+ * Enable thundering herd protection for `dkim_key_cache` and
+   `dkim_signer_cache`
 
 ## Fixes
 
