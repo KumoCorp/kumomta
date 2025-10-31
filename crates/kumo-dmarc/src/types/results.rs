@@ -87,6 +87,8 @@ pub enum Disposition {
     None,
     Quarantine,
     Reject,
+    TempError,
+    PermError,
 }
 
 impl ToString for Disposition {
@@ -96,6 +98,8 @@ impl ToString for Disposition {
             Disposition::Pass => "Pass".to_string(),
             Disposition::Quarantine => "Quarantine".to_string(),
             Disposition::Reject => "Reject".to_string(),
+            Disposition::TempError => "TempError".to_string(),
+            Disposition::PermError => "PermError".to_string(),
         }
     }
 }
