@@ -2,39 +2,45 @@
 
 ## Introduction
 
-This integration makes **Hornetsecurity Email Protection** and the **Hornetsecurity Filter Engine** available for KumoMTA to scan messages in real-time.
+This integration makes **Hornetsecurity Email Protection** and the
+**Hornetsecurity Filter Engine** available for KumoMTA to scan messages in
+real-time.
 
 Only the "scan" function is implemented for in-line use with KumoMTA.
 
 ## Install
-If you have not already done so, contact [Hornetsecurity](https://www.hornetsecure.com/) for documentation, binary and license.
-Configure Hornetsecurity Email Protection as per their documentation.
+
+If you have not already done so, contact
+[Hornetsecurity](https://www.hornetsecure.com/) for documentation, binary and
+license.  Configure Hornetsecurity Email Protection as per their documentation.
 
 EG:
-```
-sudo dpkg -i hornetsecurity-emailprotection_5.0.0_amd64.deb
-edit settings in `/opt/hornetsecurity/emailprotection/etc/emailprotection.toml`
-including the filter LICENSE and PROFILE
 
+```console
+$ sudo dpkg -i hornetsecurity-emailprotection_5.0.0_amd64.deb
 ```
 
-This utility lives in /opt/kumomta/shared/policy/extras.
+Then edit settings in
+`/opt/hornetsecurity/emailprotection/etc/emailprotection.toml` including the
+filter LICENSE and PROFILE
 
 Add `local hornet = require 'policy-extras.hornet'` to the top level of init.lua with the other requires.
 
 Call the hornet service from inside init.lua with `hornet:<function>(params)`.  See usage details below
 
 ## API License Key
-You need a license key to use the Hornetsecurity Email Protection. This key will be provided to you by Hornetsecurity.
+
+You need a license key to use the Hornetsecurity Email Protection. This key
+will be provided to you by Hornetsecurity.
 
 This key must be appended to the Email Protection configuration file.
-
 
 ## Usage
 
 ### hornet:connect
 
 To connect to a **Hornetsecurity Email Protection** service use `hornethost = hornet:connect(host, params)` in the top level of init.lua.
+
 ```
 Inputs:
   host: Hornet Service hostname or IP address (string)
@@ -70,6 +76,7 @@ IE: "200 OK: {"state":1,"score":250,"verdict":"spam:low","spamcause":"gggr...omh
 ```
 
 If the extra parameter `addheaders` = `true`, then the scan result headers will be added directly to the message before delivery.
+
 ```
 IE:
 X-Hornet-spamcause: gggr...omh
@@ -77,16 +84,14 @@ X-Hornet-verdict: malware
 X-Hornet-elapsed: 6ms
 X-Hornet-state: 2
 X-Hornet-score: 9999
-
 ```
-
 
 Note that messages will not be quarantined or dropped automatically regardless of the `verdict` or `score`.  We recommend you code actions based on the Hornetsecurity best practices documentation.
 
-```
-IE: if result['verdict'] == "malware" then
-      kumo.reject(552,"Bounced for detected malware")
-    end
+```lua
+if result.verdict == 'malware' then
+  kumo.reject(552, 'Bounced for detected malware')
+end
 ```
 
 
@@ -98,31 +103,30 @@ local hornet = require 'policy-extras.hornet'
 kumo.on('smtp_server_message_received', function(msg)
   -- Connect to Hornetsecurity service on the local node
   print 'Checking the Hornet Server'
-  local hornethost = hornet:connect(
-    '172.31.17.26',
-    { ['port'] = '8080', ['use_tls'] = 'false' }
-  )
+  local hornethost =
+    hornet:connect('172.31.17.26', { port = '8080', use_tls = 'false' })
 
   if not hornethost then
     print 'No connection to Hornetsecurity host'
-  end
+  else
+    local extras = {
+      addheaders = true,
+      mode = 'smtpout',
+      X_Sanitize = false,
+    }
 
-  local extras = {}
-  extras['addheaders'] = true
-  extras['mode'] = 'smtpout'
-  extras['X_Sanitize'] = false
+    local result = hornet:scan(hornethost, extras, msg)
+    if result ~= nil then
+      if result.error ~= nil then
+        print('Hornetsecurity scan error: ' .. result.error)
+      else
+        --      print ("Hornetsecurity scan result :" .. result)
+      end
 
-  local result = hornet:scan(hornethost, extras, msg)
-  if result ~= nil then
-    if result['error'] ~= nil then
-      print('Hornetsecurity scan error: ' .. result['error'])
-    else
-      --      print ("Hornetsecurity scan result :" .. result)
+      if result.verdict == 'malware' then
+        kumo.reject(552, 'Bounced for detected malware')
+      end
     end
-  end
-
-  if result['verdict'] == 'malware' then
-    kumo.reject(552, 'Bounced for detected malware')
   end
 
   -- rest of smtp_server_message_received processing code goes below
