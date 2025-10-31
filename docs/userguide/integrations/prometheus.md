@@ -8,7 +8,7 @@
 
 ### Get KumoMTA 
 
-Install KumoMTA as per the installation instructions [here](https://docs.kumomta.com/userguide/installation/overview/) 
+Install KumoMTA as per the installation instructions [here](..//installation/overview/) 
 
 Before finishing this step, you should ensure that you have correctly set up DNS with a resolving sending domain, MX, PTR, SPF, DKIM, etc.   
 
@@ -22,7 +22,7 @@ First, **Install Node-Exporter** to collect typical system metrics to push to Pr
 
 There is also a very handy step-by-step guide [here](https://prometheus.io/docs/guides/node-exporter/) 
 
-```bash
+```
 cd  
 wget https://github.com/prometheus/node_exporter/releases/download/v1.6.0/node_exporter-1.6.0.linux-amd64.tar.gz 
 tar xvfz node_exporter-*.*-amd64.tar.gz 
@@ -37,7 +37,7 @@ You can test this with a simple curl : `curl http://localhost:9100/metrics`
  
 Now, **Install Prometheus** for system reporting. Get an appropriate version from [here](https://prometheus.io/download/). Theoretically this can be set up on a remote server to collect metrics from your whole cluster.  In this document we will install version 2.47.2 on localhost. 
  
-```bash
+```
 cd 
 wget https://github.com/prometheus/prometheus/releases/download/v2.47.2/prometheus-2.47.2.linux-amd64.tar.gz 
 tar xvf prometheus-*.*-amd64.tar.gz 
@@ -47,7 +47,7 @@ cd prometheus-2.47.2.linux-amd64/
 Create or modify a Prometheus yaml file so it includes this node’s feed.  If you are configuring a cluster, add references to all the nodes here too.  This can be saved almost anywhere.  The command below creates the file in `./myprometheus.yml`. The job name `kumomta` will collect email metrics using the metrics API. The job name `systemstats` will collect OS and machine metrics. 
  
 
-```bash
+```
 echo " 
 global: 
    scrape_interval: 15s 
