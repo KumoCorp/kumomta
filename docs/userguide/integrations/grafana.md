@@ -10,8 +10,7 @@ Grafana does not directly integrate with KumoMTA, but is a recommended visualiza
 
 ### Get KumoMTA
 
- 1) Install KumoMTA as per the installation instructions here
-https://docs.kumomta.com/userguide/installation/overview/
+ 1) Install KumoMTA as per the [../installation/overview.md](installation instructions here)
 
 Before finishing this step, you should ensure that you have correctly set up DNS with a resolving sending domain, MX, PTR, SPF, DKIM, etc.
 
