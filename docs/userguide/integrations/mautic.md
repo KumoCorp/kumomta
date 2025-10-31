@@ -15,9 +15,9 @@ Before finishing this step, you should ensure that you have correctly set up DNS
 
  2) Ensure that you can inject and deliver mail through KumoMTA.
 
- 3) Mautic will require an SMTP_Auth authentication connection to inject to KumoMTA, so you will also need to provide KumoMTA with a way to validate credentials.  There is an explanation and sample code on [this page](https://docs.kumomta.com/reference/events/smtp_server_auth_plain/) that will allow you to store valid user credentials in KumoMTA.  
+ 3) Mautic will require an SMTP_Auth authentication connection to inject to KumoMTA, so you will also need to provide KumoMTA with a way to validate credentials.  There is an explanation and sample code on [this page](../../reference/events/smtp_server_auth_plain/) that will allow you to store valid user credentials in KumoMTA.  
 
-Familiarize yourself with the documentation [here](https://docs.kumomta.com/userguide/operation/smtpinjection/) on SMTP Injection.
+Familiarize yourself with the documentation [here](..//operation/smtpinjection/) on SMTP Injection.
 
 ### Got Mautic already?
 [Skip to part 5](#part_5)
