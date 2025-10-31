@@ -1,7 +1,8 @@
-use crate::arc::MAX_ARC_INSTANCE;
+use crate::arc::{ARC_SEAL_HEADER_NAME, MAX_ARC_INSTANCE};
 use crate::{parser, DKIMError, HeaderList};
-use dns_resolver::Name;
+use dns_resolver::{Name, Resolver};
 use indexmap::map::IndexMap;
+use mailparsing::Header;
 use std::str::FromStr;
 use textwrap::core::Word;
 
@@ -384,7 +385,7 @@ impl std::ops::DerefMut for ARCSealHeader {
 impl ARCSealHeader {
     pub fn parse(value: &str) -> Result<Self, DKIMError> {
         let tagged = TaggedHeader::parse(value)?;
-        let mut header = Self { tagged };
+        let header = Self { tagged };
 
         header.validate_required_tags()?;
         header.arc_instance()?;
@@ -393,36 +394,67 @@ impl ARCSealHeader {
             // TODO: MUST result in cv status of fail, see Section 5.1.1
         }
 
-        // Force in some values so that we can re-use the rest of
-        // the dkim infra on this header type
-        header.set_tag(
-            "h",
-            "ARC-Authentication-Results:ARC-Message-Signature:ARC-Seal",
-        );
-        header.set_tag("c", "relaxed");
-
         Ok(header)
     }
 
-    fn set_tag(&mut self, name: &str, value: &str) {
-        self.tagged.tags.insert(
-            name.to_string(),
-            parser::Tag {
-                name: name.to_string(),
-                value: value.to_string(),
-                raw_value: value.to_string(),
-            },
-        );
-    }
-
     fn validate_required_tags(&self) -> Result<(), DKIMError> {
-        const REQUIRED_TAGS: &[&str] = &["a", "b", "d", "s", "i"];
+        const REQUIRED_TAGS: &[&str] = &["a", "b", "d", "s", "i", "cv"];
         for required in REQUIRED_TAGS {
             if self.get_tag(required).is_none() {
                 return Err(DKIMError::SignatureMissingRequiredTag(required));
             }
         }
         Ok(())
+    }
+
+    pub async fn verify(
+        &self,
+        resolver: &dyn Resolver,
+        header_list: &Vec<&Header<'_>>,
+    ) -> Result<(), DKIMError> {
+        let public_keys = crate::public_key::retrieve_public_keys(
+            resolver,
+            self.get_required_tag("d"),
+            self.get_required_tag("s"),
+        )
+        .await?;
+
+        let hash_algo = parser::parse_hash_algo(self.get_required_tag("a"))?;
+
+        let computed_headers_hash = crate::hash::compute_headers_hash(
+            crate::canonicalization::Type::Relaxed,
+            &header_list,
+            hash_algo,
+            self,
+            ARC_SEAL_HEADER_NAME,
+        )?;
+
+        let signature = data_encoding::BASE64
+            .decode(self.get_required_tag("b").as_bytes())
+            .map_err(|err| {
+                DKIMError::SignatureSyntaxError(format!("failed to decode signature: {}", err))
+            })?;
+
+        let mut errors = vec![];
+        for public_key in public_keys {
+            match crate::verify_signature(hash_algo, &computed_headers_hash, &signature, public_key)
+            {
+                Ok(true) => return Ok(()),
+                Ok(false) => {}
+                Err(err) => {
+                    errors.push(err);
+                }
+            }
+        }
+
+        if let Some(err) = errors.pop() {
+            // Something definitely failed
+            return Err(err);
+        }
+
+        // There were no errors and all keys returned false from verify_signature().
+        // That means that the signature is not verified.
+        Err(DKIMError::SignatureDidNotVerify)
     }
 }
 
@@ -484,7 +516,7 @@ v=2;\r
     Dn/87/T/J+plO/ZPiSwWKa+ZttR6yjwm0fdpXf+4y8u0+I8iYSw2EN0vgWMYEEMp
     R1xuhMKD+bSlx130Rz2/5jFsVgLS7CfbTKK5CtqS3hl6EaLw/REBZeCYCHltzRWF
     wt38/NIzJ3ykCswwds2YQ==";
-        let header = ARCMessageSignatureHeader::parse(sig).unwrap();
+        ARCMessageSignatureHeader::parse(sig).unwrap();
     }
 
     #[test]
@@ -496,6 +528,6 @@ v=2;\r
     mMa6jpcJ6SE6iK/76elugk65BheumbQ1YEnbjitchUsLAwSXMuO+mhLYGtmvBhOn
     v3ewYQvD2jZzl2W+O73A08dQ/oeODDPqt6Fpv3XK572cTYPHhzmSbsxh9Lp7Z9MV
     x2TACmO51Adnp3C1CcEw8K9ajAgyjNMW4ELA==";
-        let header = ARCSealHeader::parse(seal).unwrap();
+        ARCSealHeader::parse(seal).unwrap();
     }
 }

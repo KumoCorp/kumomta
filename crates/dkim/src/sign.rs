@@ -290,10 +290,9 @@ impl Signer {
 
         hash::compute_headers_hash(
             canonicalization,
-            effective_header_list,
+            &effective_header_list.compute_concrete_header_list(email),
             self.hash_algo,
             &dkim_header,
-            email,
             DKIM_SIGNATURE_HEADER_NAME,
         )
     }

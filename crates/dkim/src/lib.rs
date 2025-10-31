@@ -203,13 +203,13 @@ async fn verify_email_header<'a>(
         .split(':')
         .map(|s| s.trim().to_ascii_lowercase())
         .collect();
+    let header_list = HeaderList::new(header_list).compute_concrete_header_list(email);
 
     let computed_headers_hash = hash::compute_headers_hash(
         header_canonicalization_type,
-        &HeaderList::new(header_list),
+        &header_list,
         hash_algo,
         dkim_header,
-        email,
         signature_header_name,
     )?;
 

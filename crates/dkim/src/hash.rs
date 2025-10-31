@@ -166,7 +166,7 @@ impl HeaderList {
     /// To facilitate this, we need to maintain state for each header name
     /// in the list to ensure that we select the appropriate header in the
     /// appropriate order.
-    fn compute_concrete_header_list<'a>(&self, email: &'a ParsedEmail) -> Vec<&'a Header<'a>> {
+    pub fn compute_concrete_header_list<'a>(&self, email: &'a ParsedEmail) -> Vec<&'a Header<'a>> {
         let mut headers = vec![];
         let email_headers = email.get_headers();
         let num_headers = email_headers.len();
@@ -204,17 +204,15 @@ impl HeaderList {
 
 pub(crate) fn compute_headers_hash<'a>(
     canonicalization_type: canonicalization::Type,
-    headers: &HeaderList,
+    header_list: &Vec<&Header>,
     hash_algo: HashAlgo,
     dkim_header: &TaggedHeader,
-    email: &'a ParsedEmail<'a>,
     signature_header_name: &str,
 ) -> Result<Vec<u8>, DKIMError> {
     let mut input = Vec::new();
     let mut hasher = HashImpl::from_algo(hash_algo);
 
-    let concrete = headers.compute_concrete_header_list(email);
-    for header in concrete {
+    for header in header_list {
         canonicalization_type.canon_header_into(
             header.get_name(),
             header.get_raw_value().as_bytes(),
@@ -379,14 +377,14 @@ Hello Alice
 
         let canonicalization_type = canonicalization::Type::Simple;
         let hash_algo = HashAlgo::RsaSha1;
-        let headers = HeaderList::new(vec!["To".to_owned(), "Subject".to_owned()]);
+        let headers = HeaderList::new(vec!["To".to_owned(), "Subject".to_owned()])
+            .compute_concrete_header_list(&email);
         assert_eq!(
             compute_headers_hash(
                 canonicalization_type,
                 &headers,
                 hash_algo,
                 &dkim_header(),
-                &email,
                 DKIM_SIGNATURE_HEADER_NAME
             )
             .unwrap(),
@@ -402,7 +400,6 @@ Hello Alice
                 &headers,
                 hash_algo,
                 &dkim_header(),
-                &email,
                 DKIM_SIGNATURE_HEADER_NAME
             )
             .unwrap(),
@@ -426,14 +423,14 @@ Hello Alice
 
         let canonicalization_type = canonicalization::Type::Relaxed;
         let hash_algo = HashAlgo::RsaSha1;
-        let headers = HeaderList::new(vec!["To".to_owned(), "Subject".to_owned()]);
+        let headers = HeaderList::new(vec!["To".to_owned(), "Subject".to_owned()])
+            .compute_concrete_header_list(&email);
         assert_eq!(
             compute_headers_hash(
                 canonicalization_type,
                 &headers,
                 hash_algo,
                 &dkim_header(),
-                &email,
                 DKIM_SIGNATURE_HEADER_NAME
             )
             .unwrap(),
@@ -449,7 +446,6 @@ Hello Alice
                 &headers,
                 hash_algo,
                 &dkim_header(),
-                &email,
                 DKIM_SIGNATURE_HEADER_NAME
             )
             .unwrap(),
