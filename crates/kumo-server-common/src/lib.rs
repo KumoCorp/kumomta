@@ -1,6 +1,6 @@
 use config::{
     any_err, decorate_callback_name, from_lua_value, get_or_create_module, load_config,
-    CallbackSignature,
+    serialize_options, CallbackSignature,
 };
 use kumo_server_runtime::available_parallelism;
 use mlua::{Function, Lua, LuaSerdeExt, Value, Variadic};
@@ -509,6 +509,23 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(|_, enable: bool| {
             kumo_server_memory::set_tracking_callstacks(enable);
             Ok(())
+        })?,
+    )?;
+
+    // This function is intended for debugging and testing purposes only.
+    // It is potentially very expensive on a production system with many
+    // thousands of queues.
+    kumo_mod.set(
+        "prometheus_metrics",
+        lua.create_async_function(|lua, ()| async move {
+            use tokio_stream::StreamExt;
+            let mut json_text = String::new();
+            let mut stream = kumo_prometheus::registry::Registry::stream_json();
+            while let Some(text) = stream.next().await {
+                json_text.push_str(&text);
+            }
+            let value: serde_json::Value = serde_json::from_str(&json_text).map_err(any_err)?;
+            lua.to_value_with(&value, serialize_options())
         })?,
     )?;
 
