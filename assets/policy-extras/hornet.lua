@@ -1,5 +1,4 @@
--
-[[ hornet.lua ]]
+--[[ hornet.lua ]]
 --
 -- Interface functions for Hornet Email Protection integration
 
