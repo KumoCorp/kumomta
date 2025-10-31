@@ -82,7 +82,8 @@ X-Hornet-score: 9999
 
 
 Note that messages will not be quarantined or dropped automatically regardless of the `verdict` or `score`.  We recommend you code actions based on the Hornetsecurity best practices documentation.
-```lua
+
+```
 IE: if result['verdict'] == "malware" then
       kumo.reject(552,"Bounced for detected malware")
     end
@@ -112,8 +113,8 @@ kumo.on('smtp_server_message_received', function(msg)
   extras['X_Sanitize'] = false
 
   local result = hornet:scan(hornethost, extras, msg)
-  if result then
-    if result['error'] then
+  if result ~= nil then
+    if result['error'] ~= nil then
       print('Hornetsecurity scan error: ' .. result['error'])
     else
       --      print ("Hornetsecurity scan result :" .. result)
