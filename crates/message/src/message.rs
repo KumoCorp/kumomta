@@ -13,6 +13,8 @@ use config::{any_err, from_lua_value, serialize_options};
 use futures::FutureExt;
 use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListAtomicLink};
 use kumo_chrono_helper::*;
+#[cfg(feature = "impl")]
+use kumo_dkim::arc::ARC;
 use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
 #[cfg(feature = "impl")]
@@ -892,6 +894,46 @@ impl Message {
     }
 
     #[cfg(feature = "impl")]
+    pub async fn arc_verify(&self) -> anyhow::Result<AuthenticationResult> {
+        let resolver = dns_resolver::get_resolver();
+        let data = self.get_data();
+        let bytes = mailparsing::SharedString::try_from(data.as_ref().as_ref())?;
+
+        let parsed = mailparsing::Header::parse_headers(bytes.clone())?;
+        let message = kumo_dkim::ParsedEmail::HeaderOnlyParse { bytes, parsed };
+
+        let arc = ARC::verify(&message, &**resolver).await;
+        Ok(arc.authentication_result())
+    }
+
+    #[cfg(feature = "impl")]
+    pub async fn arc_seal(
+        &self,
+        signer: Signer,
+        auth_results: AuthenticationResults,
+    ) -> anyhow::Result<()> {
+        let resolver = dns_resolver::get_resolver();
+        let data = self.get_data();
+        let bytes = mailparsing::SharedString::try_from(data.as_ref().as_ref())?;
+        let parsed = mailparsing::Header::parse_headers(bytes.clone())?;
+        let message = kumo_dkim::ParsedEmail::HeaderOnlyParse { bytes, parsed };
+        let arc = ARC::verify(&message, &**resolver).await;
+
+        let headers = arc.seal(&message, auth_results, signer.signer())?;
+        if !headers.is_empty() {
+            let mut new_data = Vec::<u8>::with_capacity(data.len() + 1024);
+
+            for hdr in headers {
+                hdr.write_header(&mut new_data).ok();
+            }
+            new_data.extend_from_slice(&data);
+            self.assign_data(new_data);
+        }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "impl")]
     pub async fn dkim_verify(&self) -> anyhow::Result<Vec<AuthenticationResult>> {
         let resolver = dns_resolver::get_resolver();
         let data = self.get_data();
@@ -1466,6 +1508,30 @@ impl UserData for Message {
                 this.prepend_header(Some("Authentication-Results"), &results.encode_value());
 
                 Ok(())
+            },
+        );
+
+        #[cfg(feature = "impl")]
+        methods.add_async_method("arc_verify", |lua, this, ()| async move {
+            let results = this.arc_verify().await.map_err(any_err)?;
+            lua.to_value_with(&results, serialize_options())
+        });
+
+        #[cfg(feature = "impl")]
+        methods.add_async_method(
+            "arc_seal",
+            |lua, this, (signer, serv_id, auth_res): (Signer, String, mlua::Value)| async move {
+                let results: Vec<AuthenticationResult> = lua.from_value(auth_res)?;
+                this.arc_seal(
+                    signer,
+                    AuthenticationResults {
+                        serv_id,
+                        version: None,
+                        results,
+                    },
+                )
+                .await
+                .map_err(any_err)
             },
         );
 

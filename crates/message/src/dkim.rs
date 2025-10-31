@@ -196,6 +196,10 @@ impl Signer {
     pub fn sign(&self, message: &[u8]) -> anyhow::Result<String> {
         self.0.sign(message)
     }
+
+    pub fn signer(&self) -> &kumo_dkim::Signer {
+        self.0.signer()
+    }
 }
 
 impl LuaUserData for Signer {}
@@ -324,5 +328,9 @@ impl CFSigner {
         sign_timer.stop_and_record();
 
         Ok(dkim_header)
+    }
+
+    fn signer(&self) -> &kumo_dkim::Signer {
+        &self.signer
     }
 }

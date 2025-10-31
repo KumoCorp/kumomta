@@ -76,6 +76,8 @@
    method.
  * new [kumo.string.wrap](../reference/string/wrap.md) function that
    enables manual wrapping of strings for use in, for example, header values.
+ * new [msg:arc_verify](../reference/message/arc_verify.md) and
+   [msg:arc_seal](../reference/message/arc_seal.md) functions. #16
 
 ## Fixes
 
