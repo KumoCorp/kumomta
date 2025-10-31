@@ -11,7 +11,7 @@ If you have not already done so, contact [Hornetsecurity](https://www.hornetsecu
 Configure Hornetsecurity Email Protection as per their documentation.
 
 EG:
-```bash
+```
 sudo dpkg -i hornetsecurity-emailprotection_5.0.0_amd64.deb
 edit settings in `/opt/hornetsecurity/emailprotection/etc/emailprotection.toml`
 including the filter LICENSE and PROFILE
@@ -35,7 +35,7 @@ This key must be appended to the Email Protection configuration file.
 ### hornet:connect
 
 To connect to a **Hornetsecurity Email Protection** service use `hornethost = hornet:connect(host, params)` in the top level of init.lua.
-```bash
+```
 Inputs:
   host: Hornet Service hostname or IP address (string)
   params: Array of options including
@@ -56,7 +56,7 @@ These API functions are not necessary and are not directly supported within Kumo
 To scan a message, use `result = hornet:scan(hornethost,extraparams,msg)` in any event that can access the full message content. EG: `smtp_server_message_received`
 
 Note that `hornet:connect` must be called prior to `hornet:scan`.
-```bash
+```
 Inputs:
   hornethost: Hornet service host object
   extraparams: Table of:
@@ -70,7 +70,7 @@ IE: "200 OK: {"state":1,"score":250,"verdict":"spam:low","spamcause":"gggr...omh
 ```
 
 If the extra parameter `addheaders` = `true`, then the scan result headers will be added directly to the message before delivery.
-```bash
+```
 IE:
 X-Hornet-spamcause: gggr...omh
 X-Hornet-verdict: malware
@@ -82,7 +82,7 @@ X-Hornet-score: 9999
 
 
 Note that messages will not be quarantined or dropped automatically regardless of the `verdict` or `score`.  We recommend you code actions based on the Hornetsecurity best practices documentation.
-```bash
+```lua
 IE: if result['verdict'] == "malware" then
       kumo.reject(552,"Bounced for detected malware")
     end

@@ -11,7 +11,7 @@ Spam filtering engines can be complex and require an understanding or patern mat
 Please read through the quickstart documentation FIRST before proceeding: [https://docs.rspamd.com/tutorials/quickstart/](https://docs.rspamd.com/tutorials/quickstart/)
 
 ### Get KumoMTA
- 1) Install KumoMTA as per the installation instructions here [https://docs.kumomta.com/userguide/installation/overview/](https://docs.kumomta.com/userguide/installation/overview/)
+ 1) Install KumoMTA as per the installation instructions here [https://docs.kumomta.com/userguide/installation/overview/](../installation/overview/)
     Before finishing this step, you should ensure that you have correctly set up DNS with a resolving sending domain, MX, PTR, SPF, DKIM, etc.
 
  2) Ensure that you can inject and deliver mail through KumoMTA.

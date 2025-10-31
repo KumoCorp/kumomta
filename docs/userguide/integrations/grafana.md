@@ -19,7 +19,7 @@ Before finishing this step, you should ensure that you have correctly set up DNS
 
 ### Install Prometheus and test
 
- 3) There are detailed instructions [here](https://docs.kumomta.com/userguide/integrations/prometheus/) for installing prometheus in KumoMTA.
+ 3) There are detailed instructions [here](..//integrations/prometheus/) for installing prometheus in KumoMTA.
   - You can install directly on the server, or in a separate server, or in docker.  We recommend using docker [https://hub.docker.com/r/prom/prometheus](https://hub.docker.com/r/prom/prometheus)
   - Note that `Node Exporter` is not actually required, but will give you access to additional system metrics like free drive space and other OS operational data. 
 
@@ -28,7 +28,7 @@ Before finishing this step, you should ensure that you have correctly set up DNS
  4) Grafana itself can be used in a [number of ways](https://grafana.com/docs/grafana/latest/setup-grafana/installation/).  As long as it can read the Prometheus data feed, it can work for you.
   While you can install directly on the KumoMTA node following the instructions above, we recommend you use a [docker image](https://grafana.com/docs/grafana/latest/setup-grafana/configure-docker/#supported-docker-image-variants) or the [Grafana cloud](https://grafana.com/products/cloud/?plcmt=products-nav) service.
 
- 5) Follow the setup [instructions here](https://docs.kumomta.com/userguide/operation/status/?h=grafana#setting-up-a-grafana-dashboard) to configure the prometheus feed, and get the samepl Gafana dashboard. 
+ 5) Follow the setup [instructions here](..//operation/status/?h=grafana#setting-up-a-grafana-dashboard) to configure the prometheus feed, and get the samepl Gafana dashboard. 
 
 
 If you have done everything right, you should be able to see your data feed in Grafana within seconds.
