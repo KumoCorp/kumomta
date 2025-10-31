@@ -268,14 +268,14 @@ impl DKIMHeader {
 }
 
 #[derive(Clone)]
-pub(crate) struct DKIMHeaderBuilder {
-    header: DKIMHeader,
+pub(crate) struct TaggedHeaderBuilder {
+    header: TaggedHeader,
     time: Option<chrono::DateTime<chrono::offset::Utc>>,
 }
-impl DKIMHeaderBuilder {
+impl TaggedHeaderBuilder {
     pub(crate) fn new() -> Self {
-        DKIMHeaderBuilder {
-            header: DKIMHeader::default(),
+        TaggedHeaderBuilder {
+            header: TaggedHeader::default(),
             time: None,
         }
     }
@@ -298,7 +298,7 @@ impl DKIMHeaderBuilder {
 
     pub(crate) fn set_expiry(self, duration: chrono::Duration) -> Result<Self, DKIMError> {
         let time = self.time.ok_or(DKIMError::BuilderError(
-            "DKIMHeaderBuilder: set_time must be called prior to calling set_expiry",
+            "TaggedHeaderBuilder: set_time must be called prior to calling set_expiry",
         ))?;
         let expiry = (time + duration).timestamp();
         Ok(self.add_tag("x", &expiry.to_string()))
@@ -309,7 +309,7 @@ impl DKIMHeaderBuilder {
         self.add_tag("t", &time.timestamp().to_string())
     }
 
-    pub(crate) fn build(mut self) -> DKIMHeader {
+    pub(crate) fn build(mut self) -> TaggedHeader {
         self.header.raw_bytes = self.header.serialize();
         self.header
     }
@@ -464,7 +464,7 @@ mod tests {
 
     #[test]
     fn test_dkim_header_builder() {
-        let header = DKIMHeaderBuilder::new()
+        let header = TaggedHeaderBuilder::new()
             .add_tag("v", "1")
             .add_tag("a", "something")
             .build();
@@ -477,7 +477,7 @@ mod tests {
 
     #[test]
     fn test_dkim_header_builder_signed_headers() {
-        let header = DKIMHeaderBuilder::new()
+        let header = TaggedHeaderBuilder::new()
             .add_tag("v", "2")
             .set_signed_headers(&signed_header_list(&["header1", "header2", "header3"]))
             .build();
@@ -496,7 +496,7 @@ v=2;\r
 
         let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
 
-        let header = DKIMHeaderBuilder::new()
+        let header = TaggedHeaderBuilder::new()
             .set_time(time)
             .set_expiry(chrono::Duration::try_hours(3).expect("3 hours ok"))
             .unwrap()

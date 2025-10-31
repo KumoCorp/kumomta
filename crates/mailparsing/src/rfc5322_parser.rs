@@ -1446,6 +1446,41 @@ pub struct ARCAuthenticationResults {
     pub results: Vec<AuthenticationResult>,
 }
 
+impl EncodeHeaderValue for ARCAuthenticationResults {
+    fn encode_value(&self) -> SharedString<'static> {
+        let mut result = format!("i={}; ", self.instance);
+
+        match self.version {
+            Some(v) => result.push_str(&format!("{} {v}", self.serv_id)),
+            None => result.push_str(&self.serv_id),
+        };
+
+        if self.results.is_empty() {
+            result.push_str("; none");
+        } else {
+            for res in &self.results {
+                result.push_str(";\r\n\t");
+                emit_value_token(&res.method, &mut result);
+                if let Some(v) = res.method_version {
+                    result.push_str(&format!("/{v}"));
+                }
+                result.push('=');
+                emit_value_token(&res.result, &mut result);
+                if let Some(reason) = &res.reason {
+                    result.push_str(" reason=");
+                    emit_value_token(reason, &mut result);
+                }
+                for (k, v) in &res.props {
+                    result.push_str(&format!("\r\n\t{k}="));
+                    emit_value_token(v, &mut result);
+                }
+            }
+        }
+
+        result.into()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthenticationResults {

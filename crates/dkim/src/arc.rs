@@ -1,7 +1,7 @@
 use crate::header::{ARCMessageSignatureHeader, ARCSealHeader};
-use crate::{verify_email_header, DKIMError, ParsedEmail};
+use crate::{verify_email_header, DKIMError, ParsedEmail, Signer};
 use dns_resolver::Resolver;
-use mailparsing::{ARCAuthenticationResults, Header};
+use mailparsing::{ARCAuthenticationResults, AuthenticationResult, AuthenticationResults, Header};
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
@@ -15,6 +15,16 @@ pub enum ChainValidationStatus {
     None,
     Fail,
     Pass,
+}
+
+impl std::fmt::Display for ChainValidationStatus {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::None => write!(fmt, "none"),
+            Self::Fail => write!(fmt, "fail"),
+            Self::Pass => write!(fmt, "pass"),
+        }
+    }
 }
 
 impl FromStr for ChainValidationStatus {
@@ -62,6 +72,86 @@ impl ARC {
         }
     }
 
+    pub fn authentication_result(&self) -> AuthenticationResult {
+        let status = self.chain_validation_status();
+
+        let mut props = BTreeMap::new();
+
+        if !self.sets.is_empty() {
+            props.insert(
+                "header.oldest-pass".to_string(),
+                if status == ChainValidationStatus::Fail {
+                    self.last_validated_instance
+                } else {
+                    0
+                }
+                .to_string(),
+            );
+        }
+
+        AuthenticationResult {
+            method: "arc".to_string(),
+            method_version: None,
+            result: status.to_string(),
+            reason: self.issues.first().map(|issue| issue.reason.to_string()),
+            props,
+        }
+    }
+
+    pub fn seal(
+        &self,
+        email: &ParsedEmail<'_>,
+        auth_results: AuthenticationResults,
+        signer: &Signer,
+    ) -> Result<Vec<Header<'static>>, DKIMError> {
+        if self.chain_validation_status() == ChainValidationStatus::Fail {
+            return Ok(vec![]);
+        }
+
+        let instance = self.sets.len() as u8 + 1;
+
+        let ams = signer.sign_impl(
+            email,
+            ARC_MESSAGE_SIGNATURE_HEADER_NAME,
+            &[("i", instance.to_string())],
+            None,
+        )?;
+        let (ams, _) = Header::parse(ams)?;
+
+        let aar = ARCAuthenticationResults {
+            instance,
+            serv_id: auth_results.serv_id,
+            version: auth_results.version,
+            results: auth_results.results,
+        };
+        let aar = Header::new(ARC_AUTHENTICATION_RESULTS_HEADER_NAME, aar);
+
+        let mut seal_headers = vec![];
+        for arc_set in &self.sets {
+            seal_headers.push(&arc_set.aar_header);
+            seal_headers.push(&arc_set.sig_header);
+            seal_headers.push(&arc_set.seal_header);
+        }
+        seal_headers.push(&aar);
+        seal_headers.push(&ams);
+
+        let seal = signer.sign_impl(
+            email,
+            ARC_SEAL_HEADER_NAME,
+            &[
+                ("i", instance.to_string()),
+                (
+                    "cv",
+                    if self.sets.is_empty() { "none" } else { "pass" }.to_string(),
+                ),
+            ],
+            Some(seal_headers),
+        )?;
+        let (seal, _) = Header::parse(seal)?;
+
+        Ok(vec![aar, ams, seal])
+    }
+
     pub async fn verify(email: &ParsedEmail<'_>, resolver: &dyn Resolver) -> Self {
         let mut seals = BTreeMap::new();
         let mut sigs = BTreeMap::new();
@@ -81,7 +171,9 @@ impl ARC {
                 }
                 Err(err) => {
                     issues.push(ARCIssue {
-                        reason: format!("An {ARC_SEAL_HEADER_NAME} header could not be parsed"),
+                        reason: format!(
+                            "An {ARC_SEAL_HEADER_NAME} header could not be parsed: {err:#}"
+                        ),
                         error: Some(err),
                         header: Some(hdr.to_owned()),
                     });
@@ -100,7 +192,7 @@ impl ARC {
                 Err(err) => {
                     issues.push(ARCIssue {
                         reason: format!(
-                            "An {ARC_MESSAGE_SIGNATURE_HEADER_NAME} header could not be parsed"
+                            "An {ARC_MESSAGE_SIGNATURE_HEADER_NAME} header could not be parsed: {err:#}"
                         ),
                         error: Some(err),
                         header: Some(hdr.to_owned()),
@@ -131,7 +223,7 @@ impl ARC {
                     issues.push(ARCIssue {
                         reason: format!(
                             "An {ARC_AUTHENTICATION_RESULTS_HEADER_NAME} header \
-                                    could not be parsed"
+                                    could not be parsed: {err:#}"
                         ),
                         error: Some(err.into()),
                         header: Some(hdr.to_owned()),
@@ -370,6 +462,9 @@ impl ARCSet {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::roundtrip_test::{load_rsa_key, TEST_ZONE};
+    use crate::SignerBuilder;
+    use chrono::{DateTime, TimeZone, Utc};
     use dns_resolver::TestResolver;
 
     const EXAMPLE_MESSAGE: &str = include_str!("../test/arc-example.eml");
@@ -408,5 +503,72 @@ mod test {
         let arc = ARC::verify(&email, &resolver).await;
         eprintln!("{:#?}", arc.issues);
         assert_eq!(arc.chain_validation_status(), ChainValidationStatus::None);
+    }
+
+    fn fixed_time() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap()
+    }
+
+    #[tokio::test]
+    async fn seal_1() {
+        let resolver = TestResolver::default().with_txt("s20._domainkey.example.com", TEST_ZONE);
+
+        let mut email_content = "Subject: hello\r\n\r\nHello\r\n".to_string();
+
+        let signer = SignerBuilder::new()
+            .with_signed_headers(["From", "Subject"])
+            .unwrap()
+            .with_private_key(load_rsa_key())
+            .with_selector("s20")
+            .with_signing_domain("example.com")
+            .with_time(fixed_time())
+            .with_over_signing(true)
+            .build()
+            .unwrap();
+
+        for instance in 1..=5 {
+            let email = ParsedEmail::parse(email_content.as_str()).unwrap();
+            let arc = ARC::verify(&email, &resolver).await;
+            assert_eq!(
+                arc.chain_validation_status(),
+                if instance == 1 {
+                    ChainValidationStatus::None
+                } else {
+                    ChainValidationStatus::Pass
+                }
+            );
+            let headers = arc
+                .seal(
+                    &email,
+                    AuthenticationResults {
+                        serv_id: "localhost".to_string(),
+                        version: None,
+                        results: vec![arc.authentication_result()],
+                    },
+                    &signer,
+                )
+                .unwrap();
+
+            let mut sealed = String::new();
+            for hdr in headers {
+                sealed.push_str(&hdr.to_header_string());
+            }
+            sealed.push_str(&email_content);
+
+            eprintln!("{sealed}\ninstance={instance}");
+
+            let arc2 = ARC::verify(&ParsedEmail::parse(sealed.as_str()).unwrap(), &resolver).await;
+            for issue in &arc2.issues {
+                eprintln!("{}", issue.reason);
+                eprintln!(
+                    "   header: {:?}",
+                    issue.header.as_ref().map(|h| h.to_header_string())
+                );
+                eprintln!("   err: {:#?}", issue.error.as_ref());
+            }
+            assert_eq!(arc2.chain_validation_status(), ChainValidationStatus::Pass);
+
+            email_content = sealed;
+        }
     }
 }

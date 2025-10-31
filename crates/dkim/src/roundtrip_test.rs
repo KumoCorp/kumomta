@@ -5,7 +5,7 @@ use chrono::TimeZone;
 use dns_resolver::{Resolver, TestResolver};
 use mailparsing::AuthenticationResult;
 
-const TEST_ZONE: &str = "v=DKIM1; h=sha256; k=rsa; t=y:s; \
+pub(crate) const TEST_ZONE: &str = "v=DKIM1; h=sha256; k=rsa; t=y:s; \
     p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyrnZAH3hf+\
     hp53o5gz7CfRNHme6iCW8koRNgV3bDiZcPxoC9nhjyMPWD/rizalhykzi\
     Eaz0WBodeSalGjTXqH6yrlUobekxJO9UmzKrIpWCfsdbHLfTHCO6kk4JLeKs+\
@@ -14,7 +14,7 @@ const TEST_ZONE: &str = "v=DKIM1; h=sha256; k=rsa; t=y:s; \
     z7NDO3kZIGiAHsNcptcZN3MnHRhMl2Buy5vdi4lfDXhjl5ozhb8MeY0LAJikJm\
     9RUQ3GcHBdvqchnz53gcNXIApMuK2QIDAQAB";
 
-fn load_rsa_key() -> DkimPrivateKey {
+pub(crate) fn load_rsa_key() -> DkimPrivateKey {
     DkimPrivateKey::rsa_key_file("./test/keys/2022.private").unwrap()
 }
 
