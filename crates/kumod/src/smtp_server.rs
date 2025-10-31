@@ -2339,7 +2339,7 @@ impl SmtpServerSession {
 
         let mut addr: Option<SocketAddr> = None;
         let mut dest_addr: Option<SocketAddr> = None;
-        let mut consumed_bytes = 0;
+        let consumed_bytes;
         match header {
             HeaderResult::V1(Ok(header)) => {
                 consumed_bytes = header.header.len();
@@ -2347,11 +2347,15 @@ impl SmtpServerSession {
                 match addresses {
                     ppp::v1::Addresses::Tcp4(addresses) => {
                         addr.replace((addresses.source_address, addresses.source_port).into());
-                        dest_addr.replace((addresses.destination_address, addresses.destination_port).into());
+                        dest_addr.replace(
+                            (addresses.destination_address, addresses.destination_port).into(),
+                        );
                     }
                     ppp::v1::Addresses::Tcp6(addresses) => {
                         addr.replace((addresses.source_address, addresses.source_port).into());
-                        dest_addr.replace((addresses.destination_address, addresses.destination_port).into());
+                        dest_addr.replace(
+                            (addresses.destination_address, addresses.destination_port).into(),
+                        );
                     }
                     ppp::v1::Addresses::Unknown => {}
                 }
@@ -2362,20 +2366,24 @@ impl SmtpServerSession {
                 match addresses {
                     ppp::v2::Addresses::IPv4(addresses) => {
                         addr.replace((addresses.source_address, addresses.source_port).into());
-                        dest_addr.replace((addresses.destination_address, addresses.destination_port).into());
+                        dest_addr.replace(
+                            (addresses.destination_address, addresses.destination_port).into(),
+                        );
                     }
                     ppp::v2::Addresses::IPv6(addresses) => {
                         addr.replace((addresses.source_address, addresses.source_port).into());
-                        dest_addr.replace((addresses.destination_address, addresses.destination_port).into());
+                        dest_addr.replace(
+                            (addresses.destination_address, addresses.destination_port).into(),
+                        );
                     }
                     ppp::v2::Addresses::Unspecified | ppp::v2::Addresses::Unix(_) => {}
                 }
             }
             HeaderResult::V1(Err(error)) => {
-                return Err(anyhow!("proxy protocol v1 parsing error: {error}"))
+                anyhow::bail!("proxy protocol v1 parsing error: {error}")
             }
             HeaderResult::V2(Err(error)) => {
-                return Err(anyhow!("proxy protocol v2 parsing error: {error}"))
+                anyhow::bail!("proxy protocol v2 parsing error: {error}")
             }
         }
         self.read_buffer.drain(0..consumed_bytes);
