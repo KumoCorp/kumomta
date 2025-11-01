@@ -12,9 +12,11 @@ use tokio::runtime::Runtime;
 use tokio::time::Duration;
 
 declare_cache! {
+/// Caches dkim signer specs to signer objects
 static SIGNER_CACHE: LruCacheWithTtl<SignerConfig, Arc<CFSigner>>::new("dkim_signer_cache", 1024);
 }
 declare_cache! {
+/// Caches dkim loaded signing keys based on their KeySource spec
 static KEY_CACHE: LruCacheWithTtl<KeySource, Arc<DkimPrivateKey>>::new("dkim_key_cache", 1024);
 }
 

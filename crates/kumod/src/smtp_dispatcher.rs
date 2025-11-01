@@ -32,10 +32,12 @@ use tokio::net::UnixStream;
 use tracing::Level;
 
 lruttl::declare_cache! {
+/// Remembers which site names have broken TLS
 static BROKEN_TLS_BY_SITE: LruCacheWithTtl<String, ()>::new("smtp_dispatcher_broken_tls", 64 * 1024);
 }
 
 lruttl::declare_cache! {
+/// Caches smtp client certificates by KeySource spec
 static CLIENT_CERT: LruCacheWithTtl<KeySource, Result<Option<Arc<Box<[u8]>>>, String>>::new("smtp_dispatcher_client_certificate", 1024);
 }
 

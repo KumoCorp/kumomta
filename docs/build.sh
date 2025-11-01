@@ -33,6 +33,7 @@ fi
 
 if test -x ${CARGO_TARGET_DIR}/debug/kumod ; then
   ./docs/update-openapi.sh
+  ${CARGO_TARGET_DIR}/debug/kumod --dump-lruttl-caches > docs/reference/lruttl-caches.json
 fi
 if test -x ${CARGO_TARGET_DIR}/debug/kcli ; then
   ${CARGO_TARGET_DIR}/debug/kcli markdown-help

@@ -32,6 +32,12 @@ kumo.on('smtp_server_message_received', function(msg)
 end)
 ```
 
+A signer object employs two-level caching to manage the loading of the
+underlying key (`dkim_key_cache`) as well as the higher level signing object
+itself (`dkim_signer_cache`).  See
+[kumo.set_lruttl_cache_capacity](../kumo/set_lruttl_cache_capacity.md) for
+tuning the maximum cache capacity.
+
 `PARAMS` is a lua table that can have the following keys:
 
 ## domain

@@ -4041,6 +4041,7 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "scopeguard",
+ "serde",
  "test-log",
  "tokio",
  "tracing",
