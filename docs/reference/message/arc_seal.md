@@ -1,7 +1,7 @@
 # arc_seal
 
 ```lua
-message:arc_seal(signer, server_id, authentication_results)
+message:arc_seal(signer, server_id, authentication_results, opt_resolver_name)
 ```
 
 {{since('dev')}}
@@ -18,6 +18,10 @@ The parameters are:
    that is generated as part of the sealing process.
  * `authentication_results` - an array style table holding the set of authentication
    results that should be signed as part of the ARC seal.
+ * `opt_resolver_name` parameter is an optional string parameter that specifies
+   the name of a alternate resolver defined via
+   [kumo.dns.define_resolver](../kumo.dns/define_resolver.md).  You can omit
+   this parameter and the default resolver will be used.
 
 Sealing will implicity verify the ARC chain in the message; if that
 verification indicates that the chain of custody has been broken, then the seal
@@ -26,6 +30,8 @@ operation will return without modifying the message.
 !!! note
     Sealing the message MUST occur after all header and body modification,
     otherwise those operations risk invalidating the signatures.
+
+
 
 ## Example
 

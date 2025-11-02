@@ -21,6 +21,35 @@ use std::time::Duration;
 static RESOLVERS: LazyLock<Mutex<HashMap<String, Arc<Box<dyn Resolver>>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+pub fn get_resolver_instance(
+    opt_resolver_name: &Option<String>,
+) -> anyhow::Result<Arc<Box<dyn Resolver>>> {
+    if let Some(name) = opt_resolver_name {
+        return RESOLVERS
+            .lock()
+            .get(name)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("resolver {name} is not defined"));
+    }
+
+    Ok(get_resolver())
+}
+
+pub fn get_opt_resolver(
+    opt_resolver_name: &Option<String>,
+) -> anyhow::Result<Option<Arc<Box<dyn Resolver>>>> {
+    if let Some(name) = opt_resolver_name {
+        let r = RESOLVERS
+            .lock()
+            .get(name)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("resolver {name} is not defined"))?;
+        Ok(Some(r))
+    } else {
+        Ok(None)
+    }
+}
+
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let dns_mod = get_or_create_sub_module(lua, "dns")?;
 
@@ -55,35 +84,6 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             set_mx_negative_cache_ttl(duration.into_inner()).map_err(any_err)
         })?,
     )?;
-
-    fn get_resolver_instance(
-        opt_resolver_name: &Option<String>,
-    ) -> anyhow::Result<Arc<Box<dyn Resolver>>> {
-        if let Some(name) = opt_resolver_name {
-            return RESOLVERS
-                .lock()
-                .get(name)
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("resolver {name} is not defined"));
-        }
-
-        Ok(get_resolver())
-    }
-
-    fn get_opt_resolver(
-        opt_resolver_name: &Option<String>,
-    ) -> anyhow::Result<Option<Arc<Box<dyn Resolver>>>> {
-        if let Some(name) = opt_resolver_name {
-            let r = RESOLVERS
-                .lock()
-                .get(name)
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("resolver {name} is not defined"))?;
-            Ok(Some(r))
-        } else {
-            Ok(None)
-        }
-    }
 
     dns_mod.set(
         "ptr_host",

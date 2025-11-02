@@ -1,7 +1,7 @@
 # arc_verify
 
 ```lua
-local result = message:arc_verify()
+local result = message:arc_verify(OPT_RESOLVER_NAME)
 ```
 
 {{since('dev')}}
@@ -24,6 +24,11 @@ custody, some of which will compound and cause subsequent checks to fail.
 Interally the ARC validator tracks all of these but will only expose the first
 such failure in the `reason` field of the `AuthenticationResult` object for the
 sake of brevity.
+
+The `OPT_RESOLVER_NAME` parameter is an optional string parameter that
+specifies the name of a alternate resolver defined via
+[kumo.dns.define_resolver](../kumo.dns/define_resolver.md).  You can omit this
+parameter and the default resolver will be used.
 
 ## Example: obtaining the status
 

@@ -507,6 +507,10 @@ TOC = [
                 "reference/kumo.time",
             ),
             Gen(
+                "module: policy-extras.mail_auth",
+                "reference/policy-extras.mail_auth",
+            ),
+            Gen(
                 "module: tsa",
                 "reference/tsa",
             ),

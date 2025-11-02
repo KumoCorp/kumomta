@@ -1485,7 +1485,9 @@ impl EncodeHeaderValue for ARCAuthenticationResults {
 #[serde(deny_unknown_fields)]
 pub struct AuthenticationResults {
     pub serv_id: String,
+    #[serde(default)]
     pub version: Option<u32>,
+    #[serde(default)]
     pub results: Vec<AuthenticationResult>,
 }
 
@@ -1542,9 +1544,12 @@ impl EncodeHeaderValue for AuthenticationResults {
 #[serde(deny_unknown_fields)]
 pub struct AuthenticationResult {
     pub method: String,
+    #[serde(default)]
     pub method_version: Option<u32>,
     pub result: String,
+    #[serde(default)]
     pub reason: Option<String>,
+    #[serde(default)]
     pub props: BTreeMap<String, String>,
 }
 

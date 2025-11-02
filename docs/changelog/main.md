@@ -80,6 +80,9 @@
    [msg:arc_seal](../reference/message/arc_seal.md) functions. #16
  * Enable thundering herd protection for `dkim_key_cache` and
    `dkim_signer_cache`
+ * new [policy-extras.mail_auth](../reference/policy-extras.mail_auth/index.md)
+   module for performing mail authentication and producing an aggregate
+   `Authentication-Results` header.
 
 ## Fixes
 
