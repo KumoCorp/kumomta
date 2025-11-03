@@ -118,7 +118,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                                     method_version: None,
                                     result: "fail".to_string(),
                                     reason: Some(result.context),
-                                    props: BTreeMap::default(),
+                                    props,
                                 },
                             },
                             serialize_options(),
