@@ -76,6 +76,13 @@
    method.
  * new [kumo.string.wrap](../reference/string/wrap.md) function that
    enables manual wrapping of strings for use in, for example, header values.
+ * new [msg:arc_verify](../reference/message/arc_verify.md) and
+   [msg:arc_seal](../reference/message/arc_seal.md) functions. #16
+ * Enable thundering herd protection for `dkim_key_cache` and
+   `dkim_signer_cache`
+ * new [policy-extras.mail_auth](../reference/policy-extras.mail_auth/index.md)
+   module for performing mail authentication and producing an aggregate
+   `Authentication-Results` header.
 
 ## Fixes
 
@@ -104,3 +111,5 @@
  * [keysource](../reference/keysource.md) now supports callback/event based
    data loading, which is similar to inline `key_data`, but allows for more
    efficient cache keys that use less RAM.
+ * dkim verification would incorrectly treat `i=@fexample.net` as a valid
+   subdomain of `d=example.net`.

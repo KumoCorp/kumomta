@@ -8,9 +8,11 @@ anyhow = {workspace=true}
 axum = {workspace=true}
 axum-server = {workspace=true}
 chrono = {workspace=true, default-features=false, features=["std", "clock"]}
+dns-resolver = {path="../dns-resolver"}
 futures.workspace = true
 futures-lite = {workspace=true}
 k9 = {workspace=true}
+kumo-dkim = {path="../dkim"}
 kumo-api-types = {path="../kumo-api-types"}
 kumo-log-types = {path="../kumo-log-types"}
 lapin.workspace = true

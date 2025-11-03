@@ -1,7 +1,7 @@
 # kumo.spf.check_msg
 
 ```lua
-kumo.spf.check_msg(MESSAGE)
+kumo.spf.check_msg(MESSAGE, OPT_RESOLVER_NAME)
 ```
 
 {{since('dev')}}
@@ -11,6 +11,11 @@ It will extract the appropriate domain and sender information from the metadata 
 
 It will return an object containing the SPF `disposition` string and a `result`
 of type `authenticationresult` for use with `msg:add_authentication_results()`.
+
+The `OPT_RESOLVER_NAME` parameter is an optional string parameter that
+specifies the name of a alternate resolver defined via
+[kumo.dns.define_resolver](../kumo.dns/define_resolver.md).  You can omit this
+parameter and the default resolver will be used.
 
 ## Example: checking the SPF policy
 

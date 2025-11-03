@@ -56,6 +56,7 @@ use uuid::Uuid;
 pub const DEFERRED_QUEUE_NAME: &str = "deferred_smtp_inject.kumomta.internal";
 
 declare_cache! {
+/// Caches TLS acceptor information for the esmtp listener
 static TLS_CONFIG: LruCacheWithTtl<TlsAcceptorConfigKey, Arc<ServerConfig>>::new("smtp_server_tls_config", 128);
 }
 

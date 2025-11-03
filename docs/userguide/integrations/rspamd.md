@@ -11,21 +11,25 @@ Spam filtering engines can be complex and require an understanding or patern mat
 Please read through the quickstart documentation FIRST before proceeding: [https://docs.rspamd.com/tutorials/quickstart/](https://docs.rspamd.com/tutorials/quickstart/)
 
 ### Get KumoMTA
- 1) Install KumoMTA as per the installation instructions here [https://docs.kumomta.com/userguide/installation/overview/](../installation/overview/)
-    Before finishing this step, you should ensure that you have correctly set up DNS with a resolving sending domain, MX, PTR, SPF, DKIM, etc.
 
- 2) Ensure that you can inject and deliver mail through KumoMTA.
+Install KumoMTA as per the [installation instructions
+here](../installation/overview.md).
 
- 3) Add the following to your init.lua config:
+Before finishing this step, you should ensure that you have correctly set up
+DNS with a resolving sending domain, MX, PTR, SPF, DKIM, etc.
 
-In the top part of the config, before the init section, place this variable declaration: 
+Ensure that you can inject and deliver mail through KumoMTA.
 
-`local RSPAMD_URL = "http://localhost:11333/checkv2"`
-
-Then in the `smtp_server_message_received` add code to pass the message to rspamd for evaluation:
+Add the following to your init.lua config, in the top part of the config, before the init section, place this variable declaration: 
 
 ```lua
-kumo.on('smtp_server_message_received', function(msg)
+local RSPAMD_URL = 'http://localhost:11333/checkv2'
+```
+
+Then in the `smtp_server_message_received` event add code to pass the message to rspamd for evaluation:
+
+```lua
+kumo.on('smtp_server_message_received', function(msg, conn_meta)
   local request = kumo.http.build_client({}):post(RSPAMD_URL)
   request:body(msg:get_data())
   local response = request:send()
@@ -38,20 +42,20 @@ kumo.on('smtp_server_message_received', function(msg)
   -- the rest of your handler
 end)
 ```
-Note that you can modify the score threshold and reject message as needed.
 
+Note that you can modify the score threshold and reject message as needed.
 
 ### Get Rspamd
 
- 3) Read and folllow the first 3 (THREE) steps in this guide: [https://docs.rspamd.com/tutorials/quickstart/](https://docs.rspamd.com/tutorials/quickstart/)
- - STOP when you hit step 4.  Do NOT install Postfix.
+Read and follow the first 3 (THREE) steps in this guide:
+[https://docs.rspamd.com/tutorials/quickstart/](https://docs.rspamd.com/tutorials/quickstart/)
 
- 4) Restart the rspand process with  `sudo systemctl restart rspamd`
+**STOP when you hit step 4.  Do NOT install Postfix.**
 
- 5) Continue the install and test process starting at step 5 (five) here: [https://docs.rspamd.com/tutorials/quickstart/](https://docs.rspamd.com/tutorials/quickstart/)
- 
+Restart the rspamd process with `sudo systemctl restart rspamd`
+
+Continue the install and test process starting at step 5 (five) here:
+[https://docs.rspamd.com/tutorials/quickstart/](https://docs.rspamd.com/tutorials/quickstart/)
 
 Your rspamd configuration should now test every mesage injected to KumoMTA.
-
-
 

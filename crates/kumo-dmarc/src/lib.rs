@@ -61,6 +61,29 @@ pub(crate) enum SenderDomainAlignment {
     OrganizationalDomain,
 }
 
+pub(crate) enum DmarcRecordResolution {
+    /// DNS could not be resolved at this time
+    TempError,
+
+    /// DNS was resolved, but no DMARC record was found
+    PermError,
+
+    /// DNS was resolved, and DMARC record was found
+    Records(Vec<Record>),
+}
+
+impl From<DmarcRecordResolution> for Disposition {
+    fn from(value: DmarcRecordResolution) -> Self {
+        match value {
+            DmarcRecordResolution::TempError => Disposition::TempError,
+            DmarcRecordResolution::PermError => Disposition::PermError,
+            DmarcRecordResolution::Records(_) => {
+                panic!("records must be parsed before being used in disposition")
+            }
+        }
+    }
+}
+
 struct DmarcContext<'a> {
     pub(crate) from_domain: &'a str,
     pub(crate) mail_from_domain: Option<&'a str>,
@@ -91,41 +114,49 @@ impl<'a> DmarcContext<'a> {
     }
 
     pub async fn check(&self, resolver: &dyn Resolver) -> DispositionWithContext {
-        if let Some(records) =
-            fetch_dmarc_records(&format!("_dmarc.{}", self.from_domain), resolver).await
-        {
-            for record in records {
-                return record.evaluate(self, SenderDomainAlignment::Exact).await;
-            }
-        } else if let Some(organizational_domain) = psl::domain_str(self.from_domain) {
-            if organizational_domain != self.from_domain {
-                if let Some(records) =
-                    fetch_dmarc_records(&format!("_dmarc.{}", organizational_domain), resolver)
-                        .await
-                {
-                    for record in records {
-                        return record
-                            .evaluate(self, SenderDomainAlignment::OrganizationalDomain)
-                            .await;
-                    }
-                } else {
-                    return DispositionWithContext {
-                        result: Disposition::None,
-                        context: format!("no DMARC records found for {}", &self.from_domain),
-                    };
+        match fetch_dmarc_records(&format!("_dmarc.{}", self.from_domain), resolver).await {
+            DmarcRecordResolution::Records(records) => {
+                for record in records {
+                    return record.evaluate(self, SenderDomainAlignment::Exact).await;
                 }
-            } else {
-                return DispositionWithContext {
-                    result: Disposition::None,
-                    context: format!("no DMARC records found for {}", &self.from_domain),
-                };
             }
-        } else {
-            return DispositionWithContext {
-                result: Disposition::None,
-                context: format!("no DMARC records found for {}", &self.from_domain),
-            };
-        };
+            x => {
+                if let Some(organizational_domain) = psl::domain_str(self.from_domain) {
+                    if organizational_domain != self.from_domain {
+                        let address = format!("_dmarc.{}", organizational_domain);
+                        match fetch_dmarc_records(&address, resolver).await {
+                            DmarcRecordResolution::TempError => {
+                                return DispositionWithContext {
+                                    result: Disposition::TempError,
+                                    context: format!(
+                                        "DNS records could not be resolved for {}",
+                                        address
+                                    ),
+                                }
+                            }
+                            DmarcRecordResolution::PermError => {
+                                return DispositionWithContext {
+                                    result: Disposition::PermError,
+                                    context: format!("no DMARC records found for {}", address),
+                                }
+                            }
+                            DmarcRecordResolution::Records(records) => {
+                                for record in records {
+                                    return record
+                                        .evaluate(self, SenderDomainAlignment::OrganizationalDomain)
+                                        .await;
+                                }
+                            }
+                        }
+                    } else {
+                        return DispositionWithContext {
+                            result: x.into(),
+                            context: format!("no DMARC records found for {}", &self.from_domain),
+                        };
+                    }
+                }
+            }
+        }
 
         DispositionWithContext {
             result: Disposition::None,
@@ -134,18 +165,21 @@ impl<'a> DmarcContext<'a> {
     }
 }
 
-pub async fn fetch_dmarc_records(address: &str, resolver: &dyn Resolver) -> Option<Vec<Record>> {
+pub(crate) async fn fetch_dmarc_records(
+    address: &str,
+    resolver: &dyn Resolver,
+) -> DmarcRecordResolution {
     let initial_txt = match resolver.resolve_txt(address).await {
         Ok(answer) => {
             if answer.records.is_empty() || answer.nxdomain {
-                return None;
+                return DmarcRecordResolution::PermError;
             } else {
                 eprintln!("answer: {:?}", answer);
                 answer.as_txt()
             }
         }
         Err(_) => {
-            return None;
+            return DmarcRecordResolution::TempError;
         }
     };
 
@@ -162,8 +196,8 @@ pub async fn fetch_dmarc_records(address: &str, resolver: &dyn Resolver) -> Opti
     }
 
     if records.is_empty() {
-        return None;
+        return DmarcRecordResolution::PermError;
     }
 
-    Some(records)
+    DmarcRecordResolution::Records(records)
 }

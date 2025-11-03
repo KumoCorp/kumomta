@@ -1,6 +1,6 @@
-use crate::header::HEADER;
-use crate::{canonicalization, DKIMError, DKIMHeader, ParsedEmail};
+use crate::{canonicalization, DKIMError, ParsedEmail, TaggedHeader};
 use data_encoding::BASE64;
+use mailparsing::Header;
 use sha1::{Digest as _, Sha1};
 use sha2::Sha256;
 use std::collections::HashMap;
@@ -118,33 +118,23 @@ pub(crate) fn compute_body_hash<'a>(
 
 /// Holds a list of header names, normalized to lower case
 #[derive(Debug)]
-pub(crate) enum HeaderList {
-    /// A list of possibly duplicated header names
-    MaybeMultiple(Vec<String>),
-    /// A list of of unique header names
-    Unique(Vec<String>),
-}
+pub(crate) struct HeaderList(Vec<String>);
 
 impl HeaderList {
     pub fn as_h_list(&self) -> String {
-        match self {
-            Self::MaybeMultiple(list) | Self::Unique(list) => list.join(":"),
-        }
+        self.0.join(":")
     }
 
     /// Computes the header list that should be used to over-sign
     /// the provided email message, and returns it
     pub fn compute_over_signed(&self, email: &ParsedEmail) -> Self {
-        let unique_header_names = match self {
-            Self::Unique(names) => names.clone(),
-            Self::MaybeMultiple(names) => {
-                // Note that Self::new() normalized the names, so we can
-                // simply dedup without further concern for normalization
-                let mut n = names.clone();
-                n.sort();
-                n.dedup();
-                n
-            }
+        let unique_header_names = {
+            // Note that Self::new() normalized the names, so we can
+            // simply dedup without further concern for normalization
+            let mut n = self.0.clone();
+            n.sort();
+            n.dedup();
+            n
         };
 
         let email_headers = email.get_headers();
@@ -157,63 +147,17 @@ impl HeaderList {
             result.push(name);
         }
 
-        Self::MaybeMultiple(result)
+        Self(result)
     }
 
     /// Build a header list.
     /// Analyzes the list to determine whether it is a unique list or not
     pub fn new(list: Vec<String>) -> Self {
         let normalized: Vec<String> = list.into_iter().map(|s| s.to_ascii_lowercase()).collect();
-
-        let mut all_single = true;
-        for name in &normalized {
-            let n: usize = normalized
-                .iter()
-                .map(|candidate| if candidate == name { 1 } else { 0 })
-                .sum();
-            if n > 1 {
-                all_single = false;
-                break;
-            }
-        }
-
-        if all_single {
-            Self::Unique(normalized)
-        } else {
-            Self::MaybeMultiple(normalized)
-        }
+        Self(normalized)
     }
 
-    /// Apply `apply` to each header in the provided email that
-    /// matches the headers, follow the order set out in Section 5.4.2
-    fn apply<'a, F: FnMut(&'a str, &'a [u8])>(&self, email: &'a ParsedEmail, apply: F) {
-        match self {
-            Self::MaybeMultiple(list) => Self::apply_multiple(list, email, apply),
-            Self::Unique(list) => Self::apply_unique(list, email, apply),
-        }
-    }
-
-    /// Perform the apply when we know that the list of header names
-    /// are unique.
-    /// We can avoid allocating any additional state for this case.
-    fn apply_unique<'a, F: FnMut(&'a str, &'a [u8])>(
-        header_list: &[String],
-        email: &'a ParsedEmail,
-        mut apply: F,
-    ) {
-        let email_headers = email.get_headers();
-
-        'outer: for name in header_list {
-            for header in email_headers.iter().rev() {
-                if header.get_name().eq_ignore_ascii_case(name) {
-                    apply(header.get_name(), header.get_raw_value().as_bytes());
-                    continue 'outer;
-                }
-            }
-        }
-    }
-
-    /// Section 5.4.2:
+    /// matches the headers, returning them in the order set out in Section 5.4.2
     /// Signers wishing to sign multiple instances of such a header field MUST
     /// include the header field name multiple times in the "h=" tag of the
     /// DKIM-Signature header field and MUST sign such header fields in order
@@ -222,11 +166,8 @@ impl HeaderList {
     /// To facilitate this, we need to maintain state for each header name
     /// in the list to ensure that we select the appropriate header in the
     /// appropriate order.
-    fn apply_multiple<'a, F: FnMut(&'a str, &'a [u8])>(
-        header_list: &[String],
-        email: &'a ParsedEmail,
-        mut apply: F,
-    ) {
+    pub fn compute_concrete_header_list<'a>(&self, email: &'a ParsedEmail) -> Vec<&'a Header<'a>> {
+        let mut headers = vec![];
         let email_headers = email.get_headers();
         let num_headers = email_headers.len();
 
@@ -234,7 +175,7 @@ impl HeaderList {
         // to lower case.  That happens in our constructor.
         let mut last_index: HashMap<&String, usize> = HashMap::new();
 
-        'outer: for name in header_list {
+        'outer: for name in &self.0 {
             let index = last_index.get(name).unwrap_or(&num_headers);
             for (header_index, header) in email_headers
                 .iter()
@@ -243,7 +184,7 @@ impl HeaderList {
                 .skip(num_headers - index)
             {
                 if header.get_name().eq_ignore_ascii_case(name) {
-                    apply(header.get_name(), header.get_raw_value().as_bytes());
+                    headers.push(header);
                     last_index.insert(name, header_index);
                     continue 'outer;
                 }
@@ -253,33 +194,43 @@ impl HeaderList {
             // treated as the null string (including the header field name, header
             // field value, all punctuation, and the trailing CRLF).
             // -> don't include it in the returned signed_headers.
+            // FIXME: something is fishy here.
 
             last_index.insert(name, 0);
         }
+        headers
     }
 }
 
 pub(crate) fn compute_headers_hash<'a>(
     canonicalization_type: canonicalization::Type,
-    headers: &HeaderList,
+    header_list: &Vec<&Header>,
     hash_algo: HashAlgo,
-    dkim_header: &DKIMHeader,
-    email: &'a ParsedEmail<'a>,
+    dkim_header: &TaggedHeader,
+    signature_header_name: &str,
 ) -> Result<Vec<u8>, DKIMError> {
     let mut input = Vec::new();
     let mut hasher = HashImpl::from_algo(hash_algo);
 
-    headers.apply(email, |key, value| {
-        canonicalization_type.canon_header_into(key, value, &mut input);
-    });
+    for header in header_list {
+        canonicalization_type.canon_header_into(
+            header.get_name(),
+            header.get_raw_value().as_bytes(),
+            &mut input,
+        );
+    }
 
     // Add the DKIM-Signature header in the hash. Remove the value of the
     // signature (b) first.
     {
         let sign = dkim_header.get_required_raw_tag("b");
-        let value = dkim_header.raw_bytes.replace(sign, "");
+        let value = dkim_header.raw().replace(sign, "");
         let mut canonicalized_value = vec![];
-        canonicalization_type.canon_header_into(HEADER, value.as_bytes(), &mut canonicalized_value);
+        canonicalization_type.canon_header_into(
+            signature_header_name,
+            value.as_bytes(),
+            &mut canonicalized_value,
+        );
 
         // remove trailing "\r\n"
         canonicalized_value.truncate(canonicalized_value.len() - 2);
@@ -296,9 +247,10 @@ pub(crate) fn compute_headers_hash<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{DKIMHeader, DKIM_SIGNATURE_HEADER_NAME};
 
     fn dkim_header() -> DKIMHeader {
-        crate::DKIMHeader::parse("v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; s=smtp; d=test.com; t=1641506955; h=content-type:to: subject:date:from:mime-version:sender; bh=PU2XIErWsXvhvt1W96ntPWZ2VImjVZ3vBY2T/A+wA3A=; b=PIO0A014nyntOGKdTdtvCJor9ZxvP1M3hoLeEh8HqZ+RvAyEKdAc7VOg+/g/OTaZgsmw6U sZCoN0YNVp+2o9nkaeUslsVz3M4I55HcZnarxl+fhplIMcJ/3s0nIhXL51MfGPRqPbB7/M Gjg9/07/2vFoid6Kitg6Z+CfoD2wlSRa8xDfmeyA2cHpeVuGQhGxu7BXuU8kGbeM4+weit Ql3t9zalhikEPI5Pr7dzYFrgWNOEO6w6rQfG7niKON1BimjdbJlGanC7cO4UL361hhXT4X iXLnC9TG39xKFPT/+4nkHy8pp6YvWkD3wKlBjwkYNm0JvKGwTskCMDeTwxXhAg==").unwrap()
+        DKIMHeader::parse("v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; s=smtp; d=test.com; t=1641506955; h=content-type:to: subject:date:from:mime-version:sender; bh=PU2XIErWsXvhvt1W96ntPWZ2VImjVZ3vBY2T/A+wA3A=; b=PIO0A014nyntOGKdTdtvCJor9ZxvP1M3hoLeEh8HqZ+RvAyEKdAc7VOg+/g/OTaZgsmw6U sZCoN0YNVp+2o9nkaeUslsVz3M4I55HcZnarxl+fhplIMcJ/3s0nIhXL51MfGPRqPbB7/M Gjg9/07/2vFoid6Kitg6Z+CfoD2wlSRa8xDfmeyA2cHpeVuGQhGxu7BXuU8kGbeM4+weit Ql3t9zalhikEPI5Pr7dzYFrgWNOEO6w6rQfG7niKON1BimjdbJlGanC7cO4UL361hhXT4X iXLnC9TG39xKFPT/+4nkHy8pp6YvWkD3wKlBjwkYNm0JvKGwTskCMDeTwxXhAg==").unwrap()
     }
 
     #[test]
@@ -425,14 +377,15 @@ Hello Alice
 
         let canonicalization_type = canonicalization::Type::Simple;
         let hash_algo = HashAlgo::RsaSha1;
-        let headers = HeaderList::new(vec!["To".to_owned(), "Subject".to_owned()]);
+        let headers = HeaderList::new(vec!["To".to_owned(), "Subject".to_owned()])
+            .compute_concrete_header_list(&email);
         assert_eq!(
             compute_headers_hash(
                 canonicalization_type,
                 &headers,
                 hash_algo,
                 &dkim_header(),
-                &email
+                DKIM_SIGNATURE_HEADER_NAME
             )
             .unwrap(),
             &[
@@ -447,7 +400,7 @@ Hello Alice
                 &headers,
                 hash_algo,
                 &dkim_header(),
-                &email
+                DKIM_SIGNATURE_HEADER_NAME
             )
             .unwrap(),
             &[
@@ -470,14 +423,15 @@ Hello Alice
 
         let canonicalization_type = canonicalization::Type::Relaxed;
         let hash_algo = HashAlgo::RsaSha1;
-        let headers = HeaderList::new(vec!["To".to_owned(), "Subject".to_owned()]);
+        let headers = HeaderList::new(vec!["To".to_owned(), "Subject".to_owned()])
+            .compute_concrete_header_list(&email);
         assert_eq!(
             compute_headers_hash(
                 canonicalization_type,
                 &headers,
                 hash_algo,
                 &dkim_header(),
-                &email
+                DKIM_SIGNATURE_HEADER_NAME
             )
             .unwrap(),
             &[
@@ -492,7 +446,7 @@ Hello Alice
                 &headers,
                 hash_algo,
                 &dkim_header(),
-                &email
+                DKIM_SIGNATURE_HEADER_NAME
             )
             .unwrap(),
             &[
@@ -512,11 +466,11 @@ Hello Alice
         header_list: &HeaderList,
         email: &'a ParsedEmail,
     ) -> Vec<(&'a str, &'a [u8])> {
-        let mut result = vec![];
-        header_list.apply(email, |key, value| {
-            result.push((key, value));
-        });
-        result
+        header_list
+            .compute_concrete_header_list(email)
+            .into_iter()
+            .map(|header| (header.get_name(), header.get_raw_value().as_bytes()))
+            .collect()
     }
 
     #[test]

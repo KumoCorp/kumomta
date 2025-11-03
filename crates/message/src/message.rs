@@ -13,6 +13,8 @@ use config::{any_err, from_lua_value, serialize_options};
 use futures::FutureExt;
 use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListAtomicLink};
 use kumo_chrono_helper::*;
+#[cfg(feature = "impl")]
+use kumo_dkim::arc::ARC;
 use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
 #[cfg(feature = "impl")]
@@ -20,6 +22,8 @@ use mailparsing::{AuthenticationResult, AuthenticationResults, EncodeHeaderValue
 use mailparsing::{DecodedBody, Header, HeaderParseResult, MessageConformance, MimePart};
 #[cfg(feature = "impl")]
 use mlua::{IntoLua, LuaSerdeExt, UserData, UserDataMethods};
+#[cfg(feature = "impl")]
+use mod_dns_resolver::get_resolver_instance;
 use parking_lot::Mutex;
 use prometheus::{Histogram, IntGauge};
 use serde::{Deserialize, Serialize};
@@ -892,8 +896,55 @@ impl Message {
     }
 
     #[cfg(feature = "impl")]
-    pub async fn dkim_verify(&self) -> anyhow::Result<Vec<AuthenticationResult>> {
-        let resolver = dns_resolver::get_resolver();
+    pub async fn arc_verify(
+        &self,
+        opt_resolver_name: Option<String>,
+    ) -> anyhow::Result<AuthenticationResult> {
+        let resolver = get_resolver_instance(&opt_resolver_name)?;
+        let data = self.get_data();
+        let bytes = mailparsing::SharedString::try_from(data.as_ref().as_ref())?;
+
+        let parsed = mailparsing::Header::parse_headers(bytes.clone())?;
+        let message = kumo_dkim::ParsedEmail::HeaderOnlyParse { bytes, parsed };
+
+        let arc = ARC::verify(&message, &**resolver).await;
+        Ok(arc.authentication_result())
+    }
+
+    #[cfg(feature = "impl")]
+    pub async fn arc_seal(
+        &self,
+        signer: Signer,
+        auth_results: AuthenticationResults,
+        opt_resolver_name: Option<String>,
+    ) -> anyhow::Result<()> {
+        let resolver = get_resolver_instance(&opt_resolver_name)?;
+        let data = self.get_data();
+        let bytes = mailparsing::SharedString::try_from(data.as_ref().as_ref())?;
+        let parsed = mailparsing::Header::parse_headers(bytes.clone())?;
+        let message = kumo_dkim::ParsedEmail::HeaderOnlyParse { bytes, parsed };
+        let arc = ARC::verify(&message, &**resolver).await;
+
+        let headers = arc.seal(&message, auth_results, signer.signer())?;
+        if !headers.is_empty() {
+            let mut new_data = Vec::<u8>::with_capacity(data.len() + 1024);
+
+            for hdr in headers {
+                hdr.write_header(&mut new_data).ok();
+            }
+            new_data.extend_from_slice(&data);
+            self.assign_data(new_data);
+        }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "impl")]
+    pub async fn dkim_verify(
+        &self,
+        opt_resolver_name: Option<String>,
+    ) -> anyhow::Result<Vec<AuthenticationResult>> {
+        let resolver = get_resolver_instance(&opt_resolver_name)?;
         let data = self.get_data();
         let bytes = mailparsing::SharedString::try_from(data.as_ref().as_ref())?;
 
@@ -912,18 +963,39 @@ impl Message {
         }
         let message = kumo_dkim::ParsedEmail::HeaderOnlyParse { bytes, parsed };
 
-        let from = message
-            .get_headers()
-            .from()
-            .map_err(any_err)?
-            .ok_or_else(|| anyhow::anyhow!("Missing or invalid From header"))?
-            .0;
-        if from.len() != 1 {
-            anyhow::bail!(
-                "From header must have a single sender, found {}",
-                from.len()
-            );
-        }
+        let from = match message.get_headers().from() {
+            Ok(Some(from)) if from.0.len() == 1 => from.0,
+            Ok(Some(from)) => {
+                return Ok(vec![AuthenticationResult {
+                    method: "dkim".to_string(),
+                    method_version: None,
+                    result: "permerror".to_string(),
+                    reason: Some(format!(
+                        "From header must have a single sender, found {}",
+                        from.len()
+                    )),
+                    props: Default::default(),
+                }]);
+            }
+            Ok(None) => {
+                return Ok(vec![AuthenticationResult {
+                    method: "dkim".to_string(),
+                    method_version: None,
+                    result: "permerror".to_string(),
+                    reason: Some("From header is missing".to_string()),
+                    props: Default::default(),
+                }]);
+            }
+            Err(err) => {
+                return Ok(vec![AuthenticationResult {
+                    method: "dkim".to_string(),
+                    method_version: None,
+                    result: "permerror".to_string(),
+                    reason: Some(format!("From header is invalid: {err:#}")),
+                    props: Default::default(),
+                }]);
+            }
+        };
         let from_domain = &from[0].address.domain;
 
         let results =
@@ -1470,10 +1542,48 @@ impl UserData for Message {
         );
 
         #[cfg(feature = "impl")]
-        methods.add_async_method("dkim_verify", |lua, this, ()| async move {
-            let results = this.dkim_verify().await.map_err(any_err)?;
-            lua.to_value_with(&results, serialize_options())
-        });
+        methods.add_async_method(
+            "arc_verify",
+            |lua, this, opt_resolver_name: Option<String>| async move {
+                let results = this.arc_verify(opt_resolver_name).await.map_err(any_err)?;
+                lua.to_value_with(&results, serialize_options())
+            },
+        );
+
+        #[cfg(feature = "impl")]
+        methods.add_async_method(
+            "arc_seal",
+            |lua,
+             this,
+             (signer, serv_id, auth_res, opt_resolver_name): (
+                Signer,
+                String,
+                mlua::Value,
+                Option<String>,
+            )| async move {
+                let results: Vec<AuthenticationResult> = lua.from_value(auth_res)?;
+                this.arc_seal(
+                    signer,
+                    AuthenticationResults {
+                        serv_id,
+                        version: None,
+                        results,
+                    },
+                    opt_resolver_name,
+                )
+                .await
+                .map_err(any_err)
+            },
+        );
+
+        #[cfg(feature = "impl")]
+        methods.add_async_method(
+            "dkim_verify",
+            |lua, this, opt_resolver_name: Option<String>| async move {
+                let results = this.dkim_verify(opt_resolver_name).await.map_err(any_err)?;
+                lua.to_value_with(&results, serialize_options())
+            },
+        );
 
         methods.add_method(
             "prepend_header",

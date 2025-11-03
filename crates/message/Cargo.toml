@@ -17,6 +17,7 @@ chrono = {workspace=true, default-features=false, features=["serde", "clock"]}
 chrono-tz = {workspace=true}
 data-loader = {path="../data-loader", optional=true, default-features=false}
 dns-resolver = {path="../dns-resolver"}
+mod-dns-resolver = {path="../mod-dns-resolver"}
 duration-serde = {path="../duration-serde"}
 encoding_rs.workspace = true
 futures = {workspace=true}

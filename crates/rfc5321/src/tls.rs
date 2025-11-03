@@ -60,6 +60,7 @@ impl std::hash::Hash for RustlsCacheKey {
 }
 
 lruttl::declare_cache! {
+/// Caches TLS connector information for the RFC5321 SMTP client
 static RUSTLS_CACHE: LruCacheWithTtl<RustlsCacheKey, Arc<ClientConfig>>::new("rfc5321_rustls_config", 32);
 }
 

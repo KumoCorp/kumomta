@@ -25,3 +25,10 @@ end)
     a partial eviction.  The cache will eventually shrink to conform to the
     new size as the cache is operated upon and background processing trims
     the cache.
+
+Below is a list of pre-defined caches and their default capacities in the
+`main` branch.  The list is automatically extracted from the code during the
+documentation build, unversioned and may not reflect the version of KumoMTA
+that you are running.
+
+{{lruttl_defs()}}

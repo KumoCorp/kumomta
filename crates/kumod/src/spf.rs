@@ -4,6 +4,7 @@ use kumo_spf::{CheckHostParams, SpfDisposition};
 use mailparsing::AuthenticationResult;
 use message::Message;
 use mlua::{Lua, LuaSerdeExt, UserDataRef};
+use mod_dns_resolver::get_resolver_instance;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -70,16 +71,24 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
         })
     }
 
-    async fn do_check(lua: &mlua::Lua, params: CheckHostParams) -> mlua::Result<mlua::Value> {
-        let resolver = dns_resolver::get_resolver();
+    async fn do_check(
+        lua: &mlua::Lua,
+        params: CheckHostParams,
+        opt_resolver_name: Option<String>,
+    ) -> mlua::Result<mlua::Value> {
+        let resolver = get_resolver_instance(&opt_resolver_name).map_err(any_err)?;
 
         let sender = params.sender.clone();
+        let ehlo = params.ehlo_domain.clone();
         let result = params.check(&**resolver).await;
 
         let mut props = BTreeMap::default();
 
         if let Some(sender) = sender {
             props.insert("smtp.mailfrom".to_string(), sender);
+        }
+        if let Some(ehlo) = ehlo {
+            props.insert("smtp.helo".to_string(), ehlo);
         }
 
         lua.to_value_with(
@@ -100,21 +109,29 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
     spf_mod.set(
         "check_host",
         lua.create_async_function(
-            |lua, (domain, meta, sender): (String, UserDataRef<ConnectionMetaData>, Option<String>)| async move {
-                let params = build_from_domain_meta_sender(domain, &meta, sender).map_err(any_err)?;
+            |lua,
+             (domain, meta, sender, opt_resolver_name): (
+                String,
+                UserDataRef<ConnectionMetaData>,
+                Option<String>,
+                Option<String>,
+            )| async move {
+                let params =
+                    build_from_domain_meta_sender(domain, &meta, sender).map_err(any_err)?;
 
-                do_check(&lua, params).await
-
+                do_check(&lua, params, opt_resolver_name).await
             },
         )?,
     )?;
 
     spf_mod.set(
         "check_msg",
-        lua.create_async_function(|lua, msg: Message| async move {
-            let params = build_from_msg(&msg).map_err(any_err)?;
-            do_check(&lua, params).await
-        })?,
+        lua.create_async_function(
+            |lua, (msg, opt_resolver_name): (Message, Option<String>)| async move {
+                let params = build_from_msg(&msg).map_err(any_err)?;
+                do_check(&lua, params, opt_resolver_name).await
+            },
+        )?,
     )?;
 
     Ok(())

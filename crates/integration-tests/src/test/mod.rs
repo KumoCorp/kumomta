@@ -1,4 +1,5 @@
 #![cfg(test)]
+mod arc;
 mod auth_deliver;
 mod auth_deliver_invalid_password;
 mod disconnect_in_data;

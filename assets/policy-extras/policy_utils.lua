@@ -256,7 +256,7 @@ local function dump_impl(value, indent, done)
     end
     done[value] = false
     if #dumped > 1 then
-      dumped = dumped .. '\n'
+      dumped = dumped .. '\n' .. string.rep(' ', indent - 2)
     end
     dumped = dumped .. '}'
     return dumped

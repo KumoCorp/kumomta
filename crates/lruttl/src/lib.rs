@@ -5,7 +5,7 @@ use parking_lot::Mutex;
 use prometheus::{IntCounter, IntGauge};
 use scopeguard::defer;
 use std::borrow::Borrow;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
 use std::hash::Hash;
@@ -347,7 +347,17 @@ async fn prune_expired_caches() {
 }
 
 #[linkme::distributed_slice]
-pub static LRUTTL_VIVIFY: [fn() -> &'static str];
+pub static LRUTTL_VIVIFY: [fn() -> CacheDefinition];
+
+#[macro_export]
+macro_rules! optional_doc {
+    ($doc:expr) => {
+        Some($doc.trim())
+    };
+    () => {
+        None
+    };
+}
 
 /// Declare a cache as a static, and link it into the list of possible
 /// pre-defined caches.
@@ -357,10 +367,13 @@ pub static LRUTTL_VIVIFY: [fn() -> &'static str];
 /// use this macro.
 #[macro_export]
 macro_rules! declare_cache {
-    ($vis:vis
+    (
+     $(#[doc = $doc:expr])*
+     $vis:vis
         static $sym:ident:
         LruCacheWithTtl<$key:ty, $value:ty>::new($name:expr, $capacity:expr);
     ) => {
+        $(#[doc = $doc])*
         $vis static $sym: ::std::sync::LazyLock<$crate::LruCacheWithTtl<$key, $value>> =
             ::std::sync::LazyLock::new(
                 || $crate::LruCacheWithTtl::new($name, $capacity));
@@ -368,9 +381,13 @@ macro_rules! declare_cache {
         // Link into LRUTTL_VIVIFY
         $crate::paste::paste! {
             #[linkme::distributed_slice($crate::LRUTTL_VIVIFY)]
-            static [<VIVIFY_ $sym>]: fn() -> &'static str = || {
+            static [<VIVIFY_ $sym>]: fn() -> $crate::CacheDefinition = || {
                 ::std::sync::LazyLock::force(&$sym);
-                $name
+                $crate::CacheDefinition {
+                    name: $name,
+                    capacity: $capacity,
+                    doc: $crate::optional_doc!($($doc)*),
+                }
             };
         }
     };
@@ -379,30 +396,48 @@ macro_rules! declare_cache {
 /// Ensure that all caches declared via declare_cache!
 /// have been instantiated and returns the set of names.
 fn vivify() {
-    LazyLock::force(&PREDEFINED_NAMES);
+    LazyLock::force(&PREDEFINED_CACHES);
 }
 
-fn vivify_impl() -> HashSet<&'static str> {
-    let mut set = HashSet::new();
+fn vivify_impl() -> HashMap<&'static str, CacheDefinition> {
+    let mut map = HashMap::new();
 
     for vivify_func in LRUTTL_VIVIFY {
-        let name = vivify_func();
-        assert!(!set.contains(name), "duplicate cache name {name}");
-        set.insert(name);
+        let definition = vivify_func();
+        assert!(
+            !map.contains_key(definition.name),
+            "duplicate cache name {}",
+            definition.name
+        );
+        map.insert(definition.name, definition);
     }
 
-    set
+    map
 }
 
-static PREDEFINED_NAMES: LazyLock<HashSet<&'static str>> = LazyLock::new(vivify_impl);
+#[derive(serde::Serialize)]
+pub struct CacheDefinition {
+    pub name: &'static str,
+    pub capacity: usize,
+    pub doc: Option<&'static str>,
+}
+
+static PREDEFINED_CACHES: LazyLock<HashMap<&'static str, CacheDefinition>> =
+    LazyLock::new(vivify_impl);
+
+pub fn get_definitions() -> Vec<&'static CacheDefinition> {
+    let mut defs = PREDEFINED_CACHES.values().collect::<Vec<_>>();
+    defs.sort_by(|a, b| a.name.cmp(&b.name));
+    defs
+}
 
 pub fn is_name_available(name: &str) -> bool {
-    !PREDEFINED_NAMES.contains(name)
+    !PREDEFINED_CACHES.contains_key(name)
 }
 
 /// Update the capacity value for a pre-defined cache
 pub fn set_cache_capacity(name: &str, capacity: usize) -> bool {
-    if !PREDEFINED_NAMES.contains(name) {
+    if !PREDEFINED_CACHES.contains_key(name) {
         return false;
     }
     let caches = all_caches();

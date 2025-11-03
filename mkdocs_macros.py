@@ -78,6 +78,25 @@ def define_env(env):
 {rule}
 """
 
+    # This macro is for use by docs/reference/kumo/set_lruttl_cache_capacity.md
+    # It expects that the json file referenced below be updated in docs/build.sh
+    # to reflect the current set of cache definitions
+    @env.macro
+    def lruttl_defs():
+        with open('docs/reference/lruttl-caches.json') as f:
+            defs = json.load(f)
+
+            info = "|Name|Capacity|Comment|\n|-|-|-|\n"
+            for d in defs:
+                name = d['name']
+                capacity = d['capacity']
+                doc = d.get('doc', '')
+                if doc is None:
+                    doc = ''
+                info = info + f"|{name}|{capacity}|{doc}|\n"
+
+            return info
+
     @env.macro
     def toml_data(caller):
         toml = caller()

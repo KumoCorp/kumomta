@@ -1,3 +1,0 @@
-2022._domainkey	IN	TXT	( "v=DKIM1; h=sha256; k=rsa; t=y:s; "
-	  "p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyrnZAH3hf+hp53o5gz7CfRNHme6iCW8koRNgV3bDiZcPxoC9nhjyMPWD/rizalhykziEaz0WBodeSalGjTXqH6yrlUobekxJO9UmzKrIpWCfsdbHLfTHCO6kk4JLeKs+hRs+/v2tPvcVnGD/A76cBXI5ksfrtUzeTlsPDYDSbafgBXvi9CTMAEUd3iB+HtjQbNuQJbNnZrLotB"
-	  "PGjuFTcUKCafCmFu31K6ZMDnOJadfoZO8cClti53V2DLz7NDO3kZIGiAHsNcptcZN3MnHRhMl2Buy5vdi4lfDXhjl5ozhb8MeY0LAJikJm9RUQ3GcHBdvqchnz53gcNXIApMuK2QIDAQAB" )  ; ----- DKIM key 2022 for example.com
