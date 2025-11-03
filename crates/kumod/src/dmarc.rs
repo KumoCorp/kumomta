@@ -51,7 +51,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                                 result: AuthenticationResult {
                                     method: "dmarc".to_string(),
                                     method_version: None,
-                                    result: "'From:' header missing domain".to_string(),
+                                    result: "None".to_string(),
                                     reason: Some("'From:' header missing domain".to_string()),
                                     props: BTreeMap::default(),
                                 },
@@ -67,7 +67,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                             result: AuthenticationResult {
                                 method: "dmarc".to_string(),
                                 method_version: None,
-                                result: "Only single 'From:' header supported".to_string(),
+                                result: "None".to_string(),
                                 reason: Some("Only single 'From:' header supported".to_string()),
                                 props: BTreeMap::default(),
                             },
@@ -87,19 +87,44 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 .check(&**resolver)
                 .await;
 
-                Ok(lua.to_value_with(
-                    &CheckHostOutput {
-                        disposition: result.result.clone(),
-                        result: AuthenticationResult {
-                            method: "dmarc".to_string(),
-                            method_version: None,
-                            result: result.result.to_string(),
-                            reason: Some(result.context),
-                            props: BTreeMap::default(),
-                        },
-                    },
-                    serialize_options(),
-                ))
+                match result.result {
+                    Disposition::Pass |
+                    Disposition::None |
+                    Disposition::TempError |
+                    Disposition::PermError => {
+                        Ok(lua.to_value_with(
+                            &CheckHostOutput {
+                                disposition: result.result.clone(),
+                                result: AuthenticationResult {
+                                    method: "dmarc".to_string(),
+                                    method_version: None,
+                                    result: result.result.to_string().to_ascii_lowercase(),
+                                    reason: Some(result.context),
+                                    props: BTreeMap::default(),
+                                },
+                            },
+                            serialize_options(),
+                        ))
+                    }
+                    disp @ Disposition::Quarantine |
+                    disp @ Disposition::Reject => {
+                        let mut props = BTreeMap::default();
+                        props.insert("policy.published-domain-policy".to_string(), disp.to_string().to_ascii_lowercase());
+                        Ok(lua.to_value_with(
+                            &CheckHostOutput {
+                                disposition: result.result.clone(),
+                                result: AuthenticationResult {
+                                    method: "dmarc".to_string(),
+                                    method_version: None,
+                                    result: "fail".to_string(),
+                                    reason: Some(result.context),
+                                    props,
+                                },
+                            },
+                            serialize_options(),
+                        ))
+                    }
+                }
             },
         )?,
     )?;
