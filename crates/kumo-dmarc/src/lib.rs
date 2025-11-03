@@ -123,22 +123,21 @@ impl<'a> DmarcContext<'a> {
             x => {
                 if let Some(organizational_domain) = psl::domain_str(self.from_domain) {
                     if organizational_domain != self.from_domain {
-                        match fetch_dmarc_records(
-                            &format!("_dmarc.{}", organizational_domain),
-                            resolver,
-                        )
-                        .await
-                        {
+                        let address = format!("_dmarc.{}", organizational_domain);
+                        match fetch_dmarc_records(&address, resolver).await {
                             DmarcRecordResolution::TempError => {
                                 return DispositionWithContext {
                                     result: Disposition::TempError,
-                                    context: "DNS records could not be resolved".to_string(),
+                                    context: format!(
+                                        "DNS records could not be resolved for {}",
+                                        address
+                                    ),
                                 }
                             }
                             DmarcRecordResolution::PermError => {
                                 return DispositionWithContext {
                                     result: Disposition::PermError,
-                                    context: "No DMARC found in DNS record".to_string(),
+                                    context: format!("no DMARC records found for {}", address),
                                 }
                             }
                             DmarcRecordResolution::Records(records) => {
