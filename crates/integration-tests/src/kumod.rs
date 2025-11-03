@@ -268,12 +268,23 @@ impl DaemonWithMaildir {
         Ok(status)
     }
 
+    pub async fn trace_server(&self) -> anyhow::Result<ServerTracer> {
+        return Ok(self.trace_server_from_target(&self.source).await?);
+    }
+
+    pub async fn trace_sink(&self) -> anyhow::Result<ServerTracer> {
+        return Ok(self.trace_server_from_target(&self.sink).await?);
+    }
+
     /// Run a server trace and capture the records until the trace is stopped,
     /// at which point it will return the set of records.
-    pub async fn trace_server(&self) -> anyhow::Result<ServerTracer> {
+    pub async fn trace_server_from_target(
+        &self,
+        target: &KumoDaemon,
+    ) -> anyhow::Result<ServerTracer> {
         let (mut socket, _response) = connect_async(format!(
             "ws://{}/api/admin/trace-smtp-server/v1",
-            self.source.listener("http")
+            target.listener("http")
         ))
         .await?;
         socket

@@ -20,6 +20,7 @@ mod maildir_batch_split_hook;
 mod max_line_length;
 mod no_ports_in_rcpt_domain;
 mod perm_fail;
+mod proxy_protocol;
 mod queue_ndr;
 mod rebind;
 mod rebind_event_defined;
