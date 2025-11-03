@@ -29,7 +29,12 @@ impl EnvelopeAddress {
             Ok(Self::null_sender())
         } else {
             let fields: Vec<&str> = text.split('@').collect();
-            anyhow::ensure!(fields.len() == 2, "expected user@domain");
+            anyhow::ensure!(
+                fields.len() == 2,
+                "Invalid EnvelopeAddress value {text}: expected user@domain form, \
+                but after splitting by @ there are {} fields",
+                fields.len()
+            );
             // TODO: stronger validation of local part and domain
             let domain = &fields[1];
             Self::validate_domain(domain)?;
