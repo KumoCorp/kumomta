@@ -18,6 +18,16 @@
    directly connecting IP information will be used.  See the [upstream
    issue](https://github.com/imbolc/axum-client-ip/issues/32) for more
    information.
+ * Our SMTP client now treats a 552 response during `RCPT TO` as a
+   `TransientFailure` instead of a `PermanentFailure` as described by [RFC 5321
+   Section
+   4.5.3.1.10](https://datatracker.ietf.org/doc/html/rfc5321#section-4.5.3.1.10).
+   If you are employing
+   [smtp_server_rewrite_response](../reference/events/smtp_server_rewrite_response.md)
+   and happen to rewrite transient codes to `552` then you will find that the
+   disposition remains as a `TransientFailure` even after the rewrite.  Our
+   recommendation is that you update such rewrite rules to use `550` or `555`
+   to avoid this classification.
 
 ## Other Changes and Enhancements
 
