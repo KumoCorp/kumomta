@@ -54,16 +54,17 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
         return;
     }
 
+    msg.load_meta_if_needed().await.ok();
+
     let recipient_list = match recipient_list {
         Some(list) => list,
-        None => msg
-            .recipient_list_string()
-            .unwrap_or_else(|err| vec![format!("{err:#}")]),
+        None => msg.recipient_list_string().unwrap_or_else(|err| {
+            tracing::error!("log_disposition: recipient_list_string: {err:#}");
+            vec![]
+        }),
     };
 
     let mut feedback_report = None;
-
-    msg.load_meta_if_needed().await.ok();
 
     let reception_protocol = msg.get_meta_string("reception_protocol").unwrap_or(None);
 
