@@ -98,8 +98,10 @@ function mod.check(msg, config)
 
   local dmarc_auth_result = nil
   if config.dmarc then
-    -- TODO: dmarc here
-    -- table.insert(auth_results, dmarc_auth_result)
+    local dmarc_disp = kumo.dmarc.check_msg(msg, {}, config.resolver)
+    dmarc_auth_result = dmarc_disp.result
+
+    table.insert(auth_results, dmarc_auth_result)
   end
 
   local arc_auth_result = nil
@@ -238,7 +240,8 @@ localhost 30 IN A 127.0.0.1
       .. 'smtp.mailfrom=sender@example.com; iprev=pass '
       .. 'reason="ip 127.0.0.1 <-> localhost.localdomain." '
       .. 'smtp.remote-ip=127.0.0.1; auth=none '
-      .. 'smtp.mailfrom=sender@example.com; arc=none'
+      .. 'smtp.mailfrom=sender@example.com; dmarc=permerror '
+      .. 'reason="no DMARC records found for example.com"; arc=none'
   )
 end
 
