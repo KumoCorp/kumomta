@@ -4,7 +4,6 @@ use crate::types::record::Record;
 pub use crate::types::results::{Disposition, DispositionWithContext};
 use dns_resolver::Resolver;
 use std::collections::BTreeMap;
-use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::SystemTime;
 
@@ -24,9 +23,6 @@ pub struct CheckHostParams {
     /// The "MAIL FROM" email address if available.
     pub mail_from_domain: Option<String>,
 
-    /// IP address of the SMTP client that is emitting the mail (v4 or v6).
-    pub client_ip: IpAddr,
-
     /// The results of the DKIM part of the checks
     pub dkim: Vec<BTreeMap<String, String>>,
 }
@@ -36,14 +32,12 @@ impl CheckHostParams {
         let Self {
             from_domain,
             mail_from_domain,
-            client_ip,
             dkim,
         } = self;
 
         match DmarcContext::new(
             &from_domain,
             mail_from_domain.as_ref().map(|x| x.as_str()),
-            client_ip,
             &dkim[..],
         ) {
             Ok(cx) => cx.check(resolver).await,
@@ -87,7 +81,6 @@ impl From<DmarcRecordResolution> for Disposition {
 struct DmarcContext<'a> {
     pub(crate) from_domain: &'a str,
     pub(crate) mail_from_domain: Option<&'a str>,
-    pub(crate) client_ip: IpAddr,
     pub(crate) now: SystemTime,
     pub(crate) dkim: &'a [BTreeMap<String, String>],
 }
@@ -101,13 +94,11 @@ impl<'a> DmarcContext<'a> {
     fn new(
         from_domain: &'a str,
         mail_from_domain: Option<&'a str>,
-        client_ip: IpAddr,
         dkim: &'a [BTreeMap<String, String>],
     ) -> Result<Self, DispositionWithContext> {
         Ok(Self {
             from_domain,
             mail_from_domain,
-            client_ip,
             now: SystemTime::now(),
             dkim,
         })

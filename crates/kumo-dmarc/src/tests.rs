@@ -2,10 +2,8 @@ use crate::types::results::DispositionWithContext;
 use crate::{Disposition, DmarcContext};
 use dns_resolver::{Resolver, TestResolver};
 use std::collections::BTreeMap;
-use std::net::Ipv4Addr;
 
 struct TestData<'a> {
-    client_ip: Ipv4Addr,
     from_domain: &'a str,
     mail_from_domain: &'a str,
     dkim_domains: &'a [Option<&'a str>],
@@ -25,7 +23,6 @@ async fn dmarc_dkim_relaxed_subdomain() {
         );
 
     let result = evaluate_ip(TestData {
-        client_ip: Ipv4Addr::LOCALHOST,
         from_domain: "sample.example.com",
         mail_from_domain: "sample.example.com",
         dkim_domains: &[Some("example.com")],
@@ -49,7 +46,6 @@ async fn dmarc_dkim_relaxed_subdomain_deep() {
         );
 
     let result = evaluate_ip(TestData {
-        client_ip: Ipv4Addr::LOCALHOST,
         from_domain: "a.b.c.sample.example.com",
         mail_from_domain: "a.b.c.sample.example.com",
         dkim_domains: &[Some("example.com")],
@@ -73,7 +69,6 @@ async fn dmarc_dkim_relaxed_subdomain_fail() {
         );
 
     let result = evaluate_ip(TestData {
-        client_ip: Ipv4Addr::LOCALHOST,
         from_domain: "sample.example.com",
         mail_from_domain: "sample.example.com",
         dkim_domains: &[Some("example.org")],
@@ -97,7 +92,6 @@ async fn dmarc_dkim_relaxed_subdomain_sp_quarantine_fail() {
         );
 
     let result = evaluate_ip(TestData {
-        client_ip: Ipv4Addr::LOCALHOST,
         from_domain: "sample.example.com",
         mail_from_domain: "sample.example.com",
         dkim_domains: &[Some("example.org")],
@@ -121,7 +115,6 @@ async fn dmarc_dkim_strict_subdomain() {
         );
 
     let result = evaluate_ip(TestData {
-        client_ip: Ipv4Addr::LOCALHOST,
         from_domain: "example.com",
         mail_from_domain: "example.com",
         dkim_domains: &[Some("example.com")],
@@ -145,7 +138,6 @@ async fn dmarc_dkim_strict_subdomain_fail() {
         );
 
     let result = evaluate_ip(TestData {
-        client_ip: Ipv4Addr::LOCALHOST,
         from_domain: "sample.example.com",
         mail_from_domain: "example.com",
         dkim_domains: &[Some("example.com")],
@@ -169,7 +161,6 @@ async fn dmarc_dkim_relaxed_illformed() {
         );
 
     let result = evaluate_ip(TestData {
-        client_ip: Ipv4Addr::LOCALHOST,
         from_domain: "example.com",
         mail_from_domain: "example.com",
         dkim_domains: &[None],
@@ -194,7 +185,6 @@ async fn dmarc_dkim_strict_illformed() {
         );
 
     let result = evaluate_ip(TestData {
-        client_ip: Ipv4Addr::LOCALHOST,
         from_domain: "example.com",
         mail_from_domain: "example.com",
         dkim_domains: &[None],
@@ -219,7 +209,6 @@ async fn dmarc_spf_relaxed_subdomain() {
         );
 
     let result = evaluate_ip(TestData {
-        client_ip: Ipv4Addr::LOCALHOST,
         from_domain: "example.com",
         mail_from_domain: "helper.example.com",
         dkim_domains: &[],
@@ -243,7 +232,6 @@ async fn dmarc_spf_relaxed_subdomain_deep() {
         );
 
     let result = evaluate_ip(TestData {
-        client_ip: Ipv4Addr::LOCALHOST,
         from_domain: "example.com",
         mail_from_domain: "a.b.c.helper.example.com",
         dkim_domains: &[],
@@ -267,7 +255,6 @@ async fn dmarc_spf_relaxed_subdomain_fail() {
         );
 
     let result = evaluate_ip(TestData {
-        client_ip: Ipv4Addr::LOCALHOST,
         from_domain: "example.com",
         mail_from_domain: "helper.example.org",
         dkim_domains: &[],
@@ -291,7 +278,6 @@ async fn dmarc_spf_strict_subdomain() {
         );
 
     let result = evaluate_ip(TestData {
-        client_ip: Ipv4Addr::LOCALHOST,
         from_domain: "example.com",
         mail_from_domain: "helper.example.com",
         dkim_domains: &[],
@@ -321,7 +307,6 @@ async fn dmarc_pct_rate() {
 
     for _ in 0..iters {
         let result = evaluate_ip(TestData {
-            client_ip: Ipv4Addr::LOCALHOST,
             from_domain: "example.com",
             mail_from_domain: "helper.example.com",
             dkim_domains: &[],
@@ -344,7 +329,6 @@ async fn dmarc_pct_rate() {
 
 async fn evaluate_ip<'a>(
     TestData {
-        client_ip,
         from_domain,
         mail_from_domain,
         dkim_domains,
@@ -364,12 +348,7 @@ async fn evaluate_ip<'a>(
         }
     }
 
-    match DmarcContext::new(
-        from_domain,
-        Some(mail_from_domain),
-        client_ip.into(),
-        &dkim_vec,
-    ) {
+    match DmarcContext::new(from_domain, Some(mail_from_domain), &dkim_vec) {
         Ok(cx) => cx.check(resolver).await,
         Err(result) => result,
     }
