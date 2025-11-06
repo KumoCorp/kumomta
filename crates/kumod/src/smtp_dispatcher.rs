@@ -1217,7 +1217,7 @@ impl QueueDispatcher for SmtpDispatcher {
                 _ => unreachable!(),
             }
 
-            if response.is_too_many_recipients() {
+            if recipients_this_batch.len() > 1 && response.is_too_many_recipients() {
                 retry_immediately = true;
             } else if !response.was_due_to_message() {
                 transport_error = true;
@@ -1240,7 +1240,7 @@ impl QueueDispatcher for SmtpDispatcher {
             let record_type = classify_record(&response);
 
             if record_type == RecordType::TransientFailure {
-                if response.is_too_many_recipients()
+                if (response.is_too_many_recipients() && recipients_this_batch.len() > 1)
                     && by_class[&RecordType::TransientFailure] == 1
                     && by_class.len() > 1
                 {
