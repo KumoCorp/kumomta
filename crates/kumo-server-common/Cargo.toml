@@ -47,6 +47,7 @@ mod-kafka = {path="../mod-kafka"}
 mod-memoize = {path="../mod-memoize"}
 mod-mimepart = {path="../mod-mimepart"}
 mod-mpsc = {path="../mod-mpsc"}
+mod-nats = {path="../mod-nats"}
 mod-regex = {path="../mod-regex"}
 mod-redis = {path="../mod-redis"}
 mod-serde = {path="../mod-serde"}
