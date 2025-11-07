@@ -1279,13 +1279,10 @@ impl QueueDispatcher for SmtpDispatcher {
                     // recipients case if it looks like something got through
                     // OK.  We'll retry the excess recipients immediately
                     // and have a log record for those imminently.
-            tracing::info!("**** SKIP LOG {response:?} {too_many:?}");
                     continue;
                 }
                 logged_transient = true;
             }
-
-            tracing::info!("**** LOGGED {response:?} {too_many:?}");
 
             self.log_disposition(
                 dispatcher,
