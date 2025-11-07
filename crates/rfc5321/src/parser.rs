@@ -257,7 +257,7 @@ impl ToString for ReversePath {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ForwardPath {
     Path(MailPath),
     Postmaster,
@@ -305,7 +305,7 @@ impl ToString for ForwardPath {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MailPath {
     pub at_domain_list: Vec<String>,
     pub mailbox: Mailbox,
@@ -331,7 +331,7 @@ impl ToString for MailPath {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Mailbox {
     pub local_part: String,
     pub domain: Domain,
@@ -356,7 +356,7 @@ impl ToString for Mailbox {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Domain {
     Name(String),
     V4(String),

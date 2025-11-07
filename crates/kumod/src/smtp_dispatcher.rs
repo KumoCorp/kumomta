@@ -9,6 +9,7 @@ use crate::smtp_server::ShuttingDownError;
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
+use bounce_classify::{BounceClass, PreDefinedBounceClass};
 use config::{load_config, CallbackSignature};
 use data_loader::KeySource;
 use dns_resolver::{has_colon_port, resolve_a_or_aaaa, ResolvedMxAddresses};
@@ -21,10 +22,11 @@ use message::message::QueueNameComponents;
 use message::Message;
 use mta_sts::policy::PolicyMode;
 use rfc5321::{
-    ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient,
-    TlsInformation, TlsOptions, TlsStatus,
+    ClientError, EnhancedStatusCode, ForwardPath, IsTooManyRecipients, Response, ReversePath,
+    SmtpClient, TlsInformation, TlsOptions, TlsStatus,
 };
 use serde::{Deserialize, Serialize};
+use spool::SpoolId;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -113,6 +115,7 @@ pub struct SmtpDispatcher {
     site_has_broken_tls: bool,
     terminated_ok: bool,
     attempted_message_send: bool,
+    recips_last_txn: HashMap<(SpoolId, ForwardPath), u8>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -282,6 +285,7 @@ impl SmtpDispatcher {
             site_has_broken_tls: false,
             terminated_ok: false,
             attempted_message_send: false,
+            recips_last_txn: HashMap::new(),
         }))
     }
 
@@ -957,6 +961,9 @@ impl QueueDispatcher for SmtpDispatcher {
         msg.load_meta_if_needed().await.context("loading meta")?;
         msg.load_data_if_needed().await.context("loading data")?;
 
+        let spool_id = *msg.id();
+        let mut recips_this_txn = HashMap::new();
+
         let data = msg.get_data();
         let sender: ReversePath = msg
             .sender()?
@@ -964,7 +971,16 @@ impl QueueDispatcher for SmtpDispatcher {
             .map_err(|err| anyhow::anyhow!("{err}"))?;
         let mut recipients: Vec<ForwardPath> = vec![];
         for recip in msg.recipient_list()? {
-            recipients.push(recip.try_into().map_err(|err| anyhow::anyhow!("{err:#}"))?);
+            let recip: ForwardPath = recip.try_into().map_err(|err| anyhow::anyhow!("{err:#}"))?;
+            recips_this_txn.insert(
+                (spool_id, recip.clone()),
+                1 + self
+                    .recips_last_txn
+                    .get(&(spool_id, recip.clone()))
+                    .copied()
+                    .unwrap_or(0),
+            );
+            recipients.push(recip);
         }
 
         self.tracer.set_meta("message_id", msg.id().to_string());
@@ -1169,34 +1185,45 @@ impl QueueDispatcher for SmtpDispatcher {
             }
         }
 
-        // Group by distinct response for logging purposes
-        let mut by_status = HashMap::new();
-        let mut by_class = HashMap::new();
-
-        fn classify_record(response: &Response) -> RecordType {
-            if response.is_too_many_recipients()
-                || response.code == 503
-                || (response.code >= 300 && response.code < 500)
-            {
-                // 503 is a "permanent" failure response but it indicates
-                // that there was a protocol synchronization issue.
-                //
-                // For 3xx: there isn't a valid RFC-defined 300 final
-                // disposition for submitting an email message.  In order
-                // to get here there has most likely been a protocol
-                // synchronization issue.
-                RecordType::TransientFailure
-            } else if response.code >= 200 && response.code < 300 {
-                RecordType::Delivery
-            } else {
-                RecordType::Bounce
-            }
+        struct ByStatusEntry {
+            record_type: RecordType,
+            recipients: Vec<ForwardPath>,
         }
+
+        // Group by distinct response for logging purposes
+        let mut by_status = HashMap::<(Response, IsTooManyRecipients), ByStatusEntry>::new();
+        let mut by_class = HashMap::new();
 
         let mut transport_error = false;
 
-        for (recipient, response) in recipients_this_batch.iter().zip(result_per_rcpt.iter()) {
-            let record_type = classify_record(&response);
+        for (batch_idx, (recipient, response)) in recipients_this_batch
+            .iter()
+            .zip(result_per_rcpt.iter())
+            .enumerate()
+        {
+            let (record_type, too_many) = classify_record(&response).await;
+
+            // Determine effective too-many recip state: if the batch is size 1,
+            // or this is the first recipient, it cannot be too-many
+            let too_many = if batch_idx == 0 || recipients_this_batch.len() == 1 {
+                IsTooManyRecipients::No
+            } else {
+                too_many
+            };
+            let too_many = if too_many == IsTooManyRecipients::Maybe
+                && self
+                    .recips_last_txn
+                    .get(&(spool_id, recipient.clone()))
+                    .copied()
+                    .unwrap_or(0)
+                    < 1
+            {
+                IsTooManyRecipients::Yes
+            } else if too_many == IsTooManyRecipients::Yes {
+                IsTooManyRecipients::Yes
+            } else {
+                IsTooManyRecipients::No
+            };
 
             if record_type == RecordType::TransientFailure {
                 revised_recipient_list.push(recipient.clone().into());
@@ -1217,7 +1244,7 @@ impl QueueDispatcher for SmtpDispatcher {
                 _ => unreachable!(),
             }
 
-            if recipients_this_batch.len() > 1 && response.is_too_many_recipients() {
+            if too_many == IsTooManyRecipients::Yes {
                 retry_immediately = true;
             } else if !response.was_due_to_message() {
                 transport_error = true;
@@ -1227,38 +1254,50 @@ impl QueueDispatcher for SmtpDispatcher {
             }
 
             by_status
-                .entry(response.clone())
-                .or_insert_with(Vec::new)
+                .entry((response.clone(), too_many))
+                .or_insert_with(|| ByStatusEntry {
+                    record_type,
+                    recipients: vec![],
+                })
+                .recipients
                 .push(recipient.clone());
             *by_class.entry(record_type).or_insert(0) += 1;
         }
 
+        self.recips_last_txn = recips_this_txn;
+
         let mut logged_transient = false;
 
         // Log the various outcomes
-        for (response, recips) in by_status {
-            let record_type = classify_record(&response);
-
-            if record_type == RecordType::TransientFailure {
-                if (response.is_too_many_recipients() && recipients_this_batch.len() > 1)
-                    && by_class[&RecordType::TransientFailure] == 1
-                    && by_class.len() > 1
+        for ((response, too_many), entry) in by_status {
+            if entry.record_type == RecordType::TransientFailure {
+                if too_many == IsTooManyRecipients::Yes
+                //    && by_class[&RecordType::TransientFailure] == 1
+                //    && by_class.len() > 1
                 {
                     // Skip logging a transient failure for the too many
                     // recipients case if it looks like something got through
                     // OK.  We'll retry the excess recipients immediately
                     // and have a log record for those imminently.
+            tracing::info!("**** SKIP LOG {response:?} {too_many:?}");
                     continue;
                 }
-
                 logged_transient = true;
             }
 
+            tracing::info!("**** LOGGED {response:?} {too_many:?}");
+
             self.log_disposition(
                 dispatcher,
-                record_type,
+                entry.record_type,
                 msg.clone(),
-                Some(recips.into_iter().map(|fp| fp.to_string()).collect()),
+                Some(
+                    entry
+                        .recipients
+                        .into_iter()
+                        .map(|fp| fp.to_string())
+                        .collect(),
+                ),
                 response,
             )
             .await;
@@ -1343,4 +1382,42 @@ impl QueueDispatcher for SmtpDispatcher {
             Ok(())
         }
     }
+}
+
+async fn classify_record(response: &Response) -> (RecordType, IsTooManyRecipients) {
+    let too_many = match response.is_too_many_recipients() {
+        as_is @ (IsTooManyRecipients::Yes | IsTooManyRecipients::No) => as_is,
+        IsTooManyRecipients::Maybe => {
+            match crate::logging::classify::classify_response(&response).await {
+                BounceClass::UserDefined(_) => IsTooManyRecipients::Maybe,
+                BounceClass::PreDefined(bc) => match bc {
+                    PreDefinedBounceClass::TooManyRecipients => IsTooManyRecipients::Yes,
+                    PreDefinedBounceClass::Uncategorized => IsTooManyRecipients::Maybe,
+                    _ => IsTooManyRecipients::No,
+                },
+            }
+        }
+    };
+
+    let record_type = if matches!(
+        too_many,
+        IsTooManyRecipients::Yes | IsTooManyRecipients::Maybe
+    ) || response.code == 503
+        || (response.code >= 300 && response.code < 500)
+    {
+        // 503 is a "permanent" failure response but it indicates
+        // that there was a protocol synchronization issue.
+        //
+        // For 3xx: there isn't a valid RFC-defined 300 final
+        // disposition for submitting an email message.  In order
+        // to get here there has most likely been a protocol
+        // synchronization issue.
+        RecordType::TransientFailure
+    } else if response.code >= 200 && response.code < 300 {
+        RecordType::Delivery
+    } else {
+        RecordType::Bounce
+    };
+
+    (record_type, too_many)
 }
