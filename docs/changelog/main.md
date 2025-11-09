@@ -93,6 +93,8 @@
  * new [policy-extras.mail_auth](../reference/policy-extras.mail_auth/index.md)
    module for performing mail authentication and producing an aggregate
    `Authentication-Results` header.
+ * new [normalize_smtp_response](../reference/string/normalize_smtp_response.md)
+   lua function and [jinja filter](../reference/template/normalize_smtp_response.md).
 
 ## Fixes
 
