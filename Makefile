@@ -77,6 +77,7 @@ clippy:
 
 fmt:
 	cargo +nightly fmt
+	cd crates/mod-smtp-response-normalize/codegen && cargo +nightly fmt
 	stylua --config-path stylua.toml .
 	black docs/generate-toc.py assets/ci/build-builder-images.py assets/ci/emit-builder-dockerfile.py assets/bt assets/log-filter.py
 

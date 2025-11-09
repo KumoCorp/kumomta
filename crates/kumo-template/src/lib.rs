@@ -105,6 +105,12 @@ impl TemplateEngine {
                     minijinja_contrib::pycompat::unknown_method_callback,
                 );
                 add_to_environment(&mut env);
+
+                env.add_filter(
+                    "normalize_smtp_response",
+                    mod_smtp_response_normalize::normalize,
+                );
+
                 Self {
                     engine: Engine::Jinja { env },
                 }

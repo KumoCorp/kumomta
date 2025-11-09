@@ -3644,6 +3644,7 @@ dependencies = [
  "mod-redis",
  "mod-regex",
  "mod-serde",
+ "mod-smtp-response-normalize",
  "mod-sqlite",
  "mod-string",
  "mod-time",
@@ -3735,6 +3736,7 @@ dependencies = [
  "handlebars",
  "minijinja",
  "minijinja-contrib",
+ "mod-smtp-response-normalize",
  "self_cell",
  "serde",
  "serde_json",
@@ -4678,6 +4680,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mod-smtp-response-normalize"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "config",
+ "criterion",
+ "mlua",
+ "phf 0.13.1",
+ "regex",
+ "uuid",
+]
+
+[[package]]
 name = "mod-sqlite"
 version = "0.1.0"
 dependencies = [
@@ -5402,6 +5418,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1562dc717473dbaa4c1f85a36410e03c047b2e7df7f45ee938fbef64ae7fadf"
 dependencies = [
  "phf_shared 0.13.1",
+ "serde",
 ]
 
 [[package]]
