@@ -1969,8 +1969,9 @@ MergedEntry {
         max_deliveries_per_connection: 100,
         max_recipients_per_batch: 100,
         prohibited_hosts: {
+            "0.0.0.0",
             "127.0.0.0/8",
-            "::1",
+            "::/127",
         },
         skip_hosts: {},
         ehlo_domain: None,
@@ -2121,8 +2122,9 @@ MergedEntry {
         max_deliveries_per_connection: 100,
         max_recipients_per_batch: 100,
         prohibited_hosts: {
+            "0.0.0.0",
             "127.0.0.0/8",
-            "::1",
+            "::/127",
         },
         skip_hosts: {},
         ehlo_domain: None,
@@ -2186,8 +2188,9 @@ MergedEntry {
             max_deliveries_per_connection: 1024,
             max_recipients_per_batch: 100,
             prohibited_hosts: {
+                "0.0.0.0",
                 "127.0.0.0/8",
-                "::1",
+                "::/127",
             },
             skip_hosts: {},
             ehlo_domain: None,
@@ -2344,8 +2347,9 @@ MergedEntry {
         max_deliveries_per_connection: 20,
         max_recipients_per_batch: 100,
         prohibited_hosts: {
+            "0.0.0.0",
             "127.0.0.0/8",
-            "::1",
+            "::/127",
         },
         skip_hosts: {},
         ehlo_domain: None,

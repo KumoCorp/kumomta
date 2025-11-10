@@ -95,6 +95,9 @@
    `Authentication-Results` header.
  * new [normalize_smtp_response](../reference/string/normalize_smtp_response.md)
    lua function and [jinja filter](../reference/template/normalize_smtp_response.md).
+ * The default value for
+   [prohibited_hosts](../reference/kumo/make_egress_path/prohibited_hosts.md)
+   now also includes the IPv4 and IPv6 Any addresses.
 
 ## Fixes
 
