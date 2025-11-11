@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context};
 use chrono::Utc;
 use clap::builder::ValueParser;
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
 use hdrhistogram::sync::Recorder;
@@ -23,11 +23,6 @@ use throttle::ThrottleSpec;
 use uuid::Uuid;
 
 const DOMAINS: &[&str] = &["aol.com", "gmail.com", "hotmail.com", "yahoo.com"];
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
-enum AuthMechanism {
-    Plain,
-}
 
 #[derive(Clone, Debug, Parser)]
 #[command(about = "SMTP traffic generator")]
@@ -58,24 +53,19 @@ struct Opt {
     #[arg(long)]
     message_count: Option<usize>,
 
-    /// Whether to use STARTTLS for submission. Required when
+    /// Whether to use STARTTLS for submission. Often required when
     /// authenticating to SMTP targets.
     #[arg(long)]
     starttls: bool,
 
-    /// Authentication mechanism to use when credentials are supplied.
-    /// Currently only `plain` is supported for SMTP AUTH and HTTP basic auth.
-    #[arg(long, value_enum)]
-    auth: Option<AuthMechanism>,
-
     /// Username to authenticate with when using SMTP AUTH or HTTP basic auth.
     /// When targeting SMTP, `--starttls` must also be supplied.
-    #[arg(short = 'u', long = "auth-username", alias = "au")]
+    #[arg(long, requires = "auth-password")]
     auth_username: Option<String>,
 
     /// Password to authenticate with when using SMTP AUTH or HTTP basic auth.
     /// When targeting SMTP, `--starttls` must also be supplied.
-    #[arg(short = 'p', long = "auth-password", alias = "ap")]
+    #[arg(long, requires = "auth-username")]
     auth_password: Option<String>,
 
     /// Take the message contents from the specified file
@@ -336,38 +326,13 @@ impl Opt {
         self.domain = adjusted_domains;
     }
 
-    /// Decide which authentication mechanism (if any) is requested.
-    fn requested_auth(&self) -> Option<AuthMechanism> {
-        if let Some(mech) = self.auth {
-            // Explicit mechanism provided by CLI/config
-            Some(mech)
-        } else if self.auth_username.is_some() || self.auth_password.is_some() {
-            // Credentials present without an explicit mechanism, assume PLAIN
-            Some(AuthMechanism::Plain)
-        } else {
-            // No auth requested
-            None
-        }
-    }
-
-    /// Validate and return authentication credentials
     fn auth_credentials(&self) -> anyhow::Result<Option<(String, String)>> {
-        // if no auth is requested, nothing to validate, return
-        if self.requested_auth().is_none() {
-            return Ok(None);
-        }
-        // Validate presence of both username and password
-        match (self.auth_username.as_ref(), self.auth_password.as_ref()) {
-            (Some(u), Some(p)) => Ok(Some((u.clone(), p.clone()))),
-            (Some(_), None) => {
-                anyhow::bail!("--auth-password is required when specifying --auth-username")
-            }
-            (None, Some(_)) => {
-                anyhow::bail!("--auth-username is required when specifying --auth-password")
-            }
-            (None, None) => {
-                anyhow::bail!("--auth requires both --auth-username and --auth-password")
-            }
+        match (self.auth_username.as_deref(), self.auth_password.as_deref()) {
+            (Some(user), Some(pass)) => Ok(Some((user.to_owned(), pass.to_owned()))),
+            (None, None) => Ok(None),
+            _ => Err(anyhow!(
+                "both --auth-username and --auth-password must be provided together"
+            )),
         }
     }
 
@@ -510,13 +475,6 @@ impl Opt {
         let timeouts = SmtpClientTimeouts::default();
         let connect_timeout = timeouts.connect_timeout;
 
-        let requested_auth = self.requested_auth();
-        let auth_credentials = self.auth_credentials()?;
-
-        if requested_auth.is_some() && !self.starttls {
-            anyhow::bail!("--starttls must be specified when authenticating to SMTP targets");
-        }
-
         let mut client =
             tokio::time::timeout(connect_timeout, SmtpClient::new(&self.target, timeouts))
                 .await
@@ -533,47 +491,86 @@ impl Opt {
         let mut caps = client.ehlo(&helo_domain).await?;
 
         if self.starttls {
-            anyhow::ensure!(
-                caps.contains_key("STARTTLS"),
-                "target does not advertise STARTTLS"
-            );
-            client
-                .starttls(TlsOptions {
-                    insecure: true,
-                    prefer_openssl: false,
-                    alt_name: None,
-                    dane_tlsa: vec![],
-                    ..Default::default()
-                })
-                .await?;
-            // !!! re-EHLO post-TLS (w same domain)
-            // https://www.ietf.org/rfc/rfc3207.txt 4.2
-            caps = client.ehlo(&helo_domain).await?;
+            let has_starttls = caps.contains_key("STARTTLS");
+            if has_starttls {
+                client
+                    .starttls(TlsOptions {
+                        insecure: true,
+                        prefer_openssl: false,
+                        alt_name: None,
+                        dane_tlsa: vec![],
+                        ..Default::default()
+                    })
+                    .await?;
+                // re-EHLO post TLS
+                caps = client.ehlo(&helo_domain).await?;
+            } else {
+                // "hard"
+                // if self.require_starttls { anyhow::bail!("STARTTLS not advertised by target"); }
+                if self.auth_username.is_some() {
+                    anyhow::bail!(
+                        "Server doesn't advertise STARTTLS; refusing to send AUTH without TLS"
+                    );
+                } else {
+                    eprintln!("warning: server doesn't advertise STARTTLS; continuing without TLS");
+                    // no bail: allow AUTH later even without TLS
+                }
+            }
         }
 
         // AUTH (only if explicitly requested)
-        if let Some(mech) = requested_auth {
-            // Extract username/password if present, or fail with an error
-            let (username, password) = auth_credentials
-                .as_ref()
-                .map(|(u, p)| (u.as_str(), p.as_str()))
-                .context("authentication credentials must be supplied with --auth-username and --auth-password")?;
+        // Extract the list of AUTH mechanisms advertised by the server (e.g. "PLAIN LOGIN CRAM-MD5")
+        let mechs: Vec<&str> = caps
+            .get("AUTH")
+            .and_then(|cap| cap.param.as_deref())
+            .map(|s| s.split_ascii_whitespace().collect())
+            .unwrap_or_default();
 
-            // Fetch the AUTH capability line (e.g. "PLAIN LOGIN ...")
-            // If AUTH is missing or mechanisms are not listed, bail out with a clear message
-            let mechs_owned = {
-                let mechs = caps
-                    .get("AUTH")
-                    .and_then(|cap| cap.param.as_deref())
-                    .context("server does not advertise AUTH capability/mechanisms")?;
-                mechs.to_owned()
-            };
+        // If credentials were provided via --auth-username/--auth-password
+        if let Some((username, password)) = self.auth_credentials()? {
+            let u = username.as_str();
+            let p = password.as_str();
 
-            // Check capability and perform AUTH for the selected mechanism
-            smtp_auth::require_auth_mech_in(&mechs_owned, mech)?;
-            smtp_auth::do_smtp_auth(&mut client, mech, &mechs_owned, (username, password)).await?;
+            // Check if the server supports AUTH PLAIN
+            let has_plain = mechs.iter().any(|m| m.eq_ignore_ascii_case("PLAIN"));
+
+            if has_plain {
+                // Attempt AUTH PLAIN; on failure, emit a compact error message (no verbose dump)
+                if let Err(err) = client.auth_plain(u, Some(p)).await {
+                    match err {
+                        rfc5321::ClientError::Rejected(rfc5321::Response {
+                            code,
+                            enhanced_code,
+                            content,
+                            ..
+                        }) => {
+                            if let Some(esc) = enhanced_code {
+                                anyhow::bail!(
+                                    "failed to authenticate with AUTH PLAIN - {} ({} {}.{}.{})",
+                                    content,
+                                    code,
+                                    esc.class,
+                                    esc.subject,
+                                    esc.detail
+                                );
+                            } else {
+                                anyhow::bail!(
+                                    "failed to authenticate with AUTH PLAIN - {} ({})",
+                                    content,
+                                    code
+                                );
+                            }
+                        }
+                        other => {
+                            return Err(other).context("failed to authenticate with AUTH PLAIN")
+                        }
+                    }
+                }
+            } else {
+                // No PLAIN mechanism advertised: continue without authentication
+                eprintln!("warning: AUTH PLAIN not advertised by target; continuing without authentication");
+            }
         }
-
         Ok(client)
     }
 
@@ -795,48 +792,5 @@ impl Rates {
         )
         .unwrap();
         out.flush().unwrap();
-    }
-}
-
-// isolation scope for SMTP - HTTP continue in auth: self.auth_credentials(),
-mod smtp_auth {
-    use super::*;
-
-    pub(crate) fn require_auth_mech_in(mechs: &str, mech: AuthMechanism) -> anyhow::Result<()> {
-        let want = match mech {
-            AuthMechanism::Plain => "PLAIN",
-            // AuthMechanism::Login => "LOGIN",
-            // AuthMechanism::CramMd5 => "CRAM-MD5",
-            // ... etc
-        };
-        anyhow::ensure!(
-            mechs
-                .split_ascii_whitespace()
-                .any(|m| m.eq_ignore_ascii_case(want)),
-            format!("server does not support AUTH {want}")
-        );
-        Ok(())
-    }
-
-    pub(crate) async fn do_smtp_auth(
-        client: &mut SmtpClient,
-        mech: AuthMechanism,
-        mechs: &str,
-        creds: (&str, &str),
-    ) -> anyhow::Result<()> {
-        require_auth_mech_in(mechs, mech)?;
-        match mech {
-            AuthMechanism::Plain => {
-                let (user, pass) = creds;
-                client
-                    .auth_plain(user, Some(pass))
-                    .await
-                    .context("failed to authenticate with AUTH PLAIN")?;
-            } // any other implementation:
-              // AuthMechanism::Login => client.auth_login(user, pass).await?,
-              // AuthMechanism::CramMd5 => client.auth_cram_md5(user, pass).await?,
-              // ...
-        }
-        Ok(())
     }
 }
