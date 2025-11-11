@@ -161,6 +161,13 @@ impl SmtpClientTimeouts {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone, Copy, Hash)]
+pub enum IsTooManyRecipients {
+    Yes,
+    No,
+    Maybe,
+}
+
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone, Hash)]
 pub struct Response {
     pub code: u16,
@@ -191,11 +198,39 @@ impl Response {
         self.code >= 500 && self.code < 600
     }
 
-    pub fn is_too_many_recipients(&self) -> bool {
+    pub fn is_too_many_recipients(&self) -> IsTooManyRecipients {
         // RFC 5321 4.5.3.1.10: RFC 821 incorrectly ... "too many recipients" ..
         // as having reply code 552 ... the correct reply ... is 452.
-        // Clients should treat 552 ... as a temporary
-        self.code == 452 || self.code == 552
+        // Clients should treat 552 ... as a temporary (for RCPT TO)
+        if !self
+            .command
+            .as_deref()
+            .map(|c| c.starts_with("RCPT"))
+            .unwrap_or(false)
+        {
+            return IsTooManyRecipients::No;
+        }
+
+        match (self.code, &self.enhanced_code) {
+            (452 | 552, None) => IsTooManyRecipients::Maybe,
+            (
+                _,
+                // <https://www.iana.org/assignments/smtp-enhanced-status-codes/smtp-enhanced-status-codes.xhtml>
+                // indicates that a 451 4.5.3 means "too many recipients".
+                // Interestingly, that conflicts with RFC 5321 which says
+                // that 451 means "local error in processing". It's likely a typo
+                // and 452 was intended to be used there.
+                // When matching the enhanced status code, we'll ignore the
+                // base SMTP response code for the purposes of this check:
+                // we're already scoped to RCPT TO so this feels reasonable.
+                Some(EnhancedStatusCode {
+                    class: 4,
+                    subject: 5,
+                    detail: 3,
+                }),
+            ) => IsTooManyRecipients::Yes,
+            _ => IsTooManyRecipients::No,
+        }
     }
 
     pub fn with_code_and_message(code: u16, message: &str) -> Self {

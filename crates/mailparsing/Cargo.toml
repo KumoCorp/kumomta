@@ -9,6 +9,7 @@ charset = {workspace=true}
 chrono = {workspace=true, default-features=false, features=["std", "clock"]}
 data-encoding = {workspace=true}
 data-encoding-macro = {workspace=true}
+kumo-wrap = {path="../kumo-wrap"}
 memchr = {workspace=true}
 nom = {workspace=true}
 nom_locate = {workspace=true}

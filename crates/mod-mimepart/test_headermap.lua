@@ -152,3 +152,23 @@ utils.assert_eq(
   tostring(headers:get_first_named 'Content-type'),
   'Content-Type: text/html;\r\n\tcharset="utf-8";\r\n\textra_somethin_something="a dash"\r\n'
 )
+
+-- Verify that we hard-wrap excessively long lines
+local long_string = string.rep('A', 1500)
+local expect_wrapped = string.rep('A', 900)
+  .. '\r\n\t'
+  .. string.rep('A', 600)
+headers:prepend('X-Long', long_string)
+utils.assert_eq(
+  tostring(headers:get_first_named 'X-Long'),
+  'X-Long: ' .. expect_wrapped .. '\r\n'
+)
+
+-- Soft wrap lines with spaces
+local long_string = string.rep('hello there ', 10)
+headers:prepend('X-Long', long_string)
+utils.assert_eq(
+  tostring(headers:get_first_named 'X-Long'),
+  'X-Long: hello there hello there hello there hello there hello there hello there\r\n'
+    .. '\thello there hello there hello there hello there\r\n'
+)

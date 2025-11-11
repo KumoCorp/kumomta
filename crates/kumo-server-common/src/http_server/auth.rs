@@ -8,6 +8,7 @@ use std::net::{IpAddr, SocketAddr};
 use tokio::time::{Duration, Instant};
 
 lruttl::declare_cache! {
+/// Caches the results of the http server auth validation by auth credential
 static AUTH_CACHE: LruCacheWithTtl<AuthKind, Result<bool, String>>::new("http_server_auth", 128);
 }
 

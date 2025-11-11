@@ -1,4 +1,5 @@
-use config::get_or_create_sub_module;
+use config::{from_lua_value, get_or_create_sub_module};
+use kumo_template::TemplateDialect;
 use mlua::Lua;
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
@@ -100,11 +101,32 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     string_mod.set(
         "eval_template",
         lua.create_function(
-            move |_, (name, template, context): (String, String, mlua::Value)| {
-                let engine = kumo_template::TemplateEngine::new();
+            move |lua,
+                  (name, template, context, opt_dialect): (
+                String,
+                String,
+                mlua::Value,
+                mlua::Value,
+            )| {
+                let dialect: Option<TemplateDialect> = from_lua_value(lua, opt_dialect)?;
+                let engine =
+                    kumo_template::TemplateEngine::with_dialect(dialect.unwrap_or_default());
                 engine
                     .render(&name, &template, context)
                     .map_err(config::any_err)
+            },
+        )?,
+    )?;
+
+    string_mod.set(
+        "wrap",
+        lua.create_function(
+            move |_, (text, soft, hard): (String, Option<usize>, Option<usize>)| {
+                let soft = soft.unwrap_or(75);
+                let hard = hard.unwrap_or(900);
+                Ok(kumo_wrap::wrap_impl(&text, soft, hard)
+                    .trim_end()
+                    .to_string())
             },
         )?,
     )?;

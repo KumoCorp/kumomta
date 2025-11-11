@@ -352,14 +352,35 @@ TOC = [
                 "Integrations",
                 "userguide/integrations/index.md",
                 children=[
-                    Page("Postmastery", "userguide/integrations/postmastery.md"),
+                    Page("EmailElement", "userguide/integrations/emailelement.md"),
                     Page(
                         "Ongage",
                         "userguide/integrations/ongage.md",
                     ),
                     Page(
+                        "Mautic",
+                        "userguide/integrations/mautic.md",
+                    ),
+                    Page("Postmastery", "userguide/integrations/postmastery.md"),
+                    Page(
+                        "Tatami Monitor",
+                        "userguide/integrations/tatamimonitor.md",
+                    ),
+                    Page(
                         "Prometheus",
                         "userguide/integrations/prometheus.md",
+                    ),
+                    Page(
+                        "Grafana",
+                        "userguide/integrations/grafana.md",
+                    ),
+                    Page(
+                        "Hornetsecurity Spam Filter",
+                        "userguide/integrations/hornetsecurity.md",
+                    ),
+                    Page(
+                        "Rspamd Spam filter",
+                        "userguide/integrations/rspamd.md",
                     ),
                 ],
             ),
@@ -388,6 +409,10 @@ TOC = [
             Gen(
                 "module: kumo.api.inject",
                 "reference/kumo.api.inject",
+            ),
+            Gen(
+                "module: kumo.crypto",
+                "reference/kumo.crypto",
             ),
             Gen(
                 "module: kumo.digest",
@@ -480,6 +505,10 @@ TOC = [
             Gen(
                 "module: kumo.time",
                 "reference/kumo.time",
+            ),
+            Gen(
+                "module: policy-extras.mail_auth",
+                "reference/policy-extras.mail_auth",
             ),
             Gen(
                 "module: tsa",

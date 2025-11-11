@@ -2,8 +2,8 @@ use crate::headermap::{EncodeHeaderValue, HeaderMap};
 use crate::rfc5322_parser::Parser;
 use crate::strings::IntoSharedString;
 use crate::{
-    AddressList, AuthenticationResults, MailParsingError, Mailbox, MailboxList, MessageID,
-    MimeParameters, Result, SharedString,
+    ARCAuthenticationResults, AddressList, AuthenticationResults, MailParsingError, Mailbox,
+    MailboxList, MessageID, MimeParameters, Result, SharedString,
 };
 use chrono::{DateTime, FixedOffset};
 use std::str::FromStr;
@@ -122,7 +122,7 @@ impl<'a> Header<'a> {
         let value = value.into();
 
         let value = if value.is_ascii() {
-            crate::textwrap::wrap(&value)
+            kumo_wrap::wrap(&value)
         } else {
             crate::rfc5322_parser::qp_encode(&value)
         }
@@ -221,6 +221,10 @@ impl<'a> Header<'a> {
 
     pub fn as_authentication_results(&self) -> Result<AuthenticationResults> {
         Parser::parse_authentication_results_header(self.get_raw_value())
+    }
+
+    pub fn as_arc_authentication_results(&self) -> Result<ARCAuthenticationResults> {
+        Parser::parse_arc_authentication_results_header(self.get_raw_value())
     }
 
     pub fn as_date(&self) -> Result<DateTime<FixedOffset>> {

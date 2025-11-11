@@ -79,6 +79,11 @@ struct Opt {
     #[arg(long)]
     dump_openapi_spec: bool,
 
+    /// Instead of running the daemon, output the list of lruttl caches
+    /// to stdout.
+    #[arg(long)]
+    dump_lruttl_caches: bool,
+
     /// Required if started as root; specifies which user to run as once
     /// privileges have been dropped.
     ///
@@ -166,6 +171,14 @@ fn main() -> anyhow::Result<()> {
     if opts.dump_openapi_spec {
         let api_docs = crate::http_server::make_router().make_docs();
         println!("{}", api_docs.to_pretty_json()?);
+        return Ok(());
+    }
+
+    if opts.dump_lruttl_caches {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&lruttl::get_definitions())?
+        );
         return Ok(());
     }
 

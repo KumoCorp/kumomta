@@ -1,4 +1,5 @@
 #![cfg(test)]
+mod arc;
 mod auth_deliver;
 mod auth_deliver_invalid_password;
 mod disconnect_in_data;
@@ -15,6 +16,7 @@ mod expires;
 mod http_inject_compression;
 mod log_oob_arf;
 mod maildir_batch;
+mod maildir_batch_452;
 mod maildir_batch_max_per_batch;
 mod maildir_batch_split_hook;
 mod max_line_length;
@@ -26,6 +28,7 @@ mod rebind_event_defined;
 mod rebind_event_missing;
 mod rebind_port;
 mod retry_schedule;
+mod rewrite_server_response;
 mod source_selection_rate;
 mod source_selection_rate_pool;
 mod spf_basic;

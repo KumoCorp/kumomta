@@ -37,6 +37,15 @@ impl UserData for HeaderMapRef {
             lua.create_string(&out)
         });
 
+        methods.add_method("append", |_lua, this, (name, value): (String, String)| {
+            this.0
+                .mutate(|part| {
+                    part.headers_mut().append_header(&name, value);
+                    Ok(())
+                })
+                .map_err(any_err)
+        });
+
         methods.add_method("prepend", |_lua, this, (name, value): (String, String)| {
             this.0
                 .mutate(|part| {

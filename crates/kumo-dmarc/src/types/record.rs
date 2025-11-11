@@ -3,9 +3,8 @@ use crate::types::format::Format;
 use crate::types::mode::Mode;
 use crate::types::policy::Policy;
 use crate::types::report_failure::ReportFailure;
-use crate::types::results::DmarcResultWithContext;
-use crate::{DmarcContext, DmarcResult};
-use dns_resolver::Resolver;
+use crate::types::results::{Disposition, DispositionWithContext};
+use crate::{DmarcContext, SenderDomainAlignment};
 use std::str::FromStr;
 
 #[derive(Debug)]
@@ -19,18 +18,18 @@ pub struct Record {
     interval: u32,
     aggregate_feedback: Vec<FeedbackAddress>,
     message_failure: Vec<FeedbackAddress>,
-    subdomain_policy: Policy,
+    subdomain_policy: Option<Policy>,
 }
 
 impl Record {
     pub(crate) async fn evaluate(
         &self,
         cx: &DmarcContext<'_>,
-        _resolver: &dyn Resolver,
-    ) -> DmarcResultWithContext {
+        sender_location: SenderDomainAlignment,
+    ) -> DispositionWithContext {
         if rand::random::<u8>() % 100 >= self.rate {
-            return DmarcResultWithContext {
-                result: DmarcResult::Pass,
+            return DispositionWithContext {
+                result: Disposition::Pass,
                 context: format!("sampled_out due to pct={}", self.rate),
             };
         }
@@ -38,17 +37,17 @@ impl Record {
             Mode::Relaxed => {
                 for dkim in cx.dkim {
                     if let Some(result) = dkim.get("header.d") {
-                        if cx.from_domain != result
-                            && !cx.from_domain.ends_with(&format!(".{}", result))
-                        {
-                            return DmarcResultWithContext {
-                                result: DmarcResult::Fail,
+                        let organizational_domain = psl::domain_str(cx.from_domain);
+
+                        if cx.from_domain != result && organizational_domain != Some(result) {
+                            return DispositionWithContext {
+                                result: self.select_failure_mode(sender_location),
                                 context: "DMARC: DKIM relaxed check failed".into(),
                             };
                         }
                     } else {
-                        return DmarcResultWithContext {
-                            result: DmarcResult::Fail,
+                        return DispositionWithContext {
+                            result: self.select_failure_mode(sender_location),
                             context: "DMARC: DKIM signature missing 'd=' tag".into(),
                         };
                     }
@@ -58,14 +57,14 @@ impl Record {
                 for dkim in cx.dkim {
                     if let Some(result) = dkim.get("header.d") {
                         if cx.from_domain != result {
-                            return DmarcResultWithContext {
-                                result: DmarcResult::Fail,
+                            return DispositionWithContext {
+                                result: self.select_failure_mode(sender_location),
                                 context: "DMARC: DKIM strict check failed".into(),
                             };
                         }
                     } else {
-                        return DmarcResultWithContext {
-                            result: DmarcResult::Fail,
+                        return DispositionWithContext {
+                            result: self.select_failure_mode(sender_location),
                             context: "DMARC: DKIM signature missing 'd=' tag".into(),
                         };
                     }
@@ -76,11 +75,13 @@ impl Record {
         match self.align_spf {
             Mode::Relaxed => {
                 if let Some(mail_from_domain) = cx.mail_from_domain {
+                    let organizational_domain = psl::domain_str(mail_from_domain);
+
                     if mail_from_domain != cx.from_domain
-                        && !mail_from_domain.ends_with(&format!(".{}", cx.from_domain))
+                        && organizational_domain != Some(cx.from_domain)
                     {
-                        return DmarcResultWithContext {
-                            result: DmarcResult::Fail,
+                        return DispositionWithContext {
+                            result: self.select_failure_mode(sender_location),
                             context: "DMARC: SPF relaxed check failed".into(),
                         };
                     }
@@ -89,8 +90,8 @@ impl Record {
             Mode::Strict => {
                 if let Some(mail_from_domain) = cx.mail_from_domain {
                     if mail_from_domain != cx.from_domain {
-                        return DmarcResultWithContext {
-                            result: DmarcResult::Fail,
+                        return DispositionWithContext {
+                            result: self.select_failure_mode(sender_location),
                             context: "DMARC: SPF strict check failed".into(),
                         };
                     }
@@ -98,9 +99,22 @@ impl Record {
             }
         }
 
-        DmarcResultWithContext {
-            result: DmarcResult::Pass,
+        DispositionWithContext {
+            result: Disposition::Pass,
             context: "Success".into(),
+        }
+    }
+
+    fn select_failure_mode(&self, sender_location: SenderDomainAlignment) -> Disposition {
+        match sender_location {
+            SenderDomainAlignment::OrganizationalDomain => {
+                if let Some(policy) = self.subdomain_policy {
+                    policy.into()
+                } else {
+                    self.policy.into()
+                }
+            }
+            SenderDomainAlignment::Exact => self.policy.into(),
         }
     }
 }
@@ -119,7 +133,7 @@ impl FromStr for Record {
             interval: 86400,
             aggregate_feedback: Vec::new(),
             message_failure: Vec::new(),
-            subdomain_policy: Policy::None,
+            subdomain_policy: None,
         };
 
         let (mut version, mut policy) = (false, false);
@@ -142,7 +156,6 @@ impl FromStr for Record {
             match key {
                 "p" => {
                     new.policy = Policy::from_str(value)?;
-                    new.subdomain_policy = new.policy;
                     policy = true;
                 }
                 "adkim" => new.align_dkim = Mode::from_str(value)?,
@@ -168,7 +181,7 @@ impl FromStr for Record {
                         new.message_failure.push(FeedbackAddress::from_str(addr)?);
                     }
                 }
-                "sp" => new.subdomain_policy = Policy::from_str(value)?,
+                "sp" => new.subdomain_policy = Some(Policy::from_str(value)?),
                 _ => return Err(format!("invalid key {key:?}")),
             }
         }

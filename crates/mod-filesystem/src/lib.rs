@@ -15,6 +15,7 @@ struct GlobKey {
 }
 
 lruttl::declare_cache! {
+/// Caches glob results by glob pattern
 static CACHE: LruCacheWithTtl<GlobKey, Result<Vec<String>, String>>::new("mod_filesystem_glob_cache", GLOB_CACHE_CAPACITY);
 }
 

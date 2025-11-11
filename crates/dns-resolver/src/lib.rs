@@ -34,15 +34,19 @@ static RESOLVER: LazyLock<ArcSwap<Box<dyn Resolver>>> =
     LazyLock::new(|| ArcSwap::from_pointee(Box::new(default_resolver())));
 
 declare_cache! {
+/// Caches domain name to computed set of MailExchanger records
 static MX_CACHE: LruCacheWithTtl<(Name, Option<u16>), Result<Arc<MailExchanger>, String>>::new("dns_resolver_mx", 64 * 1024);
 }
 declare_cache! {
+/// Caches domain name to ipv4 records
 static IPV4_CACHE: LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>::new("dns_resolver_ipv4", 1024);
 }
 declare_cache! {
+/// Caches domain name to ipv6 records
 static IPV6_CACHE: LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>::new("dns_resolver_ipv6", 1024);
 }
 declare_cache! {
+/// Caches domain name to the combined set of ipv4 and ipv6 records
 static IP_CACHE: LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>::new("dns_resolver_ip", 1024);
 }
 

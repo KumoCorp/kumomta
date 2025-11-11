@@ -55,6 +55,7 @@ use uuid::Uuid;
 pub const DEFERRED_QUEUE_NAME: &str = "deferred_smtp_inject.kumomta.internal";
 
 declare_cache! {
+/// Caches TLS acceptor information for the esmtp listener
 static TLS_CONFIG: LruCacheWithTtl<TlsAcceptorConfigKey, Arc<ServerConfig>>::new("smtp_server_tls_config", 128);
 }
 
@@ -88,6 +89,16 @@ static DEFERRED_SMTP_SERVER_MSG_INJECT: Single(
     message: Message,
     connection_metadata: ConnectionMetaData
 ) -> ();
+}
+
+declare_event! {
+static SMTP_SERVER_REWRITE_RESPONSE: Single(
+    "smtp_server_rewrite_response",
+    status: u16,
+    response: String,
+    command: Option<String>,
+    connection_metadata: ConnectionMetaData
+) -> (Option<u16>, Option<String>);
 }
 
 static CRLF: LazyLock<Finder> = LazyLock::new(|| Finder::new("\r\n"));
@@ -311,7 +322,7 @@ impl TraceHeaders {
         vec![]
     }
 
-    pub fn apply_supplemental(&self, message: &Message) -> anyhow::Result<()> {
+    pub async fn apply_supplemental(&self, message: &Message) -> anyhow::Result<()> {
         if !self.supplemental_header {
             return Ok(());
         }
@@ -346,7 +357,9 @@ impl TraceHeaders {
         }
 
         let value = BASE64.encode(serde_json::to_string(&object)?.as_bytes());
-        message.prepend_header(Some(&self.header_name), &value);
+        message
+            .prepend_header(Some(&self.header_name), &value)
+            .await?;
 
         Ok(())
     }
@@ -1131,6 +1144,33 @@ impl SmtpServerSession {
         command: Option<String>,
         disconnect: RejectDisconnect,
     ) -> Result<(), WriteError> {
+        let message = message.as_ref().to_string();
+        let (status, message) = match self
+            .call_callback_sig(
+                &SMTP_SERVER_REWRITE_RESPONSE,
+                (status, message.clone(), command.clone(), self.meta.clone()),
+            )
+            .await
+        {
+            Ok(Ok((new_status, new_message))) => {
+                (new_status.unwrap_or(status), new_message.unwrap_or(message))
+            }
+            Ok(Err(err)) => {
+                tracing::error!("Error while calling smtp_server_message_received: {err:#}");
+                // Since we are used as part of handling error propagation,
+                // we can't get especially fancy here, so we just continue
+                // with the original status and message
+                (status, message)
+            }
+            Err(err) => {
+                tracing::error!("Error while calling smtp_server_message_received: {err:#}");
+                // Since we are used as part of handling error propagation,
+                // we can't get especially fancy here, so we just continue
+                // with the original status and message
+                (status, message)
+            }
+        };
+
         if let Some(socket) = self.socket.as_mut() {
             if (400..600).contains(&status)
                 // Don't log the shutting down message, or load shedding messages.
@@ -1138,9 +1178,9 @@ impl SmtpServerSession {
                 // unsuccessful results are being returned to the peer.
                 // If we log rejections via log hooks during a memory shortage,
                 // we're increasing our memory burden instead of avoiding it.
-                && !(status == 421 && message.as_ref().starts_with("4.3.2 "))
+                && !(status == 421 && message.starts_with("4.3.2 "))
             {
-                let mut response = Response::with_code_and_message(status, message.as_ref());
+                let mut response = Response::with_code_and_message(status, &message);
                 response.command = command;
 
                 let mut sender = None;
@@ -1166,7 +1206,7 @@ impl SmtpServerSession {
                 .await;
             }
 
-            let mut lines = message.as_ref().lines().peekable();
+            let mut lines = message.lines().peekable();
             while let Some(line) = lines.next() {
                 let is_last = lines.peek().is_none();
                 let sep = if is_last { ' ' } else { '-' };
@@ -2626,13 +2666,13 @@ impl SmtpServerSession {
                     )
                 };
 
-                let data = base_message.get_data();
+                let data = base_message.data().await?;
                 let mut body = Vec::with_capacity(data.len() + received.len());
                 body.extend_from_slice(received.as_bytes());
                 body.extend_from_slice(&data);
                 Arc::new(body.into_boxed_slice())
             } else {
-                base_message.get_data()
+                base_message.data().await?
             };
 
             let message = Message::new_dirty(
@@ -2735,7 +2775,10 @@ impl SmtpServerSession {
 
         let mut messages: Vec<(/* queue_name */ String, Message)> = vec![];
         for message in accepted_messages {
-            self.params.trace_headers.apply_supplemental(&message)?;
+            self.params
+                .trace_headers
+                .apply_supplemental(&message)
+                .await?;
 
             ids.push(message.id().to_string());
 
@@ -2752,12 +2795,12 @@ impl SmtpServerSession {
             let mut relay_this_one = relay_disposition.relay;
 
             if relay_disposition.log_arf.should_log()
-                && matches!(message.parse_rfc5965(), Ok(Some(_)))
+                && matches!(message.parse_rfc5965().await, Ok(Some(_)))
             {
                 was_arf_or_oob = true;
                 relay_this_one = relay_disposition.log_arf.should_relay();
             } else if relay_disposition.log_oob.should_log()
-                && matches!(message.parse_rfc3464(), Ok(Some(_)))
+                && matches!(message.parse_rfc3464().await, Ok(Some(_)))
             {
                 was_arf_or_oob = true;
                 relay_this_one = relay_disposition.log_oob.should_relay();
@@ -2939,7 +2982,7 @@ impl SmtpServerSession {
             self.write_response(
                 250,
                 format!("{disposition} ids={ids}"),
-                None,
+                Some("DATA".into()),
                 RejectDisconnect::If421,
             )
             .await?;

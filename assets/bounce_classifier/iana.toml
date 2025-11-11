@@ -58,3 +58,6 @@ AuthenticationFailed = [
 PolicyRelated = [
   "^\\d{3} [45]\\.7\\.38 ", # mail flood detected
 ]
+TooManyRecipients = [
+  "^[45]\\d{2} [45]\\.5\\.3 ", # too many recipients
+]

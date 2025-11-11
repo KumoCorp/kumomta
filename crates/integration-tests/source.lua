@@ -411,6 +411,7 @@ end)
 
 if os.getenv 'KUMOD_WANT_REBIND' then
   kumo.on('rebind_message', function(message, data)
+    message:append_header('X-Rebound', 'woot')
     message:set_meta('queue', data.queue)
   end)
 end

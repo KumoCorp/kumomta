@@ -126,6 +126,11 @@ impl<'a> HeaderMap<'a> {
             .insert(0, Header::new_unstructured(name.to_string(), v));
     }
 
+    pub fn append_header<V: Into<SharedString<'a>>>(&mut self, name: &str, v: V) {
+        self.headers
+            .push(Header::new_unstructured(name.to_string(), v));
+    }
+
     pub fn get_first(&'a self, name: &str) -> Option<&'a Header<'a>> {
         self.iter_named(name).next()
     }

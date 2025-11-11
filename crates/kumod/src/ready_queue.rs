@@ -1643,7 +1643,7 @@ impl Dispatcher {
 
         for msg in &self.msgs {
             msg.load_meta_if_needed().await?;
-            msg.load_data_if_needed().await?;
+            msg.data().await?;
         }
 
         let activity = match Activity::get_opt(format!(

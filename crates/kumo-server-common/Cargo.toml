@@ -35,6 +35,7 @@ mod-amqp = {path="../mod-amqp"}
 mod-digest = {path="../mod-digest"}
 mod-dns-resolver = {path="../mod-dns-resolver"}
 mod-encode = {path="../mod-encode"}
+mod-crypto = {path="../mod-crypto"}
 mod-filesystem = {path="../mod-filesystem"}
 mod-file-type = {path="../mod-file-type"}
 mod-http = {path="../mod-http"}
@@ -46,6 +47,7 @@ mod-regex = {path="../mod-regex"}
 mod-redis = {path="../mod-redis"}
 mod-rspamd = {path="../mod-rspamd"}
 mod-serde = {path="../mod-serde"}
+mod-smtp-response-normalize = {path="../mod-smtp-response-normalize"}
 mod-sqlite = {path="../mod-sqlite"}
 mod-string = {path="../mod-string"}
 mod-time = {path="../mod-time"}
@@ -62,6 +64,7 @@ throttle = {path="../throttle"}
 tokio = {workspace=true, features=["full", "tracing"]}
 tokio-metrics = {workspace=true}
 tokio-metrics-collector = {workspace=true}
+tokio-stream.workspace = true
 tower-http = {workspace=true, features=["compression-deflate", "compression-gzip", "decompression-deflate", "decompression-gzip"]}
 tracing = {workspace=true}
 tracing-appender = {workspace=true}

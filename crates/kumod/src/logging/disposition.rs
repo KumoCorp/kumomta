@@ -54,16 +54,17 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
         return;
     }
 
+    msg.load_meta_if_needed().await.ok();
+
     let recipient_list = match recipient_list {
         Some(list) => list,
-        None => msg
-            .recipient_list_string()
-            .unwrap_or_else(|err| vec![format!("{err:#}")]),
+        None => msg.recipient_list_string().unwrap_or_else(|err| {
+            tracing::error!("log_disposition: recipient_list_string: {err:#}");
+            vec![]
+        }),
     };
 
     let mut feedback_report = None;
-
-    msg.load_meta_if_needed().await.ok();
 
     let reception_protocol = msg.get_meta_string("reception_protocol").unwrap_or(None);
 
@@ -73,7 +74,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             .map(|disp| disp.log_arf.should_log())
             .unwrap_or(false)
         {
-            if let Ok(Some(report)) = msg.parse_rfc5965() {
+            if let Ok(Some(report)) = msg.parse_rfc5965().await {
                 feedback_report.replace(Box::new(report));
                 kind = RecordType::Feedback;
             }
@@ -149,7 +150,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
         let record = JsonLogRecord {
             kind,
             id: msg.id().to_string(),
-            size: msg.get_data().len() as u64,
+            size: msg.get_data_maybe_not_loaded().len() as u64,
             sender: msg
                 .sender()
                 .map(|addr| addr.to_string())
@@ -190,7 +191,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                 .map(|disp| disp.log_oob.should_log())
                 .unwrap_or(false)
             {
-                if let Ok(Some(report)) = msg.parse_rfc3464() {
+                if let Ok(Some(report)) = msg.parse_rfc3464().await {
                     // This incoming bounce report is addressed to
                     // the envelope from of the original message
                     let sender = msg

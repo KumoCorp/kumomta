@@ -17,6 +17,8 @@ We strongly recommend deploying a QA version of your production traffic generati
 
 This is important because KumoMTA works in a highly parallel fashion, with very granular queues created for the various combinations of campaign, tenant, destination domain, egress_source, and site_name required by your outgoing traffic, and if you send your tests from a single tenant or to a single destination you will not be able to tune your environment for production traffic because you will have a small handful of queues instead of thousands of queues and the server behavior will be very different.
 
+When you need to focus on a subset of your delivery pipeline, you can add custom headers to the generated messages via the `--header` option. Repeating the flag allows you to add multiple headers (for example, to mark a specific tenant or campaign) and observe how queue selection, shaping, and any additional custom header manipulation affect performance or latency during your tests
+
 ## Generating Traffic Using `traffic-gen`
 For cases where accurate simulation is not feasible, KumoMTA includes a "Traffic Generator" that can be use to send volume test mail for this purpose. The `traffic-gen` appends a known domain to all outbound mail that resolves to your own loopback address so that mail can be delivered, but will never deliver to real addresses:
 

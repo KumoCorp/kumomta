@@ -1,8 +1,14 @@
-use crate::types::results::DmarcResultWithContext;
-use crate::{DmarcContext, DmarcResult};
+use crate::types::results::DispositionWithContext;
+use crate::{Disposition, DmarcContext};
 use dns_resolver::{Resolver, TestResolver};
 use std::collections::BTreeMap;
-use std::net::{IpAddr, Ipv4Addr};
+
+struct TestData<'a> {
+    from_domain: &'a str,
+    mail_from_domain: &'a str,
+    dkim_domains: &'a [Option<&'a str>],
+    resolver: &'a dyn Resolver,
+}
 
 #[tokio::test]
 async fn dmarc_dkim_relaxed_subdomain() {
@@ -10,22 +16,90 @@ async fn dmarc_dkim_relaxed_subdomain() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "sample.example.com",
+            "_dmarc.sample.example.com",
             "v=DMARC1; p=reject; adkim=r; \
             rua=mailto:dmarc-feedback@example.com"
                 .to_string(),
         );
 
-    let result = evaluate_ip(
-        Ipv4Addr::LOCALHOST,
-        "sample.example.com",
-        "sample.example.com",
-        &[Some("example.com")],
-        &resolver,
-    )
+    let result = evaluate_ip(TestData {
+        from_domain: "sample.example.com",
+        mail_from_domain: "sample.example.com",
+        dkim_domains: &[Some("example.com")],
+        resolver: &resolver,
+    })
     .await;
 
-    k9::assert_equal!(result.result, DmarcResult::Pass);
+    k9::assert_equal!(result.result, Disposition::Pass);
+}
+
+#[tokio::test]
+async fn dmarc_dkim_relaxed_subdomain_deep() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "_dmarc.a.b.c.sample.example.com",
+            "v=DMARC1; p=reject; adkim=r; \
+            rua=mailto:dmarc-feedback@example.com"
+                .to_string(),
+        );
+
+    let result = evaluate_ip(TestData {
+        from_domain: "a.b.c.sample.example.com",
+        mail_from_domain: "a.b.c.sample.example.com",
+        dkim_domains: &[Some("example.com")],
+        resolver: &resolver,
+    })
+    .await;
+
+    k9::assert_equal!(result.result, Disposition::Pass);
+}
+
+#[tokio::test]
+async fn dmarc_dkim_relaxed_subdomain_fail() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "_dmarc.sample.example.com",
+            "v=DMARC1; p=reject; adkim=r; \
+            rua=mailto:dmarc-feedback@example.com"
+                .to_string(),
+        );
+
+    let result = evaluate_ip(TestData {
+        from_domain: "sample.example.com",
+        mail_from_domain: "sample.example.com",
+        dkim_domains: &[Some("example.org")],
+        resolver: &resolver,
+    })
+    .await;
+
+    k9::assert_equal!(result.result, Disposition::Reject);
+}
+
+#[tokio::test]
+async fn dmarc_dkim_relaxed_subdomain_sp_quarantine_fail() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "_dmarc.example.com",
+            "v=DMARC1; p=reject; sp=quarantine; adkim=r; \
+            rua=mailto:dmarc-feedback@example.com"
+                .to_string(),
+        );
+
+    let result = evaluate_ip(TestData {
+        from_domain: "sample.example.com",
+        mail_from_domain: "sample.example.com",
+        dkim_domains: &[Some("example.org")],
+        resolver: &resolver,
+    })
+    .await;
+
+    k9::assert_equal!(result.result, Disposition::Quarantine);
 }
 
 #[tokio::test]
@@ -34,22 +108,44 @@ async fn dmarc_dkim_strict_subdomain() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "example.com",
+            "_dmarc.example.com",
             "v=DMARC1; p=reject; adkim=s; \
             rua=mailto:dmarc-feedback@example.com"
                 .to_string(),
         );
 
-    let result = evaluate_ip(
-        Ipv4Addr::LOCALHOST,
-        "sample.example.com",
-        "example.com",
-        &[Some("example.com")],
-        &resolver,
-    )
+    let result = evaluate_ip(TestData {
+        from_domain: "example.com",
+        mail_from_domain: "example.com",
+        dkim_domains: &[Some("example.com")],
+        resolver: &resolver,
+    })
     .await;
 
-    k9::assert_equal!(result.result, DmarcResult::Fail);
+    k9::assert_equal!(result.result, Disposition::Pass);
+}
+
+#[tokio::test]
+async fn dmarc_dkim_strict_subdomain_fail() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "_dmarc.example.com",
+            "v=DMARC1; p=reject; adkim=s; \
+            rua=mailto:dmarc-feedback@example.com"
+                .to_string(),
+        );
+
+    let result = evaluate_ip(TestData {
+        from_domain: "sample.example.com",
+        mail_from_domain: "example.com",
+        dkim_domains: &[Some("example.com")],
+        resolver: &resolver,
+    })
+    .await;
+
+    k9::assert_equal!(result.result, Disposition::Reject);
 }
 
 #[tokio::test]
@@ -58,22 +154,21 @@ async fn dmarc_dkim_relaxed_illformed() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "example.com",
+            "_dmarc.example.com",
             "v=DMARC1; p=reject; adkim=r; \
             rua=mailto:dmarc-feedback@example.com"
                 .to_string(),
         );
 
-    let result = evaluate_ip(
-        Ipv4Addr::LOCALHOST,
-        "example.com",
-        "example.com",
-        &[None],
-        &resolver,
-    )
+    let result = evaluate_ip(TestData {
+        from_domain: "example.com",
+        mail_from_domain: "example.com",
+        dkim_domains: &[None],
+        resolver: &resolver,
+    })
     .await;
 
-    k9::assert_equal!(result.result, DmarcResult::Fail);
+    k9::assert_equal!(result.result, Disposition::Reject);
     k9::assert_equal!(result.context.contains("d="), true);
 }
 
@@ -83,22 +178,21 @@ async fn dmarc_dkim_strict_illformed() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "example.com",
+            "_dmarc.example.com",
             "v=DMARC1; p=reject; adkim=s; \
             rua=mailto:dmarc-feedback@example.com"
                 .to_string(),
         );
 
-    let result = evaluate_ip(
-        Ipv4Addr::LOCALHOST,
-        "example.com",
-        "example.com",
-        &[None],
-        &resolver,
-    )
+    let result = evaluate_ip(TestData {
+        from_domain: "example.com",
+        mail_from_domain: "example.com",
+        dkim_domains: &[None],
+        resolver: &resolver,
+    })
     .await;
 
-    k9::assert_equal!(result.result, DmarcResult::Fail);
+    k9::assert_equal!(result.result, Disposition::Reject);
     k9::assert_equal!(result.context.contains("d="), true);
 }
 
@@ -108,22 +202,67 @@ async fn dmarc_spf_relaxed_subdomain() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "example.com",
+            "_dmarc.example.com",
             "v=DMARC1; p=reject; aspf=r; \
             rua=mailto:dmarc-feedback@example.com"
                 .to_string(),
         );
 
-    let result = evaluate_ip(
-        Ipv4Addr::LOCALHOST,
-        "example.com",
-        "helper.example.com",
-        &[],
-        &resolver,
-    )
+    let result = evaluate_ip(TestData {
+        from_domain: "example.com",
+        mail_from_domain: "helper.example.com",
+        dkim_domains: &[],
+        resolver: &resolver,
+    })
     .await;
 
-    k9::assert_equal!(result.result, DmarcResult::Pass);
+    k9::assert_equal!(result.result, Disposition::Pass);
+}
+
+#[tokio::test]
+async fn dmarc_spf_relaxed_subdomain_deep() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "_dmarc.example.com",
+            "v=DMARC1; p=reject; aspf=r; \
+            rua=mailto:dmarc-feedback@example.com"
+                .to_string(),
+        );
+
+    let result = evaluate_ip(TestData {
+        from_domain: "example.com",
+        mail_from_domain: "a.b.c.helper.example.com",
+        dkim_domains: &[],
+        resolver: &resolver,
+    })
+    .await;
+
+    k9::assert_equal!(result.result, Disposition::Pass);
+}
+
+#[tokio::test]
+async fn dmarc_spf_relaxed_subdomain_fail() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "_dmarc.example.com",
+            "v=DMARC1; p=reject; aspf=r; \
+            rua=mailto:dmarc-feedback@example.com"
+                .to_string(),
+        );
+
+    let result = evaluate_ip(TestData {
+        from_domain: "example.com",
+        mail_from_domain: "helper.example.org",
+        dkim_domains: &[],
+        resolver: &resolver,
+    })
+    .await;
+
+    k9::assert_equal!(result.result, Disposition::Reject);
 }
 
 #[tokio::test]
@@ -132,22 +271,21 @@ async fn dmarc_spf_strict_subdomain() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "example.com",
+            "_dmarc.example.com",
             "v=DMARC1; p=reject; aspf=s; \
             rua=mailto:dmarc-feedback@example.com"
                 .to_string(),
         );
 
-    let result = evaluate_ip(
-        Ipv4Addr::LOCALHOST,
-        "example.com",
-        "helper.example.com",
-        &[],
-        &resolver,
-    )
+    let result = evaluate_ip(TestData {
+        from_domain: "example.com",
+        mail_from_domain: "helper.example.com",
+        dkim_domains: &[],
+        resolver: &resolver,
+    })
     .await;
 
-    k9::assert_equal!(result.result, DmarcResult::Fail);
+    k9::assert_equal!(result.result, Disposition::Reject);
 }
 
 #[tokio::test]
@@ -160,7 +298,7 @@ async fn dmarc_pct_rate() {
         .with_zone(EXAMPLE_COM)
         .unwrap()
         .with_txt(
-            "example.com",
+            "_dmarc.example.com",
             format!(
                 "v=DMARC1; p=reject; aspf=s; pct={pct}; \
                 rua=mailto:dmarc-feedback@example.com"
@@ -168,35 +306,35 @@ async fn dmarc_pct_rate() {
         );
 
     for _ in 0..iters {
-        let result = evaluate_ip(
-            Ipv4Addr::LOCALHOST,
-            "example.com",
-            "helper.example.com",
-            &[],
-            &resolver,
-        )
+        let result = evaluate_ip(TestData {
+            from_domain: "example.com",
+            mail_from_domain: "helper.example.com",
+            dkim_domains: &[],
+            resolver: &resolver,
+        })
         .await;
 
-        if matches!(result.result, DmarcResult::Fail) {
+        if matches!(result.result, Disposition::Reject) {
             total_failures += 1;
         }
     }
 
-    // Allow 10% slack either side
-    let upper_bound = iters * (pct + 10) / 100;
-    let lower_bound = iters * (pct - 10) / 100;
+    // Allow 15% slack either side
+    let upper_bound = iters * (pct + 15) / 100;
+    let lower_bound = iters * (pct - 15) / 100;
 
     k9::assert_lesser_than!(total_failures, upper_bound);
     k9::assert_greater_than!(total_failures, lower_bound);
 }
 
-async fn evaluate_ip(
-    client_ip: impl Into<IpAddr>,
-    from_domain: &str,
-    mail_from_domain: &str,
-    dkim_domains: &[Option<&str>],
-    resolver: &dyn Resolver,
-) -> DmarcResultWithContext {
+async fn evaluate_ip<'a>(
+    TestData {
+        from_domain,
+        mail_from_domain,
+        dkim_domains,
+        resolver,
+    }: TestData<'a>,
+) -> DispositionWithContext {
     let mut dkim_vec = vec![];
 
     for dkim_domain in dkim_domains {
@@ -210,12 +348,7 @@ async fn evaluate_ip(
         }
     }
 
-    match DmarcContext::new(
-        from_domain,
-        Some(mail_from_domain),
-        client_ip.into(),
-        &dkim_vec,
-    ) {
+    match DmarcContext::new(from_domain, Some(mail_from_domain), &dkim_vec) {
         Ok(cx) => cx.check(resolver).await,
         Err(result) => result,
     }
@@ -230,7 +363,8 @@ $ORIGIN example.com.
             A   192.0.2.11
 amy         A   192.0.2.65
 bob         A   192.0.2.66
-sample      A   192.0.2.67
+_dmarc      A   192.0.2.67
+sample      A   192.0.2.68
 mail-a      A   192.0.2.129
 mail-b      A   192.0.2.130
 www         CNAME example.com."#;

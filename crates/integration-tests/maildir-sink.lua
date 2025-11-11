@@ -52,6 +52,12 @@ kumo.on('xfer_message_received', function(msg)
 end)
 
 local function apply_rejections(envelope_addr)
+  if string.find(envelope_addr.user, 'full-enh') then
+    kumo.reject(452, '4.1.1 mailbox is full')
+  end
+  if string.find(envelope_addr.user, 'full') then
+    kumo.reject(452, 'mailbox is full')
+  end
   if string.find(envelope_addr.user, 'tempfail') then
     kumo.reject(400, 'tempfail requested')
   end

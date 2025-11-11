@@ -8,6 +8,7 @@ chrono = {workspace=true}
 dns-resolver = {path="../dns-resolver"}
 instant-xml = {workspace=true}
 kumo-spf = { path = "../kumo-spf" }
+psl = {workspace=true}
 serde = {workspace=true}
 rand = {workspace=true}
 

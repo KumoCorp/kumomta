@@ -5,19 +5,29 @@ members = [
   "crates/domain-map",
   "crates/integration-tests",
   "crates/kcli",
+  "crates/kumo-address",
   "crates/kumo-chrono-helper",
+  "crates/kumo-dmarc",
   "crates/kumo-prometheus",
+  "crates/kumo-spf",
+  "crates/kumo-template",
+  "crates/kumo-wrap",
   "crates/kumod",
   "crates/mailparsing",
+  "crates/mod-file-type",
+  "crates/mod-mimepart",
+  "crates/mod-mpsc",
+  "crates/mod-smtp-response-normalize",
   "crates/mod-time",
   "crates/mod-uuid",
   "crates/mta-sts",
   "crates/proxy-server",
   "crates/regex-set-map",
   "crates/rfc5321",
-  "crates/kumo-spf",
+  "crates/run-lua-tests",
   "crates/spool",
   "crates/spool-util",
+  "crates/summarize-memory",
   "crates/tailer",
   "crates/throttle",
   "crates/timeq",
@@ -29,14 +39,6 @@ members = [
   "crates/validate-bounces",
   "crates/validate-shaping",
   "crates/version-info",
-  "crates/kumo-dmarc",
-  "crates/kumo-template",
-  "crates/summarize-memory",
-  "crates/kumo-address",
-  "crates/mod-mpsc",
-  "crates/run-lua-tests",
-  "crates/mod-mimepart",
-  "crates/mod-file-type",
 ]
 resolver = "2"
 
@@ -51,6 +53,7 @@ anyhow = "1.0"
 arc-swap = "1.6"
 async-stream = "0.3"
 async-trait = "0.1"
+aws-lc-rs = "1.13.1"
 axum = "0.8"
 axum-client-ip = "1.1"
 axum-server = "0.7"
@@ -97,6 +100,7 @@ gcd = "2.3"
 gethostname = "1.0"
 getrandom = "0.3"
 git2 = { version = "0.20", default-features = false }
+handlebars = "6.3"
 hdrhistogram = "7.5"
 hex = "0.4"
 # Be sure to update the link to the docs in docs/reference/kumo.dns/configure_resolver.md
@@ -202,6 +206,7 @@ tokio-openssl = "0.6.4"
 tokio-reactor-trait = "1.1.0"
 tokio-rustls = "0.26"
 tokio-splice = "0.2"
+tokio-stream = "0.1"
 tokio-tungstenite = "0.28"
 toml = "0.9"
 toml_edit = "0.23"

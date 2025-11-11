@@ -4,29 +4,28 @@ use crate::{verify_email_with_resolver, DkimPrivateKey, ParsedEmail, SignerBuild
 use chrono::TimeZone;
 use dns_resolver::{Resolver, TestResolver};
 use mailparsing::AuthenticationResult;
-use regex::Regex;
 
-fn dkim_record() -> String {
-    let data = std::fs::read_to_string("./test/keys/2022.txt").unwrap();
-    let re = Regex::new(r#"".*""#).unwrap();
+pub(crate) const TEST_ZONE: &str = "v=DKIM1; h=sha256; k=rsa; t=y:s; \
+    p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyrnZAH3hf+\
+    hp53o5gz7CfRNHme6iCW8koRNgV3bDiZcPxoC9nhjyMPWD/rizalhykzi\
+    Eaz0WBodeSalGjTXqH6yrlUobekxJO9UmzKrIpWCfsdbHLfTHCO6kk4JLeKs+\
+    hRs+/v2tPvcVnGD/A76cBXI5ksfrtUzeTlsPDYDSbafgBXvi9CTMAEUd3iB+\
+    HtjQbNuQJbNnZrLotBPGjuFTcUKCafCmFu31K6ZMDnOJadfoZO8cClti53V2DL\
+    z7NDO3kZIGiAHsNcptcZN3MnHRhMl2Buy5vdi4lfDXhjl5ozhb8MeY0LAJikJm\
+    9RUQ3GcHBdvqchnz53gcNXIApMuK2QIDAQAB";
 
-    let mut out = "".to_owned();
-    for m in re.find_iter(&data) {
-        out += &m.as_str().replace('\"', "");
-    }
-    out
+pub(crate) fn load_rsa_key() -> DkimPrivateKey {
+    DkimPrivateKey::rsa_key_file("./test/keys/2022.private").unwrap()
 }
 
 fn sign(domain: &str, raw_email: &str) -> String {
     let email = ParsedEmail::parse(raw_email).unwrap();
-
-    let private_key = DkimPrivateKey::rsa_key_file("./test/keys/2022.private").unwrap();
     let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
 
     let signer = SignerBuilder::new()
         .with_signed_headers(["From", "Subject"])
         .unwrap()
-        .with_private_key(private_key)
+        .with_private_key(load_rsa_key())
         .with_selector("2022")
         .with_signing_domain(domain)
         .with_time(time)
@@ -34,11 +33,10 @@ fn sign(domain: &str, raw_email: &str) -> String {
         .unwrap();
     let header = signer.sign(&email).unwrap();
 
-    let private_key = DkimPrivateKey::rsa_key_file("./test/keys/2022.private").unwrap();
     let signer = SignerBuilder::new()
         .with_signed_headers(["From", "Subject"])
         .unwrap()
-        .with_private_key(private_key)
+        .with_private_key(load_rsa_key())
         .with_selector("2022")
         .with_signing_domain(format!("not.{domain}"))
         .with_time(time)
@@ -46,11 +44,10 @@ fn sign(domain: &str, raw_email: &str) -> String {
         .unwrap();
     let header2 = signer.sign(&email).unwrap();
 
-    let private_key = DkimPrivateKey::rsa_key_file("./test/keys/2022.private").unwrap();
     let signer = SignerBuilder::new()
         .with_signed_headers(["From", "Subject"])
         .unwrap()
-        .with_private_key(private_key)
+        .with_private_key(load_rsa_key())
         .with_selector("bogus-selector")
         .with_signing_domain(domain)
         .with_time(time)
@@ -76,8 +73,8 @@ async fn verify(
 #[tokio::test]
 async fn test_roundtrip() {
     let resolver = TestResolver::default()
-        .with_txt("2022._domainkey.cloudflare.com", dkim_record())
-        .with_txt("2022._domainkey.not.cloudflare.com", dkim_record());
+        .with_txt("2022._domainkey.cloudflare.com", TEST_ZONE)
+        .with_txt("2022._domainkey.not.cloudflare.com", TEST_ZONE);
     let from_domain = "cloudflare.com";
 
     {
@@ -91,6 +88,7 @@ Hello Alice
         let signed_email = sign(from_domain, &email);
         eprintln!("input email:\n{email:?}");
         eprintln!("signed email:\n{signed_email:?}");
+
         let res = verify(&resolver, from_domain, &signed_email).await;
         k9::snapshot!(
             res,

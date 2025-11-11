@@ -13,6 +13,7 @@ pastey.workspace = true
 prometheus.workspace = true
 rand.workspace = true
 scopeguard.workspace = true
+serde = {workspace=true, features=["derive"]}
 tokio = {workspace=true, features=["sync"]}
 tracing = {workspace=true}
 

@@ -957,18 +957,41 @@ fn unstructured(input: Span) -> IResult<Span, String> {
     Ok((loc, result))
 }
 
+fn arc_authentication_results(input: Span) -> IResult<Span, ARCAuthenticationResults> {
+    context(
+        "arc_authentication_results",
+        map(
+            tuple((
+                preceded(opt(cfws), char('i')),
+                preceded(opt(cfws), char('=')),
+                preceded(opt(cfws), nom::character::complete::u8),
+                preceded(opt(cfws), char(';')),
+                preceded(opt(cfws), value),
+                opt(preceded(cfws, nom::character::complete::u32)),
+                alt((no_result, many1(resinfo))),
+                opt(cfws),
+            )),
+            |(_i, _eq, instance, _semic, serv_id, version, results, _)| ARCAuthenticationResults {
+                instance,
+                serv_id,
+                version,
+                results,
+            },
+        ),
+    )(input)
+}
+
 fn authentication_results(input: Span) -> IResult<Span, AuthenticationResults> {
     context(
         "authentication_results",
         map(
             tuple((
-                opt(cfws),
-                value,
+                preceded(opt(cfws), value),
                 opt(preceded(cfws, nom::character::complete::u32)),
                 alt((no_result, many1(resinfo))),
                 opt(cfws),
             )),
-            |(_, serv_id, version, results, _)| AuthenticationResults {
+            |(serv_id, version, results, _)| AuthenticationResults {
                 serv_id,
                 version,
                 results,
@@ -1035,7 +1058,7 @@ fn keyword(input: Span) -> IResult<Span, String> {
     context(
         "keyword",
         map(
-            take_while1(|c: char| c.is_ascii_alphanumeric() || c == '+'),
+            take_while1(|c: char| c.is_ascii_alphanumeric() || c == '+' || c == '-'),
             |s: Span| s.to_string(),
         ),
     )(input)
@@ -1408,13 +1431,63 @@ impl Parser {
     pub fn parse_authentication_results_header(text: &str) -> Result<AuthenticationResults> {
         parse_with(text, authentication_results)
     }
+
+    pub fn parse_arc_authentication_results_header(text: &str) -> Result<ARCAuthenticationResults> {
+        parse_with(text, arc_authentication_results)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ARCAuthenticationResults {
+    pub instance: u8,
+    pub serv_id: String,
+    pub version: Option<u32>,
+    pub results: Vec<AuthenticationResult>,
+}
+
+impl EncodeHeaderValue for ARCAuthenticationResults {
+    fn encode_value(&self) -> SharedString<'static> {
+        let mut result = format!("i={}; ", self.instance);
+
+        match self.version {
+            Some(v) => result.push_str(&format!("{} {v}", self.serv_id)),
+            None => result.push_str(&self.serv_id),
+        };
+
+        if self.results.is_empty() {
+            result.push_str("; none");
+        } else {
+            for res in &self.results {
+                result.push_str(";\r\n\t");
+                emit_value_token(&res.method, &mut result);
+                if let Some(v) = res.method_version {
+                    result.push_str(&format!("/{v}"));
+                }
+                result.push('=');
+                emit_value_token(&res.result, &mut result);
+                if let Some(reason) = &res.reason {
+                    result.push_str(" reason=");
+                    emit_value_token(reason, &mut result);
+                }
+                for (k, v) in &res.props {
+                    result.push_str(&format!("\r\n\t{k}="));
+                    emit_value_token(v, &mut result);
+                }
+            }
+        }
+
+        result.into()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthenticationResults {
     pub serv_id: String,
+    #[serde(default)]
     pub version: Option<u32>,
+    #[serde(default)]
     pub results: Vec<AuthenticationResult>,
 }
 
@@ -1471,9 +1544,12 @@ impl EncodeHeaderValue for AuthenticationResults {
 #[serde(deny_unknown_fields)]
 pub struct AuthenticationResult {
     pub method: String,
+    #[serde(default)]
     pub method_version: Option<u32>,
     pub result: String,
+    #[serde(default)]
     pub reason: Option<String>,
+    #[serde(default)]
     pub props: BTreeMap<String, String>,
 }
 
@@ -3316,6 +3392,67 @@ AuthenticationResults {
 foo.example.net 1;\r
 \tdkim/1=fail\r
 \tpolicy.expired=1362471462
+"#
+        );
+    }
+
+    #[test]
+    fn arc_authentication_results_1() {
+        let ar = Header::with_name_value(
+            "ARC-Authentication-Results",
+            "i=3; clochette.example.org; spf=fail
+    smtp.from=jqd@d1.example; dkim=fail (512-bit key)
+    header.i=@d1.example; dmarc=fail; arc=pass (as.2.gmail.example=pass,
+    ams.2.gmail.example=pass, as.1.lists.example.org=pass,
+    ams.1.lists.example.org=fail (message has been altered))",
+        );
+        let ar = match ar.as_arc_authentication_results() {
+            Err(err) => panic!("\n{err}"),
+            Ok(ar) => ar,
+        };
+
+        k9::snapshot!(
+            &ar,
+            r#"
+ARCAuthenticationResults {
+    instance: 3,
+    serv_id: "clochette.example.org",
+    version: None,
+    results: [
+        AuthenticationResult {
+            method: "spf",
+            method_version: None,
+            result: "fail",
+            reason: None,
+            props: {
+                "smtp.from": "jqd@d1.example",
+            },
+        },
+        AuthenticationResult {
+            method: "dkim",
+            method_version: None,
+            result: "fail",
+            reason: None,
+            props: {
+                "header.i": "@d1.example",
+            },
+        },
+        AuthenticationResult {
+            method: "dmarc",
+            method_version: None,
+            result: "fail",
+            reason: None,
+            props: {},
+        },
+        AuthenticationResult {
+            method: "arc",
+            method_version: None,
+            result: "pass",
+            reason: None,
+            props: {},
+        },
+    ],
+}
 "#
         );
     }

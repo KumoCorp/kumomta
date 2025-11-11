@@ -18,6 +18,16 @@
    directly connecting IP information will be used.  See the [upstream
    issue](https://github.com/imbolc/axum-client-ip/issues/32) for more
    information.
+ * Our SMTP client now treats a 552 response during `RCPT TO` as a
+   `TransientFailure` instead of a `PermanentFailure` as described by [RFC 5321
+   Section
+   4.5.3.1.10](https://datatracker.ietf.org/doc/html/rfc5321#section-4.5.3.1.10).
+   If you are employing
+   [smtp_server_rewrite_response](../reference/events/smtp_server_rewrite_response.md)
+   and happen to rewrite transient codes to `552` then you will find that the
+   disposition remains as a `TransientFailure` even after the rewrite.  Our
+   recommendation is that you update such rewrite rules to use `550` or `555`
+   to avoid this classification.
 
 ## Other Changes and Enhancements
 
@@ -57,6 +67,37 @@
    records produced by the smtp listener. The service key is the listener
    address and port, and there is a `total` key that represents the total across
    all listeners.
+ * new [kumo.spf.check_msg](../reference/kumo.spf/check_msg.md) convenience
+   function for checking SPF and producing Authentication-Results once the
+   data has been received.
+ * new [kumo.crypto](../reference/kumo.crypto/index.md) module. Thanks to
+   @dariomaiocchi! #395
+ * new [Time](../reference/kumo.time/Time.md) and
+   [TimeDelta](../reference/kumo.time/TimeDelta.md) objects.
+ * new
+   [smtp_server_rewrite_response](../reference/events/smtp_server_rewrite_response.md)
+   event.
+ * [msg:append_header](../reference/message/append_header.md) and
+   [msg:prepend_header](../reference/message/prepend_header.md) both now accept
+   an optional `ENCODE` parameter that opts in to wrapping or quoted-printable
+   encoding the value as appropriate.
+ * new [headermap:append](../reference/headermap/append.md) method for
+   appending a header. This supplements the already available `:prepend`
+   method.
+ * new [kumo.string.wrap](../reference/string/wrap.md) function that
+   enables manual wrapping of strings for use in, for example, header values.
+ * new [msg:arc_verify](../reference/message/arc_verify.md) and
+   [msg:arc_seal](../reference/message/arc_seal.md) functions. #16
+ * Enable thundering herd protection for `dkim_key_cache` and
+   `dkim_signer_cache`
+ * new [policy-extras.mail_auth](../reference/policy-extras.mail_auth/index.md)
+   module for performing mail authentication and producing an aggregate
+   `Authentication-Results` header.
+ * new [normalize_smtp_response](../reference/string/normalize_smtp_response.md)
+   lua function and [jinja filter](../reference/template/normalize_smtp_response.md).
+ * The default value for
+   [prohibited_hosts](../reference/kumo/make_egress_path/prohibited_hosts.md)
+   now also includes the IPv4 and IPv6 Any addresses.
 
 ## Fixes
 
@@ -76,3 +117,14 @@
    even though the limit was set smaller.
  * Message builder API didn't quote every possible character that needed to be
    quoted in the display name of a mailbox. #428
+ * Incorrectly treated a 552 as a transient failure for non-RCPT-TO 552
+   responses. #431
+ * spf: we now populate `smtp.mailfrom` in the Authentication-Results props map.
+ * [keysource](../reference/keysource.md) now supports inline binary bytes
+   being passed via `key_data`.  Previously, only UTF-8 strings could be
+   passed that way.
+ * [keysource](../reference/keysource.md) now supports callback/event based
+   data loading, which is similar to inline `key_data`, but allows for more
+   efficient cache keys that use less RAM.
+ * dkim verification would incorrectly treat `i=@fexample.net` as a valid
+   subdomain of `d=example.net`.

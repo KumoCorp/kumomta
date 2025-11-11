@@ -25,9 +25,11 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
 
 declare_cache! {
+/// Caches EgressSource information by source name
 static SOURCES: LruCacheWithTtl<String, EgressSource>::new("egress_source_sources", 128);
 }
 declare_cache! {
+/// Caches EgressPool information by pool name
 static POOLS: LruCacheWithTtl<String, EgressPool>::new("egress_source_pools", 128);
 }
 

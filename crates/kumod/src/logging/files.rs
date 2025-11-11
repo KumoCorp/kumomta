@@ -150,7 +150,9 @@ impl LogThreadState {
     pub async fn logger_thread(&mut self) {
         tracing::debug!("LogFileParams: {:#?}", self.params);
 
-        self.mark_existing_logs_as_done();
+        if !config::is_validating() {
+            self.mark_existing_logs_as_done();
+        }
         let mut expire_counter = 0u16;
 
         let mut memory_status = subscribe_to_memory_status_changes_async().await;
@@ -368,8 +370,7 @@ impl LogThreadState {
 
         if let Some(file) = self.file_map.get_mut(&file_key) {
             let mut record_text = Vec::new();
-            self.template_engine
-                .add_global("log_record", kumo_template::Value::from_serialize(&record));
+            self.template_engine.add_global("log_record", &record)?;
 
             if let Some(template) =
                 Self::resolve_template(&self.params, &self.template_engine, record.kind)

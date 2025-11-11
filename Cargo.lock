@@ -424,6 +424,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "879b6c89592deb404ba4dc0ae6b58ffd1795c78991cbb5b8bc441c48a070440d"
 dependencies = [
  "aws-lc-sys",
+ "untrusted 0.7.1",
  "zeroize",
 ]
 
@@ -1735,6 +1736,7 @@ dependencies = [
  "config",
  "mlua",
  "serde",
+ "serde_bytes",
  "serde_json",
  "tokio",
  "vaultrs",
@@ -1800,7 +1802,16 @@ version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d67778784b508018359cbc8696edb3db78160bab2c2a28ba7f56ef6932997f8"
 dependencies = [
- "derive_builder_macro",
+ "derive_builder_macro 0.12.0",
+]
+
+[[package]]
+name = "derive_builder"
+version = "0.20.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "507dfb09ea8b7fa618fcf76e953f4f5e192547945816d5358edffe39f6f94947"
+dependencies = [
+ "derive_builder_macro 0.20.2",
 ]
 
 [[package]]
@@ -1816,13 +1827,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_builder_core"
+version = "0.20.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d5bcf7b024d6835cfb3d473887cd966994907effbe9227e8c8219824d06c4e8"
+dependencies = [
+ "darling 0.20.11",
+ "proc-macro2 1.0.101",
+ "quote 1.0.41",
+ "syn 2.0.106",
+]
+
+[[package]]
 name = "derive_builder_macro"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebcda35c7a396850a55ffeac740804b40ffec779b98fffbb1738f4033f0ee79e"
 dependencies = [
- "derive_builder_core",
+ "derive_builder_core 0.12.0",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "derive_builder_macro"
+version = "0.20.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab63b0e2bf4d5928aff72e83a7dace85d7bba5fe12dcc3c5a572d78caffd3f3c"
+dependencies = [
+ "derive_builder_core 0.20.2",
+ "syn 2.0.106",
 ]
 
 [[package]]
@@ -2536,6 +2569,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "handlebars"
+version = "6.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "759e2d5aea3287cb1190c8ec394f42866cb5bf74fcbf213f354e3c856ea26098"
+dependencies = [
+ "derive_builder 0.20.2",
+ "heck",
+ "log",
+ "num-order",
+ "pest",
+ "pest_derive",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3245,11 +3295,13 @@ dependencies = [
  "axum",
  "axum-server",
  "chrono",
+ "dns-resolver",
  "flate2",
  "futures",
  "futures-lite 2.6.1",
  "k9",
  "kumo-api-types",
+ "kumo-dkim",
  "kumo-log-types",
  "lapin",
  "lipsum",
@@ -3603,7 +3655,6 @@ dependencies = [
  "nom 7.1.3",
  "openssl",
  "openssl-sys",
- "regex",
  "sha-1",
  "sha2",
  "textwrap",
@@ -3621,6 +3672,7 @@ dependencies = [
  "instant-xml",
  "k9",
  "kumo-spf",
+ "psl",
  "rand 0.8.5",
  "serde",
  "tokio",
@@ -3693,6 +3745,7 @@ dependencies = [
  "metrics-tracing-context",
  "mlua",
  "mod-amqp",
+ "mod-crypto",
  "mod-digest",
  "mod-dns-resolver",
  "mod-encode",
@@ -3707,6 +3760,7 @@ dependencies = [
  "mod-regex",
  "mod-rspamd",
  "mod-serde",
+ "mod-smtp-response-normalize",
  "mod-sqlite",
  "mod-string",
  "mod-time",
@@ -3723,6 +3777,7 @@ dependencies = [
  "tokio",
  "tokio-metrics",
  "tokio-metrics-collector",
+ "tokio-stream",
  "tower-http",
  "tracing",
  "tracing-appender",
@@ -3793,10 +3848,21 @@ dependencies = [
 name = "kumo-template"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "handlebars",
  "minijinja",
  "minijinja-contrib",
+ "mod-smtp-response-normalize",
  "self_cell",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "kumo-wrap"
+version = "0.1.0"
+dependencies = [
+ "k9",
 ]
 
 [[package]]
@@ -3851,6 +3917,7 @@ dependencies = [
  "message",
  "metrics",
  "mlua",
+ "mod-dns-resolver",
  "mta-sts",
  "nix 0.30.1",
  "num-format",
@@ -4144,6 +4211,7 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "scopeguard",
+ "serde",
  "test-log",
  "tokio",
  "tracing",
@@ -4230,6 +4298,7 @@ dependencies = [
  "data-encoding",
  "data-encoding-macro",
  "k9",
+ "kumo-wrap",
  "memchr",
  "nom 7.1.3",
  "nom_locate",
@@ -4337,6 +4406,7 @@ dependencies = [
  "mailparsing",
  "memchr",
  "mlua",
+ "mod-dns-resolver",
  "mod-mimepart",
  "parking_lot",
  "prometheus",
@@ -4541,6 +4611,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mod-crypto"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aws-lc-rs",
+ "config",
+ "data-loader",
+ "hex",
+ "mlua",
+ "mod-digest",
+ "serde",
+]
+
+[[package]]
 name = "mod-digest"
 version = "0.1.0"
 dependencies = [
@@ -4741,6 +4825,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mod-smtp-response-normalize"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "config",
+ "criterion",
+ "mlua",
+ "phf 0.13.1",
+ "regex",
+ "uuid",
+]
+
+[[package]]
 name = "mod-sqlite"
 version = "0.1.0"
 dependencies = [
@@ -4759,6 +4857,7 @@ dependencies = [
  "anyhow",
  "config",
  "kumo-template",
+ "kumo-wrap",
  "mlua",
  "psl",
 ]
@@ -4768,7 +4867,9 @@ name = "mod-time"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "config",
+ "humantime",
  "mlua",
  "prometheus",
  "tokio",
@@ -5083,6 +5184,21 @@ dependencies = [
  "autocfg",
  "num-integer",
  "num-traits",
+]
+
+[[package]]
+name = "num-modular"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17bb261bf36fa7d83f4c294f834e91256769097b3cb505d44831e0a179ac647f"
+
+[[package]]
+name = "num-order"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "537b596b97c40fcf8056d153049eb22f481c17ebce72a513ec9286e4986d1bb6"
+dependencies = [
+ "num-modular",
 ]
 
 [[package]]
@@ -5453,6 +5569,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1562dc717473dbaa4c1f85a36410e03c047b2e7df7f45ee938fbef64ae7fadf"
 dependencies = [
  "phf_shared 0.13.1",
+ "serde",
 ]
 
 [[package]]
@@ -6392,7 +6509,7 @@ dependencies = [
  "cfg-if",
  "getrandom 0.2.16",
  "libc",
- "untrusted",
+ "untrusted 0.9.0",
  "windows-sys 0.52.0",
 ]
 
@@ -6702,7 +6819,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64ca1bc8749bd4cf37b5ce386cc146580777b4e8572c7b97baf22c83f444bee9"
 dependencies = [
  "rustls-pki-types",
- "untrusted",
+ "untrusted 0.9.0",
 ]
 
 [[package]]
@@ -6714,7 +6831,7 @@ dependencies = [
  "aws-lc-rs",
  "ring",
  "rustls-pki-types",
- "untrusted",
+ "untrusted 0.9.0",
 ]
 
 [[package]]
@@ -8335,6 +8452,7 @@ dependencies = [
  "humanize-rs",
  "humansize",
  "lipsum",
+ "mailparsing",
  "nix 0.30.1",
  "num-format",
  "rand 0.8.5",
@@ -8568,6 +8686,12 @@ checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "untrusted"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a156c684c91ea7d62626509bce3cb4e1d9ed5c4d978f7b4352658f96a4c26b4a"
+
+[[package]]
+name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
@@ -8725,7 +8849,7 @@ checksum = "f81eb4d9221ca29bad43d4b6871b6d2e7656e1af2cfca624a87e5d17880d831d"
 dependencies = [
  "async-trait",
  "bytes",
- "derive_builder",
+ "derive_builder 0.12.0",
  "http",
  "reqwest",
  "rustify",
