@@ -33,7 +33,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 let mail_from_domain = msg_sender.ok().map(|x| x.domain().to_string());
 
                 // From:
-                let from_domain = if let Ok(Some(from)) = msg.get_address_header("From") {
+                let from_domain = if let Ok(Some(from)) = msg.get_address_header("From").await {
                     if let Ok(from_domain) = from.domain() {
                         from_domain.to_string()
                     } else {

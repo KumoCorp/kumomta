@@ -615,7 +615,7 @@ async fn process_recipient<'a>(
     let queue_name = message.get_queue_name()?;
 
     if queue_name != "null" {
-        request.trace_headers.apply_supplemental(&message)?;
+        request.trace_headers.apply_supplemental(&message).await?;
 
         if !request.deferred_spool {
             message.save(None).await?;
@@ -925,9 +925,8 @@ impl HttpInjectionGeneratorDispatcher {
     async fn try_send(&self, msg: Message) -> anyhow::Result<()> {
         HTTPINJECT
             .spawn("http inject_v1".to_string(), async move {
-                msg.load_data_if_needed().await?;
                 msg.load_meta_if_needed().await?;
-                let data = msg.get_data();
+                let data = msg.data().await?;
                 let request: InjectV1Request = serde_json::from_slice(&data)?;
                 let peer_address = msg
                     .get_meta_string("received_from")?

@@ -1518,7 +1518,7 @@ impl Queue {
                 dir_mode,
                 file_mode,
             } => {
-                opt_timeout_at(deadline, msg.load_data_if_needed()).await?;
+                let msg_data = opt_timeout_at(deadline, msg.data()).await?;
 
                 let mut successes = vec![];
                 let mut failures = vec![];
@@ -1559,7 +1559,7 @@ impl Queue {
                     let result: anyhow::Result<String> = spawn_blocking_on(
                         "write to maildir",
                         {
-                            let msg = msg.clone();
+                            let msg_data = msg_data.clone();
                             move || {
                                 let mut md = maildir::Maildir::with_path(&expanded_maildir_path);
                                 md.set_dir_mode(dir_mode);
@@ -1570,7 +1570,7 @@ impl Queue {
                                         {expanded_maildir_path} for queue {name}"
                                     )
                                 })?;
-                                Ok(md.store_new(&msg.get_data()).with_context(|| {
+                                Ok(md.store_new(&msg_data).with_context(|| {
                                     format!(
                                         "failed to store message to maildir \
                                         {expanded_maildir_path} for queue {name}"

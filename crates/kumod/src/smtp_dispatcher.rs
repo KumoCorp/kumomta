@@ -959,12 +959,11 @@ impl QueueDispatcher for SmtpDispatcher {
         let msg = msgs.pop().expect("just verified that there is one");
 
         msg.load_meta_if_needed().await.context("loading meta")?;
-        msg.load_data_if_needed().await.context("loading data")?;
+        let data = msg.data().await.context("loading data")?;
 
         let spool_id = *msg.id();
         let mut recips_this_txn = HashMap::new();
 
-        let data = msg.get_data();
         let sender: ReversePath = msg
             .sender()?
             .try_into()

@@ -28,8 +28,7 @@ pub async fn inspect_v1(
         .and_then(|s| serde_json::to_value(s).ok());
 
     let data = if request.want_body {
-        msg.load_data_if_needed().await?;
-        Some(String::from_utf8_lossy(&msg.get_data()).into())
+        Some(String::from_utf8_lossy(&msg.data().await?).into())
     } else {
         None
     };

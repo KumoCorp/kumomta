@@ -385,10 +385,8 @@ impl Logger {
         let mut headers = HashMap::new();
 
         if !self.headers.is_empty() {
-            msg.load_data_if_needed().await.ok();
-
             let mut all_headers: HashMap<String, (String, Vec<Value>)> = HashMap::new();
-            for (name, value) in msg.get_all_headers().unwrap_or_else(|_| vec![]) {
+            for (name, value) in msg.get_all_headers().await.unwrap_or_else(|_| vec![]) {
                 all_headers
                     .entry(name.to_ascii_lowercase())
                     .or_insert_with(|| (name.to_string(), vec![]))

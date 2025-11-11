@@ -253,8 +253,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         let orig_msg_data;
         let orig_msg = match orig_msg {
             Some(msg) => {
-                msg.load_data_if_needed().await?;
-                orig_msg_data = msg.get_data();
+                orig_msg_data = msg.data().await?;
                 Some(MimePart::parse(orig_msg_data.as_ref().as_ref())?)
             }
             None => None,
@@ -324,13 +323,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     kumo_mod.set(
         "apply_supplemental_trace_header",
-        lua.create_function(
-            move |lua, (message, params): (Message, Option<mlua::Value>)| {
+        lua.create_async_function(
+            |lua, (message, params): (Message, Option<mlua::Value>)| async move {
                 let params: TraceHeaders = match params {
-                    Some(params) => from_lua_value(lua, params)?,
+                    Some(params) => from_lua_value(&lua, params)?,
                     None => TraceHeaders::default(),
                 };
-                params.apply_supplemental(&message).map_err(any_err)
+                params.apply_supplemental(&message).await.map_err(any_err)
             },
         )?,
     )?;

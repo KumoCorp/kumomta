@@ -74,7 +74,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             .map(|disp| disp.log_arf.should_log())
             .unwrap_or(false)
         {
-            if let Ok(Some(report)) = msg.parse_rfc5965() {
+            if let Ok(Some(report)) = msg.parse_rfc5965().await {
                 feedback_report.replace(Box::new(report));
                 kind = RecordType::Feedback;
             }
@@ -150,7 +150,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
         let record = JsonLogRecord {
             kind,
             id: msg.id().to_string(),
-            size: msg.get_data().len() as u64,
+            size: msg.get_data_maybe_not_loaded().len() as u64,
             sender: msg
                 .sender()
                 .map(|addr| addr.to_string())
@@ -191,7 +191,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                 .map(|disp| disp.log_oob.should_log())
                 .unwrap_or(false)
             {
-                if let Ok(Some(report)) = msg.parse_rfc3464() {
+                if let Ok(Some(report)) = msg.parse_rfc3464().await {
                     // This incoming bounce report is addressed to
                     // the envelope from of the original message
                     let sender = msg
