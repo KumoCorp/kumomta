@@ -17,7 +17,7 @@ struct MessageDataWrapper(Arc<Box<[u8]>>);
 
 impl AsRef<[u8]> for MessageDataWrapper {
     fn as_ref(&self) -> &[u8] {
-        &*self.0
+        &self.0
     }
 }
 
@@ -110,14 +110,20 @@ impl RspamdClientConfig {
         let proxy_config = if let Some(proxy_url) = &self.proxy_url {
             let username = if let Some(u) = &self.proxy_username {
                 let bytes = u.get().await?;
-                Some(String::from_utf8(bytes.to_vec()).context("proxy_username is not valid UTF-8")?)
+                Some(
+                    String::from_utf8(bytes.to_vec())
+                        .context("proxy_username is not valid UTF-8")?,
+                )
             } else {
                 None
             };
 
             let proxy_password = if let Some(p) = &self.proxy_password {
                 let bytes = p.get().await?;
-                Some(String::from_utf8(bytes.to_vec()).context("proxy_password is not valid UTF-8")?)
+                Some(
+                    String::from_utf8(bytes.to_vec())
+                        .context("proxy_password is not valid UTF-8")?,
+                )
             } else {
                 None
             };
@@ -265,7 +271,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             // Wrap the Arc<Box<[u8]>> in MessageDataWrapper to implement AsRef<[u8]>
             // This enables true zero-copy operation (no allocation or copying of message data)
             let client_config = config.make_client_config().await.map_err(any_err)?;
-            let data = MessageDataWrapper(msg.get_data());
+            let data = MessageDataWrapper(msg.data().await.map_err(any_err)?);
             let reply = scan_async(&client_config, data, envelope_data)
                 .await
                 .map_err(any_err)?;
@@ -276,17 +282,22 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             if config.add_headers {
                 // Add X-Spam-* headers
-                msg.prepend_header(
-                    Some("X-Spam-Flag"),
-                    if is_spam { "YES" } else { "NO" },
-                );
-                msg.prepend_header(Some("X-Spam-Score"), &reply.score.to_string());
-                msg.prepend_header(Some("X-Spam-Action"), &reply.action);
+                msg.prepend_header(Some("X-Spam-Flag"), if is_spam { "YES" } else { "NO" })
+                    .await
+                    .map_err(any_err)?;
+                msg.prepend_header(Some("X-Spam-Score"), &reply.score.to_string())
+                    .await
+                    .map_err(any_err)?;
+                msg.prepend_header(Some("X-Spam-Action"), &reply.action)
+                    .await
+                    .map_err(any_err)?;
 
                 // Add symbols if available
                 if !reply.symbols.is_empty() {
-                    let symbols: Vec<String> = reply.symbols.keys().cloned().collect();
-                    msg.prepend_header(Some("X-Spam-Symbols"), &symbols.join(", "));
+                    let symbols: Vec<&str> = reply.symbols.keys().map(|s| s.as_str()).collect();
+                    msg.prepend_header(Some("X-Spam-Symbols"), &symbols.join(", "))
+                        .await
+                        .map_err(any_err)?;
                 }
             }
 
@@ -303,7 +314,9 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     let reject: mlua::Function = kumo.get("reject")?;
 
                     // Use Rspamd's smtp_message if provided, otherwise use default
-                    let message = reply.messages.get("smtp_message")
+                    let message = reply
+                        .messages
+                        .get("smtp_message")
                         .map(|s| s.as_str())
                         .unwrap_or("4.7.1 Greylisted, please try again later");
 
@@ -313,9 +326,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     // Just add headers (already done above) and deliver
                 }
                 "rewrite subject" if config.prefix_subject => {
-                    if let Ok(Some(subject)) = msg.get_first_named_header_value("Subject") {
-                        msg.remove_all_named_headers("Subject").map_err(any_err)?;
-                        msg.prepend_header(Some("Subject"), &format!("***SPAM*** {}", subject));
+                    if let Ok(Some(subject)) = msg.get_first_named_header_value("Subject").await {
+                        msg.remove_all_named_headers("Subject")
+                            .await
+                            .map_err(any_err)?;
+                        msg.prepend_header(Some("Subject"), &format!("***SPAM*** {subject}"))
+                            .await
+                            .map_err(any_err)?;
                     }
                 }
                 "reject" if config.reject_spam => {
@@ -325,7 +342,9 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     let reject: mlua::Function = kumo.get("reject")?;
 
                     // Use Rspamd's smtp_message if provided, otherwise use default
-                    let message = reply.messages.get("smtp_message")
+                    let message = reply
+                        .messages
+                        .get("smtp_message")
                         .map(|s| s.as_str())
                         .unwrap_or("5.7.1 Spam message rejected");
 

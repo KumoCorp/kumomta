@@ -118,10 +118,9 @@ impl RspamdHeaders {
     fn assert_has_score(&self) -> anyhow::Result<f64> {
         match &self.spam_score {
             Some(score) => {
-                let parsed = score.parse::<f64>().context(format!(
-                    "Failed to parse X-Spam-Score '{}' as float",
-                    score
-                ))?;
+                let parsed = score
+                    .parse::<f64>()
+                    .context(format!("Failed to parse X-Spam-Score '{}' as float", score))?;
                 Ok(parsed)
             }
             None => {
@@ -160,16 +159,14 @@ impl RspamdHeaders {
 
 #[tokio::test]
 async fn test_rspamd_scan_message() -> anyhow::Result<()> {
-    if std::env::var("KUMOD_TESTCONTAINERS").unwrap_or_else(|_| String::new()) != "1" {
+    if std::env::var("KUMOD_TESTCONTAINERS").unwrap_or_default() != "1" {
         return Ok(());
     }
 
     let rspamd = RspamdContainer::new().await?;
 
-    let policy_file = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("rspamd.lua");
-
     let mut daemon = crate::kumod::DaemonWithMaildirOptions::new()
-        .policy_file(policy_file.to_string_lossy().to_string())
+        .policy_file("rspamd.lua")
         .env("KUMOD_TEST_RSPAMD_URL", rspamd.url())
         .start()
         .await?;
@@ -194,19 +191,13 @@ async fn test_rspamd_scan_message() -> anyhow::Result<()> {
         response.code
     );
 
-    // Wait for message to be delivered to source daemon's local maildir
+    // Wait for message to be delivered to sink's maildir
     daemon
-        .source
         .wait_for_maildir_count(1, Duration::from_secs(10))
         .await;
 
     // Extract and verify Rspamd headers were added
-    // Read from source daemon's maildir (not sink) since we're delivering locally
-    let mut messages = vec![];
-    let md = daemon.source.maildir();
-    for entry in md.list_new() {
-        messages.push(entry?);
-    }
+    let mut messages = daemon.extract_maildir_messages()?;
     anyhow::ensure!(
         messages.len() == 1,
         "Expected 1 message, found {}",
@@ -217,9 +208,7 @@ async fn test_rspamd_scan_message() -> anyhow::Result<()> {
     eprintln!("Rspamd headers: {rspamd_headers:?}");
 
     // Verify headers are present and message was scanned
-    rspamd_headers
-        .assert_has_flag()?
-        .assert_has_action()?;
+    rspamd_headers.assert_has_flag()?.assert_has_action()?;
 
     let score = rspamd_headers.assert_has_score()?;
     eprintln!("Spam score: {score}");
@@ -232,29 +221,39 @@ async fn test_rspamd_scan_message() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Test that messages containing the GTUBE spam test pattern are rejected.
+///
+/// GTUBE (Generic Test for Unsolicited Bulk Email) is a standard test pattern
+/// that spam filters recognize as spam. This test sends a message containing
+/// the GTUBE pattern to reject-spam@test.example.com, which is configured to
+/// reject messages when Rspamd returns certain spam actions.
 #[tokio::test]
 async fn test_rspamd_reject_spam() -> anyhow::Result<()> {
-    if std::env::var("KUMOD_TESTCONTAINERS").unwrap_or_else(|_| String::new()) != "1" {
+    if std::env::var("KUMOD_TESTCONTAINERS").unwrap_or_default() != "1" {
         return Ok(());
     }
 
     let rspamd = RspamdContainer::new().await?;
 
-    let policy_file = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("rspamd.lua");
-
     let mut daemon = crate::kumod::DaemonWithMaildirOptions::new()
-        .policy_file(policy_file.to_string_lossy().to_string())
+        .policy_file("rspamd.lua")
         .env("KUMOD_TEST_RSPAMD_URL", rspamd.url())
         .start()
         .await?;
 
-    eprintln!("Sending test message to reject-spam@test.example.com");
+    eprintln!("Sending GTUBE spam test message to reject-spam@test.example.com");
     let mut client = daemon.smtp_client().await.context("make smtp_client")?;
 
-    // Send a normal message to reject-spam address (should not be rejected since it's not spam)
-    let body = generate_message_text(512, 78);
+    // Send message with GTUBE spam test pattern
+    // GTUBE pattern is recognized by Rspamd as spam
+    let gtube_body = "This is a test message.\r\n\
+        \r\n\
+        XJS*C4JDBQADN1.NSBN3*2IDNEN*GTUBE-STANDARD-ANTI-UBE-TEST-EMAIL*C.34X\r\n\
+        \r\n\
+        If you received this message, your spam filter recognized the GTUBE pattern.\r\n";
+
     let response = MailGenParams {
-        body: Some(&body),
+        body: Some(gtube_body),
         recip: Some("reject-spam@test.example.com"),
         ..Default::default()
     }
@@ -264,35 +263,29 @@ async fn test_rspamd_reject_spam() -> anyhow::Result<()> {
 
     eprintln!("SMTP response: {response:?}");
 
-    // Normal messages should be accepted even to reject-spam address
+    // Message should be rejected due to spam content
     anyhow::ensure!(
-        response.code == 250,
-        "Expected 250 response for normal message, got {}",
+        response.code >= 500 && response.code < 600,
+        "Expected 5xx rejection code for spam message, got {}",
         response.code
     );
 
-    daemon
-        .wait_for_maildir_count(1, Duration::from_secs(10))
-        .await;
-
     daemon.stop_both().await.context("stop_both")?;
-    eprintln!("Test completed successfully");
+    eprintln!("Test completed successfully - spam was rejected");
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_rspamd_headers() -> anyhow::Result<()> {
-    if std::env::var("KUMOD_TESTCONTAINERS").unwrap_or_else(|_| String::new()) != "1" {
+    if std::env::var("KUMOD_TESTCONTAINERS").unwrap_or_default() != "1" {
         return Ok(());
     }
 
     let rspamd = RspamdContainer::new().await?;
 
-    let policy_file = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("rspamd.lua");
-
     let mut daemon = crate::kumod::DaemonWithMaildirOptions::new()
-        .policy_file(policy_file.to_string_lossy().to_string())
+        .policy_file("rspamd.lua")
         .env("KUMOD_TEST_RSPAMD_URL", rspamd.url())
         .start()
         .await?;
@@ -317,19 +310,13 @@ async fn test_rspamd_headers() -> anyhow::Result<()> {
         response.code
     );
 
-    // Wait for message to be delivered to source daemon's local maildir
+    // Wait for message to be delivered to sink's maildir
     daemon
-        .source
         .wait_for_maildir_count(1, Duration::from_secs(10))
         .await;
 
     // Extract and verify Rspamd headers were added
-    // Read from source daemon's maildir (not sink) since we're delivering locally
-    let mut messages = vec![];
-    let md = daemon.source.maildir();
-    for entry in md.list_new() {
-        messages.push(entry?);
-    }
+    let mut messages = daemon.extract_maildir_messages()?;
     anyhow::ensure!(
         messages.len() == 1,
         "Expected 1 message, found {}",
@@ -363,16 +350,14 @@ async fn test_rspamd_headers() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_rspamd_per_recipient_threshold() -> anyhow::Result<()> {
-    if std::env::var("KUMOD_TESTCONTAINERS").unwrap_or_else(|_| String::new()) != "1" {
+    if std::env::var("KUMOD_TESTCONTAINERS").unwrap_or_default() != "1" {
         return Ok(());
     }
 
     let rspamd = RspamdContainer::new().await?;
 
-    let policy_file = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("rspamd.lua");
-
     let mut daemon = crate::kumod::DaemonWithMaildirOptions::new()
-        .policy_file(policy_file.to_string_lossy().to_string())
+        .policy_file("rspamd.lua")
         .env("KUMOD_TEST_RSPAMD_URL", rspamd.url())
         .start()
         .await?;

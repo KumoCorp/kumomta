@@ -44,19 +44,17 @@ curl -X POST http://localhost:8000/inject/v1 \
 ]]
 
 local kumo = require 'kumo'
-local rspamd = require 'policy-extras.rspamd'
 
 --[[
 # Example 1: Simplified API with Built-in Actions
 
-The kumo.rspamd.scan_message() function provides a streamlined interface
+The kumo.rspamd.scan_message() function provides a streamlined Rust-based interface
 that automatically extracts message metadata and applies default actions.
 
 Note: Use smtp_server_data for efficient per-batch scanning. This scans once
 per SMTP transaction instead of once per recipient, avoiding duplicate scans.
 ]]
 
---[[
 kumo.on('smtp_server_data', function(msg)
   -- Simple config with default actions
   local config = {
@@ -67,7 +65,7 @@ kumo.on('smtp_server_data', function(msg)
     prefix_subject = false, -- Prefix subject with ***SPAM*** (default: false)
   }
 
-  -- Scan and apply default actions
+  -- Scan and apply default actions (all done in Rust)
   -- Scans once per batch (all recipients in this SMTP transaction)
   local result = kumo.rspamd.scan_message(config, msg)
 
@@ -76,7 +74,6 @@ kumo.on('smtp_server_data', function(msg)
   msg:set_meta('rspamd_score', result.score)
   msg:set_meta('rspamd_action', result.action)
 end)
-]]
 
 --[[
 # Example 1a: Simplified API with Secure Credentials
@@ -131,89 +128,24 @@ end)
 ]]
 
 --[[
-# Example 2: Setup Helper with Automatic Actions
+# Example 2: Custom Action Handling with Score-Based Logic
 
-This follows Rspamd's recommendations:
-- reject → 550 error
-- soft reject → 451 error (greylist)
-- rewrite subject → prepend ***SPAM***
-- add header → add X-Spam-* headers
-- no action → add X-Spam-Flag: NO
-
-Uses smtp_server_data for efficient per-batch scanning.
-]]
-
--- Simple setup - uncomment to use
---[[
-rspamd:setup {
-  base_url = 'http://localhost:11333',
-  use_file_path = true,  -- Use File header optimization (recommended for localhost)
-  zstd = true,  -- Enable compression (default: true)
-  skip_authenticated = true,  -- Don't scan messages from authenticated users
-}
-
-kumo.on('smtp_server_data', rspamd.scan)
+Use the Rust-based scan_message with custom Lua logic for score-based decisions.
+The Rust implementation handles the Rspamd communication and applies configured
+actions automatically. You can also add custom logic on top.
 ]]
 
 --[[
-# Example 3: Tag-Only Mode
+kumo.on('smtp_server_data', function(msg)
+  -- Configure Rspamd client to add headers only (no automatic rejection)
+  local config = {
+    base_url = 'http://localhost:11333',
+    add_headers = true,
+    reject_spam = false,  -- Handle rejection logic in Lua
+  }
 
-Add headers but never reject:
-]]
-
---[[
-rspamd:setup {
-  base_url = 'http://localhost:11333',
-  action = 'tag',  -- Only add headers, never reject
-  use_file_path = true,  -- File header optimization
-  zstd = true,  -- Compression enabled by default
-}
-
-kumo.on('smtp_server_data', rspamd.scan)
-]]
-
---[[
-# Example 4: Quarantine Mode
-
-High-scoring spam goes to quarantine instead of bouncing:
-]]
-
---[[
-rspamd:setup {
-  base_url = 'http://localhost:11333',
-  action = 'quarantine',
-  quarantine_threshold = 5.0,  -- Score above which to quarantine
-  quarantine_queue = 'spam_quarantine',
-  use_file_path = true,  -- File header optimization
-  zstd = true,  -- Compression enabled
-}
-
-kumo.on('smtp_server_data', rspamd.scan)
-]]
-
---[[
-# Example 5: Custom Action Handling
-
-Full control over actions based on Rspamd results.
-Uses smtp_server_data for per-batch scanning.
-]]
-
---[[
-local client = kumo.rspamd.build_client {
-  base_url = 'http://localhost:11333',
-  timeout = '10s',
-  zstd = true,  -- Compression enabled
-}
-
-kumo.on('smtp_server_data', function(msg, conn_meta)
-  -- Skip authenticated users
-  if conn_meta:get_meta 'authn_id' then
-    return
-  end
-
-  -- Scan the message with file path optimization
-  -- Scans once for all recipients in this SMTP transaction
-  local result = rspamd.scan_message(client, msg, conn_meta, {use_file_path = true})
+  -- Scan the message (Rust handles communication and header addition)
+  local result = kumo.rspamd.scan_message(config, msg)
 
   -- Log the result
   kumo.log_info(
@@ -229,20 +161,11 @@ kumo.on('smtp_server_data', function(msg, conn_meta)
     -- Definite spam - reject
     kumo.reject(550, string.format('5.7.1 Spam detected (score: %.2f)', result.score))
   elseif result.score >= 5 then
-    -- Probable spam - tag and route to quarantine
-    msg:prepend_header('X-Spam-Flag', 'YES')
-    msg:prepend_header('X-Spam-Score', tostring(result.score))
+    -- Probable spam - route to quarantine
     msg:set_meta('queue', 'quarantine')
-  elseif result.score >= 0 then
-    -- Uncertain - just tag
-    msg:prepend_header('X-Spam-Score', tostring(result.score))
-  else
-    -- Ham
-    msg:prepend_header('X-Spam-Flag', 'NO')
-    msg:prepend_header('X-Spam-Score', tostring(result.score))
   end
 
-  -- Store full results for logging
+  -- Store results for logging
   msg:set_meta('rspamd_score', result.score)
   msg:set_meta('rspamd_action', result.action)
 
@@ -260,174 +183,50 @@ end)
 ]]
 
 --[[
-# Example 6: Milter Actions - Header Modifications
+# Example 3: Subject Prefix for Spam
 
-Rspamd can suggest header modifications via the milter protocol:
-- Add headers (X-Spam-*, custom headers, etc.)
-- Remove headers
-- Rewrite Subject line
-
-Milter actions are applied automatically by default.
-Uses smtp_server_data for per-batch scanning.
+Enable subject prefixing to mark spam messages with ***SPAM*** prefix.
+The Rust implementation handles this automatically when configured.
 ]]
 
 --[[
-local client = kumo.rspamd.build_client {
-  base_url = 'http://localhost:11333',
-  use_file_path = true,
-  zstd = true,
-}
+kumo.on('smtp_server_data', function(msg)
+  local config = {
+    base_url = 'http://localhost:11333',
+    add_headers = true,
+    reject_spam = false,
+    prefix_subject = true,  -- Prefix subject with ***SPAM*** for spam
+  }
 
-kumo.on('smtp_server_data', function(msg, conn_meta)
-  if conn_meta:get_meta 'authn_id' then
-    return
-  end
+  local result = kumo.rspamd.scan_message(config, msg)
 
-  -- Scan the message
-  local result = rspamd.scan_message(client, msg, conn_meta, {use_file_path = true})
-
-  -- Milter actions are automatically applied by rspamd.apply_action()
-  -- This includes:
-  -- - Adding headers from result.milter.add_headers
-  -- - Removing headers from result.milter.remove_headers
-  -- - Subject rewriting if Rspamd suggests it
-
-  -- Apply actions including milter modifications
-  rspamd.apply_action(msg, result)
-
-  -- You can also apply milter actions independently:
-  -- rspamd.apply_milter_actions(msg, result)
-
-  -- Log what milter actions were applied
-  if result.milter then
-    if result.milter.add_headers then
-      for header_name, header_data in pairs(result.milter.add_headers) do
-        kumo.log_info(
-          string.format('Milter: Adding header %s: %s', header_name, header_data.value)
-        )
-      end
-    end
-    if result.milter.remove_headers then
-      for header_name, _ in pairs(result.milter.remove_headers) do
-        kumo.log_info(string.format('Milter: Removing header %s', header_name))
-      end
-    end
-  end
-
+  -- Subject prefixing is applied automatically by Rust for spam messages
   msg:set_meta('rspamd_score', result.score)
   msg:set_meta('rspamd_action', result.action)
 end)
 ]]
 
 --[[
-# Example 7: Body Rewriting
+# Example 4: Custom Rejection Messages
 
-Request and apply full message body rewriting from Rspamd.
-This is useful when Rspamd modules make modifications beyond just headers
-(e.g., stripping attachments, adding disclaimers, modifying MIME parts).
-
-Note: Requires rspamd-client 0.4.0+
-Uses smtp_server_data for per-batch scanning.
+Customize rejection messages based on Rspamd results.
+The Rust implementation handles the core functionality, and you can
+add custom logic for rejection messages.
 ]]
 
 --[[
-local client = kumo.rspamd.build_client {
-  base_url = 'http://localhost:11333',
-  use_file_path = true,
-  zstd = true,
-}
+kumo.on('smtp_server_data', function(msg)
+  -- Let Rust handle headers, but not automatic rejection
+  local config = {
+    base_url = 'http://localhost:11333',
+    add_headers = true,
+    reject_spam = false,  -- Handle rejection in Lua with custom message
+  }
 
-kumo.on('smtp_server_data', function(msg, conn_meta)
-  if conn_meta:get_meta 'authn_id' then
-    return
-  end
+  local result = kumo.rspamd.scan_message(config, msg)
 
-  -- Scan with body_block enabled to receive rewritten message
-  local result = rspamd.scan_message(client, msg, conn_meta, {
-    use_file_path = true,
-    body_block = true,  -- Request rewritten body if Rspamd modifies it
-  })
-
-  -- Check if body was rewritten
-  if result.rewritten_body then
-    kumo.log_info(
-      string.format(
-        'Rspamd rewrote message body (%d bytes)',
-        #result.rewritten_body
-      )
-    )
-    -- Apply the rewritten body
-    rspamd.apply_body_rewrite(msg, result)
-  else
-    -- No body modifications, just apply headers
-    rspamd.apply_milter_actions(msg, result)
-  end
-
-  -- Apply action recommendations
+  -- Custom rejection logic with detailed message
   if result.action == 'reject' then
-    kumo.reject(550, '5.7.1 Message rejected as spam')
-  elseif result.score > 5 then
-    msg:prepend_header('X-Spam-Flag', 'YES')
-  end
-
-  msg:set_meta('rspamd_score', result.score)
-  msg:set_meta('rspamd_action', result.action)
-end)
-]]
-
---[[
-# Example 8: Automatic Body Rewriting with Setup
-
-The setup() helper automatically handles body rewriting when configured.
-Uses smtp_server_data for per-batch scanning.
-]]
-
---[[
-rspamd:setup {
-  base_url = 'http://localhost:11333',
-  use_file_path = true,
-  body_block = true,  -- Enable body rewriting support
-  action = 'tag',  -- Tag spam, don't reject
-  zstd = true,
-}
-
-kumo.on('smtp_server_data', rspamd.scan)
--- Body rewriting is applied automatically if Rspamd returns modified message
-]]
-
---[[
-# Example 9: Advanced Setup with HTTPCrypt Encryption
-
-Use HTTPCrypt for encrypted communication with Rspamd:
-
-Generate encryption keypair on Rspamd server:
-```bash
-rspamadm keypair -u
-```
-This will output a public key (for Rspamd config) and private key (for KumoMTA).
-
-Add to Rspamd worker config (/etc/rspamd/worker-normal.inc):
-```
-keypair {
-  pubkey = "your-public-key-here";
-  privkey = "your-private-key-here";
-}
-```
-]]
-
-local client = kumo.rspamd.build_client {
-  base_url = 'http://localhost:11333',
-  timeout = '10s',
-  password = os.getenv 'RSPAMD_PASSWORD', -- Optional password
-  zstd = true, -- Enable compression (default: true)
-  encryption_key = os.getenv 'RSPAMD_ENCRYPTION_KEY', -- HTTPCrypt encryption key
-  retries = 2, -- Retry failed requests
-}
-
--- Custom action handlers
-local custom_handlers = {
-  -- Override reject to use custom message
-  reject = function(msg, result)
     local symbols = {}
     for name, _ in pairs(result.symbols or {}) do
       table.insert(symbols, name)
@@ -436,106 +235,23 @@ local custom_handlers = {
     kumo.reject(
       550,
       string.format(
-        '5.7.1 Message rejected due to spam characteristics. Score: %.2f (threshold: %.2f). Symbols: %s',
+        '5.7.1 Message rejected due to spam characteristics. Score: %.2f. Symbols: %s',
         result.score,
-        result.required_score,
         table.concat(symbols, ', ')
       )
     )
-  end,
-
-  -- Custom handling for soft reject (greylist)
-  ['soft reject'] = function(msg, result)
-    -- Instead of greylisting, accept but quarantine
-    msg:set_meta('queue', 'greylist_review')
-    msg:prepend_header('X-Greylist', 'YES')
-    msg:prepend_header('X-Spam-Score', tostring(result.score))
-  end,
-}
-
--- Use smtp_server_data for per-batch scanning
-kumo.on('smtp_server_data', function(msg, conn_meta)
-  -- Skip authenticated users
-  if conn_meta:get_meta 'authn_id' then
-    return
+  elseif result.action == 'soft reject' then
+    -- Custom handling for soft reject (greylist)
+    kumo.reject(451, string.format('4.7.1 Greylisted. Score: %.2f', result.score))
   end
 
-  -- Scan with file path optimization
-  -- Scans once for all recipients in this SMTP transaction
-  local result = rspamd.scan_message(client, msg, conn_meta, {use_file_path = true})
-
-  -- Apply custom actions
-  rspamd.apply_action(msg, result, custom_handlers)
-
-  -- Always store metadata for logs
   msg:set_meta('rspamd_score', result.score)
   msg:set_meta('rspamd_action', result.action)
 end)
-
---[[
-# Example 10: Direct API Usage (Low-Level)
-
-For maximum control, use the client API directly.
-Uses smtp_server_data for per-batch scanning.
 ]]
 
 --[[
-local client = kumo.rspamd.build_client {
-  base_url = 'http://localhost:11333',
-  zstd = true,  -- Compression enabled by default
-  encryption_key = os.getenv 'RSPAMD_KEY',  -- Optional HTTPCrypt
-}
-
-kumo.on('smtp_server_data', function(msg, conn_meta)
-  -- Build scan metadata manually
-  -- In smtp_server_data, recipient_list() returns all recipients in the batch
-  local recipients = {}
-  for _, recip in ipairs(msg:recipient_list()) do
-    table.insert(recipients, tostring(recip))
-  end
-
-  local metadata = {
-    ip = conn_meta:get_meta 'received_from',
-    helo = conn_meta:get_meta 'ehlo_domain',
-    from = tostring(msg:sender()),
-    rcpt = recipients,
-    queue_id = msg:id(),
-    hostname = conn_meta:get_meta 'hostname',
-    -- Optional: use file_path for local scanning (avoids body transfer)
-    file_path = msg:get_meta 'spool_path',
-    -- Optional: request body rewriting
-    body_block = true,
-  }
-
-  -- Get message data (not transmitted if file_path is set)
-  local message_data = msg:get_data()
-
-  -- Scan with compression and optional encryption
-  -- If file_path is set, Rspamd reads from disk instead
-  -- If body_block is set, rewritten body will be in result.rewritten_body
-  local result = client:scan(message_data, metadata)
-
-  -- Process results as needed
-  print('Score:', result.score)
-  print('Action:', result.action)
-  for symbol, data in pairs(result.symbols or {}) do
-    print('Symbol:', symbol, 'Score:', data.score or 0)
-  end
-
-  -- Apply body rewriting if present
-  if result.rewritten_body then
-    rspamd.apply_body_rewrite(msg, result)
-  else
-    -- Manually apply milter actions if needed
-    if result.milter then
-      rspamd.apply_milter_actions(msg, result)
-    end
-  end
-end)
-]]
-
---[[
-# Example 11: Per-Recipient Spam Thresholds
+# Example 5: Per-Recipient Spam Thresholds
 
 For per-recipient spam policies, scan once in smtp_server_data but apply
 recipient-specific thresholds in smtp_server_message_received.
@@ -548,18 +264,13 @@ This pattern provides:
 ]]
 
 --[[
-local client = kumo.rspamd.build_client {
-  base_url = 'http://localhost:11333',
-  zstd = true,
-}
-
 -- Example function to get per-user spam threshold
 -- In production, this would query a database or lookup service
 local function get_spam_threshold_for_user(recipient)
   -- Example thresholds by domain
-  if recipient:match '@vip%.example%.com$' then
+  if recipient.domain == 'vip.example.com' then
     return 15.0 -- VIP users: lenient threshold
-  elseif recipient:match '@staff%.example%.com$' then
+  elseif recipient.domain == 'staff.example.com' then
     return 10.0 -- Staff: moderate threshold
   else
     return 5.0 -- Default: strict threshold
@@ -567,15 +278,16 @@ local function get_spam_threshold_for_user(recipient)
 end
 
 -- Scan once per batch in smtp_server_data
-kumo.on('smtp_server_data', function(msg, conn_meta)
-  -- Skip authenticated users
-  if conn_meta:get_meta 'authn_id' then
-    return
-  end
+kumo.on('smtp_server_data', function(msg)
+  -- Configure to add headers but not reject automatically
+  local config = {
+    base_url = 'http://localhost:11333',
+    add_headers = true,
+    reject_spam = false,  -- Handle rejection per-recipient
+  }
 
-  -- Scan with file path optimization
-  -- This scans once for all recipients in the SMTP transaction
-  local result = rspamd.scan_message(client, msg, conn_meta, {use_file_path = true})
+  -- Scan once for all recipients in this SMTP transaction
+  local result = kumo.rspamd.scan_message(config, msg)
 
   -- Store results in metadata for later use
   msg:set_meta('rspamd_score', result.score)
@@ -590,14 +302,6 @@ kumo.on('smtp_server_data', function(msg, conn_meta)
       #msg:recipient_list()
     )
   )
-
-  -- Add headers but don't reject yet
-  -- Per-recipient decisions will be made in smtp_server_message_received
-  msg:prepend_header('X-Spam-Score', tostring(result.score))
-  msg:prepend_header('X-Spam-Action', result.action)
-
-  -- Apply milter actions (header modifications from Rspamd)
-  rspamd.apply_milter_actions(msg, result)
 end)
 
 -- Apply per-recipient thresholds in smtp_server_message_received
@@ -608,13 +312,13 @@ kumo.on('smtp_server_message_received', function(msg)
   end
 
   -- Get recipient-specific threshold
-  local recipient = tostring(msg:recipient())
+  local recipient = msg:recipient()
   local threshold = get_spam_threshold_for_user(recipient)
 
   kumo.log_info(
     string.format(
       'Applying spam policy for %s: score=%.2f threshold=%.2f',
-      recipient,
+      tostring(recipient),
       score,
       threshold
     )
@@ -633,7 +337,6 @@ kumo.on('smtp_server_message_received', function(msg)
   elseif score > threshold * 0.7 then
     -- Close to threshold: route to junk folder
     msg:set_meta('queue', 'suspect')
-    msg:prepend_header('X-Spam-Flag', 'SUSPECT')
   end
 
   -- Store per-recipient decision for logging

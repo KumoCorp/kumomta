@@ -27,9 +27,9 @@ end)
 
 -- Determine per-recipient spam threshold
 local function get_spam_threshold_for_user(recipient)
-  if recipient:match '@vip%.example%.com$' then
+  if recipient.domain == 'vip.example.com' then
     return 100.0 -- Very lenient for VIP (won't reject normal messages)
-  elseif recipient:match '@normal%.example%.com$' then
+  elseif recipient.domain == 'normal.example.com' then
     return 5.0 -- Strict for normal users
   else
     return nil -- No threshold check
@@ -93,10 +93,15 @@ kumo.on('smtp_server_message_received', function(msg)
   msg:set_meta('queue', 'maildir')
 end)
 
-kumo.on('get_queue_config', function(_domain, _tenant, _campaign)
+kumo.on('get_queue_config', function(domain, _tenant, _campaign)
+  -- Relay to the sink like other integration tests
+  local SINK_PORT = tonumber(os.getenv 'KUMOD_SMTP_SINK_PORT')
+  
   return kumo.make_queue_config {
     protocol = {
-      maildir_path = TEST_DIR .. '/maildir',
+      smtp = {
+        mx_list = { 'localhost:' .. SINK_PORT },
+      },
     },
   }
 end)

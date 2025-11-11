@@ -1,149 +1,134 @@
 # mod-rspamd: Native Rspamd Integration for KumoMTA
 
-This module provides native, high-performance Rspamd integration for spam scanning in KumoMTA.
+This module provides native, high-performance Rspamd integration for spam scanning in KumoMTA. All core functionality is implemented in Rust for optimal performance and reliability.
 
 ## Features
 
-- **Native Async Rust Client**: Built on `reqwest` with full async/await support for high throughput
-- **File Header Support**: Efficient scanning via file path (no message body transfer over sockets)
+- **Rust-Native Implementation**: All scanning, header manipulation, and action handling in Rust
+- **Automatic Header Management**: X-Spam-* headers added automatically by Rust code
+- **Automatic Action Handling**: Built-in support for reject, soft reject, and subject rewriting
 - **Automatic Metadata Extraction**: Seamlessly extracts connection and message metadata
 - **Connection Pooling**: Automatic HTTP connection pooling for optimal performance
-- **Flexible Action Handling**: Multiple strategies for handling Rspamd results (reject, tag, quarantine, custom)
 - **Full Protocol Support**: Implements Rspamd's `/checkv2` endpoint with all standard headers
 
 ## Architecture
 
 ### Components
 
-1. **`RspamdClient`**: Core client with async message scanning
-   - Manages HTTP client lifecycle
-   - Handles connection pooling
-   - Supports both message body and file path scanning
+1. **Rust Core (`kumo.rspamd.scan_message`)**: Main scanning function
+   - Extracts message and connection metadata automatically
+   - Communicates with Rspamd asynchronously
+   - Applies headers and actions based on configuration
+   - Returns scan results to Lua for custom logic
 
-2. **`RspamdResponse`**: Type-safe response parsing
+2. **`RspamdResponse`**: Type-safe response structure
    - Score and required score thresholds
    - Action recommendations
    - Symbol details with scores
    - URLs and emails extracted from message
 
-3. **Lua Bindings**: Exposed via `kumo.rspamd` module
-   - `build_client()`: Create configured client
-   - `scan()`: Generic scan with custom parameters
-   - `scan_with_message()`: Scan with message body
-   - `scan_with_file()`: Efficient file-based scanning
-
-## File Header Optimization
-
-When `use_file_header` is enabled (default), the client sends the message's spool file path to Rspamd instead of the message body. This provides:
-
-- **Zero-copy scanning**: No message body transfer over network/sockets
-- **Reduced memory pressure**: Especially important for large messages (>1MB)
-- **Better performance**: 30-50% faster for large messages on localhost/Unix sockets
-
-**Requirements for File Header**:
-- Rspamd must be accessible via localhost or Unix socket
-- Rspamd worker must have read access to KumoMTA spool directory
-- Message must be spooled (always true for `smtp_server_message_received`)
+3. **Lua API**: Simple configuration-based interface
+   - Single function: `kumo.rspamd.scan_message(config, msg)`
+   - Config-driven behavior (headers, rejection, subject prefix)
+   - Results returned for custom Lua logic
 
 ## Usage Examples
 
 ### Simple Setup (Recommended)
 
+Scan messages in `smtp_server_data` for efficient per-batch scanning:
+
 ```lua
-local rspamd = require 'policy-extras.rspamd'
+kumo.on('smtp_server_data', function(msg)
+  local config = {
+    base_url = 'http://localhost:11333',
+    add_headers = true,     -- Add X-Spam-* headers (default: true)
+    reject_spam = true,     -- Reject spam messages (default: false)
+    prefix_subject = false, -- Prefix subject with ***SPAM*** (default: false)
+  }
 
-rspamd:setup {
-  base_url = 'http://localhost:11333',
-  use_file_header = true,  -- Enable efficient file-based scanning
-  skip_authenticated = true,  -- Don't scan authenticated submissions
-}
+  -- Scan and apply actions automatically (all done in Rust)
+  local result = kumo.rspamd.scan_message(config, msg)
 
-kumo.on('smtp_server_message_received', rspamd.scan)
+  -- Store results for logging
+  msg:set_meta('rspamd_score', result.score)
+  msg:set_meta('rspamd_action', result.action)
+end)
 ```
 
-### Custom Client
+### Custom Score-Based Logic
+
+Add headers automatically but handle rejection in Lua:
 
 ```lua
-local client = kumo.rspamd.build_client {
-  base_url = 'http://localhost:11333',
-  timeout = '10s',
-  password = os.getenv('RSPAMD_PASSWORD'),
-  use_file_header = true,
-}
+kumo.on('smtp_server_data', function(msg)
+  local config = {
+    base_url = 'http://localhost:11333',
+    add_headers = true,
+    reject_spam = false,  -- Handle rejection in Lua
+  }
 
-kumo.on('smtp_server_message_received', function(msg, conn_meta)
-  local result = rspamd.scan_message(client, msg, conn_meta)
+  local result = kumo.rspamd.scan_message(config, msg)
 
   -- Custom handling based on score
   if result.score >= 15 then
-    kumo.reject(550, '5.7.1 Spam detected')
+    kumo.reject(550, string.format('5.7.1 Spam detected (score: %.2f)', result.score))
   elseif result.score >= 5 then
-    msg:set_first_named_header('X-Spam-Flag', 'YES')
+    msg:set_meta('queue', 'quarantine')
   end
 
   msg:set_meta('rspamd_score', result.score)
 end)
 ```
 
-### Direct API Usage
+### Per-Recipient Thresholds
+
+Scan once in `smtp_server_data`, apply per-recipient logic in `smtp_server_message_received`:
 
 ```lua
-local client = kumo.rspamd.build_client {
-  base_url = 'http://localhost:11333',
-  use_file_header = true,
-}
-
-kumo.on('smtp_server_message_received', function(msg, conn_meta)
-  -- Manual parameter construction
-  local result = client:scan {
-    file_path = msg:get_spool_path(),  -- Use file for efficiency
-    ip = conn_meta:get_meta('received_from'),
-    helo = conn_meta:get_meta('ehlo_domain'),
-    from = tostring(msg:sender()),
-    rcpt = tostring(msg:recipient()),
-    queue_id = msg:id(),
+-- Scan once per batch
+kumo.on('smtp_server_data', function(msg)
+  local config = {
+    base_url = 'http://localhost:11333',
+    add_headers = true,
+    reject_spam = false,  -- Handle per-recipient
   }
 
-  print('Rspamd score:', result.score)
-  print('Action:', result.action)
+  local result = kumo.rspamd.scan_message(config, msg)
+  msg:set_meta('rspamd_score', result.score)
+end)
+
+-- Apply per-recipient thresholds
+kumo.on('smtp_server_message_received', function(msg)
+  local score = msg:get_meta('rspamd_score')
+  if not score then return end
+
+  local threshold = 5.0  -- Get from database based on recipient
+  if score > threshold then
+    kumo.reject(550, string.format('5.7.1 Spam (score: %.2f)', score))
+  end
 end)
 ```
 
 ## Configuration Reference
 
-### Client Configuration
+### Config Options
 
 ```lua
-kumo.rspamd.build_client {
+local config = {
   -- Required
   base_url = "http://localhost:11333",  -- Rspamd base URL
 
-  -- Optional
+  -- Optional (all handled in Rust)
+  add_headers = true,                    -- Add X-Spam-* headers (default: true)
+  reject_spam = false,                   -- Reject spam messages (default: false)
+  reject_soft = false,                   -- Use 4xx instead of 5xx (default: false)
+  prefix_subject = false,                -- Prefix subject with ***SPAM*** (default: false)
   timeout = "10s",                       -- Request timeout (default: 10s)
   password = "secret",                   -- Rspamd password for authentication
-  use_file_header = true,                -- Enable file-based scanning (default: true)
 }
-```
 
-### Scan Parameters
-
-```lua
-client:scan {
-  -- Message data (one of these required if use_file_header=false)
-  message = "Subject: Test\r\n\r\nBody",
-
-  -- File path (used if use_file_header=true)
-  file_path = "/var/spool/kumo/data/abc123",
-
-  -- Optional metadata headers
-  ip = "192.0.2.1",                     -- Client IP address
-  helo = "mail.example.com",            -- HELO/EHLO domain
-  from = "sender@example.com",          -- Envelope sender
-  rcpt = "recipient@example.com",       -- Envelope recipient
-  user = "authenticated_user",          -- Authenticated username
-  hostname = "mx.example.com",          -- Receiving hostname
-  queue_id = "msg123",                  -- Message/Queue ID
-}
+local result = kumo.rspamd.scan_message(config, msg)
 ```
 
 ### Response Fields
@@ -176,62 +161,50 @@ client:scan {
 }
 ```
 
-## Action Handlers
+## Automatic Action Handling
 
-The `policy-extras/rspamd.lua` module provides default handlers for Rspamd actions:
+When `add_headers = true`, the Rust implementation automatically adds these headers:
 
-| Action | Behavior |
-|--------|----------|
-| `reject` | 550 rejection with score |
-| `soft reject` | 451 temporary failure (greylist) |
-| `rewrite subject` | Prepend "***SPAM***" to subject |
-| `add header` | Add X-Spam-* headers |
-| `no action` | Add X-Spam-Flag: NO |
-| `greylist` | 451 temporary failure |
+| Header | Content |
+|--------|---------|
+| `X-Spam-Flag` | YES or NO based on action |
+| `X-Spam-Score` | Numeric spam score |
+| `X-Spam-Action` | Rspamd's recommended action |
+| `X-Spam-Symbols` | List of matched symbols |
 
-Custom handlers can be provided:
+When `reject_spam = true`, the following Rspamd actions trigger rejection:
 
-```lua
-local custom_handlers = {
-  reject = function(msg, result)
-    kumo.reject(550, 'Custom spam message: ' .. result.score)
-  end,
-}
+| Action | Response Code | Behavior |
+|--------|--------------|----------|
+| `reject` | 550 (or 450 if `reject_soft`) | Permanent (or temporary) rejection |
+| `soft reject` | 450 | Temporary failure (greylist) |
+| `greylist` | 450 | Temporary failure |
 
-rspamd.apply_action(msg, result, custom_handlers)
-```
+When `prefix_subject = true` and action is `rewrite subject`, the subject is prefixed with `***SPAM***`.
+
+All of this header and action handling is performed in Rust for optimal performance.
 
 ## Performance Considerations
 
-1. **File Header**: Always enable `use_file_header = true` for localhost/Unix socket deployments
-2. **Connection Pooling**: Client automatically pools HTTP connections
-3. **Timeout**: Set appropriate timeout (default 10s) based on message size and network latency
-4. **Skip Authenticated**: Skip scanning for trusted authenticated users to save resources
+1. **Use smtp_server_data**: Scan once per batch instead of per recipient
+2. **Connection Pooling**: HTTP client automatically pools connections to Rspamd
+3. **Timeout**: Default 10s timeout works for most cases
+4. **Metadata Extraction**: All metadata (IP, HELO, sender, etc.) extracted automatically in Rust
 
 ## Integration with Rspamd
 
 ### Rspamd Configuration
 
-Ensure Rspamd worker can access KumoMTA spool:
+Ensure Rspamd is listening and accessible:
 
 ```nginx
 # /etc/rspamd/worker-normal.inc
 bind_socket = "localhost:11333";
 ```
 
-For file header support, ensure read access:
-
-```bash
-# Add rspamd user to kumo group
-usermod -a -G kumo rspamd
-
-# Ensure spool is group-readable
-chmod g+r /var/spool/kumomta/data/*
-```
-
 ### Testing
 
-Send a test message through KumoMTA:
+Send a test message with GTUBE spam pattern:
 
 ```bash
 curl -X POST http://localhost:8000/inject/v1 \
@@ -251,7 +224,7 @@ journalctl -u rspamd -f
 
 ## Error Handling
 
-The client handles errors gracefully:
+The Rust implementation handles errors gracefully and returns them to Lua:
 
 - **Connection failures**: Returns Lua error (can be caught with pcall)
 - **Timeout**: Returns error after configured timeout
@@ -261,16 +234,21 @@ The client handles errors gracefully:
 Example error handling:
 
 ```lua
-local status, result = pcall(function()
-  return rspamd.scan_message(client, msg, conn_meta)
-end)
+kumo.on('smtp_server_data', function(msg)
+  local status, result = pcall(function()
+    local config = { base_url = 'http://localhost:11333' }
+    return kumo.rspamd.scan_message(config, msg)
+  end)
 
-if not status then
-  kumo.log_error('Rspamd scan failed: ' .. tostring(result))
-  -- Decide: accept, reject, or tempfail
-  kumo.reject(451, '4.7.1 Temporary scanning failure')
-  return
-end
+  if not status then
+    kumo.log_error('Rspamd scan failed: ' .. tostring(result))
+    -- Decide: accept, reject, or tempfail
+    kumo.reject(451, '4.7.1 Temporary scanning failure')
+    return
+  end
+
+  msg:set_meta('rspamd_score', result.score)
+end)
 ```
 
 ## See Also
@@ -279,4 +257,3 @@ end
 - [Rspamd Documentation](https://rspamd.com/doc/)
 - [Rspamd Protocol Spec](https://rspamd.com/doc/developers/protocol.html)
 - Example configuration: `examples/rspamd-integration.lua`
-- Helper module: `assets/policy-extras/rspamd.lua`
