@@ -27,6 +27,18 @@ async fn proxy_protocol_switch_from_addr() -> anyhow::Result<()> {
         .wait_for_maildir_count(1, Duration::from_secs(10))
         .await;
 
+    tracer
+        .wait_for(
+            |events| {
+                events.iter().any(|event| {
+                    matches!(&event.payload, Callback{name,..}
+                        if name == "smtp_server_get_dynamic_parameters")
+                })
+            },
+            Duration::from_secs(10),
+        )
+        .await;
+
     let trace_events = tracer.stop().await?;
     eprintln!("{trace_events:#?}");
 

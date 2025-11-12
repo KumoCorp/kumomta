@@ -20,12 +20,6 @@ kumo.on('init', function()
     listen = '127.0.0.1:0',
   }
 
-  kumo.configure_local_logs {
-    log_dir = TEST_DIR .. '/logs',
-    max_segment_duration = '1s',
-    headers = { 'X-*', 'Y-*', 'Subject' },
-  }
-
   kumo.define_spool {
     name = 'data',
     path = TEST_DIR .. '/data-spool',
@@ -43,11 +37,6 @@ kumo.on('get_listener_domain', function(domain, listener, conn_meta)
     log_oob = true,
     log_arf = true,
   }
-end)
-
-kumo.on('smtp_server_message_received', function(msg)
-  local result = msg:import_scheduling_header 'X-Schedule'
-  kumo.log_info('schedule result', kumo.serde.json_encode(result))
 end)
 
 kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)

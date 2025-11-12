@@ -269,82 +269,11 @@ impl DaemonWithMaildir {
     }
 
     pub async fn trace_server(&self) -> anyhow::Result<ServerTracer> {
-        return Ok(self.run_trace(&self.source).await?);
+        return Ok(self.source.trace_server().await?);
     }
 
     pub async fn trace_sink(&self) -> anyhow::Result<ServerTracer> {
-        return Ok(self.run_trace(&self.sink).await?);
-    }
-
-    /// Run a server trace and capture the records until the trace is stopped,
-    /// at which point it will return the set of records.
-    pub async fn run_trace(&self, target: &KumoDaemon) -> anyhow::Result<ServerTracer> {
-        let (mut socket, _response) = connect_async(format!(
-            "ws://{}/api/admin/trace-smtp-server/v1",
-            target.listener("http")
-        ))
-        .await?;
-        socket
-            .send(Message::Text(
-                serde_json::to_string(&TraceSmtpV1Request {
-                    source_addr: None,
-                    terse: true,
-                })?
-                .into(),
-            ))
-            .await?;
-
-        let (signal_close, mut close_signalled) = tokio::sync::oneshot::channel();
-
-        let records = Arc::new(Mutex::new(vec![]));
-
-        let joiner = tokio::spawn({
-            let records = records.clone();
-            async move {
-                let mut closed = false;
-
-                while !socket.is_terminated() {
-                    tokio::select! {
-                        _ = &mut close_signalled, if !closed => {
-                            closed = true;
-                            if socket.close(None).await.is_err() {
-                                break;
-                            }
-                        }
-                        record = socket.next() => {
-                            match record {
-                                Some(Ok(msg)) => {
-                                    match msg {
-                                        Message::Text(s) => {
-                                            let event: TraceSmtpV1Event = serde_json::from_str(&s).expect("TraceSmtpV1Event");
-                                            records.lock().push(event);
-                                        }
-                                        Message::Ping(ping) => {
-                                            if socket.send(Message::Pong(ping)).await.is_err() {
-                                                break;
-                                            }
-                                        }
-                                        wat => {
-                                            eprintln!("WAT: {wat:?}");
-                                            break;
-                                        }
-                                    }
-                                }
-                                Some(Err(_)) | None => {
-                                    break;
-                                }
-                            }
-                        }
-                    };
-                }
-            }
-        });
-
-        Ok(ServerTracer {
-            signal_close,
-            joiner,
-            records,
-        })
+        return Ok(self.sink.trace_server().await?);
     }
 
     pub async fn kcli_json<R: for<'a> serde::Deserialize<'a>>(
@@ -577,6 +506,75 @@ impl KumoDaemon {
             child,
             listeners,
             dir,
+        })
+    }
+
+    pub async fn trace_server(&self) -> anyhow::Result<ServerTracer> {
+        let (mut socket, _response) = connect_async(format!(
+            "ws://{}/api/admin/trace-smtp-server/v1",
+            self.listener("http")
+        ))
+        .await?;
+        socket
+            .send(Message::Text(
+                serde_json::to_string(&TraceSmtpV1Request {
+                    source_addr: None,
+                    terse: true,
+                })?
+                .into(),
+            ))
+            .await?;
+
+        let (signal_close, mut close_signalled) = tokio::sync::oneshot::channel();
+
+        let records = Arc::new(Mutex::new(vec![]));
+
+        let joiner = tokio::spawn({
+            let records = records.clone();
+            async move {
+                let mut closed = false;
+
+                while !socket.is_terminated() {
+                    tokio::select! {
+                        _ = &mut close_signalled, if !closed => {
+                            closed = true;
+                            if socket.close(None).await.is_err() {
+                                break;
+                            }
+                        }
+                        record = socket.next() => {
+                            match record {
+                                Some(Ok(msg)) => {
+                                    match msg {
+                                        Message::Text(s) => {
+                                            let event: TraceSmtpV1Event = serde_json::from_str(&s).expect("TraceSmtpV1Event");
+                                            records.lock().push(event);
+                                        }
+                                        Message::Ping(ping) => {
+                                            if socket.send(Message::Pong(ping)).await.is_err() {
+                                                break;
+                                            }
+                                        }
+                                        wat => {
+                                            eprintln!("WAT: {wat:?}");
+                                            break;
+                                        }
+                                    }
+                                }
+                                Some(Err(_)) | None => {
+                                    break;
+                                }
+                            }
+                        }
+                    };
+                }
+            }
+        });
+
+        Ok(ServerTracer {
+            signal_close,
+            joiner,
+            records,
         })
     }
 
