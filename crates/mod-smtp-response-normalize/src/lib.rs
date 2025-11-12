@@ -33,19 +33,19 @@ fn tokenize_dictionary_word_phf<'a>(word: &'a str) -> Option<Cow<'a, str>> {
 
 /// Match either base64 or base64-url
 const BASE64_RE: &str =
-    r"^(:?[a-zA-Z0-9+/_\-]{4})+(:?[a-zA-Z0-9+/_\-]{2}==|[a-zA-Z0-9+/_\-]{3}=)?$";
+    r"^(?:[a-zA-Z0-9+/_\-]{4})+(?:[a-zA-Z0-9+/_\-]{2}==|[a-zA-Z0-9+/_\-]{3}=)?$";
 
 /// Match ipv4 or ipv6 addresses, followed by optional :port.
 /// This doesn't do anything about the ipv6 .port syntax.
 /// ipv6 portion of this is taken from
 /// <https://stackoverflow.com/a/17871737/149111>
-const IP_RE: &str = r"^(:?\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))(:?:\d{1,5})?$";
+const IP_RE: &str = r"^(?:\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9]))(:?:\d{1,5})?$";
 
 /// Match email addresses.
 /// The complicated regex here outperforms the more simplistic and
 /// obvious regex that you might otherwise be inclined to write.
 /// <https://stackoverflow.com/a/201378/149111>
-const EMAIL_RE: &str = r#"^(?:[a-z0-9!#$%&'*+\x2f=?^_`\x7b-\x7d~\x2d]+(?:\.[a-z0-9!#$%&'*+\x2f=?^_`\x7b-\x7d~\x2d]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9\x2d]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9\x2d]*[a-z0-9])?|\[(?:(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9]))\.){3}(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9])|[a-z0-9\x2d]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])$"#;
+const EMAIL_RE: &str = r#"^(?:[a-z0-9!#$%&'*+\x2f=?^_`\x7b-\x7d~\x2d]+(?:\.[a-z0-9!#$%&'*+\x2f=?^_`\x7b-\x7d~\x2d]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9\x2d]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9\x2d]*[a-z0-9])?|\[(?:(?:(?:2(?:5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9]))\.){3}(?:(?:2(?:5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9])|[a-z0-9\x2d]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])$"#;
 
 fn tokenize_re<'a>(word: &'a str) -> Option<Cow<'a, str>> {
     static MAPPING: &[(&str, &str)] = &[
@@ -143,12 +143,61 @@ fn normalize_word<'a>(word: &'a str) -> Option<Cow<'a, str>> {
 pub fn normalize(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
 
+    let mut processed;
+
+    // pre-process to remove parenthetical delimited sequences and replace
+    // that punctuation with whitespace.  That allows the tokenizer to
+    // see more tokens and do a better job, without harming the prose
+    // in the response text.
+    // Do a quick test to see if any opening parens are present so that
+    // we can avoid allocating an additional string in the more common case
+    // where they are not present.
+    //
+    // This transforms eg: " [" -> " " and "] " -> " ",
+    // for each ASCII bracket character.
+    //
+    // To spell that out a bit more clearly, this transformation has the
+    // side effect of changing " (RFC5322) " into " RFC5322 "
+    // in the normalized output.
+    let needs_process = memchr::memchr3(b'[', b'(', b'{', s.as_bytes()).is_some();
+    let s = if needs_process {
+        processed = String::with_capacity(s.len());
+        let mut iter = s.chars().peekable();
+        while let Some(c) = iter.next() {
+            if (c.is_ascii_whitespace() || processed.is_empty())
+                && matches!(iter.peek(), Some('[' | '(' | '{'))
+            {
+                iter.next();
+                processed.push(' ');
+                continue;
+            }
+
+            if matches!(c, ']' | ')' | '}')
+                && iter
+                    .peek()
+                    .map(|c| c.is_ascii_whitespace() || c.is_ascii_punctuation())
+                    .unwrap_or(true)
+            {
+                iter.next();
+                processed.push(' ');
+                continue;
+            }
+
+            processed.push(c);
+        }
+        &processed
+    } else {
+        s
+    };
+
     for word in s.split_ascii_whitespace() {
         let word = match normalize_word(word) {
             Some(tokenized) => tokenized,
             None => Cow::Borrowed(word),
         };
 
+        // Collapse runs of 1+ spaces (implied between the split iter)
+        // into a single space character
         if !result.is_empty() {
             result.push(' ');
         }
@@ -208,19 +257,23 @@ mod tests {
             ),
             (
                 "Your email has been rate limited because the From: header (RFC5322) in this message isn't aligned with either the authenticated SPF or DKIM organizational domain. To learn more about DMARC alignment, visit  https://support.google.com/a?p=dmarc-alignment  To learn more about Gmail requirements for bulk senders, visit  https://support.google.com/a?p=sender-guidelines. a640c23a62f3a-ab67626ed70si756442266b.465 - gsmtp",
-                "Your email has been rate limited because the From: header (RFC5322) in this message isn't aligned with either the authenticated SPF or DKIM organizational domain. To learn more about DMARC alignment, visit https://support.google.com/a?p=dmarc-alignment To learn more about Gmail requirements for bulk senders, visit https://support.google.com/a?p=sender-guidelines. {hash} - gsmtp",
+                "Your email has been rate limited because the From: header RFC5322 in this message isn't aligned with either the authenticated SPF or DKIM organizational domain. To learn more about DMARC alignment, visit https://support.google.com/a?p=dmarc-alignment To learn more about Gmail requirements for bulk senders, visit https://support.google.com/a?p=sender-guidelines. {hash} - gsmtp",
             ),
             (
                 "550 5.1.1 The email account that you tried to reach does not exist. Please try double-checking the recipient's email address for typos or unnecessary spaces. For more information, go to  https://support.google.com/mail/?p=NoSuchUser 41be03b00d2f7-b93bf44f0c0si6882731a12.803 - gsmtp",
                 "550 5.1.1 The email account that you tried to reach does not exist. Please try double-checking the recipient's email address for typos or unnecessary spaces. For more information, go to https://support.google.com/mail/?p=NoSuchUser {hash} - gsmtp",
             ),
             ("OK ids=8a5475ccbbc611eda12250ebf67f93bd", "OK ids={uuid}"),
+            (
+                "550 Mail is rejected by recipients [aGVsbG8uCg== IP: 10.10.10.10]. https://service.mail.qq.com/detail/0/92.",
+                "550 Mail is rejected by recipients {base64} IP: {ipaddr} https://service.mail.qq.com/detail/0/92.",
+            ),
         ];
 
         for (input, expected_output) in CASES {
             let output = normalize(input);
 
-            assert_eq!(output, *expected_output, "input={input}");
+            k9::assert_equal!(output, *expected_output, "input={input}");
         }
     }
 }

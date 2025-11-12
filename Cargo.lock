@@ -4687,6 +4687,8 @@ dependencies = [
  "chrono",
  "config",
  "criterion",
+ "k9",
+ "memchr",
  "mlua",
  "phf 0.13.1",
  "regex",
