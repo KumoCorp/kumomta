@@ -26,23 +26,14 @@ For cases where accurate simulation is not feasible, KumoMTA includes a "Traffic
 $ /opt/kumomta/sbin/traffic-gen --target <your.sink.server>:25 --concurrency 20000 --message-count 100000 --body-size 100000
 ```
 
+`traffic-gen` currently supports **AUTH PLAIN** only, provide credentials with `--auth-username` and `--auth-password`, and for SMTP enable `--starttls` so credentials are exchanged over TLS. In `--http` mode the same flags are sent as HTTP Basic Auth to the inject API
+
 For additional parameters for the `traffic-gen` utility see:
 
 ```console
 $ /opt/kumomta/sbin/traffic-gen --help
 ```
 
-To test authenticated SMTP injection, supply credentials with the authentication flags. `traffic-gen` currently supports the `AUTH PLAIN` mechanism.  When authenticating you must also enable `--starttls` so the credentials are exchanged over TLS; the command will now error out if TLS is not requested or if the remote server fails to advertise STARTTLS:
-
-```console
-$ /opt/kumomta/sbin/traffic-gen --target <your.sink.server>:25 \
-    --auth plain --auth-username <USERNAME> --auth-password <PASSWORD> \
-    --starttls
-```
-
-The same username and password options can be used together with the existing
-`--http` switch; in that mode the credentials are applied as HTTP basic auth
-headers for calls to the inject API.
 
 The `traffic-gen` script is used internally by the KumoMTA team to test performance before each release.
 
