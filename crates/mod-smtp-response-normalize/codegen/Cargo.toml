@@ -1,0 +1,12 @@
+[package]
+name = "codegen"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+phf = { version = "0.13.1", default-features = false }
+phf_codegen = "0.13.1"
+phf_shared = "0.13.1"
+titlecase = "3.6"

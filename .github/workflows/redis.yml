@@ -75,7 +75,7 @@ jobs:
           echo "DIGEST_NAME=$(echo ${{ matrix.platform }} | sed 's,/,-,g')" >> $GITHUB_OUTPUT
       - name: Upload digest
         if: ${{ github.event_name != 'pull_request' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: digest-${{ steps.digest.outputs.DIGEST_NAME }}
           path: /tmp/digests/*
@@ -92,7 +92,7 @@ jobs:
       packages: write
     steps:
       - name: Download digests
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           pattern: digest-*
           merge-multiple: true

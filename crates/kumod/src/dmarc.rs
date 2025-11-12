@@ -1,13 +1,11 @@
-use crate::smtp_server::ConnectionMetaData;
-use config::{get_or_create_sub_module, serialize_options};
+use config::{any_err, get_or_create_sub_module, serialize_options};
 use kumo_dmarc::{CheckHostParams, Disposition};
 use mailparsing::AuthenticationResult;
 use message::Message;
 use mlua::{Lua, LuaSerdeExt, UserDataRef};
+use mod_dns_resolver::get_resolver_instance;
 use serde::Serialize;
 use std::collections::BTreeMap;
-use std::net::SocketAddr;
-use std::str::FromStr;
 
 #[derive(Debug, Serialize)]
 struct CheckHostOutput {
@@ -19,20 +17,15 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
     let dmarc_mod = get_or_create_sub_module(lua, "dmarc")?;
 
     dmarc_mod.set(
-        "verify",
+        "check_msg",
         lua.create_async_function(
             |lua,
-             (msg, dkim_results, meta): (
+             (msg, dkim_results, opt_resolver_name): (
                 UserDataRef<Message>,
                 mlua::Value,
-                UserDataRef<ConnectionMetaData>,
+                Option<String>,
             )| async move {
-                let addr = meta
-                    .get_meta("received_from")
-                    .and_then(|v| SocketAddr::from_str(v.as_str()?).ok())
-                    .expect("`received_from` is always set, and always to a value representing a `SocketAddr`");
-
-                let resolver = dns_resolver::get_resolver();
+                let resolver = get_resolver_instance(&opt_resolver_name).map_err(any_err)?;
 
                 // MAIL FROM
                 let msg_sender = msg.sender();
@@ -40,7 +33,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 let mail_from_domain = msg_sender.ok().map(|x| x.domain().to_string());
 
                 // From:
-                let from_domain = if let Ok(Some(from)) = msg.get_address_header("From") {
+                let from_domain = if let Ok(Some(from)) = msg.get_address_header("From").await {
                     if let Ok(from_domain) = from.domain() {
                         from_domain.to_string()
                     } else {
@@ -57,7 +50,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                                 },
                             },
                             serialize_options(),
-                        ))
+                        ));
                     }
                 } else {
                     // The current implementation expects only a single RFC5322.From domain
@@ -73,43 +66,43 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                             },
                         },
                         serialize_options(),
-                    ))
+                    ));
                 };
 
-                let dkim_results: Vec<AuthenticationResult> = config::from_lua_value(&lua, dkim_results)?;
+                let dkim_results: Vec<AuthenticationResult> =
+                    config::from_lua_value(&lua, dkim_results)?;
 
                 let result = CheckHostParams {
                     from_domain,
                     mail_from_domain,
-                    client_ip: addr.ip(),
                     dkim: dkim_results.clone().into_iter().map(|x| x.props).collect(),
                 }
                 .check(&**resolver)
                 .await;
 
                 match result.result {
-                    Disposition::Pass |
-                    Disposition::None |
-                    Disposition::TempError |
-                    Disposition::PermError => {
-                        Ok(lua.to_value_with(
-                            &CheckHostOutput {
-                                disposition: result.result.clone(),
-                                result: AuthenticationResult {
-                                    method: "dmarc".to_string(),
-                                    method_version: None,
-                                    result: result.result.to_string().to_ascii_lowercase(),
-                                    reason: Some(result.context),
-                                    props: BTreeMap::default(),
-                                },
+                    Disposition::Pass
+                    | Disposition::None
+                    | Disposition::TempError
+                    | Disposition::PermError => Ok(lua.to_value_with(
+                        &CheckHostOutput {
+                            disposition: result.result.clone(),
+                            result: AuthenticationResult {
+                                method: "dmarc".to_string(),
+                                method_version: None,
+                                result: result.result.to_string().to_ascii_lowercase(),
+                                reason: Some(result.context),
+                                props: BTreeMap::default(),
                             },
-                            serialize_options(),
-                        ))
-                    }
-                    disp @ Disposition::Quarantine |
-                    disp @ Disposition::Reject => {
+                        },
+                        serialize_options(),
+                    )),
+                    disp @ Disposition::Quarantine | disp @ Disposition::Reject => {
                         let mut props = BTreeMap::default();
-                        props.insert("policy.published-domain-policy".to_string(), disp.to_string().to_ascii_lowercase());
+                        props.insert(
+                            "policy.published-domain-policy".to_string(),
+                            disp.to_string().to_ascii_lowercase(),
+                        );
                         Ok(lua.to_value_with(
                             &CheckHostOutput {
                                 disposition: result.result.clone(),

@@ -733,9 +733,13 @@ impl Message {
         self.load_meta().await
     }
 
-    pub async fn load_data_if_needed(&self) -> anyhow::Result<()> {
+    pub async fn data(&self) -> anyhow::Result<Arc<Box<[u8]>>> {
+        self.load_data_if_needed().await
+    }
+
+    async fn load_data_if_needed(&self) -> anyhow::Result<Arc<Box<[u8]>>> {
         if self.is_data_loaded() {
-            return Ok(());
+            return Ok(self.get_data_maybe_not_loaded());
         }
         self.load_data().await
     }
@@ -745,10 +749,7 @@ impl Message {
         self.load_meta_from(&**get_meta_spool()).await
     }
 
-    pub async fn load_meta_from(
-        &self,
-        meta_spool: &(dyn Spool + Send + Sync),
-    ) -> anyhow::Result<()> {
+    async fn load_meta_from(&self, meta_spool: &(dyn Spool + Send + Sync)) -> anyhow::Result<()> {
         let id = self.id();
         let data = meta_spool.load(*id).await?;
         let mut inner = self.msg_and_id.inner.lock();
@@ -761,15 +762,15 @@ impl Message {
         Ok(())
     }
 
-    pub async fn load_data(&self) -> anyhow::Result<()> {
+    pub async fn load_data(&self) -> anyhow::Result<Arc<Box<[u8]>>> {
         let _timer = LOAD_DATA_HIST.start_timer();
         self.load_data_from(&**get_data_spool()).await
     }
 
-    pub async fn load_data_from(
+    async fn load_data_from(
         &self,
         data_spool: &(dyn Spool + Send + Sync),
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Arc<Box<[u8]>>> {
         let data = data_spool.load(*self.id()).await?;
         let mut inner = self.msg_and_id.inner.lock();
         let was_empty = inner.data.is_empty();
@@ -777,7 +778,7 @@ impl Message {
         if was_empty {
             DATA_COUNT.inc();
         }
-        Ok(())
+        Ok(inner.data.clone())
     }
 
     pub fn assign_data(&self, data: Vec<u8>) {
@@ -790,7 +791,7 @@ impl Message {
         }
     }
 
-    pub fn get_data(&self) -> Arc<Box<[u8]>> {
+    pub fn get_data_maybe_not_loaded(&self) -> Arc<Box<[u8]>> {
         let inner = self.msg_and_id.inner.lock();
         inner.data.clone()
     }
@@ -901,7 +902,7 @@ impl Message {
         opt_resolver_name: Option<String>,
     ) -> anyhow::Result<AuthenticationResult> {
         let resolver = get_resolver_instance(&opt_resolver_name)?;
-        let data = self.get_data();
+        let data = self.data().await?;
         let bytes = mailparsing::SharedString::try_from(data.as_ref().as_ref())?;
 
         let parsed = mailparsing::Header::parse_headers(bytes.clone())?;
@@ -919,7 +920,7 @@ impl Message {
         opt_resolver_name: Option<String>,
     ) -> anyhow::Result<()> {
         let resolver = get_resolver_instance(&opt_resolver_name)?;
-        let data = self.get_data();
+        let data = self.data().await?;
         let bytes = mailparsing::SharedString::try_from(data.as_ref().as_ref())?;
         let parsed = mailparsing::Header::parse_headers(bytes.clone())?;
         let message = kumo_dkim::ParsedEmail::HeaderOnlyParse { bytes, parsed };
@@ -945,7 +946,7 @@ impl Message {
         opt_resolver_name: Option<String>,
     ) -> anyhow::Result<Vec<AuthenticationResult>> {
         let resolver = get_resolver_instance(&opt_resolver_name)?;
-        let data = self.get_data();
+        let data = self.data().await?;
         let bytes = mailparsing::SharedString::try_from(data.as_ref().as_ref())?;
 
         let parsed = mailparsing::Header::parse_headers(bytes.clone())?;
@@ -1008,32 +1009,32 @@ impl Message {
     /// message; you must re-assign the message data if you wish to modify
     /// the message content.
     pub async fn parse(&self) -> anyhow::Result<MimePart<'static>> {
-        self.load_data_if_needed().await?;
-        let data = self.get_data();
+        let data = self.data().await?;
         let owned_data = String::from_utf8_lossy(data.as_ref().as_ref()).to_string();
         Ok(MimePart::parse(owned_data)?)
     }
 
-    pub fn parse_rfc3464(&self) -> anyhow::Result<Option<Report>> {
-        let data = self.get_data();
+    pub async fn parse_rfc3464(&self) -> anyhow::Result<Option<Report>> {
+        let data = self.data().await?;
         Report::parse(&data)
     }
 
-    pub fn parse_rfc5965(&self) -> anyhow::Result<Option<ARFReport>> {
-        let data = self.get_data();
+    pub async fn parse_rfc5965(&self) -> anyhow::Result<Option<ARFReport>> {
+        let data = self.data().await?;
         ARFReport::parse(&data)
     }
 
-    pub fn prepend_header(&self, name: Option<&str>, value: &str) {
-        let data = self.get_data();
+    pub async fn prepend_header(&self, name: Option<&str>, value: &str) -> anyhow::Result<()> {
+        let data = self.data().await?;
         let mut new_data = Vec::with_capacity(size_header(name, value) + 2 + data.len());
         emit_header(&mut new_data, name, value);
         new_data.extend_from_slice(&data);
         self.assign_data(new_data);
+        Ok(())
     }
 
-    pub fn append_header(&self, name: Option<&str>, value: &str) {
-        let data = self.get_data();
+    pub async fn append_header(&self, name: Option<&str>, value: &str) -> anyhow::Result<()> {
+        let data = self.data().await?;
         let mut new_data = Vec::with_capacity(size_header(name, value) + 2 + data.len());
         for (idx, window) in data.windows(4).enumerate() {
             if window == b"\r\n\r\n" {
@@ -1044,16 +1045,18 @@ impl Message {
                 emit_header(&mut new_data, name, value);
                 new_data.extend_from_slice(body);
                 self.assign_data(new_data);
-                return;
+                return Ok(());
             }
         }
+
+        anyhow::bail!("append_header could not find the end of the header block");
     }
 
-    pub fn get_address_header(
+    pub async fn get_address_header(
         &self,
         header_name: &str,
     ) -> anyhow::Result<Option<HeaderAddressList>> {
-        let data = self.get_data();
+        let data = self.data().await?;
         let HeaderParseResult { headers, .. } =
             mailparsing::Header::parse_headers(data.as_ref().as_ref())?;
 
@@ -1067,8 +1070,8 @@ impl Message {
         }
     }
 
-    pub fn get_first_named_header_value(&self, name: &str) -> anyhow::Result<Option<String>> {
-        let data = self.get_data();
+    pub async fn get_first_named_header_value(&self, name: &str) -> anyhow::Result<Option<String>> {
+        let data = self.data().await?;
         let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
         match headers.get_first(name) {
@@ -1077,8 +1080,8 @@ impl Message {
         }
     }
 
-    pub fn get_all_named_header_values(&self, name: &str) -> anyhow::Result<Vec<String>> {
-        let data = self.get_data();
+    pub async fn get_all_named_header_values(&self, name: &str) -> anyhow::Result<Vec<String>> {
+        let data = self.data().await?;
         let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
         let mut values = vec![];
@@ -1088,8 +1091,8 @@ impl Message {
         Ok(values)
     }
 
-    pub fn get_all_headers(&self) -> anyhow::Result<Vec<(String, String)>> {
-        let data = self.get_data();
+    pub async fn get_all_headers(&self) -> anyhow::Result<Vec<(String, String)>> {
+        let data = self.data().await?;
         let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
         let mut values = vec![];
@@ -1099,8 +1102,11 @@ impl Message {
         Ok(values)
     }
 
-    pub fn retain_headers<F: FnMut(&Header) -> bool>(&self, mut func: F) -> anyhow::Result<()> {
-        let data = self.get_data();
+    pub async fn retain_headers<F: FnMut(&Header) -> bool>(
+        &self,
+        mut func: F,
+    ) -> anyhow::Result<()> {
+        let data = self.data().await?;
         let mut new_data = Vec::with_capacity(data.len());
         let HeaderParseResult {
             headers,
@@ -1120,7 +1126,7 @@ impl Message {
         Ok(())
     }
 
-    pub fn remove_first_named_header(&self, name: &str) -> anyhow::Result<()> {
+    pub async fn remove_first_named_header(&self, name: &str) -> anyhow::Result<()> {
         let mut removed = false;
         self.retain_headers(|hdr| {
             if hdr.get_name().eq_ignore_ascii_case(name) && !removed {
@@ -1130,10 +1136,11 @@ impl Message {
                 true
             }
         })
+        .await
     }
 
-    pub fn import_x_headers(&self, names: Vec<String>) -> anyhow::Result<()> {
-        let data = self.get_data();
+    pub async fn import_x_headers(&self, names: Vec<String>) -> anyhow::Result<()> {
+        let data = self.data().await?;
         let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
         for hdr in headers.iter() {
@@ -1151,7 +1158,7 @@ impl Message {
         Ok(())
     }
 
-    pub fn remove_x_headers(&self, names: Vec<String>) -> anyhow::Result<()> {
+    pub async fn remove_x_headers(&self, names: Vec<String>) -> anyhow::Result<()> {
         self.retain_headers(|hdr| {
             if names.is_empty() {
                 !is_x_header(hdr.get_name())
@@ -1159,45 +1166,39 @@ impl Message {
                 !is_header_in_names_list(hdr.get_name(), &names)
             }
         })
+        .await
     }
 
-    pub fn remove_all_named_headers(&self, name: &str) -> anyhow::Result<()> {
+    pub async fn remove_all_named_headers(&self, name: &str) -> anyhow::Result<()> {
         self.retain_headers(|hdr| !hdr.get_name().eq_ignore_ascii_case(name))
+            .await
     }
 
     #[cfg(feature = "impl")]
     pub async fn dkim_sign(&self, signer: Signer) -> anyhow::Result<()> {
-        if let Some(runtime) = SIGN_POOL.get() {
-            let msg = self.clone();
-            runtime
-                .spawn_blocking(move || {
-                    let data = msg.get_data();
-                    let header = signer.sign(&data)?;
-                    msg.prepend_header(None, &header);
-                    Ok::<(), anyhow::Error>(())
-                })
-                .await??;
+        let data = self.data().await?;
+        let header = if let Some(runtime) = SIGN_POOL.get() {
+            runtime.spawn_blocking(move || signer.sign(&data)).await??
         } else {
-            let data = self.get_data();
-            let header = signer.sign(&data)?;
-            self.prepend_header(None, &header);
-        }
+            signer.sign(&data)?
+        };
+        self.prepend_header(None, &header).await?;
         Ok(())
     }
 
-    pub fn import_scheduling_header(
+    pub async fn import_scheduling_header(
         &self,
         header_name: &str,
         remove: bool,
     ) -> anyhow::Result<Option<Scheduling>> {
-        if let Some(value) = self.get_first_named_header_value(header_name)? {
+        if let Some(value) = self.get_first_named_header_value(header_name).await? {
             let sched: Scheduling = serde_json::from_str(&value).with_context(|| {
                 format!("{value} from header {header_name} is not a valid Scheduling header")
             })?;
             let result = self.set_scheduling(Some(sched))?;
 
             if remove {
-                self.remove_all_named_headers(header_name)?;
+                self.remove_all_named_headers(header_name).await?;
             }
 
             Ok(result)
@@ -1206,8 +1207,8 @@ impl Message {
         }
     }
 
-    pub fn append_text_plain(&self, content: &str) -> anyhow::Result<bool> {
-        let data = self.get_data();
+    pub async fn append_text_plain(&self, content: &str) -> anyhow::Result<bool> {
+        let data = self.data().await?;
         let mut msg = MimePart::parse(data.as_ref().as_ref())?;
         let parts = msg.simplified_structure_pointers()?;
         if let Some(p) = parts.text_part.and_then(|p| msg.resolve_ptr_mut(p)) {
@@ -1231,8 +1232,8 @@ impl Message {
         }
     }
 
-    pub fn append_text_html(&self, content: &str) -> anyhow::Result<bool> {
-        let data = self.get_data();
+    pub async fn append_text_html(&self, content: &str) -> anyhow::Result<bool> {
+        let data = self.data().await?;
         let mut msg = MimePart::parse(data.as_ref().as_ref())?;
         let parts = msg.simplified_structure_pointers()?;
         if let Some(p) = parts.html_part.and_then(|p| msg.resolve_ptr_mut(p)) {
@@ -1267,13 +1268,13 @@ impl Message {
         }
     }
 
-    pub fn check_fix_conformance(
+    pub async fn check_fix_conformance(
         &self,
         check: MessageConformance,
         fix: MessageConformance,
         settings: Option<&CheckFixSettings>,
     ) -> anyhow::Result<()> {
-        let data = self.get_data();
+        let data = self.data().await?;
         let data_bytes = data.as_ref().as_ref();
         let mut msg = MimePart::parse(data_bytes)?;
 
@@ -1416,9 +1417,8 @@ impl UserData for Message {
             let value = this.get_meta(name).map_err(any_err)?;
             Ok(Some(lua.to_value_with(&value, serialize_options())?))
         });
-        methods.add_async_method("get_data", move |lua, this, _: ()| async move {
-            this.load_data_if_needed().await.map_err(any_err)?;
-            let data = this.get_data();
+        methods.add_async_method("get_data", |lua, this, _: ()| async move {
+            let data = this.data().await.map_err(any_err)?;
             lua.create_string(&*data)
         });
         methods.add_method("set_data", move |_lua, this, data: mlua::String| {
@@ -1426,20 +1426,19 @@ impl UserData for Message {
             Ok(())
         });
 
-        methods.add_async_method("parse_mime", move |_lua, this, _: ()| async move {
-            this.load_data_if_needed().await.map_err(any_err)?;
-            let data = this.get_data();
+        methods.add_async_method("parse_mime", |_lua, this, _: ()| async move {
+            let data = this.data().await.map_err(any_err)?;
             let owned_data = String::from_utf8_lossy(data.as_ref().as_ref()).to_string();
             let part = MimePart::parse(owned_data).map_err(any_err)?;
             Ok(mod_mimepart::PartRef::new(part))
         });
 
-        methods.add_method("append_text_plain", move |_lua, this, data: String| {
-            this.append_text_plain(&data).map_err(any_err)
+        methods.add_async_method("append_text_plain", |_lua, this, data: String| async move {
+            this.append_text_plain(&data).await.map_err(any_err)
         });
 
-        methods.add_method("append_text_html", move |_lua, this, data: String| {
-            this.append_text_html(&data).map_err(any_err)
+        methods.add_async_method("append_text_html", |_lua, this, data: String| async move {
+            this.append_text_html(&data).await.map_err(any_err)
         });
 
         methods.add_method("id", move |_, this, _: ()| Ok(this.id().to_string()));
@@ -1525,9 +1524,9 @@ impl UserData for Message {
             this.shrink_data().map_err(any_err)
         });
 
-        methods.add_method(
+        methods.add_async_method(
             "add_authentication_results",
-            move |lua, this, (serv_id, results): (String, mlua::Value)| {
+            |lua, this, (serv_id, results): (String, mlua::Value)| async move {
                 let results: Vec<AuthenticationResult> = lua.from_value(results)?;
                 let results = AuthenticationResults {
                     serv_id,
@@ -1535,7 +1534,9 @@ impl UserData for Message {
                     results,
                 };
 
-                this.prepend_header(Some("Authentication-Results"), &results.encode_value());
+                this.prepend_header(Some("Authentication-Results"), &results.encode_value())
+                    .await
+                    .map_err(any_err)?;
 
                 Ok(())
             },
@@ -1585,90 +1586,105 @@ impl UserData for Message {
             },
         );
 
-        methods.add_method(
+        methods.add_async_method(
             "prepend_header",
-            move |_, this, (name, value, encode): (String, String, Option<bool>)| {
+            |_, this, (name, value, encode): (String, String, Option<bool>)| async move {
                 let encode = encode.unwrap_or(false);
                 if encode {
                     let header = Header::new_unstructured(name.clone(), value);
-                    this.prepend_header(Some(&name), header.get_raw_value());
+                    this.prepend_header(Some(&name), header.get_raw_value())
+                        .await
+                        .map_err(any_err)?;
                 } else {
-                    this.prepend_header(Some(&name), &value);
+                    this.prepend_header(Some(&name), &value)
+                        .await
+                        .map_err(any_err)?;
                 }
                 Ok(())
             },
         );
-        methods.add_method(
+        methods.add_async_method(
             "append_header",
-            move |_, this, (name, value, encode): (String, String, Option<bool>)| {
+            |_, this, (name, value, encode): (String, String, Option<bool>)| async move {
                 let encode = encode.unwrap_or(false);
                 if encode {
                     let header = Header::new_unstructured(name.clone(), value);
-                    this.append_header(Some(&name), header.get_raw_value());
+                    this.append_header(Some(&name), header.get_raw_value())
+                        .await
+                        .map_err(any_err)?;
                 } else {
-                    this.append_header(Some(&name), &value);
+                    this.append_header(Some(&name), &value)
+                        .await
+                        .map_err(any_err)?;
                 }
                 Ok(())
             },
         );
-        methods.add_method("get_address_header", move |_, this, name: String| {
-            this.get_address_header(&name).map_err(any_err)
+        methods.add_async_method("get_address_header", |_, this, name: String| async move {
+            this.get_address_header(&name).await.map_err(any_err)
         });
-        methods.add_method("from_header", move |_, this, ()| {
-            this.get_address_header("From").map_err(any_err)
+        methods.add_async_method("from_header", |_, this, ()| async move {
+            this.get_address_header("From").await.map_err(any_err)
         });
-        methods.add_method("to_header", move |_, this, ()| {
-            this.get_address_header("To").map_err(any_err)
+        methods.add_async_method("to_header", |_, this, ()| async move {
+            this.get_address_header("To").await.map_err(any_err)
         });
 
-        methods.add_method(
+        methods.add_async_method(
             "get_first_named_header_value",
-            move |_, this, name: String| this.get_first_named_header_value(&name).map_err(any_err),
+            |_, this, name: String| async move {
+                this.get_first_named_header_value(&name)
+                    .await
+                    .map_err(any_err)
+            },
         );
-        methods.add_method(
+        methods.add_async_method(
             "get_all_named_header_values",
-            move |_, this, name: String| this.get_all_named_header_values(&name).map_err(any_err),
+            |_, this, name: String| async move {
+                this.get_all_named_header_values(&name)
+                    .await
+                    .map_err(any_err)
+            },
         );
-        methods.add_method("get_all_headers", move |_, this, _: ()| {
+        methods.add_async_method("get_all_headers", |_, this, _: ()| async move {
             Ok(this
                 .get_all_headers()
+                .await
                 .map_err(any_err)?
                 .into_iter()
                 .map(|(name, value)| vec![name, value])
                 .collect::<Vec<Vec<String>>>())
         });
-        methods.add_method("get_all_headers", move |_, this, _: ()| {
-            Ok(this
-                .get_all_headers()
-                .map_err(any_err)?
-                .into_iter()
-                .map(|(name, value)| vec![name, value])
-                .collect::<Vec<Vec<String>>>())
-        });
-        methods.add_method(
+        methods.add_async_method(
             "import_x_headers",
-            move |_, this, names: Option<Vec<String>>| {
+            |_, this, names: Option<Vec<String>>| async move {
                 this.import_x_headers(names.unwrap_or_default())
+                    .await
                     .map_err(any_err)
             },
         );
 
-        methods.add_method(
+        methods.add_async_method(
             "remove_x_headers",
-            move |_, this, names: Option<Vec<String>>| {
+            |_, this, names: Option<Vec<String>>| async move {
                 this.remove_x_headers(names.unwrap_or_default())
+                    .await
                     .map_err(any_err)
             },
         );
-        methods.add_method("remove_all_named_headers", move |_, this, name: String| {
-            this.remove_all_named_headers(&name).map_err(any_err)
-        });
+        methods.add_async_method(
+            "remove_all_named_headers",
+            |_, this, name: String| async move {
+                this.remove_all_named_headers(&name).await.map_err(any_err)
+            },
+        );
 
-        methods.add_method(
+        methods.add_async_method(
             "import_scheduling_header",
-            move |lua, this, (header_name, remove): (String, bool)| {
+            |lua, this, (header_name, remove): (String, bool)| async move {
                 let opt_schedule = this
                     .import_scheduling_header(&header_name, remove)
+                    .await
                     .map_err(any_err)?;
                 lua.to_value(&opt_schedule)
             },
@@ -1680,16 +1696,16 @@ impl UserData for Message {
             lua.to_value(&opt_schedule)
         });
 
-        methods.add_method("parse_rfc3464", move |lua, this, _: ()| {
-            let report = this.parse_rfc3464().map_err(any_err)?;
+        methods.add_async_method("parse_rfc3464", |lua, this, _: ()| async move {
+            let report = this.parse_rfc3464().await.map_err(any_err)?;
             match report {
                 Some(report) => lua.to_value_with(&report, serialize_options()),
                 None => Ok(mlua::Value::Nil),
             }
         });
 
-        methods.add_method("parse_rfc5965", move |lua, this, _: ()| {
-            let report = this.parse_rfc5965().map_err(any_err)?;
+        methods.add_async_method("parse_rfc5965", |lua, this, _: ()| async move {
+            let report = this.parse_rfc5965().await.map_err(any_err)?;
             match report {
                 Some(report) => lua.to_value_with(&report, serialize_options()),
                 None => Ok(mlua::Value::Nil),
@@ -1717,7 +1733,10 @@ impl UserData for Message {
                     None => None,
                 };
 
-                match this.check_fix_conformance(check, fix, settings.as_ref()) {
+                match this
+                    .check_fix_conformance(check, fix, settings.as_ref())
+                    .await
+                {
                     Ok(_) => Ok(None),
                     Err(err) => Ok(Some(format!("{err:#}"))),
                 }
@@ -1777,17 +1796,17 @@ pub(crate) mod test {
     }
 
     fn data_as_string(msg: &Message) -> String {
-        String::from_utf8(msg.get_data().to_vec()).unwrap()
+        String::from_utf8(msg.get_data_maybe_not_loaded().to_vec()).unwrap()
     }
 
     const X_HDR_CONTENT: &str =
         "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\n\r\nBody";
 
-    #[test]
-    fn import_all_x_headers() {
+    #[tokio::test]
+    async fn import_all_x_headers() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.import_x_headers(vec![]).unwrap();
+        msg.import_x_headers(vec![]).await.unwrap();
         k9::assert_equal!(
             msg.get_meta_obj().unwrap(),
             json!({
@@ -1812,11 +1831,13 @@ pub(crate) mod test {
             .unwrap();
     }
 
-    #[test]
-    fn import_some_x_headers() {
+    #[tokio::test]
+    async fn import_some_x_headers() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.import_x_headers(vec!["x-hello".to_string()]).unwrap();
+        msg.import_x_headers(vec!["x-hello".to_string()])
+            .await
+            .unwrap();
         k9::assert_equal!(
             msg.get_meta_obj().unwrap(),
             json!({
@@ -1825,55 +1846,55 @@ pub(crate) mod test {
         );
     }
 
-    #[test]
-    fn remove_all_x_headers() {
+    #[tokio::test]
+    async fn remove_all_x_headers() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.remove_x_headers(vec![]).unwrap();
+        msg.remove_x_headers(vec![]).await.unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "Subject: Hello\r\nFrom :Someone\r\n\r\nBody"
         );
     }
 
-    #[test]
-    fn prepend_header_2_params() {
+    #[tokio::test]
+    async fn prepend_header_2_params() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.prepend_header(Some("Date"), "Today");
+        msg.prepend_header(Some("Date"), "Today").await.unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "Date: Today\r\nX-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\n\r\nBody"
         );
     }
 
-    #[test]
-    fn prepend_header_1_params() {
+    #[tokio::test]
+    async fn prepend_header_1_params() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.prepend_header(None, "Date: Today");
+        msg.prepend_header(None, "Date: Today").await.unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "Date: Today\r\nX-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\n\r\nBody"
         );
     }
 
-    #[test]
-    fn append_header_2_params() {
+    #[tokio::test]
+    async fn append_header_2_params() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.append_header(Some("Date"), "Today");
+        msg.append_header(Some("Date"), "Today").await.unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\nDate: Today\r\n\r\nBody"
         );
     }
 
-    #[test]
-    fn append_header_1_params() {
+    #[tokio::test]
+    async fn append_header_1_params() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.append_header(None, "Date: Today");
+        msg.append_header(None, "Date: Today").await.unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\nDate: Today\r\n\r\nBody"
@@ -1883,50 +1904,51 @@ pub(crate) mod test {
     const MULTI_HEADER_CONTENT: &str =
         "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nX-Header: another value\r\nFrom :Someone@somewhere\r\n\r\nBody";
 
-    #[test]
-    fn get_first_header() {
+    #[tokio::test]
+    async fn get_first_header() {
         let msg = new_msg_body(MULTI_HEADER_CONTENT);
         k9::assert_equal!(
             msg.get_first_named_header_value("X-header")
+                .await
                 .unwrap()
                 .unwrap(),
             "value"
         );
     }
 
-    #[test]
-    fn get_all_header() {
+    #[tokio::test]
+    async fn get_all_header() {
         let msg = new_msg_body(MULTI_HEADER_CONTENT);
         k9::assert_equal!(
-            msg.get_all_named_header_values("X-header").unwrap(),
+            msg.get_all_named_header_values("X-header").await.unwrap(),
             vec!["value".to_string(), "another value".to_string()]
         );
     }
 
-    #[test]
-    fn remove_first() {
+    #[tokio::test]
+    async fn remove_first() {
         let msg = new_msg_body(MULTI_HEADER_CONTENT);
-        msg.remove_first_named_header("X-header").unwrap();
+        msg.remove_first_named_header("X-header").await.unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "X-Hello: there\r\nSubject: Hello\r\nX-Header: another value\r\nFrom :Someone@somewhere\r\n\r\nBody"
         );
     }
 
-    #[test]
-    fn remove_all() {
+    #[tokio::test]
+    async fn remove_all() {
         let msg = new_msg_body(MULTI_HEADER_CONTENT);
-        msg.remove_all_named_headers("X-header").unwrap();
+        msg.remove_all_named_headers("X-header").await.unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "X-Hello: there\r\nSubject: Hello\r\nFrom :Someone@somewhere\r\n\r\nBody"
         );
     }
 
-    #[test]
-    fn append_text_plain() {
+    #[tokio::test]
+    async fn append_text_plain() {
         let msg = new_msg_body(MULTI_HEADER_CONTENT);
-        msg.append_text_plain("I am at the bottom").unwrap();
+        msg.append_text_plain("I am at the bottom").await.unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "X-Hello: there\r\n\
@@ -1992,10 +2014,10 @@ AAECAw==\r\n\
 --my-boundary--\r\n\
 \r\n";
 
-    #[test]
-    fn append_text_html() {
+    #[tokio::test]
+    async fn append_text_html() {
         let msg = new_msg_body(MIXED_CONTENT);
-        msg.append_text_html("bottom html").unwrap();
+        msg.append_text_html("bottom html").await.unwrap();
         k9::snapshot!(
             data_as_string(&msg),
             r#"
@@ -2029,7 +2051,7 @@ AAECAw==\r
         );
 
         let msg = new_msg_body(MIXED_CONTENT_ENCLOSING_BODY);
-        msg.append_text_html("bottom html 👻").unwrap();
+        msg.append_text_html("bottom html 👻").await.unwrap();
         k9::snapshot!(
             data_as_string(&msg),
             r#"
@@ -2065,10 +2087,10 @@ AAECAw==\r
         );
     }
 
-    #[test]
-    fn append_text_plain_mixed() {
+    #[tokio::test]
+    async fn append_text_plain_mixed() {
         let msg = new_msg_body(MIXED_CONTENT);
-        msg.append_text_plain("bottom text 👾").unwrap();
+        msg.append_text_plain("bottom text 👾").await.unwrap();
         k9::snapshot!(
             data_as_string(&msg),
             r#"
@@ -2103,8 +2125,8 @@ AAECAw==\r
         );
     }
 
-    #[test]
-    fn check_conformance_angle_msg_id() {
+    #[tokio::test]
+    async fn check_conformance_angle_msg_id() {
         const DOUBLE_ANGLE_ONLY: &str = "Subject: hello\r
 Message-ID: <<1234@example.com>>\r
 \r
@@ -2116,6 +2138,7 @@ Hello";
                 MessageConformance::empty(),
                 None,
             )
+            .await
             .unwrap_err(),
             "Message has conformance issues: MISSING_MESSAGE_ID_HEADER"
         );
@@ -2125,6 +2148,7 @@ Hello";
             MessageConformance::MISSING_MESSAGE_ID_HEADER,
             None,
         )
+        .await
         .unwrap();
 
         // Can't use a snapshot test here because the fixed header
@@ -2158,6 +2182,7 @@ Hello this is a really long line Hello this is a really long line
             MessageConformance::MISSING_MESSAGE_ID_HEADER | MessageConformance::LINE_TOO_LONG,
             None,
         )
+        .await
         .unwrap();
 
         // Can't use a snapshot test here because the fixed header
@@ -2185,14 +2210,15 @@ Hello this is a really long line Hello this is a really long line
         */
     }
 
-    #[test]
-    fn check_conformance() {
+    #[tokio::test]
+    async fn check_conformance() {
         let msg = new_msg_body(MULTI_HEADER_CONTENT);
         msg.check_fix_conformance(
             MessageConformance::default(),
             MessageConformance::MISSING_MIME_VERSION,
             None,
         )
+        .await
         .unwrap();
         k9::snapshot!(
             data_as_string(&msg),
@@ -2214,6 +2240,7 @@ Body
             MessageConformance::MISSING_MIME_VERSION | MessageConformance::NAME_ENDS_WITH_SPACE,
             None,
         )
+        .await
         .unwrap();
         k9::snapshot!(
             data_as_string(&msg),
@@ -2233,8 +2260,8 @@ Body\r
         );
     }
 
-    #[test]
-    fn check_fix_latin_input() {
+    #[tokio::test]
+    async fn check_fix_latin_input() {
         // Note that the encoding_rs crate unifies latin1 into cp1252
         const POUNDS: &str = "Subject: £\r\n\r\nGBP\r\n";
         let (content, _, _) = encoding_rs::WINDOWS_1252.encode(POUNDS);
@@ -2248,10 +2275,12 @@ Body\r
                 ..Default::default()
             }),
         )
+        .await
         .unwrap();
 
         let subject = msg
             .get_first_named_header_value("subject")
+            .await
             .unwrap()
             .unwrap();
         assert_eq!(subject, "£");

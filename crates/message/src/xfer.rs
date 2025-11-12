@@ -19,9 +19,8 @@ impl Message {
         &self,
         additional_meta: serde_json::Value,
     ) -> anyhow::Result<Vec<u8>> {
-        self.load_data_if_needed().await?;
         let id = *self.id();
-        let data = self.get_data();
+        let data = self.data().await?;
         let mut meta = self.clone_meta_data().await?;
 
         if let serde_json::Value::Object(src) = additional_meta {
@@ -102,7 +101,7 @@ mod test {
         assert_eq!(round_trip.get_meta("additional").unwrap(), "meta");
         eprintln!(
             "deserialized message:\n{}",
-            String::from_utf8_lossy(&round_trip.get_data())
+            String::from_utf8_lossy(&round_trip.data().await.unwrap())
         );
 
         eprintln!("id           ={}", msg.id());
@@ -112,6 +111,7 @@ mod test {
         assert_eq!(
             round_trip
                 .get_first_named_header_value("subject")
+                .await
                 .unwrap()
                 .unwrap(),
             "simple message"

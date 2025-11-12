@@ -19,7 +19,9 @@ impl CidrSet {
     }
 
     pub fn default_prohibited_hosts() -> Self {
-        vec!["127.0.0.0/8", "::1"].try_into().unwrap()
+        vec!["127.0.0.0/8", "::1", "0.0.0.0", "::"]
+            .try_into()
+            .unwrap()
     }
 
     pub fn contains(&self, ip: IpAddr) -> bool {

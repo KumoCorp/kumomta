@@ -323,7 +323,7 @@ impl TraceHeaders {
         vec![]
     }
 
-    pub fn apply_supplemental(&self, message: &Message) -> anyhow::Result<()> {
+    pub async fn apply_supplemental(&self, message: &Message) -> anyhow::Result<()> {
         if !self.supplemental_header {
             return Ok(());
         }
@@ -358,7 +358,9 @@ impl TraceHeaders {
         }
 
         let value = BASE64.encode(serde_json::to_string(&object)?.as_bytes());
-        message.prepend_header(Some(&self.header_name), &value);
+        message
+            .prepend_header(Some(&self.header_name), &value)
+            .await?;
 
         Ok(())
     }
@@ -2842,13 +2844,13 @@ impl SmtpServerSession {
                     )
                 };
 
-                let data = base_message.get_data();
+                let data = base_message.data().await?;
                 let mut body = Vec::with_capacity(data.len() + received.len());
                 body.extend_from_slice(received.as_bytes());
                 body.extend_from_slice(&data);
                 Arc::new(body.into_boxed_slice())
             } else {
-                base_message.get_data()
+                base_message.data().await?
             };
 
             let message = Message::new_dirty(
@@ -2951,7 +2953,10 @@ impl SmtpServerSession {
 
         let mut messages: Vec<(/* queue_name */ String, Message)> = vec![];
         for message in accepted_messages {
-            self.params.trace_headers.apply_supplemental(&message)?;
+            self.params
+                .trace_headers
+                .apply_supplemental(&message)
+                .await?;
 
             ids.push(message.id().to_string());
 
@@ -2968,12 +2973,12 @@ impl SmtpServerSession {
             let mut relay_this_one = relay_disposition.relay;
 
             if relay_disposition.log_arf.should_log()
-                && matches!(message.parse_rfc5965(), Ok(Some(_)))
+                && matches!(message.parse_rfc5965().await, Ok(Some(_)))
             {
                 was_arf_or_oob = true;
                 relay_this_one = relay_disposition.log_arf.should_relay();
             } else if relay_disposition.log_oob.should_log()
-                && matches!(message.parse_rfc3464(), Ok(Some(_)))
+                && matches!(message.parse_rfc3464().await, Ok(Some(_)))
             {
                 was_arf_or_oob = true;
                 relay_this_one = relay_disposition.log_oob.should_relay();

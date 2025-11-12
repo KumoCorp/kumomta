@@ -263,6 +263,27 @@ impl ClassifierWrapper {
     }
 }
 
+pub async fn classify_response(response: &Response) -> BounceClass {
+    // If you have no classifier, you pay no cost
+    let Some(classifier) = CLASSIFY.get() else {
+        return BounceClass::default();
+    };
+
+    let _timer = CLASSIFY_LATENCY.start_timer();
+
+    // Check the caches before we commit any serious resources to
+    // classifying this response
+    if let Some(result) = classifier.check_cache(response) {
+        return result;
+    }
+
+    // clone data and pass to the classifier thread pool
+    match classifier.classify(response.clone()).await {
+        Ok(res) => res,
+        Err(_) => BounceClass::default(),
+    }
+}
+
 pub async fn apply_classification(record: &mut JsonLogRecord) {
     if !record.kind.is_bounce_classifiable() {
         return;

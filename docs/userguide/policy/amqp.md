@@ -43,26 +43,19 @@ The following example sends the content of the log message via AMQP:
 -- It returns a lua connection object that can be used to "send"
 -- messages to their destination.
 kumo.on('make.amqp', function(domain, tenant, campaign)
-  local client = kumo.amqp.build_client 'amqp://localhost'
-
   local sender = {}
   function sender:send(message)
-    local confirm = client:publish {
+    kumo.amqp.basic_publish {
       routing_key = 'logging',
       payload = message:get_data(),
+      connection = {
+        host = 'localhost',
+      },
     }
-    local result = confirm:wait()
-
-    if result.status == 'Ack' or result.status == 'NotRequested' then
-      return string.format('250 %s', kumo.json_encode(result))
-    end
-    -- result.status must be `Nack`; log the full result
-    kumo.reject(500, kumo.json_encode(result))
+    return '250 ok'
   end
 
-  function sender:close()
-    client:close()
-  end
+  function sender:close() end
 
   return sender
 end)
