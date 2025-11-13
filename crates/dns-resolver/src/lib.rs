@@ -559,6 +559,8 @@ impl MailExchanger {
 #[derive(Debug, Clone, Serialize)]
 pub enum ResolvedMxAddresses {
     NullMx,
+    /// The list of addresses to which to connect, expressed
+    /// in LIFO order
     Addresses(Vec<ResolvedAddress>),
 }
 

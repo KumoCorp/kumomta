@@ -128,3 +128,8 @@
    efficient cache keys that use less RAM.
  * dkim verification would incorrectly treat `i=@fexample.net` as a valid
    subdomain of `d=example.net`.
+ * [mx_list](../reference/kumo/make_queue_config/protocol.md) says that
+   the list of addresses are tried in the order specified, but they were
+   incorrectly tried in the reverse of that order (because internally that list
+   is placed into a LIFO stack).  This has now been corrected and the
+   connection plan now follows the ordering of your `mx_list`.
