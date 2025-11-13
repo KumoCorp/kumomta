@@ -49,6 +49,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     }
 
     let kumo_mod = get_or_create_module(lua, "kumo")?;
+    kumo_mod.set("version", version_info::kumo_version())?;
 
     fn event_registrar_name(name: &str) -> String {
         format!("kumomta-event-registrars-{name}")
