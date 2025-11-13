@@ -110,6 +110,10 @@
    [kumo.digest.hamc_sha256](../reference/kumo.digest/hmac_sha256.md),
    [kumo.digest.hmac_sha384](../reference/kumo.digest/hmac_sha384.md) and
    [kumo.digest.hmac_sha512](../reference/kumo.digest/hmac_sha512.md) HMAC functions.
+ * [kumo.start_esmtp_listener.require_proxy_protocol](../reference/kumo/start_esmtp_listener/require_proxy_protocol.md)
+   enables support for the HA Proxy Protocol in the ESMTP listener, allowing it
+   to pass through the `received_from` and `received_via` metadata from the
+   proxy. Thanks to @Solvik and @cai-n! #440
 
 ## Fixes
 
