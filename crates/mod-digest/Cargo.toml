@@ -5,9 +5,9 @@ edition = "2021"
 
 [dependencies]
 anyhow = {workspace=true}
+aws-lc-rs.workspace = true
 config = {path="../config"}
 crc32fast = {workspace=true}
 data-encoding = {workspace=true}
 mlua = {workspace=true, features=["serialize"]}
-ring = {workspace=true}
 serde_json = {workspace=true}

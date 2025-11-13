@@ -4502,11 +4502,11 @@ name = "mod-digest"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aws-lc-rs",
  "config",
  "crc32fast",
  "data-encoding",
  "mlua",
- "ring",
  "serde_json",
 ]
 

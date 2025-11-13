@@ -1,3 +1,4 @@
+use aws_lc_rs::digest::*;
 use config::{any_err, get_or_create_sub_module};
 use crc32fast::Hasher;
 use data_encoding::{
@@ -6,7 +7,6 @@ use data_encoding::{
 };
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, MetaMethod, UserDataFields, UserDataMethods, Value, Variadic};
-use ring::digest::*;
 
 fn digest_recursive(value: &Value, ctx: &mut Context) -> anyhow::Result<()> {
     match value {
@@ -68,36 +68,27 @@ impl LuaUserData for BinaryResult {
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let digest_mod = get_or_create_sub_module(lua, "digest")?;
 
-    digest_mod.set(
-        "sha1",
-        lua.create_function(|_, args: Variadic<Value>| {
-            digest_helper(&SHA1_FOR_LEGACY_USE_ONLY, args).map_err(any_err)
-        })?,
-    )?;
-    digest_mod.set(
-        "sha256",
-        lua.create_function(|_, args: Variadic<Value>| {
-            digest_helper(&SHA256, args).map_err(any_err)
-        })?,
-    )?;
-    digest_mod.set(
-        "sha384",
-        lua.create_function(|_, args: Variadic<Value>| {
-            digest_helper(&SHA384, args).map_err(any_err)
-        })?,
-    )?;
-    digest_mod.set(
-        "sha512",
-        lua.create_function(|_, args: Variadic<Value>| {
-            digest_helper(&SHA512, args).map_err(any_err)
-        })?,
-    )?;
-    digest_mod.set(
-        "sha512_256",
-        lua.create_function(|_, args: Variadic<Value>| {
-            digest_helper(&SHA512_256, args).map_err(any_err)
-        })?,
-    )?;
+    macro_rules! digest {
+        ($func_name:literal, $algo:path) => {
+            digest_mod.set(
+                $func_name,
+                lua.create_function(|_, args: Variadic<Value>| {
+                    digest_helper(&$algo, args).map_err(any_err)
+                })?,
+            )?;
+        };
+    }
+
+    digest!("sha1", SHA1_FOR_LEGACY_USE_ONLY);
+    digest!("sha224", SHA224);
+    digest!("sha256", SHA256);
+    digest!("sha384", SHA384);
+    digest!("sha3_256", SHA3_256);
+    digest!("sha3_384", SHA3_384);
+    digest!("sha3_512", SHA3_512);
+    digest!("sha512", SHA512);
+    digest!("sha512_256", SHA512_256);
+
     digest_mod.set(
         "crc32",
         lua.create_function(|_, args: Variadic<Value>| {

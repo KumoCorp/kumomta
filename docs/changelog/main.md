@@ -101,6 +101,10 @@
  * [kumo.version](../reference/kumo/version.md) exposes the kumo version
    number to your policy scripts, allowing you to conditionally phrase them
    based on the running version of kumo.
+ * [kumo.digest.sha225](../reference/kumo.digest/sha224.md),
+   [kumo.digest.sha3_256](../reference/kumo.digest/sha3_256.md),
+   [kumo.digest.sha3_384](../reference/kumo.digest/sha3_384.md) and
+   [kumo.digest.sha3_512](../reference/kumo.digest/sha3_512.md) digest functions.
 
 ## Fixes
 
