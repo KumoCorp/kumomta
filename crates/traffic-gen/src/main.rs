@@ -326,14 +326,14 @@ impl Opt {
         self.domain = adjusted_domains;
     }
 
-    fn auth_credentials(&self) -> anyhow::Result<Option<(String, String)>> {
-        match (self.auth_username.as_deref(), self.auth_password.as_deref()) {
-            (Some(user), Some(pass)) => Ok(Some((user.to_owned(), pass.to_owned()))),
-            (None, None) => Ok(None),
-            _ => Err(anyhow!(
-                "both --auth-username and --auth-password must be provided together"
-            )),
-        }
+    fn auth_credentials(&self) -> Option<(String, String)> {
+        self.auth_username.as_ref().map(|user| {
+            let pass = self
+                .auth_password
+                .as_ref()
+                .expect("clap guarantees --auth-password when --auth-username is set");
+            (user.clone(), pass.clone())
+        })
     }
 
     fn pick_a_domain(&self) -> String {
@@ -467,7 +467,7 @@ impl Opt {
             defer_spool: self.http_defer_spool,
             defer_generation: self.http_defer_generation,
             batch_size: self.http_batch_size,
-            auth: self.auth_credentials()?,
+            auth: self.auth_credentials(),
         })
     }
 
@@ -505,16 +505,8 @@ impl Opt {
                 // re-EHLO post TLS
                 caps = client.ehlo(&helo_domain).await?;
             } else {
-                // "hard"
-                // if self.require_starttls { anyhow::bail!("STARTTLS not advertised by target"); }
-                if self.auth_username.is_some() {
-                    anyhow::bail!(
-                        "Server doesn't advertise STARTTLS; refusing to send AUTH without TLS"
-                    );
-                } else {
-                    eprintln!("warning: server doesn't advertise STARTTLS; continuing without TLS");
-                    // no bail: allow AUTH later even without TLS
-                }
+                eprintln!("warning: server doesn't advertise STARTTLS; continuing without TLS");
+                // no bail: allow AUTH later even without TLS
             }
         }
 
@@ -527,7 +519,7 @@ impl Opt {
             .unwrap_or_default();
 
         // If credentials were provided via --auth-username/--auth-password
-        if let Some((username, password)) = self.auth_credentials()? {
+        if let Some((username, password)) = self.auth_credentials() {
             let u = username.as_str();
             let p = password.as_str();
 
@@ -535,40 +527,15 @@ impl Opt {
             let has_plain = mechs.iter().any(|m| m.eq_ignore_ascii_case("PLAIN"));
 
             if has_plain {
-                // Attempt AUTH PLAIN; on failure, emit a compact error message (no verbose dump)
-                if let Err(err) = client.auth_plain(u, Some(p)).await {
-                    match err {
-                        rfc5321::ClientError::Rejected(rfc5321::Response {
-                            code,
-                            enhanced_code,
-                            content,
-                            ..
-                        }) => {
-                            if let Some(esc) = enhanced_code {
-                                anyhow::bail!(
-                                    "failed to authenticate with AUTH PLAIN - {} ({} {}.{}.{})",
-                                    content,
-                                    code,
-                                    esc.class,
-                                    esc.subject,
-                                    esc.detail
-                                );
-                            } else {
-                                anyhow::bail!(
-                                    "failed to authenticate with AUTH PLAIN - {} ({})",
-                                    content,
-                                    code
-                                );
-                            }
-                        }
-                        other => {
-                            return Err(other).context("failed to authenticate with AUTH PLAIN")
-                        }
-                    }
-                }
+                // Attempt AUTH PLAIN and bubble up any error to the central handler
+                client
+                    .auth_plain(u, Some(p))
+                    .await
+                    .context("failed to authenticate with AUTH PLAIN")?;
             } else {
-                // No PLAIN mechanism advertised: continue without authentication
-                eprintln!("warning: AUTH PLAIN not advertised by target; continuing without authentication");
+                eprintln!(
+                    "warning: AUTH PLAIN not advertised by target; continuing without authentication"
+                );
             }
         }
         Ok(client)
