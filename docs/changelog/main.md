@@ -105,6 +105,11 @@
    [kumo.digest.sha3_256](../reference/kumo.digest/sha3_256.md),
    [kumo.digest.sha3_384](../reference/kumo.digest/sha3_384.md) and
    [kumo.digest.sha3_512](../reference/kumo.digest/sha3_512.md) digest functions.
+ * [kumo.digest.hmac_sha1](../reference/kumo.digest/hmac_sha1.md),
+   [kumo.digest.hmac_sha224](../reference/kumo.digest/hmac_sha224.md),
+   [kumo.digest.hamc_sha256](../reference/kumo.digest/hmac_sha256.md),
+   [kumo.digest.hmac_sha384](../reference/kumo.digest/hmac_sha384.md) and
+   [kumo.digest.hmac_sha512](../reference/kumo.digest/hmac_sha512.md) HMAC functions.
 
 ## Fixes
 

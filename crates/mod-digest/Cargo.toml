@@ -9,5 +9,6 @@ aws-lc-rs.workspace = true
 config = {path="../config"}
 crc32fast = {workspace=true}
 data-encoding = {workspace=true}
+data-loader = {path="../data-loader"}
 mlua = {workspace=true, features=["serialize"]}
 serde_json = {workspace=true}

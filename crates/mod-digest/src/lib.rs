@@ -1,14 +1,15 @@
-use aws_lc_rs::digest::*;
-use config::{any_err, get_or_create_sub_module};
+use aws_lc_rs::digest::{Algorithm as DigestAlgo, Context as DigestContext};
+use config::{any_err, from_lua_value, get_or_create_sub_module};
 use crc32fast::Hasher;
 use data_encoding::{
     BASE32, BASE32HEX, BASE32HEX_NOPAD, BASE32_NOPAD, BASE64, BASE64URL, BASE64URL_NOPAD,
     BASE64_NOPAD, HEXLOWER,
 };
+use data_loader::KeySource;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, MetaMethod, UserDataFields, UserDataMethods, Value, Variadic};
 
-fn digest_recursive(value: &Value, ctx: &mut Context) -> anyhow::Result<()> {
+fn digest_recursive(value: &Value, ctx: &mut DigestContext) -> anyhow::Result<()> {
     match value {
         Value::String(s) => {
             ctx.update(&s.as_bytes());
@@ -22,10 +23,10 @@ fn digest_recursive(value: &Value, ctx: &mut Context) -> anyhow::Result<()> {
 }
 
 fn digest_helper(
-    algorithm: &'static Algorithm,
+    algorithm: &'static DigestAlgo,
     args: Variadic<Value>,
 ) -> anyhow::Result<BinaryResult> {
-    let mut ctx = Context::new(algorithm);
+    let mut ctx = DigestContext::new(algorithm);
     for item in args.iter() {
         digest_recursive(item, &mut ctx)?;
     }
@@ -65,16 +66,45 @@ impl LuaUserData for BinaryResult {
     }
 }
 
+fn hmac_signer(
+    algo: aws_lc_rs::hmac::Algorithm,
+    key: &[u8],
+    msg: &[u8],
+) -> mlua::Result<BinaryResult> {
+    use aws_lc_rs::hmac::Key;
+
+    let key = Key::new(algo, key);
+    let tag = aws_lc_rs::hmac::sign(&key, msg);
+
+    Ok(BinaryResult(tag.as_ref().to_vec()))
+}
+
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let digest_mod = get_or_create_sub_module(lua, "digest")?;
 
     macro_rules! digest {
-        ($func_name:literal, $algo:path) => {
+        ($func_name:literal, $algo:ident) => {
             digest_mod.set(
                 $func_name,
                 lua.create_function(|_, args: Variadic<Value>| {
-                    digest_helper(&$algo, args).map_err(any_err)
+                    digest_helper(&aws_lc_rs::digest::$algo, args).map_err(any_err)
                 })?,
+            )?;
+        };
+    }
+
+    macro_rules! hmac {
+        ($func_name:literal, $algo:ident) => {
+            digest_mod.set(
+                concat!("hmac_", $func_name),
+                lua.create_async_function(
+                    |lua, (key, msg): (mlua::Value, mlua::String)| async move {
+                        let key: KeySource = from_lua_value(&lua, key)?;
+                        let key_bytes = key.get().await.map_err(any_err)?;
+
+                        hmac_signer(aws_lc_rs::hmac::$algo, &key_bytes, &msg.as_bytes())
+                    },
+                )?,
             )?;
         };
     }
@@ -88,6 +118,12 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     digest!("sha3_512", SHA3_512);
     digest!("sha512", SHA512);
     digest!("sha512_256", SHA512_256);
+
+    hmac!("sha1", HMAC_SHA1_FOR_LEGACY_USE_ONLY);
+    hmac!("sha224", HMAC_SHA224);
+    hmac!("sha256", HMAC_SHA256);
+    hmac!("sha384", HMAC_SHA384);
+    hmac!("sha512", HMAC_SHA512);
 
     digest_mod.set(
         "crc32",

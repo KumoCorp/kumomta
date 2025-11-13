@@ -4506,6 +4506,7 @@ dependencies = [
  "config",
  "crc32fast",
  "data-encoding",
+ "data-loader",
  "mlua",
  "serde_json",
 ]
