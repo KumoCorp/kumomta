@@ -28,6 +28,7 @@ use mlua::prelude::LuaUserData;
 use mlua::{FromLuaMulti, IntoLuaMulti, LuaSerdeExt, UserData, UserDataMethods};
 use openssl::x509::X509;
 use parking_lot::FairMutex as Mutex;
+use ppp::{HeaderResult, PartialResult};
 use prometheus::{Histogram, HistogramTimer};
 use rfc5321::{
     subject_name, AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response, TlsInformation,
@@ -391,6 +392,7 @@ pub struct ConcreteEsmtpListenerParams {
     pub deferred_spool: bool,
     pub deferred_queue: bool,
     pub allow_xclient: bool,
+    pub require_proxy_protocol: bool,
 
     pub trace_headers: TraceHeaders,
 
@@ -501,6 +503,9 @@ impl ConcreteEsmtpListenerParams {
         if let Some(allow_xclient) = base.allow_xclient {
             self.allow_xclient = allow_xclient;
         }
+        if let Some(require_proxy_protocol) = base.require_proxy_protocol {
+            self.require_proxy_protocol = require_proxy_protocol;
+        }
 
         if let Some(map) = base.meta {
             for (k, v) in map.into_iter() {
@@ -564,6 +569,7 @@ impl Default for ConcreteEsmtpListenerParams {
             invalid_line_endings: ConformanceDisposition::default(),
             line_length_hard_limit: MAX_LINE_LEN,
             allow_xclient: false,
+            require_proxy_protocol: false,
         }
     }
 }
@@ -642,6 +648,9 @@ pub struct GenericEsmtpListenerParams {
 
     #[serde(default)]
     allow_xclient: Option<bool>,
+
+    #[serde(default)]
+    require_proxy_protocol: Option<bool>,
 }
 
 impl mlua::FromLua for GenericEsmtpListenerParams {
@@ -1584,6 +1593,13 @@ impl SmtpServerSession {
             return Ok(());
         }
 
+        if self.params.require_proxy_protocol {
+            if let Err(err) = self.process_proxy_protocol().await {
+                tracing::error!("Error processing PROXY protocol: {err:#}");
+                return Ok(());
+            }
+        }
+
         match self
             .call_callback::<GenericEsmtpListenerParams, _, _>(
                 "smtp_server_get_dynamic_parameters",
@@ -2267,6 +2283,162 @@ impl SmtpServerSession {
         }
     }
 
+    #[instrument(skip(self))]
+    async fn process_proxy_protocol(&mut self) -> anyhow::Result<()> {
+        if self.socket.is_none() {
+            anyhow::bail!("socket is none");
+        }
+        tracing::trace!("reading proxy protocol header");
+        let header = loop {
+            let mut data = [0u8; 108];
+            tokio::select! {
+                _ = tokio::time::sleep(self.params.client_timeout) => {
+                    anyhow::bail!("timeout reading proxy protocol header");
+                }
+                size = self.socket.as_mut().unwrap().read(&mut data) => {
+                    match size {
+                        Err(err) => {
+                            tracing::trace!("error reading: {err:#}");
+                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                                conn_meta: self.meta.clone_inner(),
+                                payload: SmtpServerTraceEventPayload::Diagnostic {
+                                    level: Level::ERROR,
+                                    message: format!("error reading: {err:#}"),
+                                },
+                                when: Utc::now(),
+                            });
+                            anyhow::bail!("error reading proxy protocol header: {err:#}");
+                        }
+                        Ok(size) if size == 0 => {
+                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                                conn_meta: self.meta.clone_inner(),
+                                payload: SmtpServerTraceEventPayload::Diagnostic {
+                                    level: Level::ERROR,
+                                    message: "Peer Disconnected".to_string(),
+                                },
+                                when: Utc::now(),
+                            });
+                            anyhow::bail!("peer disconnected while reading proxy protocol header");
+                        }
+                        Ok(size) => {
+                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                                conn_meta: self.meta.clone_inner(),
+                                payload: SmtpServerTraceEventPayload::Read(data[0..size].to_vec()),
+                                when: Utc::now(),
+                            });
+                            self.read_buffer.extend_from_slice(&data[0..size]);
+                        }
+                    }
+                }
+                _ = self.shutdown.shutting_down() => {
+                    anyhow::bail!("shutting down");
+                }
+            };
+            let header = HeaderResult::parse(&self.read_buffer);
+            if header.is_complete() {
+                break header;
+            }
+        };
+
+        let mut addr: Option<SocketAddr> = None;
+        let mut dest_addr: Option<SocketAddr> = None;
+        let consumed_bytes;
+        match header {
+            HeaderResult::V1(Ok(header)) => {
+                consumed_bytes = header.header.len();
+                let addresses = header.addresses;
+                match addresses {
+                    ppp::v1::Addresses::Tcp4(addresses) => {
+                        addr.replace((addresses.source_address, addresses.source_port).into());
+                        dest_addr.replace(
+                            (addresses.destination_address, addresses.destination_port).into(),
+                        );
+                    }
+                    ppp::v1::Addresses::Tcp6(addresses) => {
+                        addr.replace((addresses.source_address, addresses.source_port).into());
+                        dest_addr.replace(
+                            (addresses.destination_address, addresses.destination_port).into(),
+                        );
+                    }
+                    ppp::v1::Addresses::Unknown => {}
+                }
+            }
+            HeaderResult::V2(Ok(header)) => {
+                consumed_bytes = header.header.len();
+                let addresses = header.addresses;
+                match addresses {
+                    ppp::v2::Addresses::IPv4(addresses) => {
+                        addr.replace((addresses.source_address, addresses.source_port).into());
+                        dest_addr.replace(
+                            (addresses.destination_address, addresses.destination_port).into(),
+                        );
+                    }
+                    ppp::v2::Addresses::IPv6(addresses) => {
+                        addr.replace((addresses.source_address, addresses.source_port).into());
+                        dest_addr.replace(
+                            (addresses.destination_address, addresses.destination_port).into(),
+                        );
+                    }
+                    ppp::v2::Addresses::Unspecified | ppp::v2::Addresses::Unix(_) => {}
+                }
+            }
+            HeaderResult::V1(Err(error)) => {
+                anyhow::bail!("proxy protocol v1 parsing error: {error}")
+            }
+            HeaderResult::V2(Err(error)) => {
+                anyhow::bail!("proxy protocol v2 parsing error: {error}")
+            }
+        }
+        self.read_buffer.drain(0..consumed_bytes);
+
+        if addr.is_some() {
+            let old_peer = self.peer_address.clone();
+
+            self.peer_address = addr.unwrap();
+            self.meta
+                .set_meta("orig_received_from", self.orig_peer_address.to_string());
+            self.meta
+                .set_meta("received_from", self.peer_address.to_string());
+
+            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                conn_meta: self.meta.clone_inner(),
+                payload: SmtpServerTraceEventPayload::Diagnostic {
+                    level: Level::INFO,
+                    message: format!(
+                        "Proxy protocol changed received_from from {old_peer:?} -> {:?}",
+                        self.peer_address
+                    ),
+                },
+                when: Utc::now(),
+            });
+        }
+        if dest_addr.is_some() {
+            let old_via = self.my_address.clone();
+
+            self.my_address = dest_addr.unwrap();
+            self.meta
+                .set_meta("orig_received_via", self.orig_my_address.to_string());
+            self.meta
+                .set_meta("received_via", self.my_address.to_string());
+
+            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                conn_meta: self.meta.clone_inner(),
+                payload: SmtpServerTraceEventPayload::Diagnostic {
+                    level: Level::INFO,
+                    message: format!(
+                        "Proxy protocol changed received_via from {old_via:?} -> {:?}",
+                        self.my_address
+                    ),
+                },
+                when: Utc::now(),
+            });
+        }
+
+        self.re_evaluate_listener_parameters().await?;
+
+        Ok(())
+    }
+
     async fn process_xclient(&mut self, params: &[XClientParameter]) -> anyhow::Result<()> {
         if !self.params.allow_xclient {
             self.write_response(
@@ -2408,6 +2580,21 @@ impl SmtpServerSession {
             });
         }
 
+        self.re_evaluate_listener_parameters().await?;
+
+        // and finally, re-emit the banner as the response to the successful XCLIENT command
+        self.write_response(
+            220,
+            format!("{} {}", self.params.hostname, self.params.banner),
+            None,
+            RejectDisconnect::If421,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    async fn re_evaluate_listener_parameters(&mut self) -> anyhow::Result<()> {
         // re-evaluate parameters based on new IP info
         self.params = Default::default();
         self.params.apply_generic(
@@ -2437,15 +2624,6 @@ impl SmtpServerSession {
                 return Ok(());
             }
         }
-
-        // and finally, re-emit the banner as the response to the successful XCLIENT command
-        self.write_response(
-            220,
-            format!("{} {}", self.params.hostname, self.params.banner),
-            None,
-            RejectDisconnect::If421,
-        )
-        .await?;
 
         Ok(())
     }

@@ -20,6 +20,14 @@ kumo.on('init', function()
       key_data = client_ca,
     }
   end
+  local require_proxy_protocol = os.getenv 'KUMOD_TEST_REQUIRE_PROXY_PROTOCOL'
+  if require_proxy_protocol then
+    smtp_params.peer = {
+      ['127.0.0.1'] = {
+        require_proxy_protocol = true,
+      },
+    }
+  end
 
   kumo.start_esmtp_listener(smtp_params)
 
