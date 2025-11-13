@@ -136,14 +136,14 @@ Response {
     assert_eq!(
         tf.peer_address,
         Some(ResolvedAddress {
-            name: "localhost-2".to_string(),
+            name: "localhost-1".to_string(),
             addr: daemon.sink.listener("smtp").into(),
         })
     );
     assert_eq!(
         delivery.peer_address,
         Some(ResolvedAddress {
-            name: "localhost-1".to_string(),
+            name: "localhost-2".to_string(),
             addr: daemon.sink.listener("smtp").into(),
         })
     );

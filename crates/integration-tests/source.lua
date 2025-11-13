@@ -358,6 +358,13 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
     tls_prefer_openssl = ((os.getenv 'KUMOD_PREFER_OPENSSL') and true)
       or false,
     max_recipients_per_batch = tonumber(MAX_RECIPIENTS_PER_BATCH),
+
+    -- Skip IPv6 addresses that come back for eg: localhost.
+    -- For the most part the integration tests don't care about this,
+    -- but the disconnect_XXX tests do make some assertions on the
+    -- ordering, and in particular, disconnect_terminate_ok will be
+    -- unhappy if the second address in its MX plan is unroutable IPv6.
+    skip_hosts = { '::/0' },
   }
 
   if os.getenv 'KUMOD_CLIENT_CERTIFICATE' then

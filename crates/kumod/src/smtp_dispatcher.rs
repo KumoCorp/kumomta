@@ -170,6 +170,9 @@ impl SmtpDispatcher {
             for a in proto_config.mx_list.iter() {
                 a.resolve_into(&mut addresses).await?;
             }
+            // Note that ResolvedMxAddresses::Addresses is in LIFO
+            // order, and we have FIFO order.  Reverse it!
+            addresses.reverse();
             ResolvedMxAddresses::Addresses(addresses)
         };
 
