@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AuthKind"],"fn":["auth_middleware"],"struct":["TrustedIpRequired"]};
