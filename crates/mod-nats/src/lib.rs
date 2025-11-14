@@ -2,6 +2,7 @@ use async_nats::jetstream::{self, Context};
 use async_nats::rustls::lock::Mutex;
 use async_nats::{ConnectOptions, HeaderMap};
 use config::{any_err, get_or_create_sub_module};
+use data_loader::KeySource;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, LuaSerdeExt, UserDataMethods, Value};
 use serde::Deserialize;
@@ -14,14 +15,14 @@ use std::time::Duration;
 #[derive(Debug, Deserialize)]
 struct Config {
     servers: Vec<String>,
+    #[serde(default)]
+    auth: Option<KeySource>,
 
     name: Option<String>,
     no_echo: Option<bool>,
     max_reconnects: Option<usize>,
     #[serde(default, with = "duration_serde")]
     connection_timeout: Option<Duration>,
-    #[serde(default)]
-    auth: Option<Auth>,
     tls_required: Option<bool>,
     tls_first: Option<bool>,
     certificate: Option<PathBuf>,
@@ -117,6 +118,11 @@ impl LuaUserData for Client {
     }
 }
 
+async fn get_auth(key: &KeySource) -> anyhow::Result<Auth> {
+    let bytes = key.get().await?;
+    Ok(toml::from_slice::<Auth>(&bytes).map_err(|err| any_err(err))?)
+}
+
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let nats_mod = get_or_create_sub_module(lua, "nats")?;
 
@@ -124,7 +130,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "connect",
         lua.create_async_function(|lua, value: Value| async move {
             let config: Config = lua.from_value(value)?;
-
+            let auth = match &config.auth {
+                Some(key) => Some(get_auth(&key).await.map_err(|err| any_err(err))?),
+                None => None,
+            };
             let mut opts = ConnectOptions::new();
 
             if let Some(name) = config.name {
@@ -139,7 +148,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             if let Some(connection_timeout) = config.connection_timeout {
                 opts = opts.connection_timeout(connection_timeout);
             }
-            if let Some(auth) = config.auth {
+            if let Some(auth) = auth {
                 if let Some(token) = auth.token {
                     opts = opts.token(token);
                 }
