@@ -18,8 +18,7 @@ struct Config {
     name: Option<String>,
     no_echo: Option<bool>,
     max_reconnects: Option<usize>,
-    #[serde(default)]
-    #[serde(with = "duration_serde")]
+    #[serde(default, with = "duration_serde")]
     connection_timeout: Option<Duration>,
     #[serde(default)]
     auth: Option<Auth>,
@@ -34,8 +33,7 @@ struct Config {
     sender_capacity: Option<usize>,
     // event_callback: Option<CallbackArg1<Event, ()>>,
     inbox_prefix: Option<String>,
-    #[serde(default)]
-    #[serde(with = "duration_serde")]
+    #[serde(default, with = "duration_serde")]
     request_timeout: Option<Duration>,
     retry_on_initial_connect: Option<bool>,
     ignore_discovered_servers: Option<bool>,
