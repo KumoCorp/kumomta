@@ -33,7 +33,7 @@ declare_cache! {
 static POOLS: LruCacheWithTtl<String, EgressPool>::new("egress_source_pools", 128);
 }
 
-#[derive(Deserialize, Debug, Clone, PartialEq, Eq, mlua::FromLua)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, mlua::FromLua)]
 #[serde(deny_unknown_fields)]
 pub struct EgressSource {
     /// Give it a friendly name for use in reporting and referencing

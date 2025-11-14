@@ -175,6 +175,28 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "invoke_get_egress_source",
+        lua.create_async_function(|lua, source_name: String| async move {
+            let mut config = config::load_config().await.map_err(any_err)?;
+            let source = EgressSource::resolve(&source_name, &mut config)
+                .await
+                .map_err(any_err)?;
+            lua.to_value(&source)
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "invoke_get_egress_pool",
+        lua.create_async_function(|lua, pool_name: Option<String>| async move {
+            let mut config = config::load_config().await.map_err(any_err)?;
+            let pool = EgressPool::resolve(pool_name.as_deref(), &mut config)
+                .await
+                .map_err(any_err)?;
+            lua.to_value(&pool)
+        })?,
+    )?;
+
+    kumo_mod.set(
         "invoke_get_egress_path_config",
         lua.create_async_function(
             |lua, (routing_domain, egress_source, site_name): (String, String, String)| async move {
