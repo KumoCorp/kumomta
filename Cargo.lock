@@ -4859,10 +4859,12 @@ dependencies = [
  "anyhow",
  "async-nats",
  "config",
+ "data-loader",
  "duration-serde",
  "mlua",
  "serde",
  "serde_bytes",
+ "toml",
 ]
 
 [[package]]
