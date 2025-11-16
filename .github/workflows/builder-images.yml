@@ -59,27 +59,27 @@ jobs:
           - IMAGE: "amazonlinux"
             VERSION: 2023
             platform: linux/amd64
-            runs_on: kumo-linux-16core-amd64
+            runs_on: blacksmith-16vcpu-ubuntu-2404
           - IMAGE: "amazonlinux"
             VERSION: 2
             platform: linux/amd64
-            runs_on: kumo-linux-16core-amd64
+            runs_on: blacksmith-16vcpu-ubuntu-2404
           - IMAGE: "rockylinux"
             VERSION: 9
             platform: linux/amd64
-            runs_on: kumo-linux-16core-amd64
+            runs_on: blacksmith-16vcpu-ubuntu-2404
           - IMAGE: "rockylinux"
             VERSION: 8
             platform: linux/amd64
-            runs_on: kumo-linux-16core-amd64
+            runs_on: blacksmith-16vcpu-ubuntu-2404
           - IMAGE: "ubuntu"
             VERSION: 22.04
             platform: linux/amd64
-            runs_on: kumo-linux-16core-amd64
+            runs_on: blacksmith-16vcpu-ubuntu-2404
           - IMAGE: "ubuntu"
             VERSION: 20.04
             platform: linux/amd64
-            runs_on: kumo-linux-16core-amd64
+            runs_on: blacksmith-16vcpu-ubuntu-2404
 
     steps:
       - uses: actions/checkout@v5
