@@ -3,6 +3,8 @@ use crate::logging::disposition_hooks::{DispHookParams, RecordWrapper};
 use crate::logging::files::{LogFileParams, LogThreadState};
 use crate::logging::hooks::{LogHookParams, LogHookState};
 use anyhow::Context;
+use chrono::format::{Item, StrftimeItems};
+use chrono::{DateTime, FixedOffset, Local, Utc};
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
 use flume::{bounded, Sender, TrySendError};
 pub use kumo_log_types::*;
@@ -13,10 +15,11 @@ use message::Message;
 use mlua::{Lua, Value as LuaValue};
 use parking_lot::FairMutex as Mutex;
 use prometheus::{CounterVec, Histogram, HistogramVec};
+use serde::de::Deserializer;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use tokio::sync::Mutex as TokioMutex;
@@ -48,11 +51,232 @@ static SUBMIT_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
 static LOGGER: LazyLock<Mutex<Vec<Arc<Logger>>>> = LazyLock::new(Mutex::default);
 
 static LOGGING_THREADS: AtomicUsize = AtomicUsize::new(0);
+static NEXT_LOG_DIR_ID: AtomicUsize = AtomicUsize::new(1);
 pub static LOGGING_RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("logging", |cpus| cpus / 4, &LOGGING_THREADS).unwrap());
 
 pub fn set_logging_threads(n: usize) {
     LOGGING_THREADS.store(n, Ordering::SeqCst);
+}
+
+#[derive(Clone, Debug)]
+struct StrftimePattern {
+    items: Vec<Item<'static>>,
+    has_directives: bool,
+}
+
+impl StrftimePattern {
+    fn new(pattern: &str) -> anyhow::Result<Self> {
+        let mut items = Vec::new();
+        let mut has_directives = false;
+
+        for item in StrftimeItems::new(pattern) {
+            match item {
+                Item::Error => {
+                    anyhow::bail!("invalid strftime directive in pattern: {pattern}");
+                }
+                Item::Literal(_) | Item::Space(_) => {
+                    items.push(item.to_owned());
+                }
+                other => {
+                    has_directives = true;
+                    items.push(other.to_owned());
+                }
+            }
+        }
+
+        Ok(Self {
+            items,
+            has_directives,
+        })
+    }
+
+    fn is_dynamic(&self) -> bool {
+        self.has_directives
+    }
+
+    fn render(&self, datetime: DateTime<FixedOffset>) -> PathBuf {
+        let formatted = datetime
+            .format_with_items(self.items.iter().cloned())
+            .to_string();
+        PathBuf::from(formatted)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LogDirTimeZone {
+    Local,
+    Utc,
+}
+
+impl LogDirTimeZone {
+    fn now(&self) -> DateTime<FixedOffset> {
+        match self {
+            LogDirTimeZone::Local => {
+                let now = Local::now();
+                now.with_timezone(now.offset())
+            }
+            LogDirTimeZone::Utc => Utc::now().fixed_offset(),
+        }
+    }
+}
+
+impl Default for LogDirTimeZone {
+    fn default() -> Self {
+        LogDirTimeZone::Utc
+    }
+}
+
+impl<'de> Deserialize<'de> for LogDirTimeZone {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value: String = String::deserialize(deserializer)?;
+        match value.to_ascii_lowercase().as_str() {
+            "local" => Ok(LogDirTimeZone::Local),
+            "utc" => Ok(LogDirTimeZone::Utc),
+            other => Err(serde::de::Error::custom(format!(
+                "invalid log_dir_timezone `{other}`; expected `Local` or `UTC`"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct LogDirectory {
+    raw: PathBuf,
+    pattern: Option<StrftimePattern>,
+    base_dir: Option<PathBuf>,
+    id: usize,
+}
+
+impl LogDirectory {
+    pub fn new(raw: PathBuf) -> anyhow::Result<Self> {
+        let raw_str = raw.to_string_lossy();
+        let compiled = StrftimePattern::new(raw_str.as_ref())?;
+        let (pattern, base_dir) = if compiled.is_dynamic() {
+            (Some(compiled), Self::compute_base_dir(&raw)?)
+        } else {
+            (None, Some(raw.clone()))
+        };
+        let id = NEXT_LOG_DIR_ID.fetch_add(1, Ordering::Relaxed);
+        Ok(Self {
+            raw,
+            pattern,
+            base_dir,
+            id,
+        })
+    }
+
+    pub fn display(&self) -> std::path::Display<'_> {
+        self.raw.display()
+    }
+
+    pub fn is_dynamic(&self) -> bool {
+        self.pattern.is_some()
+    }
+
+    pub fn id(&self) -> usize {
+        self.id
+    }
+
+    pub fn resolve(&self, now: DateTime<FixedOffset>) -> anyhow::Result<PathBuf> {
+        if let Some(pattern) = &self.pattern {
+            Ok(pattern.render(now))
+        } else {
+            Ok(self.raw.clone())
+        }
+    }
+
+    pub fn ensure_base_exists(&self, now: DateTime<FixedOffset>) -> anyhow::Result<()> {
+        if let Some(base) = &self.base_dir {
+            if !base.as_os_str().is_empty() {
+                std::fs::create_dir_all(base)?;
+            }
+            return Ok(());
+        }
+
+        if !self.is_dynamic() {
+            std::fs::create_dir_all(&self.raw)?;
+            return Ok(());
+        }
+
+        if let Some(parent) = self.resolve(now)?.parent().map(Path::to_path_buf) {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(&parent)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn monitoring_path(&self, now: DateTime<FixedOffset>) -> anyhow::Result<PathBuf> {
+        if let Some(base) = &self.base_dir {
+            Ok(base.clone())
+        } else {
+            self.resolve(now)
+        }
+    }
+
+    pub fn startup_scan_dirs(&self, now: DateTime<FixedOffset>) -> anyhow::Result<Vec<PathBuf>> {
+        let mut dirs = Vec::new();
+        if let Some(base) = &self.base_dir {
+            if !base.as_os_str().is_empty() {
+                dirs.push(base.clone());
+            }
+        }
+        let resolved = self.resolve(now)?;
+        if !dirs.iter().any(|dir| dir == &resolved) {
+            dirs.push(resolved);
+        }
+        Ok(dirs)
+    }
+
+    fn compute_base_dir(raw: &Path) -> anyhow::Result<Option<PathBuf>> {
+        let mut base = PathBuf::new();
+
+        for comp in raw.components() {
+            match comp {
+                Component::Prefix(prefix) => {
+                    base.push(prefix.as_os_str());
+                }
+                Component::RootDir => {
+                    base.push(Path::new(std::path::MAIN_SEPARATOR_STR));
+                }
+                Component::CurDir => {
+                    base.push(Path::new("."));
+                }
+                Component::ParentDir => {
+                    base.push(Path::new(".."));
+                }
+                Component::Normal(os) => {
+                    let comp_str = os.to_string_lossy();
+                    let compiled = StrftimePattern::new(comp_str.as_ref())?;
+                    if compiled.is_dynamic() {
+                        break;
+                    }
+                    base.push(os);
+                }
+            }
+        }
+
+        if base.as_os_str().is_empty() {
+            Ok(Some(base))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for LogDirectory {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = PathBuf::deserialize(deserializer)?;
+        LogDirectory::new(raw).map_err(serde::de::Error::custom)
+    }
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -63,7 +287,11 @@ pub struct LogRecordParams {
 
     /// Where to place the log files; overrides the global setting
     #[serde(default)]
-    pub log_dir: Option<PathBuf>,
+    pub log_dir: Option<LogDirectory>,
+
+    /// Override the timezone used when expanding `log_dir`
+    #[serde(default)]
+    pub log_dir_timezone: Option<LogDirTimeZone>,
 
     #[serde(default = "default_true")]
     pub enable: bool,
@@ -240,8 +468,29 @@ impl Logger {
             }
         }
 
-        std::fs::create_dir_all(&params.log_dir)
+        let global_now = params.log_dir_timezone.now();
+
+        params
+            .log_dir
+            .ensure_base_exists(global_now)
             .with_context(|| format!("creating log directory {}", params.log_dir.display()))?;
+        for per_rec in params.per_record.values() {
+            if let Some(dir) = &per_rec.log_dir {
+                let tz = per_rec
+                    .log_dir_timezone
+                    .unwrap_or(params.log_dir_timezone)
+                    .now();
+                dir.ensure_base_exists(tz)
+                    .with_context(|| format!("creating log directory {}", dir.display()))?;
+            }
+        }
+
+        let monitored_path = params
+            .log_dir
+            .monitoring_path(global_now)
+            .with_context(|| {
+                format!("resolving monitoring path for {}", params.log_dir.display())
+            })?;
 
         let mut enabled = HashMap::new();
         for (kind, cfg) in &params.per_record {
@@ -256,7 +505,7 @@ impl Logger {
 
         MonitoredPath {
             name: format!("log dir {}", params.log_dir.display()),
-            path: params.log_dir.clone(),
+            path: monitored_path,
             min_free_space: params.min_free_space,
             min_free_inodes: params.min_free_inodes,
         }
