@@ -27,14 +27,8 @@ kumo.on('init', function()
     servers = { ADDRESS },
     name = "nats-client",
     auth = {
-      key_data = string.format(
-        [[
-          username = "%s"
-          password = "%s"
-        ]],
-        USERNAME,
-        PASSWORD
-      )
+      password = { key_data = PASSWORD },
+      username = { key_data = USERNAME },
     },
   }
 
