@@ -16,7 +16,7 @@ use std::time::Duration;
 struct Config {
     servers: Vec<String>,
     #[serde(default)]
-    auth: Option<KeySource>,
+    auth: Option<ConfigAuth>,
 
     name: Option<String>,
     no_echo: Option<bool>,
@@ -42,6 +42,13 @@ struct Config {
     // read_buffer_capacity: Option<u16>,
     // reconnect_delay_callback: Box<dyn Fn(usize) -> Duration + Send + Sync + 'static>,
     // auth_callback: Option<CallbackArg1<Vec<u8>, Result<Auth, AuthError>>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConfigAuth {
+    username: Option<KeySource>,
+    password: Option<KeySource>,
+    token: Option<KeySource>,
 }
 
 // https://docs.rs/async-nats/0.45.0/src/async_nats/auth.rs.html#4
@@ -118,9 +125,25 @@ impl LuaUserData for Client {
     }
 }
 
-async fn get_auth(key: &KeySource) -> anyhow::Result<Auth> {
-    let bytes = key.get().await?;
-    Ok(toml::from_slice::<Auth>(&bytes).map_err(|err| any_err(err))?)
+async fn get_auth(auth: &ConfigAuth) -> anyhow::Result<Auth> {
+    let username = match &auth.username {
+        Some(username) => Some(String::from_utf8(username.get().await?)?),
+        None => None,
+    };
+    let password = match &auth.password {
+        Some(password) => Some(String::from_utf8(password.get().await?)?),
+        None => None,
+    };
+    let token = match &auth.token {
+        Some(token) => Some(String::from_utf8(token.get().await?)?),
+        None => None,
+    };
+
+    Ok(Auth {
+        username,
+        password,
+        token,
+    })
 }
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
@@ -131,7 +154,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_async_function(|lua, value: Value| async move {
             let config: Config = lua.from_value(value)?;
             let auth = match &config.auth {
-                Some(key) => Some(get_auth(&key).await.map_err(|err| any_err(err))?),
+                Some(config) => Some(get_auth(&config).await.map_err(|err| any_err(err))?),
                 None => None,
             };
             let mut opts = ConnectOptions::new();

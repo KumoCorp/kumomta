@@ -23,4 +23,3 @@ mlua = { workspace = true, features = [
 ] }
 serde.workspace = true
 serde_bytes.workspace = true
-toml.workspace = true
