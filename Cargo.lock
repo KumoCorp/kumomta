@@ -3218,6 +3218,7 @@ name = "integration-tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-nats",
  "axum",
  "axum-server",
  "chrono",
@@ -3230,6 +3231,7 @@ dependencies = [
  "kumo-dkim",
  "kumo-log-types",
  "lapin",
+ "lazy_static",
  "lipsum",
  "maildir",
  "mailparsing",

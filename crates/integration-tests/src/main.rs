@@ -1,4 +1,5 @@
 mod kumod;
+mod nats;
 mod rabbit;
 mod test;
 mod tsa;
