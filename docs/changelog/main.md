@@ -114,6 +114,10 @@
    enables support for the HA Proxy Protocol in the ESMTP listener, allowing it
    to pass through the `received_from` and `received_via` metadata from the
    proxy. Thanks to @Solvik and @cai-n! #440
+ * `traffic-gen` now accepts a `--header` flag to add arbitrary 
+   headers to generated messages when simulating traffic, useful for testing
+   queue-specific flows or measuring latency impacts introduced 
+   by custom header manipulation
 
 ## Fixes
 
