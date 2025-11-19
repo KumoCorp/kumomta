@@ -1,8 +1,8 @@
 # kumo.invoke_get_egress_path_config
 
 ```lua
-local config = kumo.invoke_get_egress_path_config(
-     routing_domain, egress_source, site_name)
+local config =
+  kumo.invoke_get_egress_path_config(routing_domain, egress_source, site_name)
 ```
 
 {{since('2025.01.23-7273d2bc')}}
