@@ -118,6 +118,9 @@
    headers to generated messages when simulating traffic, useful for testing
    queue-specific flows or measuring latency impacts introduced 
    by custom header manipulation. Thanks to @cristian-porta! #434
+ * You may now specify the `template_dialect` when using the HTTP injection
+   API to select between `Jinja`, `Handlebars` or `Static`.  Similarly,
+   `kumo.string.eval_template` now supports an optional dialect parameter.
 
 ## Fixes
 

@@ -1,8 +1,8 @@
-# smtp_client_rewrite_response
+# smtp_server_rewrite_response
 
 ```lua
 kumo.on(
-  'smtp_client_rewrite_response',
+  'smtp_server_rewrite_response',
   function(status, response, command, conn_meta) end
 )
 ```
