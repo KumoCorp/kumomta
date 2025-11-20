@@ -121,6 +121,8 @@
  * You may now specify the `template_dialect` when using the HTTP injection
    API to select between `Jinja`, `Handlebars` or `Static`.  Similarly,
    `kumo.string.eval_template` now supports an optional dialect parameter.
+ * You may now use an event-based callback to perform parameterized data
+   fetching in a [keysource](../reference/keysource.md#callbackevent-based-data-source)
 
 ## Fixes
 
