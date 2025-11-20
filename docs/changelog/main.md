@@ -114,6 +114,9 @@
    enables support for the HA Proxy Protocol in the ESMTP listener, allowing it
    to pass through the `received_from` and `received_via` metadata from the
    proxy. Thanks to @Solvik and @cai-n! #440
+ * You may now specify the `template_dialect` when using the HTTP injection
+   API to select between `Jinja`, `Handlebars` or `Static`.  Similarly,
+   `kumo.string.eval_template` now supports an optional dialect parameter.
 
 ## Fixes
 
