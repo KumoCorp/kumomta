@@ -114,6 +114,10 @@
    enables support for the HA Proxy Protocol in the ESMTP listener, allowing it
    to pass through the `received_from` and `received_via` metadata from the
    proxy. Thanks to @Solvik and @cai-n! #440
+ * `traffic-gen` now accepts a `--header` flag to add arbitrary 
+   headers to generated messages when simulating traffic, useful for testing
+   queue-specific flows or measuring latency impacts introduced 
+   by custom header manipulation. Thanks to @cristian-porta! #434
  * You may now specify the `template_dialect` when using the HTTP injection
    API to select between `Jinja`, `Handlebars` or `Static`.  Similarly,
    `kumo.string.eval_template` now supports an optional dialect parameter.
