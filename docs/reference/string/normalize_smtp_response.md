@@ -22,13 +22,19 @@ make it easier for downstream log processing to group similar events together.
 Given an input string like:
 
 ```
-550 5.1.1 The email account that you tried to reach does not exist. Please try double-checking the recipient's email address for typos or unnecessary spaces. For more information, go to  https://support.google.com/mail/?p=NoSuchUser 41be03b00d2f7-b93bf44f0c0si6882731a12.803 - gsmtp
+550 5.1.1 The email account that you tried to reach does not exist.
+Please try double-checking the recipient's email address for typos
+or unnecessary spaces. For more information, go to
+https://support.google.com/mail/?p=NoSuchUser 41be03b00d2f7-b93bf44f0c0si6882731a12.803 - gsmtp
 ```
 
 The normalized version would look like:
 
 ```
-550 5.1.1 The email account that you tried to reach does not exist. Please try double-checking the recipient's email address for typos or unnecessary spaces. For more information, go to https://support.google.com/mail/?p=NoSuchUser {hash} - gsmtp
+550 5.1.1 The email account that you tried to reach does not exist.
+Please try double-checking the recipient's email address for typos
+or unnecessary spaces. For more information, go to
+https://support.google.com/mail/?p=NoSuchUser {hash} - gsmtp
 ```
 
 Normalization works approximately as follows:
