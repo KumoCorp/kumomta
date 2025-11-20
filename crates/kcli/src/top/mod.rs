@@ -145,6 +145,14 @@ impl TopCommand {
                 "smtp_client",
             )),
         );
+        state.add_series(
+            "smtp_server_rejections",
+            TimeSeries::new(DirectAccumulator::new_with_label_match(
+                "smtp_server_rejections",
+                "service",
+                "total",
+            )),
+        );
 
         let mut ticker = tokio::time::interval(Duration::from_secs(self.update_interval));
         ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
