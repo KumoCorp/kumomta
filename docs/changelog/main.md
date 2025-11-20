@@ -117,7 +117,7 @@
  * `traffic-gen` now accepts a `--header` flag to add arbitrary 
    headers to generated messages when simulating traffic, useful for testing
    queue-specific flows or measuring latency impacts introduced 
-   by custom header manipulation #434
+   by custom header manipulation. Thanks to @cristian-porta! #434
 
 ## Fixes
 
