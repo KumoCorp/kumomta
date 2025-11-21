@@ -25,7 +25,7 @@ kumo.on('init', function()
 
   local producer = kumo.nats.connect {
     servers = { ADDRESS },
-    name = "nats-client",
+    name = 'nats-client',
     auth = {
       password = { key_data = PASSWORD },
       username = { key_data = USERNAME },
@@ -34,29 +34,29 @@ kumo.on('init', function()
 
   producer:publish {
     subject = SUBJECT,
-    payload = "payload-1",
-    await_ack = true
+    payload = 'payload-1',
+    await_ack = true,
   }
 
   producer:publish {
     subject = SUBJECT,
-    payload = "payload-2",
-    await_ack = false
+    payload = 'payload-2',
+    await_ack = false,
   }
 
   producer:publish {
     subject = SUBJECT,
-    payload = "payload-3",
+    payload = 'payload-3',
     headers = {
-      ["Nats-Msg-Id"] = "unique-key-3",
+      ['Nats-Msg-Id'] = 'unique-key-3',
     },
-    await_ack = true
+    await_ack = true,
   }
 
   producer:close()
 
   producer:publish {
     subject = SUBJECT,
-    payload = "not sent because already closed",
+    payload = 'not sent because already closed',
   }
 end)
