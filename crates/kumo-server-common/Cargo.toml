@@ -32,6 +32,7 @@ metrics-prometheus = {workspace=true}
 metrics-tracing-context = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mod-amqp = {path="../mod-amqp"}
+mod-aws-sigv4 = {path="../mod-aws-sigv4"}
 mod-digest = {path="../mod-digest"}
 mod-dns-resolver = {path="../mod-dns-resolver"}
 mod-encode = {path="../mod-encode"}
