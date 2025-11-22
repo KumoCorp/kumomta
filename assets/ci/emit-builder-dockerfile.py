@@ -30,13 +30,17 @@ NEXTEST = "https://get.nexte.st/latest/linux"
 if os.getenv("ARM") == "1":
     NEXTEST = "https://get.nexte.st/latest/linux-arm"
 
+SCCACHE_FEATURES = ""
+if container == "amazonlinux:2":
+    SCCACHE_FEATURES = "--no-default-features"
+
 commands = [
     "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
     ". $HOME/.cargo/env",
     "/tmp/get-deps.sh",
     "PREFIX=/opt/kumomta /tmp/build-rocksdb.sh",
     f"curl -LsSf {NEXTEST} | tar zxf - -C /usr/local/bin",
-    "cargo install --locked sccache",
+    "cargo install --locked sccache " + SCCACHE_FEATURES,
     "cargo install --locked xcp",
 ]
 
