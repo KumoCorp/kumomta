@@ -36,7 +36,7 @@ commands = [
     "/tmp/get-deps.sh",
     "PREFIX=/opt/kumomta /tmp/build-rocksdb.sh",
     f"curl -LsSf {NEXTEST} | tar zxf - -C /usr/local/bin",
-    "cargo install --locked sccache --no-default-features",
+    "cargo install --locked sccache",
     "cargo install --locked xcp",
 ]
 
