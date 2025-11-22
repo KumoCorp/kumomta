@@ -1,0 +1,15 @@
+[package]
+name = "mod-aws-sigv4"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = {workspace=true}
+aws-lc-rs = {workspace=true}
+chrono = {workspace=true, features=["clock", "std", "serde"]}
+config = {path="../config"}
+data-encoding = {workspace=true}
+data-loader = {path="../data-loader"}
+mlua = {workspace=true, features=["serialize"]}
+percent-encoding = {workspace=true}
+serde = {workspace=true}

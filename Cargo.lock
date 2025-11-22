@@ -3630,6 +3630,7 @@ dependencies = [
  "metrics-tracing-context",
  "mlua",
  "mod-amqp",
+ "mod-aws-sigv4",
  "mod-crypto",
  "mod-digest",
  "mod-dns-resolver",
@@ -4481,6 +4482,21 @@ dependencies = [
  "tokio-executor-trait",
  "tokio-reactor-trait",
  "tracing",
+]
+
+[[package]]
+name = "mod-aws-sigv4"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aws-lc-rs",
+ "chrono",
+ "config",
+ "data-encoding",
+ "data-loader",
+ "mlua",
+ "percent-encoding",
+ "serde",
 ]
 
 [[package]]
