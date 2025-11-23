@@ -34,12 +34,26 @@ SCCACHE_FEATURES = ""
 if container == "amazonlinux:2":
     SCCACHE_FEATURES = "--no-default-features"
 
+# Ensure that the image pre-populates the rust toolchain version, to avoid
+# consuming additional time and bandwidth in every CI build.
+# This is a poor-man's toml parser.
+RUST_VERSION = ""
+with open("rust-toolchain.toml") as f:
+    for line in f:
+        fields = line.split("=")
+        if len(fields) == 2:
+            k = fields[0].strip()
+            if k == "channel":
+                RUST_VERSION = fields[1].strip()
+                break
+
 commands = [
     "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
     ". $HOME/.cargo/env",
     "/tmp/get-deps.sh",
     "PREFIX=/opt/kumomta /tmp/build-rocksdb.sh",
     f"curl -LsSf {NEXTEST} | tar zxf - -C /usr/local/bin",
+    "rustup install " + RUST_VERSION,
     "cargo install --locked sccache " + SCCACHE_FEATURES,
     "cargo install --locked xcp",
 ]
