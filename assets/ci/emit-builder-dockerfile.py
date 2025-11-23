@@ -37,7 +37,7 @@ if container == "amazonlinux:2":
 # Ensure that the image pre-populates the rust toolchain version, to avoid
 # consuming additional time and bandwidth in every CI build.
 # This is a poor-man's toml parser.
-RUST_VERSION = ""
+RUST_VERSION = "stable"
 with open("rust-toolchain.toml") as f:
     for line in f:
         fields = line.split("=")
@@ -48,12 +48,11 @@ with open("rust-toolchain.toml") as f:
                 break
 
 commands = [
-    "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+    f"curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain {RUST_VERSION} -y",
     ". $HOME/.cargo/env",
     "/tmp/get-deps.sh",
     "PREFIX=/opt/kumomta /tmp/build-rocksdb.sh",
     f"curl -LsSf {NEXTEST} | tar zxf - -C /usr/local/bin",
-    "rustup install " + RUST_VERSION,
     "cargo install --locked sccache " + SCCACHE_FEATURES,
     "cargo install --locked xcp",
 ]
