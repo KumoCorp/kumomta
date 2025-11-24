@@ -4,9 +4,9 @@ use chrono::{DateTime, Utc};
 use config::{any_err, from_lua_value, get_or_create_sub_module};
 use data_encoding::HEXLOWER;
 use data_loader::KeySource;
-use mlua::{Lua, Value};
+use mlua::{Lua, LuaSerdeExt, Value};
 use percent_encoding::{percent_encode, AsciiSet, CONTROLS};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// AWS SigV4 URI encoding set
@@ -36,8 +36,8 @@ const URI_ENCODE_SET: &AsciiSet = &CONTROLS
 
 #[derive(Deserialize, Debug)]
 struct SigV4Request {
-    /// AWS access key ID
-    access_key: String,
+    /// AWS access key ID (can be a KeySource)
+    access_key: KeySource,
     /// AWS secret access key (can be a KeySource)
     secret_key: KeySource,
     /// AWS region (e.g., "us-east-1")
@@ -63,7 +63,7 @@ struct SigV4Request {
     session_token: Option<String>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 struct SigV4Response {
     /// The authorization header value
     authorization: String,
@@ -110,7 +110,11 @@ fn create_canonical_query_string(params: &BTreeMap<String, String>) -> String {
         return String::new();
     }
 
-    // Sort parameters and URI encode them
+    // Sort parameters and URI encode them.
+    //
+    // We collect into a Vec and sort on the *encoded* keys to ensure
+    // the ordering is correct even when encoding changes the byte
+    // ordering of the original key/value strings.
     let mut encoded_params: Vec<(String, String)> = params
         .iter()
         .map(|(k, v)| (uri_encode(k), uri_encode(v)))
@@ -150,7 +154,7 @@ fn create_canonical_headers(headers: &BTreeMap<String, String>) -> (String, Stri
 
 fn create_signing_key(secret_key: &str, date_stamp: &str, region: &str, service: &str) -> Vec<u8> {
     let k_date = hmac_sha256(
-        format!("AWS4{}", secret_key).as_bytes(),
+        format!("AWS4{secret_key}").as_bytes(),
         date_stamp.as_bytes(),
     );
     let k_region = hmac_sha256(&k_date, region.as_bytes());
@@ -159,6 +163,12 @@ fn create_signing_key(secret_key: &str, date_stamp: &str, region: &str, service:
 }
 
 async fn sign_request(req: SigV4Request) -> anyhow::Result<SigV4Response> {
+    // Get the access key id and secret key from their KeySource values
+    let access_key_bytes = req.access_key.get().await?;
+    let access_key = std::str::from_utf8(&access_key_bytes)
+        .context("access_key must be valid UTF-8")?
+        .to_string();
+
     // Get the secret key
     let secret_key_bytes = req.secret_key.get().await?;
     let secret_key = std::str::from_utf8(&secret_key_bytes)
@@ -192,25 +202,25 @@ async fn sign_request(req: SigV4Request) -> anyhow::Result<SigV4Response> {
     let canonical_query_string = create_canonical_query_string(&req.query_params);
     let (canonical_headers, signed_headers) = create_canonical_headers(&headers);
 
+    // See https://docs.aws.amazon.com/general/latest/gr/sigv4-create-canonical-request.html
+    // for the canonical request structure. The blank line between the
+    // canonical headers and the signed headers is required by the spec.
     let canonical_request = format!(
-        "{}\n{}\n{}\n{}\n\n{}\n{}",
-        req.method,
-        canonical_uri,
-        canonical_query_string,
-        canonical_headers,
-        signed_headers,
-        payload_hash
+        "{method}\n{canonical_uri}\n{canonical_query_string}\n{canonical_headers}\n\n{signed_headers}\n{payload_hash}",
+        method = req.method,
     );
 
     // Create string to sign
     let algorithm = "AWS4-HMAC-SHA256";
-    let credential_scope = format!("{}/{}/{}/aws4_request", date_stamp, req.region, req.service);
+    let credential_scope = format!(
+        "{date_stamp}/{region}/{service}/aws4_request",
+        region = req.region,
+        service = req.service
+    );
     let canonical_request_hash = sha256_hex(canonical_request.as_bytes());
 
-    let string_to_sign = format!(
-        "{}\n{}\n{}\n{}",
-        algorithm, amz_date, credential_scope, canonical_request_hash
-    );
+    let string_to_sign =
+        format!("{algorithm}\n{amz_date}\n{credential_scope}\n{canonical_request_hash}");
 
     // Calculate signature
     let signing_key = create_signing_key(&secret_key, &date_stamp, &req.region, &req.service);
@@ -219,8 +229,8 @@ async fn sign_request(req: SigV4Request) -> anyhow::Result<SigV4Response> {
 
     // Create authorization header
     let authorization = format!(
-        "{} Credential={}/{}, SignedHeaders={}, Signature={}",
-        algorithm, req.access_key, credential_scope, signed_headers, signature
+        "{algorithm} Credential={access_key}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}",
+        access_key = access_key
     );
 
     Ok(SigV4Response {
@@ -233,22 +243,17 @@ async fn sign_request(req: SigV4Request) -> anyhow::Result<SigV4Response> {
 }
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
-    let aws_mod = get_or_create_sub_module(lua, "aws")?;
+    // Register under kumo.crypto as aws_sign_v4 so that the function
+    // shows up alongside the other crypto helpers in the reference docs.
+    let aws_mod = get_or_create_sub_module(lua, "crypto")?;
 
     aws_mod.set(
-        "sign_v4",
+        "aws_sign_v4",
         lua.create_async_function(|lua, request: Value| async move {
             let req: SigV4Request = from_lua_value(&lua, request)?;
             let response = sign_request(req).await.map_err(any_err)?;
 
-            let result = lua.create_table()?;
-            result.set("authorization", response.authorization)?;
-            result.set("timestamp", response.timestamp)?;
-            result.set("signature", response.signature)?;
-            result.set("canonical_request", response.canonical_request)?;
-            result.set("string_to_sign", response.string_to_sign)?;
-
-            Ok(result)
+            lua.to_value(&response)
         })?,
     )?;
 

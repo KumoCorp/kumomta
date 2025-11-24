@@ -2,13 +2,17 @@
 -- This demonstrates how to use the AWS SigV4 module to sign requests
 
 local kumo = require 'kumo'
-local mod = kumo.aws
+local crypto = kumo.crypto
+local utils = require 'policy-extras.policy_utils'
+
+-- Fixed timestamp so that signatures are deterministic for testing.
+local FIXED_TIME = '2025-11-21T20:04:15Z'
 
 -- Example 1: Basic S3 GET request signature
-print '=== Example 1: S3 GET Request ==='
-
-local result = mod.sign_v4 {
-  access_key = 'AKIAIOSFODNN7EXAMPLE',
+local result = crypto.aws_sign_v4 {
+  access_key = {
+    key_data = 'AKIAIOSFODNN7EXAMPLE',
+  },
   secret_key = {
     key_data = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
   },
@@ -21,21 +25,21 @@ local result = mod.sign_v4 {
     host = 'examplebucket.s3.amazonaws.com',
   },
   payload = '',
+  timestamp = FIXED_TIME,
 }
 
-print('Authorization Header: ' .. result.authorization)
-print('Timestamp: ' .. result.timestamp)
-print('Signature: ' .. result.signature)
-print()
-
--- Example 2: POST request with payload
-print '=== Example 2: SNS POST Request ==='
+utils.assert_eq(
+  result.authorization,
+  'AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20251121/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=4b59c9035eb4883857b0be8815678ee9a00179e4f4ac98b8ec79237e2d41dc4b'
+)
 
 local sns_payload =
   'Action=Publish&Message=test&TopicArn=arn:aws:sns:us-east-1:123456789012:test'
 
-local result2 = mod.sign_v4 {
-  access_key = 'AKIAIOSFODNN7EXAMPLE',
+local result2 = crypto.aws_sign_v4 {
+  access_key = {
+    key_data = 'AKIAIOSFODNN7EXAMPLE',
+  },
   secret_key = {
     key_data = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
   },
@@ -49,17 +53,19 @@ local result2 = mod.sign_v4 {
     ['content-type'] = 'application/x-www-form-urlencoded',
   },
   payload = sns_payload,
+  timestamp = FIXED_TIME,
 }
 
-print('Authorization Header: ' .. result2.authorization)
-print('Timestamp: ' .. result2.timestamp)
-print()
+utils.assert_eq(
+  result2.authorization,
+  'AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20251121/us-east-1/sns/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, Signature=6b5274220a51821b2293cde3ad7317e2b8dda14240e29de8e63e8f81869e4f91'
+)
 
 -- Example 3: SQS request with query parameters
-print '=== Example 3: SQS Request with Query Parameters ==='
-
-local result3 = mod.sign_v4 {
-  access_key = 'AKIAIOSFODNN7EXAMPLE',
+local result3 = crypto.aws_sign_v4 {
+  access_key = {
+    key_data = 'AKIAIOSFODNN7EXAMPLE',
+  },
   secret_key = {
     key_data = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
   },
@@ -76,18 +82,19 @@ local result3 = mod.sign_v4 {
     host = 'sqs.us-east-1.amazonaws.com',
   },
   payload = '',
+  timestamp = FIXED_TIME,
 }
 
-print('Authorization Header: ' .. result3.authorization)
-print('Signature: ' .. result3.signature)
-print()
+utils.assert_eq(
+  result3.authorization,
+  'AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20251121/us-east-1/sqs/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=27ccd47c88383aa24294feb1adaad19fffd4f49657be40599d52425f2179c416'
+)
 
--- Example 4: Using external key source (environment variable or file)
-print '=== Example 4: Using KeySource ==='
-
--- You can load keys from environment variables or files
-local result4 = mod.sign_v4 {
-  access_key = 'AKIAIOSFODNN7EXAMPLE',
+-- Example 4: Using external key source (KeySource)
+local result4 = crypto.aws_sign_v4 {
+  access_key = {
+    key_data = 'AKIAIOSFODNN7EXAMPLE',
+  },
   secret_key = {
     -- Load from file (pass string directly)
     -- '/path/to/secret/key'
@@ -103,13 +110,17 @@ local result4 = mod.sign_v4 {
     host = 'my-bucket.s3.us-west-2.amazonaws.com',
   },
   payload = 'This is the content of my file',
+  timestamp = FIXED_TIME,
 }
 
-print('Authorization Header: ' .. result4.authorization)
-print()
+-- We don't assert a specific signature here; this primarily exercises
+-- the KeySource handling and non-GET methods.
+utils.assert_eq(
+  result4.timestamp,
+  FIXED_TIME:gsub('%-', ''):gsub(':', ''):gsub('T', 'T'):gsub('Z', 'Z')
+)
 
 -- Example 5: Kinesis Firehose PutRecord
-print '=== Example 5: Kinesis Firehose PutRecord ==='
 
 -- Kinesis Firehose payload (JSON)
 local firehose_payload = [[{
@@ -119,8 +130,10 @@ local firehose_payload = [[{
 }
 }]]
 
-local result5 = mod.sign_v4 {
-  access_key = 'AKIAIOSFODNN7EXAMPLE',
+local result5 = crypto.aws_sign_v4 {
+  access_key = {
+    key_data = 'AKIAIOSFODNN7EXAMPLE',
+  },
   secret_key = {
     key_data = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
   },
@@ -135,23 +148,10 @@ local result5 = mod.sign_v4 {
     ['x-amz-target'] = 'Firehose_20150804.PutRecord',
   },
   payload = firehose_payload,
+  timestamp = FIXED_TIME,
 }
 
-print('Authorization Header: ' .. result5.authorization)
-print('Timestamp: ' .. result5.timestamp)
-print('Signature: ' .. result5.signature)
-print()
-print 'Example HTTP request headers to use with Kinesis Firehose:'
-print('  Authorization: ' .. result5.authorization)
-print('  X-Amz-Date: ' .. result5.timestamp)
-print '  X-Amz-Target: Firehose_20150804.PutRecord'
-print '  Content-Type: application/x-amz-json-1.1'
-print '  Host: firehose.us-east-1.amazonaws.com'
-print()
-
-print '=== Debugging Information ==='
-print 'Canonical Request:'
-print(result.canonical_request)
-print()
-print 'String to Sign:'
-print(result.string_to_sign)
+utils.assert_eq(
+  result5.authorization,
+  'AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20251121/us-east-1/firehose/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date;x-amz-target, Signature=e1d98cf03e5cbd7abd909cce023c05cfd8ff51923c96d76798e261ae67307752'
+)
