@@ -46,7 +46,6 @@ as completing the configuration
 
 If you have Mautic version 5 or newer, then the above is *likely* still true,
 but you may need to configure settings to specify the DSN as described
-[here](https://docs.mautic.org/en/5.x/configuration/settings.html#smtp-transport) 
+[here](https://docs.mautic.org/en/5.x/configuration/settings.html#smtp-transport) or use this [community contributed webhook callback](https://github.com/jos0405/mautickumomtacallback). 
 
 If you have done everything right, you should now be able to send messages from Mautic through KumoMTA with SMTP.
-
