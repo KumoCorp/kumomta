@@ -123,6 +123,8 @@
    `kumo.string.eval_template` now supports an optional dialect parameter.
  * You may now use an event-based callback to perform parameterized data
    fetching in a [keysource](../reference/keysource.md#callbackevent-based-data-source)
+ * New [kumo.crypto.aws_sign_v4](../reference/kumo.crypto/aws_sign_v4.md)
+   function for working with AWS V4 signatures. Thanks to @AdityaAudi! #457
 
 ## Fixes
 
