@@ -44,31 +44,31 @@ The function returns a table `RESULT` with these fields:
 local kumo = require 'kumo'
 
 local result = kumo.crypto.aws_sign_v4 {
-access_key = {
+  access_key = {
     key_data = 'AKIAIOSFODNN7EXAMPLE',
-},
-secret_key = {
+  },
+  secret_key = {
     key_data = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
-},
-region = 'us-east-1',
-service = 's3',
-method = 'GET',
-uri = '/my-bucket/my-object.txt',
-query_params = {},
-headers = {
+  },
+  region = 'us-east-1',
+  service = 's3',
+  method = 'GET',
+  uri = '/my-bucket/my-object.txt',
+  query_params = {},
+  headers = {
     host = 'my-bucket.s3.amazonaws.com',
-},
-payload = '',
+  },
+  payload = '',
 }
 
 http.request {
-url = 'https://my-bucket.s3.amazonaws.com/my-object.txt',
-method = 'GET',
-headers = {
+  url = 'https://my-bucket.s3.amazonaws.com/my-object.txt',
+  method = 'GET',
+  headers = {
     ['Authorization'] = result.authorization,
     ['X-Amz-Date'] = result.timestamp,
     ['Host'] = 'my-bucket.s3.amazonaws.com',
-},
+  },
 }
 ```
 
@@ -78,24 +78,24 @@ headers = {
 local kumo = require 'kumo'
 
 local body =
-'Action=Publish&Message=Hello&TopicArn=arn:aws:sns:us-east-1:123456789012:MyTopic'
+  'Action=Publish&Message=Hello&TopicArn=arn:aws:sns:us-east-1:123456789012:MyTopic'
 
 local sig = kumo.crypto.aws_sign_v4 {
-access_key = {
+  access_key = {
     key_data = 'AKIAIOSFODNN7EXAMPLE',
-},
-secret_key = {
+  },
+  secret_key = {
     key_data = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
-},
-region = 'us-east-1',
-service = 'sns',
-method = 'POST',
-uri = '/',
-headers = {
+  },
+  region = 'us-east-1',
+  service = 'sns',
+  method = 'POST',
+  uri = '/',
+  headers = {
     host = 'sns.us-east-1.amazonaws.com',
     ['content-type'] = 'application/x-www-form-urlencoded',
-},
-payload = body,
+  },
+  payload = body,
 }
 ```
 
@@ -106,41 +106,41 @@ local kumo = require 'kumo'
 local http = require 'kumo.http'
 
 local payload = kumo.serde.json_encode {
-StreamName = 'my-stream',
-PartitionKey = 'example-partition',
-Data = kumo.encode.base64_encode('Hello from KumoMTA'),
+  StreamName = 'my-stream',
+  PartitionKey = 'example-partition',
+  Data = kumo.encode.base64_encode 'Hello from KumoMTA',
 }
 
 local sig = kumo.crypto.aws_sign_v4 {
-access_key = {
-    key_data = os.getenv('AWS_ACCESS_KEY_ID'),
-},
-secret_key = {
-    key_data = os.getenv('AWS_SECRET_ACCESS_KEY'),
-},
-region = 'us-east-1',
-service = 'kinesis',
-method = 'POST',
-uri = '/',
-headers = {
+  access_key = {
+    key_data = os.getenv 'AWS_ACCESS_KEY_ID',
+  },
+  secret_key = {
+    key_data = os.getenv 'AWS_SECRET_ACCESS_KEY',
+  },
+  region = 'us-east-1',
+  service = 'kinesis',
+  method = 'POST',
+  uri = '/',
+  headers = {
     host = 'kinesis.us-east-1.amazonaws.com',
     ['content-type'] = 'application/x-amz-json-1.1',
     ['x-amz-target'] = 'Kinesis_20131202.PutRecord',
-},
-payload = payload,
+  },
+  payload = payload,
 }
 
 local resp = http.request {
-url = 'https://kinesis.us-east-1.amazonaws.com/',
-method = 'POST',
-headers = {
+  url = 'https://kinesis.us-east-1.amazonaws.com/',
+  method = 'POST',
+  headers = {
     ['Authorization'] = sig.authorization,
     ['X-Amz-Date'] = sig.timestamp,
     ['X-Amz-Target'] = 'Kinesis_20131202.PutRecord',
     ['Content-Type'] = 'application/x-amz-json-1.1',
     ['Host'] = 'kinesis.us-east-1.amazonaws.com',
-},
-body = payload,
+  },
+  body = payload,
 }
 ```
 
@@ -151,40 +151,40 @@ local kumo = require 'kumo'
 local http = require 'kumo.http'
 
 local invoke_payload = kumo.serde.json_encode {
-key = 'value',
+  key = 'value',
 }
 
 local function_name = 'my-function'
 
 local sig = kumo.crypto.aws_sign_v4 {
-access_key = {
-    key_data = os.getenv('AWS_ACCESS_KEY_ID'),
-},
-secret_key = {
-    key_data = os.getenv('AWS_SECRET_ACCESS_KEY'),
-},
-region = 'us-east-1',
-service = 'lambda',
-method = 'POST',
-uri = ('/2015-03-31/functions/%s/invocations'):format(function_name),
-headers = {
+  access_key = {
+    key_data = os.getenv 'AWS_ACCESS_KEY_ID',
+  },
+  secret_key = {
+    key_data = os.getenv 'AWS_SECRET_ACCESS_KEY',
+  },
+  region = 'us-east-1',
+  service = 'lambda',
+  method = 'POST',
+  uri = ('/2015-03-31/functions/%s/invocations'):format(function_name),
+  headers = {
     host = 'lambda.us-east-1.amazonaws.com',
     ['content-type'] = 'application/json',
-},
-payload = invoke_payload,
+  },
+  payload = invoke_payload,
 }
 
 local resp = http.request {
-url = ('https://lambda.us-east-1.amazonaws.com/2015-03-31/functions/%s/invocations'):format(
+  url = ('https://lambda.us-east-1.amazonaws.com/2015-03-31/functions/%s/invocations'):format(
     function_name
-),
-method = 'POST',
-headers = {
+  ),
+  method = 'POST',
+  headers = {
     ['Authorization'] = sig.authorization,
     ['X-Amz-Date'] = sig.timestamp,
     ['Host'] = 'lambda.us-east-1.amazonaws.com',
     ['Content-Type'] = 'application/json',
-},
-body = invoke_payload,
+  },
+  body = invoke_payload,
 }
 ```
