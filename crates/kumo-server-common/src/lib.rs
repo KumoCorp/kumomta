@@ -23,6 +23,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         data_loader::register,
         mod_digest::register,
         mod_encode::register,
+        mod_aws_sigv4::register,
         cidr_map::register,
         domain_map::register,
         mod_amqp::register,
