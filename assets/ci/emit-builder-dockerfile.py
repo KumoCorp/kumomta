@@ -30,7 +30,7 @@ NEXTEST = "https://get.nexte.st/latest/linux"
 if os.getenv("ARM") == "1":
     NEXTEST = "https://get.nexte.st/latest/linux-arm"
 
-SCCACHE_FEATURES = ""
+SCCACHE_FEATURES = "--no-default-features --features=gha"
 if container == "amazonlinux:2":
     SCCACHE_FEATURES = "--no-default-features"
 
@@ -52,6 +52,8 @@ commands = [
     ". $HOME/.cargo/env",
     "/tmp/get-deps.sh",
     "PREFIX=/opt/kumomta /tmp/build-rocksdb.sh",
+    # cleanup after the rocks build, and remove tmp scripts
+    "rm -rf /tmp/get-deps.sh /tmp/rocks-build /tmp/build-rocksdb.sh",
     f"curl -LsSf {NEXTEST} | tar zxf - -C /usr/local/bin",
     "cargo install --locked sccache " + SCCACHE_FEATURES,
     "cargo install --locked xcp",
