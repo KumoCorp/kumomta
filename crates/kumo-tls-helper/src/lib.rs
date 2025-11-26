@@ -1,15 +1,42 @@
-#![cfg(feature = "client")]
+//! Shared TLS configuration helpers for KumoMTA.
+//!
+//! This crate provides TLS connector building and async stream traits
+//! that are shared across the KumoMTA crates.
+
+mod traits;
+
+pub use traits::*;
+
+use hickory_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
 use hickory_proto::rr::rdata::TLSA;
-use openssl::ssl::SslOptions;
+use openssl::pkey::PKey;
+use openssl::ssl::{DaneMatchType, DaneSelector, DaneUsage, SslOptions};
+use openssl::x509::X509;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls_pemfile::certs;
 use std::io::BufReader;
 use std::sync::Arc;
+use thiserror::Error;
 use tokio::time::{Duration, Instant};
 use tokio_rustls::rustls::client::danger::ServerCertVerifier;
 use tokio_rustls::rustls::crypto::{aws_lc_rs as provider, CryptoProvider};
 use tokio_rustls::rustls::{ClientConfig, SupportedCipherSuite};
 use tokio_rustls::TlsConnector;
+
+/// Errors that can occur when building an OpenSSL connector.
+#[derive(Error, Debug, Clone)]
+pub enum OpensslConnectorError {
+    #[error("SSL Error: {0}")]
+    SslErrorStack(String),
+    #[error("No usable DANE TLSA records for {hostname}: {tlsa:?}")]
+    NoUsableDaneTlsa { hostname: String, tlsa: Vec<TLSA> },
+}
+
+impl From<openssl::error::ErrorStack> for OpensslConnectorError {
+    fn from(err: openssl::error::ErrorStack) -> Self {
+        OpensslConnectorError::SslErrorStack(err.to_string())
+    }
+}
 
 #[derive(Clone, Debug)]
 struct RustlsCacheKey {
@@ -61,7 +88,7 @@ impl std::hash::Hash for RustlsCacheKey {
 
 lruttl::declare_cache! {
 /// Caches TLS connector information for the RFC5321 SMTP client
-static RUSTLS_CACHE: LruCacheWithTtl<RustlsCacheKey, Arc<ClientConfig>>::new("rfc5321_rustls_config", 32);
+static RUSTLS_CACHE: LruCacheWithTtl<RustlsCacheKey, Arc<ClientConfig>>::new("kumo_tls_helper_rustls_config", 32);
 }
 
 impl RustlsCacheKey {
@@ -219,6 +246,100 @@ impl TlsOptions {
             }
             None => return Ok(None),
         }
+    }
+
+    /// Build an OpenSSL connector configuration for use with DANE TLSA or
+    /// when OpenSSL-specific features are needed.
+    pub fn build_openssl_connector(
+        &self,
+        hostname: &str,
+    ) -> Result<openssl::ssl::ConnectConfiguration, OpensslConnectorError> {
+        tracing::trace!("build_openssl_connector for {hostname}");
+        let mut builder =
+            openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls_client())?;
+
+        if let (Some(cert_data), Some(key_data)) =
+            (&self.certificate_from_pem, &self.private_key_from_pem)
+        {
+            let cert = X509::from_pem(cert_data)?;
+            builder.set_certificate(&cert)?;
+
+            let key = PKey::private_key_from_pem(key_data)?;
+            builder.set_private_key(&key)?;
+
+            builder.check_private_key()?;
+        }
+
+        if let Some(list) = &self.openssl_cipher_list {
+            builder.set_cipher_list(list)?;
+        }
+
+        if let Some(suites) = &self.openssl_cipher_suites {
+            builder.set_ciphersuites(suites)?;
+        }
+
+        if let Some(options) = &self.openssl_options {
+            builder.clear_options(SslOptions::all());
+            builder.set_options(*options);
+        }
+
+        if self.insecure {
+            builder.set_verify(openssl::ssl::SslVerifyMode::NONE);
+        }
+
+        if !self.dane_tlsa.is_empty() {
+            builder.dane_enable()?;
+            builder.set_no_dane_ee_namechecks();
+        }
+
+        let connector = builder.build();
+
+        let mut config = connector.configure()?;
+
+        if !self.dane_tlsa.is_empty() {
+            config.dane_enable(hostname)?;
+            let mut any_usable = false;
+            for tlsa in &self.dane_tlsa {
+                let usable = config.dane_tlsa_add(
+                    match tlsa.cert_usage() {
+                        CertUsage::PkixTa => DaneUsage::PKIX_TA,
+                        CertUsage::PkixEe => DaneUsage::PKIX_EE,
+                        CertUsage::DaneTa => DaneUsage::DANE_TA,
+                        CertUsage::DaneEe => DaneUsage::DANE_EE,
+                        CertUsage::Unassigned(n) => DaneUsage::from_raw(n),
+                        CertUsage::Private => DaneUsage::PRIV_CERT,
+                    },
+                    match tlsa.selector() {
+                        Selector::Full => DaneSelector::CERT,
+                        Selector::Spki => DaneSelector::SPKI,
+                        Selector::Unassigned(n) => DaneSelector::from_raw(n),
+                        Selector::Private => DaneSelector::PRIV_SEL,
+                    },
+                    match tlsa.matching() {
+                        Matching::Raw => DaneMatchType::FULL,
+                        Matching::Sha256 => DaneMatchType::SHA2_256,
+                        Matching::Sha512 => DaneMatchType::SHA2_512,
+                        Matching::Unassigned(n) => DaneMatchType::from_raw(n),
+                        Matching::Private => DaneMatchType::PRIV_MATCH,
+                    },
+                    tlsa.cert_data(),
+                )?;
+
+                tracing::trace!("build_dane_connector usable={usable} {tlsa:?}");
+                if usable {
+                    any_usable = true;
+                }
+            }
+
+            if !any_usable {
+                return Err(OpensslConnectorError::NoUsableDaneTlsa {
+                    hostname: hostname.to_string(),
+                    tlsa: self.dane_tlsa.clone(),
+                });
+            }
+        }
+
+        Ok(config)
     }
 }
 
