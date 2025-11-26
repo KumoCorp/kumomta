@@ -3842,6 +3842,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-tls-helper"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hickory-proto",
+ "libc",
+ "linkme",
+ "lruttl",
+ "openssl",
+ "rustls",
+ "rustls-pemfile",
+ "rustls-platform-verifier",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-openssl",
+ "tokio-rustls",
+ "tracing",
+]
+
+[[package]]
 name = "kumo-wrap"
 version = "0.1.0"
 dependencies = [
@@ -6430,6 +6450,7 @@ dependencies = [
  "duration-serde",
  "hickory-proto",
  "idna",
+ "kumo-tls-helper",
  "libc",
  "linkme",
  "lruttl",

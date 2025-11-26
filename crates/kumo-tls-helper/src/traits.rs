@@ -1,3 +1,5 @@
+//! Async stream traits for TLS and plain TCP connections.
+
 use std::fmt::Debug;
 use std::os::fd::{AsRawFd, FromRawFd};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -43,3 +45,5 @@ impl AsyncReadAndWrite for SslStream<BoxedAsyncReadAndWrite> {}
 impl AsyncReadAndWrite for tokio::net::UnixStream {}
 
 pub type BoxedAsyncReadAndWrite = Box<dyn AsyncReadAndWrite>;
+
+impl AsyncReadAndWrite for BoxedAsyncReadAndWrite {}
