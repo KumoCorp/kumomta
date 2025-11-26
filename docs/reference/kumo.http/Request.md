@@ -107,3 +107,63 @@ the result of the request.
     The default timeout is `"1 minute"`.
 
     You may pass a duration string like `"1 minute"`.
+
+## request:aws_sign_v4({PARAMS})
+
+{{since('dev', indent=True)}}
+    Signs this request using AWS Signature Version 4 (SigV4).
+
+    This is a convenience wrapper around
+    [kumo.crypto.aws_sign_v4](../kumo.crypto/aws_sign_v4.md) that derives
+    the HTTP method, URI path and query parameters from the `Request`
+    object, and then applies the resulting `Authorization` and `X-Amz-Date`
+    headers back onto the same request.
+
+    `PARAMS` is a table with the following fields (a subset of the
+    `kumo.crypto.aws_sign_v4` parameters):
+
+    - `access_key` (KeySource, required): AWS access key id
+    - `secret_key` (KeySource, required): AWS secret access key
+    - `region` (string, required): AWS region such as `"us-east-1"`
+    - `service` (string, required): AWS service name such as `"s3"`, `"sns"`,
+      `"sqs"`, `"firehose"`, `"lambda"`, `"kinesis"`, and so on.
+    - `headers` (table, optional): additional headers to include in the
+      signature; these are merged with a `host` header derived from the
+      request URL if not already present.
+    - `payload` (string, optional): request body to use when computing the
+      payload hash. When present, this should match the body that is sent
+      with the request.
+    - `timestamp` (DateTime, optional): override the signing timestamp; if
+      omitted, the current time is used.
+    - `session_token` (string, optional): session token for temporary
+      credentials.
+
+    The method does not automatically read or clone the request body; if
+    you are sending a body and need it to be part of the signature, pass
+    the same value in the `payload` field.
+
+    ```lua
+    local http = require 'kumo.http'
+
+    local client = http.build_client {}
+    local req = client:post 'https://kinesis.us-east-1.amazonaws.com/'
+
+    local payload = kumo.serde.json_encode {
+      StreamName = 'my-stream',
+      PartitionKey = 'example-partition',
+      Data = kumo.encode.base64_encode 'Hello from KumoMTA',
+    }
+
+    req:header('content-type', 'application/x-amz-json-1.1')
+      :header('x-amz-target', 'Kinesis_20131202.PutRecord')
+      :body(payload)
+      :aws_sign_v4 {
+        access_key = { key_data = os.getenv 'AWS_ACCESS_KEY_ID' },
+        secret_key = { key_data = os.getenv 'AWS_SECRET_ACCESS_KEY' },
+        region = 'us-east-1',
+        service = 'kinesis',
+        payload = payload,
+      }
+
+    local resp = req:send()
+    ```
