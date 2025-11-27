@@ -144,7 +144,10 @@ impl AdminBounceEntry {
         let queue_name = match queue_name {
             Some(n) => n,
             None => {
-                local_name = msg.get_queue_name().unwrap_or_else(|_| "?".to_string());
+                local_name = msg
+                    .get_queue_name()
+                    .await
+                    .unwrap_or_else(|_| "?".to_string());
                 &local_name
             }
         };

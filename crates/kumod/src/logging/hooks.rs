@@ -169,8 +169,8 @@ impl LogHookState {
             Arc::new(record_text.into_boxed_slice()),
         )?;
 
-        msg.set_meta("log_record", record_json)?;
-        msg.set_meta("reception_protocol", "LogRecord")?;
+        msg.set_meta("log_record", record_json).await?;
+        msg.set_meta("reception_protocol", "LogRecord").await?;
         let deferred_spool = self.params.deferred_spool;
         let name = self.params.name.clone();
 
@@ -188,7 +188,7 @@ impl LogHookState {
             drop(permit);
 
             if enqueue {
-                let queue_name = msg.get_queue_name()?;
+                let queue_name = msg.get_queue_name().await?;
                 if !deferred_spool {
                     msg.save(None).await?;
                 }

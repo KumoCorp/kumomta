@@ -332,7 +332,7 @@ impl TraceHeaders {
             "_@_": "\\_/",
         });
 
-        let recips = message.recipient_list_string()?;
+        let recips = message.recipient_list_string().await?;
         match recips.len() {
             1 => {
                 object.as_object_mut().unwrap().insert(
@@ -349,7 +349,7 @@ impl TraceHeaders {
         }
 
         for name in &self.include_meta_names {
-            if let Ok(value) = message.get_meta(name) {
+            if let Ok(value) = message.get_meta(name).await {
                 object
                     .as_object_mut()
                     .unwrap()
@@ -2769,13 +2769,13 @@ impl SmtpServerSession {
                 // of messages entering the system
                 match self.params.batch_handling {
                     BatchHandling::BifurcateAlways => {
-                        for recip in base_message.recipient_list()? {
+                        for recip in base_message.recipient_list().await? {
                             batches.push(vec![recip]);
                         }
                     }
                     BatchHandling::BatchByDomain => {
                         let mut by_domain: HashMap<String, Vec<EnvelopeAddress>> = HashMap::new();
-                        for recip in base_message.recipient_list()? {
+                        for recip in base_message.recipient_list().await? {
                             by_domain
                                 .entry(recip.domain().to_lowercase())
                                 .or_insert_with(Vec::new)
@@ -2857,12 +2857,12 @@ impl SmtpServerSession {
                 id,
                 state.sender.clone(),
                 recip_list,
-                base_message.get_meta_obj()?,
+                base_message.get_meta_obj().await?,
                 body,
             )?;
 
             if self.params.deferred_queue {
-                message.set_meta("queue", DEFERRED_QUEUE_NAME)?;
+                message.set_meta("queue", DEFERRED_QUEUE_NAME).await?;
             } else {
                 match timeout_at(
                     deadline.into(),
@@ -2919,7 +2919,7 @@ impl SmtpServerSession {
         // so let's get that out of the way before we start writing to spool,
         // to make it less complex to unwind if we exceed the allowed time.
         for message in &accepted_messages {
-            let queue_name = message.get_queue_name()?;
+            let queue_name = message.get_queue_name().await?;
             match timeout_at(deadline.into(), QueueManager::resolve(&queue_name)).await {
                 Err(_) => {
                     self.write_response(
@@ -2960,14 +2960,14 @@ impl SmtpServerSession {
 
             ids.push(message.id().to_string());
 
-            let queue_name = message.get_queue_name()?;
+            let queue_name = message.get_queue_name().await?;
 
             // Assumption: that the relayability of the recipient list in a
             // message is represented fully by the first recipient in that list.
             // If you have different relaying requirements per recipient, they
             // must not be in the same batch.
             let relay_disposition = self
-                .check_relaying(&message.sender()?, &message.first_recipient()?)
+                .check_relaying(&message.sender().await?, &message.first_recipient().await?)
                 .await?;
 
             let mut relay_this_one = relay_disposition.relay;
@@ -2984,6 +2984,20 @@ impl SmtpServerSession {
                 relay_this_one = relay_disposition.log_oob.should_relay();
             }
 
+            let sender = message
+                .sender()
+                .await
+                .map(|s| s.to_string())
+                .unwrap_or_else(|_| String::new());
+            let recipient = message
+                .recipient_list_string()
+                .await
+                .unwrap_or_else(|_| Vec::new());
+            let meta_obj = message
+                .get_meta_obj()
+                .await
+                .unwrap_or(serde_json::Value::Null);
+
             SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                 conn_meta: self.meta.clone_inner(),
                 payload: SmtpServerTraceEventPayload::MessageDisposition {
@@ -2993,12 +3007,9 @@ impl SmtpServerSession {
                     will_enqueue: relay_this_one,
                     was_arf_or_oob: was_arf_or_oob,
                     queue: queue_name.clone(),
-                    meta: message.get_meta_obj().unwrap_or(serde_json::Value::Null),
-                    sender: message
-                        .sender()
-                        .map(|s| s.to_string())
-                        .expect("have sender"),
-                    recipient: message.recipient_list_string().expect("have recipients"),
+                    meta: meta_obj,
+                    sender,
+                    recipient,
                     id: *message.id(),
                 },
                 when: Utc::now(),
@@ -3331,9 +3342,9 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
         );
         let msg = msgs.pop().expect("just verified that there is one");
 
-        msg.set_meta("queue", serde_json::Value::Null)?;
+        msg.set_meta("queue", serde_json::Value::Null).await?;
         let meta = ConnectionMetaData {
-            map: Arc::new(msg.get_meta_obj()?.into()),
+            map: Arc::new(msg.get_meta_obj().await?.into()),
         };
 
         let mut config = load_config().await?;
@@ -3372,7 +3383,7 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
 
         if response.code == 250 {
             msg.set_due(None).await?;
-            let queue_name = msg.get_queue_name()?;
+            let queue_name = msg.get_queue_name().await?;
             if let Err(err) =
                 QueueManager::insert(&queue_name, msg.clone(), InsertReason::Received.into()).await
             {
@@ -3425,7 +3436,7 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
             dispatcher.metrics.inc_transfail();
 
             // Ensure that we get another crack at it later
-            msg.set_meta("queue", DEFERRED_QUEUE_NAME)?;
+            msg.set_meta("queue", DEFERRED_QUEUE_NAME).await?;
             let _ = dispatcher.msgs.pop();
             spawn(
                 "requeue message".to_string(),

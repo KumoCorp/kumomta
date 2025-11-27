@@ -58,7 +58,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
 
     let recipient_list = match recipient_list {
         Some(list) => list,
-        None => msg.recipient_list_string().unwrap_or_else(|err| {
+        None => msg.recipient_list_string().await.unwrap_or_else(|err| {
             tracing::error!("log_disposition: recipient_list_string: {err:#}");
             vec![]
         }),
@@ -66,7 +66,10 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
 
     let mut feedback_report = None;
 
-    let reception_protocol = msg.get_meta_string("reception_protocol").unwrap_or(None);
+    let reception_protocol = msg
+        .get_meta_string("reception_protocol")
+        .await
+        .unwrap_or(None);
 
     if kind == RecordType::Reception {
         if relay_disposition
@@ -153,11 +156,13 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             size: msg.get_data_maybe_not_loaded().len() as u64,
             sender: msg
                 .sender()
+                .await
                 .map(|addr| addr.to_string())
                 .unwrap_or_else(|err| format!("{err:#}")),
             recipient: recipient_list.clone(),
             queue: msg
                 .get_queue_name()
+                .await
                 .unwrap_or_else(|err| format!("{err:#}")),
             site: site.to_string(),
             peer_address: peer_address.cloned(),
@@ -196,10 +201,12 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                     // the envelope from of the original message
                     let sender = msg
                         .first_recipient()
+                        .await
                         .map(|addr| addr.to_string())
                         .unwrap_or_else(|err| format!("{err:#}"));
                     let queue = msg
                         .get_queue_name()
+                        .await
                         .unwrap_or_else(|err| format!("{err:#}"));
 
                     let reconstructed_original_msg = None; // FIXME: try to build this from the

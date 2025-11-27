@@ -522,7 +522,7 @@ impl InjectV1Request {
     }
 }
 
-fn make_message<'a>(
+async fn make_message<'a>(
     sender: &EnvelopeAddress,
     peer_address: IpAddr,
     recip: &Recipient,
@@ -571,14 +571,16 @@ fn make_message<'a>(
         Arc::new(normalized.into_boxed_slice()),
     )?;
 
-    message.set_meta("http_auth", auth.summarize())?;
-    message.set_meta("reception_protocol", "HTTP")?;
-    message.set_meta("received_from", peer_address.to_string())?;
+    message.set_meta("http_auth", auth.summarize()).await?;
+    message.set_meta("reception_protocol", "HTTP").await?;
+    message
+        .set_meta("received_from", peer_address.to_string())
+        .await?;
     if let Some(via) = via_address {
-        message.set_meta("received_via", via.to_string())?;
+        message.set_meta("received_via", via.to_string()).await?;
     }
     if let Some(hostname) = hostname {
-        message.set_meta("hostname", hostname.to_string())?;
+        message.set_meta("hostname", hostname.to_string()).await?;
     }
     Ok(message)
 }
@@ -605,14 +607,15 @@ async fn process_recipient<'a>(
         auth,
         via_address,
         hostname,
-    )?;
+    )
+    .await?;
 
     // call callback to assign to queue
     let sig = CallbackSignature::<message::Message, ()>::new("http_message_generated");
     config.async_call_callback(&sig, message.clone()).await?;
 
     // spool and insert to queue
-    let queue_name = message.get_queue_name()?;
+    let queue_name = message.get_queue_name().await?;
 
     if queue_name != "null" {
         request.trace_headers.apply_supplemental(&message).await?;
@@ -670,10 +673,12 @@ async fn queue_deferred(
         Arc::new(payload.into_boxed_slice()),
     )?;
 
-    message.set_meta("http_auth", auth.summarize())?;
-    message.set_meta("reception_protocol", "HTTP")?;
-    message.set_meta("received_from", peer_address.to_string())?;
-    message.set_meta("queue", GENERATOR_QUEUE_NAME)?;
+    message.set_meta("http_auth", auth.summarize()).await?;
+    message.set_meta("reception_protocol", "HTTP").await?;
+    message
+        .set_meta("received_from", peer_address.to_string())
+        .await?;
+    message.set_meta("queue", GENERATOR_QUEUE_NAME).await?;
     if !request.deferred_spool {
         message.save(None).await?;
     }
@@ -768,7 +773,7 @@ async fn inject_v1_impl(
     }))
 }
 
-fn build_from_v1_injection_request(
+async fn build_from_v1_injection_request(
     auth: AuthKind,
     sender: EnvelopeAddress,
     peer_address: IpAddr,
@@ -787,7 +792,8 @@ fn build_from_v1_injection_request(
             &auth,
             &None,
             &None,
-        )?;
+        )
+        .await?;
         result.push(msg);
     }
 
@@ -830,7 +836,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     module.set(
         "build_v1",
-        lua.create_function(move |lua, request: mlua::Value| {
+        lua.create_async_function(move |lua, request: mlua::Value| async move {
             let request: InjectV1Request = lua.from_value(request)?;
             let sender = EnvelopeAddress::parse(&request.envelope_sender)
                 .context("envelope_sender")
@@ -838,6 +844,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let my_ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
             build_from_v1_injection_request(AuthKind::TrustedIp(my_ip), sender, my_ip, request)
+                .await
                 .map_err(any_err)
         })?,
     )?;
@@ -925,23 +932,23 @@ impl HttpInjectionGeneratorDispatcher {
     async fn try_send(&self, msg: Message) -> anyhow::Result<()> {
         HTTPINJECT
             .spawn("http inject_v1".to_string(), async move {
-                msg.load_meta_if_needed().await?;
                 let data = msg.data().await?;
                 let request: InjectV1Request = serde_json::from_slice(&data)?;
                 let peer_address = msg
-                    .get_meta_string("received_from")?
+                    .get_meta_string("received_from")
+                    .await?
                     .ok_or_else(|| anyhow::anyhow!("received_from metadata is missing!?"))?
                     .parse()?;
-                let via_address = match msg.get_meta_string("received_via") {
+                let via_address = match msg.get_meta_string("received_via").await {
                     Ok(Some(v)) => v.parse().ok(),
                     _ => None,
                 };
-                let hostname: Option<String> = match msg.get_meta_string("hostname") {
+                let hostname: Option<String> = match msg.get_meta_string("hostname").await {
                     Ok(v) => v,
                     _ => None,
                 };
 
-                let sender = msg.sender()?;
+                let sender = msg.sender().await?;
 
                 let _ = inject_v1_impl(
                     AuthKind::TrustedIp(peer_address),

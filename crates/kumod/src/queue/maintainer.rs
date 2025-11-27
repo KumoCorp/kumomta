@@ -262,7 +262,7 @@ async fn reinsert_ready_v2(
     // metadata at all.
     // Here, we don't and can't do that.
     msg.load_meta_if_needed().await?;
-    let queue_name = msg.get_queue_name().context("msg.get_queue_name")?;
+    let queue_name = msg.get_queue_name().await.context("msg.get_queue_name")?;
     // Use get_opt rather than resolve here. If the queue is not currently
     // tracked in the QueueManager then this message cannot possibly belong
     // to it. Using resolve would have the side effect of creating an empty

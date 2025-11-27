@@ -390,9 +390,7 @@ impl Queue {
         context: InsertContext,
     ) {
         async fn try_apply(msg: &Message, rebind: &Arc<AdminRebindEntry>) -> anyhow::Result<()> {
-            if !msg.is_meta_loaded() {
-                msg.load_meta().await?;
-            }
+            msg.load_meta_if_needed().await?;
 
             if rebind.request.trigger_rebind_event {
                 let mut config = load_config().await?;
@@ -404,7 +402,7 @@ impl Queue {
                     .await
             } else {
                 for (k, v) in &rebind.request.data {
-                    msg.set_meta(k, v.clone())?;
+                    msg.set_meta(k, v.clone()).await?;
                 }
                 Ok(())
             }
@@ -422,7 +420,7 @@ impl Queue {
 
         let mut delay = None;
 
-        let queue_name = match msg.get_queue_name() {
+        let queue_name = match msg.get_queue_name().await {
             Err(err) => {
                 tracing::error!("failed to determine queue name for msg: {err:#}");
                 if let Err(err) = self
@@ -544,10 +542,7 @@ impl Queue {
             }
         };
 
-        if let Err(err) = msg.load_meta_if_needed().await {
-            tracing::error!("failed to load meta: {err:#}");
-        }
-        if let Err(err) = msg.set_meta("queue", queue.name.to_string()) {
+        if let Err(err) = msg.set_meta("queue", queue.name.to_string()).await {
             tracing::error!("failed to save queue meta: {err:#}");
         }
 
@@ -645,7 +640,7 @@ impl Queue {
         }
 
         // Put the message back into its originating queue
-        let queue_name = match msg.get_queue_name() {
+        let queue_name = match msg.get_queue_name().await {
             Ok(name) => name,
             Err(err) => {
                 tracing::error!(
@@ -769,7 +764,7 @@ impl Queue {
         let jitter = (rand::random::<f32>() * jitter_magnitude) - (jitter_magnitude / 2.0);
         let delay = kumo_chrono_helper::seconds(delay.num_seconds() + jitter as i64)?;
 
-        match msg.get_scheduling().and_then(|sched| sched.expires) {
+        match msg.get_scheduling().await?.and_then(|sched| sched.expires) {
             Some(expires) => {
                 // Per-message expiry
                 match msg.delay_by(delay).await? {
@@ -1070,7 +1065,7 @@ impl Queue {
             && !context.contains(InsertReason::LoggedTransientFailure);
 
         if log_delay {
-            if context.only(InsertReason::Received) && msg.get_scheduling().is_some() {
+            if context.only(InsertReason::Received) && msg.get_scheduling().await?.is_some() {
                 context.note(InsertReason::ScheduledForLater);
             }
 
@@ -1523,17 +1518,17 @@ impl Queue {
                 let mut successes = vec![];
                 let mut failures = vec![];
 
-                let queue_name = msg.get_queue_name()?;
+                let queue_name = msg.get_queue_name().await?;
                 let components = QueueNameComponents::parse(&queue_name);
-                let sender = msg.sender()?;
+                let sender = msg.sender().await?;
 
-                for recipient in msg.recipient_list()? {
+                for recipient in msg.recipient_list().await? {
                     let engine = TemplateEngine::new();
                     let expanded_maildir_path = engine.render(
                         "maildir_path",
                         maildir_path,
                         serde_json::json! ({
-                            "meta": msg.get_meta_obj()?,
+                            "meta": msg.get_meta_obj().await?,
                             "queue": queue_name,
                             "campaign": components.campaign,
                             "tenant": components.tenant,
@@ -1664,7 +1659,7 @@ impl Queue {
                     .await;
                     context.note(InsertReason::LoggedTransientFailure);
                     // Adjust for remaining recipients
-                    msg.set_recipient_list(remaining_recipient_list)?;
+                    msg.set_recipient_list(remaining_recipient_list).await?;
                     anyhow::bail!("failed maildir store: {status}");
                 } else {
                     // Every recipient in the batch was successful; this

@@ -203,7 +203,7 @@ impl QueueManager {
         if !msg.is_meta_loaded() {
             msg.load_meta().await?;
         }
-        let mut queue_name = msg.get_queue_name()?;
+        let mut queue_name = msg.get_queue_name().await?;
 
         match load_config().await {
             Ok(mut config) => {
@@ -217,7 +217,7 @@ impl QueueManager {
                 match result {
                     Ok(()) => {
                         config.put();
-                        let queue_name_after = msg.get_queue_name()?;
+                        let queue_name_after = msg.get_queue_name().await?;
                         if queue_name != queue_name_after {
                             // We want to avoid the normal due-time adjustment
                             // that would kick in when incrementing attempts

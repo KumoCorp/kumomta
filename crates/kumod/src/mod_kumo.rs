@@ -332,7 +332,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_async_function(
             move |_lua, (msg, deferred_spool): (Message, Option<bool>)| async move {
                 let deferred_spool = deferred_spool.unwrap_or(false);
-                let queue_name = msg.get_queue_name().map_err(any_err)?;
+                let queue_name = msg.get_queue_name().await.map_err(any_err)?;
                 if !deferred_spool {
                     msg.save(None).await.map_err(any_err)?;
                 }

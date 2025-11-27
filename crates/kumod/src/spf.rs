@@ -19,7 +19,7 @@ pub struct CheckHostOutput {
 pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
     let spf_mod = get_or_create_sub_module(lua, "spf")?;
 
-    fn build_from_domain_meta_sender(
+    async fn build_from_domain_meta_sender(
         domain: String,
         meta: &ConnectionMetaData,
         sender: Option<String>,
@@ -47,19 +47,20 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
         })
     }
 
-    fn build_from_msg(msg: &Message) -> anyhow::Result<CheckHostParams> {
+    async fn build_from_msg(msg: &Message) -> anyhow::Result<CheckHostParams> {
         let addr: SocketAddr = msg
             .get_meta("received_from")
+            .await
             .map(|v| v.as_str().map(SocketAddr::from_str))
             .map_err(any_err)?
             .transpose()
             .map_err(any_err)?
             .ok_or_else(|| anyhow::anyhow!("received_from missing from metadata"))?;
 
-        let ehlo_domain = msg.get_meta_string("ehlo_domain").map_err(any_err)?;
-        let relaying_host_name = msg.get_meta_string("hostname").map_err(any_err)?;
+        let ehlo_domain = msg.get_meta_string("ehlo_domain").await.map_err(any_err)?;
+        let relaying_host_name = msg.get_meta_string("hostname").await.map_err(any_err)?;
 
-        let sender = msg.sender().map_err(any_err)?;
+        let sender = msg.sender().await.map_err(any_err)?;
         let domain = sender.domain().to_string();
 
         Ok(CheckHostParams {
@@ -116,8 +117,9 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 Option<String>,
                 Option<String>,
             )| async move {
-                let params =
-                    build_from_domain_meta_sender(domain, &meta, sender).map_err(any_err)?;
+                let params = build_from_domain_meta_sender(domain, &meta, sender)
+                    .await
+                    .map_err(any_err)?;
 
                 do_check(&lua, params, opt_resolver_name).await
             },
@@ -128,7 +130,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
         "check_msg",
         lua.create_async_function(
             |lua, (msg, opt_resolver_name): (Message, Option<String>)| async move {
-                let params = build_from_msg(&msg).map_err(any_err)?;
+                let params = build_from_msg(&msg).await.map_err(any_err)?;
                 do_check(&lua, params, opt_resolver_name).await
             },
         )?,

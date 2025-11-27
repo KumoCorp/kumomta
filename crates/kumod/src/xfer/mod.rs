@@ -57,64 +57,62 @@ pub(crate) struct SavedQueueInfo {
 
 impl SavedQueueInfo {
     pub async fn save_info(msg: &Message) -> anyhow::Result<()> {
-        msg.load_meta_if_needed().await?;
         let info = SavedQueueInfo {
-            queue: msg.get_meta_string("queue")?,
-            routing_domain: msg.get_meta_string("routing_domain")?,
-            tenant: msg.get_meta_string("tenant")?,
-            campaign: msg.get_meta_string("campaign")?,
-            schedule: msg.get_scheduling(),
+            queue: msg.get_meta_string("queue").await?,
+            routing_domain: msg.get_meta_string("routing_domain").await?,
+            tenant: msg.get_meta_string("tenant").await?,
+            campaign: msg.get_meta_string("campaign").await?,
+            schedule: msg.get_scheduling().await?,
             num_attempts: msg.get_num_attempts(),
             due: msg.get_due(),
         };
 
         let info = serde_json::to_value(info)?;
 
-        msg.set_meta("xfer_queue_info", info)?;
-        msg.unset_meta("queue")?;
-        msg.unset_meta("routing_domain")?;
-        msg.unset_meta("tenant")?;
-        msg.unset_meta("campaign")?;
-        msg.set_scheduling(None)?;
+        msg.set_meta("xfer_queue_info", info).await?;
+        msg.unset_meta("queue").await?;
+        msg.unset_meta("routing_domain").await?;
+        msg.unset_meta("tenant").await?;
+        msg.unset_meta("campaign").await?;
+        msg.set_scheduling(None).await?;
         msg.set_due(None).await?;
 
         Ok(())
     }
 
     pub async fn restore_info(msg: &Message) -> anyhow::Result<()> {
-        msg.load_meta_if_needed().await?;
-        let info = msg.get_meta("xfer_queue_info")?;
+        let info = msg.get_meta("xfer_queue_info").await?;
         let info: SavedQueueInfo = serde_json::from_value(info)?;
 
         if let Some(queue) = info.queue {
-            msg.set_meta("queue", queue)?;
+            msg.set_meta("queue", queue).await?;
         } else {
-            msg.unset_meta("queue")?;
+            msg.unset_meta("queue").await?;
         }
 
         if let Some(routing_domain) = info.routing_domain {
-            msg.set_meta("routing_domain", routing_domain)?;
+            msg.set_meta("routing_domain", routing_domain).await?;
         } else {
-            msg.unset_meta("routing_domain")?;
+            msg.unset_meta("routing_domain").await?;
         }
 
         if let Some(tenant) = info.tenant {
-            msg.set_meta("tenant", tenant)?;
+            msg.set_meta("tenant", tenant).await?;
         } else {
-            msg.unset_meta("tenant")?;
+            msg.unset_meta("tenant").await?;
         }
 
         if let Some(campaign) = info.campaign {
-            msg.set_meta("campaign", campaign)?;
+            msg.set_meta("campaign", campaign).await?;
         } else {
-            msg.unset_meta("campaign")?;
+            msg.unset_meta("campaign").await?;
         }
 
         msg.set_num_attempts(info.num_attempts);
-        msg.set_scheduling(info.schedule)?;
+        msg.set_scheduling(info.schedule).await?;
         msg.set_due(info.due).await?;
 
-        msg.unset_meta("xfer_queue_info")?;
+        msg.unset_meta("xfer_queue_info").await?;
 
         Ok(())
     }
@@ -309,6 +307,7 @@ pub async fn inject_xfer_v1(
     let nodeid = kumo_server_common::nodeid::NodeId::get_uuid();
     let prior_node = msg
         .get_meta("xfer_prior_node")
+        .await
         .context("failed to get xfer_prior_node")?
         .to_string();
 
@@ -319,9 +318,10 @@ pub async fn inject_xfer_v1(
         ));
     }
 
-    msg.set_meta("xfer_from", peer_address.to_string())?;
-    msg.set_meta("xfer_via", app_state.local_addr().to_string())?;
-    msg.set_meta("xfer_auth", auth.summarize())?;
+    msg.set_meta("xfer_from", peer_address.to_string()).await?;
+    msg.set_meta("xfer_via", app_state.local_addr().to_string())
+        .await?;
+    msg.set_meta("xfer_auth", auth.summarize()).await?;
 
     // set up the next due time using the source due+scheduling info
     SavedQueueInfo::restore_info(&msg).await?;
@@ -359,7 +359,7 @@ pub async fn inject_xfer_v1(
     })
     .await;
 
-    let queue_name = msg.get_queue_name()?;
+    let queue_name = msg.get_queue_name().await?;
     let deferred_spool = false;
 
     let id = *msg.id();
