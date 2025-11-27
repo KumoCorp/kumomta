@@ -43,13 +43,13 @@ impl<K: Clone + MetricLabel + Send + Sync, V: AtomicCounterEntry> StreamingColle
 
         let mut buffer = String::with_capacity(CHUNK_SIZE);
         buffer.push_str("# HELP ");
-        let prefix = prefix.as_deref().unwrap_or("");
-        buffer.push_str(prefix);
+        let prefix = prefix.as_deref().unwrap_or("").to_string();
+        buffer.push_str(&prefix);
         buffer.push_str(self.name);
         buffer.push(' ');
         buffer.push_str(self.help);
         buffer.push_str("\n# TYPE ");
-        buffer.push_str(prefix);
+        buffer.push_str(&prefix);
         buffer.push_str(self.name);
         buffer.push(' ');
         buffer.push_str(if self.is_gauge { "gauge" } else { "counter" });
@@ -72,6 +72,7 @@ impl<K: Clone + MetricLabel + Send + Sync, V: AtomicCounterEntry> StreamingColle
             for (key, counter) in counters {
                 let Some(buf) = buffer.as_mut() else {break;};
 
+                buf.push_str(&prefix);
                 buf.push_str(self.name);
                 key.emit_text_value(buf, &counter.get().to_string());
                 buf.push('\n');

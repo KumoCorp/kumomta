@@ -162,3 +162,6 @@
    connection plan now follows the ordering of your `mx_list`.  You might
    consider using [kumo.version](../reference/kumo/version.md) to accommodate
    this change in behavior.
+ * [Metrics](../reference/http/metrics.md) with multiple labels, such as
+   `connection_count`, didn't respect the `prefix=PREFIX` URL parameter when
+   preparing the `/metrics` prometheus text exposition output.
