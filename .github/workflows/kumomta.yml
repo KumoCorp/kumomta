@@ -75,7 +75,7 @@ jobs:
         include:
           - builder_image: docker://ghcr.io/kumocorp/builder-for-ubuntu:22.04
             base_image: ubuntu:22.04
-            runs_on: kumo-linux-16core-amd64
+            runs_on: blacksmith-16vcpu-ubuntu-2404
             arch: amd64
             artifact_name: ubuntu_2204_amd64
             build_docker: true
@@ -83,7 +83,7 @@ jobs:
             test_containers: 1
           - builder_image: docker://ghcr.io/kumocorp/builder-for-aarch64-ubuntu:22.04
             base_image: ubuntu:22.04
-            runs_on: kumo-linux-16core-arm64
+            runs_on: blacksmith-16vcpu-ubuntu-2404-arm
             arch: aarch64
             artifact_name: ubuntu_2204_aarch64
             build_docker: true
@@ -91,7 +91,7 @@ jobs:
             test_containers: 0
           - builder_image: docker://ghcr.io/kumocorp/builder-for-ubuntu:20.04
             base_image: ubuntu:20.04
-            runs_on: kumo-linux-16core-amd64
+            runs_on: blacksmith-16vcpu-ubuntu-2404
             arch: amd64
             artifact_name: ubuntu_2004_amd64
             build_docker: false
@@ -119,12 +119,12 @@ jobs:
         include:
           - builder_image: docker://ghcr.io/kumocorp/builder-for-amazonlinux:2023
             base_image: amazonlinux:2023
-            runs_on: kumo-linux-16core-amd64
+            runs_on: blacksmith-16vcpu-ubuntu-2404
             arch: amd64
             artifact_name: amazonlinux_2003_amd64
           - builder_image: docker://ghcr.io/kumocorp/builder-for-aarch64-amazonlinux:2023
             base_image: amazonlinux:2023
-            runs_on: kumo-linux-16core-arm64
+            runs_on: blacksmith-16vcpu-ubuntu-2404-arm
             arch: aarch64
             artifact_name: amazonlinux_2003_aarch64
 
@@ -150,12 +150,12 @@ jobs:
         include:
           - builder_image: docker://ghcr.io/kumocorp/builder-for-rockylinux:8
             base_image: rockylinux:8
-            runs_on: kumo-linux-16core-amd64
+            runs_on: blacksmith-16vcpu-ubuntu-2404
             arch: amd64
             artifact_name: rockylinux_8_amd64
           - builder_image: docker://ghcr.io/kumocorp/builder-for-rockylinux:9
             base_image: rockylinux:9
-            runs_on: kumo-linux-16core-amd64
+            runs_on: blacksmith-16vcpu-ubuntu-2404
             arch: amd64
             artifact_name: rockylinux_9_amd64
 
@@ -172,7 +172,7 @@ jobs:
       fail-fast: false
     steps:
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: useblacksmith/setup-docker-builder@v1
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
