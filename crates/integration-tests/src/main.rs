@@ -1,4 +1,5 @@
 mod kumod;
+mod proxy;
 mod rabbit;
 mod test;
 mod tsa;

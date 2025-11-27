@@ -4,11 +4,8 @@ use crate::{
     AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Domain, EsmtpParameter, ForwardPath,
     ReversePath,
 };
-use hickory_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
 use hickory_proto::rr::rdata::TLSA;
 use memchr::memmem::Finder;
-use openssl::pkey::PKey;
-use openssl::ssl::{DaneMatchType, DaneSelector, DaneUsage, SslOptions};
 use openssl::x509::{X509Ref, X509};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -23,7 +20,7 @@ use tokio::time::timeout;
 use tokio_rustls::rustls::pki_types::ServerName;
 use tracing::Level;
 
-pub use crate::tls::TlsOptions;
+pub use kumo_tls_helper::TlsOptions;
 pub use {openssl, tokio_rustls};
 
 const MAX_LINE_LEN: usize = 4096;
@@ -1120,100 +1117,6 @@ fn parse_response_line(line: &'_ str) -> Result<ResponseLine<'_>, ClientError> {
             Err(_) => Err(ClientError::MalformedResponseLine(line.to_string())),
         },
         _ => Err(ClientError::MalformedResponseLine(line.to_string())),
-    }
-}
-
-impl TlsOptions {
-    pub fn build_openssl_connector(
-        &self,
-        hostname: &str,
-    ) -> Result<openssl::ssl::ConnectConfiguration, ClientError> {
-        tracing::trace!("build_openssl_connector for {hostname}");
-        let mut builder =
-            openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls_client())?;
-
-        if let (Some(cert_data), Some(key_data)) =
-            (&self.certificate_from_pem, &self.private_key_from_pem)
-        {
-            let cert = X509::from_pem(cert_data)?;
-            builder.set_certificate(&cert)?;
-
-            let key = PKey::private_key_from_pem(key_data)?;
-            builder.set_private_key(&key)?;
-
-            builder.check_private_key()?;
-        }
-
-        if let Some(list) = &self.openssl_cipher_list {
-            builder.set_cipher_list(list)?;
-        }
-
-        if let Some(suites) = &self.openssl_cipher_suites {
-            builder.set_ciphersuites(suites)?;
-        }
-
-        if let Some(options) = &self.openssl_options {
-            builder.clear_options(SslOptions::all());
-            builder.set_options(*options);
-        }
-
-        if self.insecure {
-            builder.set_verify(openssl::ssl::SslVerifyMode::NONE);
-        }
-
-        if !self.dane_tlsa.is_empty() {
-            builder.dane_enable()?;
-            builder.set_no_dane_ee_namechecks();
-        }
-
-        let connector = builder.build();
-
-        let mut config = connector.configure()?;
-
-        if !self.dane_tlsa.is_empty() {
-            config.dane_enable(hostname)?;
-            let mut any_usable = false;
-            for tlsa in &self.dane_tlsa {
-                let usable = config.dane_tlsa_add(
-                    match tlsa.cert_usage() {
-                        CertUsage::PkixTa => DaneUsage::PKIX_TA,
-                        CertUsage::PkixEe => DaneUsage::PKIX_EE,
-                        CertUsage::DaneTa => DaneUsage::DANE_TA,
-                        CertUsage::DaneEe => DaneUsage::DANE_EE,
-                        CertUsage::Unassigned(n) => DaneUsage::from_raw(n),
-                        CertUsage::Private => DaneUsage::PRIV_CERT,
-                    },
-                    match tlsa.selector() {
-                        Selector::Full => DaneSelector::CERT,
-                        Selector::Spki => DaneSelector::SPKI,
-                        Selector::Unassigned(n) => DaneSelector::from_raw(n),
-                        Selector::Private => DaneSelector::PRIV_SEL,
-                    },
-                    match tlsa.matching() {
-                        Matching::Raw => DaneMatchType::FULL,
-                        Matching::Sha256 => DaneMatchType::SHA2_256,
-                        Matching::Sha512 => DaneMatchType::SHA2_512,
-                        Matching::Unassigned(n) => DaneMatchType::from_raw(n),
-                        Matching::Private => DaneMatchType::PRIV_MATCH,
-                    },
-                    tlsa.cert_data(),
-                )?;
-
-                tracing::trace!("build_dane_connector usable={usable} {tlsa:?}");
-                if usable {
-                    any_usable = true;
-                }
-            }
-
-            if !any_usable {
-                return Err(ClientError::NoUsableDaneTlsa {
-                    hostname: hostname.to_string(),
-                    tlsa: self.dane_tlsa.clone(),
-                });
-            }
-        }
-
-        Ok(config)
     }
 }
 
