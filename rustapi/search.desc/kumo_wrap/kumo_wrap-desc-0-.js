@@ -1,0 +1,1 @@
+searchState.loadedDescShard("kumo_wrap", 0, "We can’t use textwrap::fill here because it will prefer …")
