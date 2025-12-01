@@ -31,7 +31,7 @@ struct Config {
     // tls_client_config: Option<rustls::ClientConfig>,
     ping_interval: Option<Duration>,
     // subscription_capacity: Option<usize>,
-    sender_capacity: Option<usize>,
+    client_capacity: Option<usize>,
     // event_callback: Option<CallbackArg1<Event, ()>>,
     inbox_prefix: Option<String>,
     #[serde(default, with = "duration_serde")]
@@ -194,7 +194,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             if let Some(ping_interval) = config.ping_interval {
                 opts = opts.ping_interval(ping_interval);
             }
-            if let Some(sender_capacity) = config.sender_capacity {
+            if let Some(sender_capacity) = config.client_capacity {
                 opts = opts.client_capacity(sender_capacity);
             }
             if let Some(inbox_prefix) = config.inbox_prefix {
