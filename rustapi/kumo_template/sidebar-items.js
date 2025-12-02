@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Template","TemplateDialect"],"struct":["CompiledTemplates","TemplateEngine"],"type":["TemplateList"]};
