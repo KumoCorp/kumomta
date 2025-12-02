@@ -36,7 +36,7 @@ following fields; all fields are optional:
    authentication](https://datatracker.ietf.org/doc/html/rfc8601#autoid-24)
    status should be collected
  * `dmarc` - a boolean, which defaults to `true`, indicating whether DMARC
-   result should be collected. (not yet implemented!)
+   result should be collected.
  * `arc` - a boolean, which defaults to `true`, indicating whether
    [msg:arc_verify](../message/arc_verify.md) should be called and the result
    collected.
