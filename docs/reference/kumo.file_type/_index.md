@@ -1,6 +1,6 @@
 # kumo.file_type
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 The `kumo.file_type` module includes functions that can help you to reason
 about the file type of a sequence of bytes, or about the file types associated

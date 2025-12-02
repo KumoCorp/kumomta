@@ -1,6 +1,6 @@
 # xfer_message_received
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 ```lua
 kumo.on('xfer_message_received', function(message) end)

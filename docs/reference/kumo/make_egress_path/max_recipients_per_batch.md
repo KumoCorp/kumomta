@@ -1,6 +1,6 @@
 # max_recipients_per_batch
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 Optional integer.  Defaults to `100`.
 

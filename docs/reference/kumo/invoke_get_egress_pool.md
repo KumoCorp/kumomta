@@ -4,7 +4,7 @@
 local config = kumo.invoke_get_egress_pool(pool_name)
 ```
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 This function triggers a call through to the
 [get_egress_pool](../events/get_egress_pool.md) event callback(s)

@@ -11,7 +11,7 @@ See also [message:sender](sender.md).
 
 ## Recipient List
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 If the message is part of an SMTP batch with more than a single recipient then
 this method can return an array style table holding one

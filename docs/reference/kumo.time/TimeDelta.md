@@ -1,6 +1,6 @@
 # TimeDelta Object Type
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 The `TimeDelta` object type represents a time interval.
 

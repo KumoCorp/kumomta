@@ -4,7 +4,7 @@
 local ft = kumo.file_type.from_bytes(BYTES)
 ```
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 Attempts to determine the file type from the provided string, which may also be
 binary bytes.

@@ -13,7 +13,7 @@ scope of a DoS attack being carried out through maliciously constructed messages
 For each signature, an [authenticationresult](../authenticationresult.md) object
 will be constructed and an array of those results will be returned to the caller.
 
-The `OPT_RESOLVER_NAME` parameter {{since('dev', inline=True)}} is an optional
+The `OPT_RESOLVER_NAME` parameter {{since('2025.12.02-67ee9e96', inline=True)}} is an optional
 string parameter that specifies the name of a alternate resolver defined via
 [kumo.dns.define_resolver](../kumo.dns/define_resolver.md).  You can omit this
 parameter and the default resolver will be used.

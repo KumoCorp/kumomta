@@ -1,6 +1,6 @@
 # recipient_list
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 ```lua
 message:recipient_list()

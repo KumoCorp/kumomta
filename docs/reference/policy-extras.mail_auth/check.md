@@ -1,6 +1,6 @@
 # check
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 ```lua
 local mail_auth = require 'policy-extras.mail_auth'

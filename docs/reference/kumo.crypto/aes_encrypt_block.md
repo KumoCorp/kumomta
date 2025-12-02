@@ -1,6 +1,6 @@
 # aes_encrypt_block
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 ```lua
 kumo.crypto.aes_encrypt_block(ALGORITHM, PLAINTEXT, KEY)

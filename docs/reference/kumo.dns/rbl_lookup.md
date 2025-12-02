@@ -4,7 +4,7 @@
 local answer, reason = kumo.dns.rbl_lookup(IP, BASE_DOMAIN, OPT_RESOLVER_NAME)
 ```
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 This is a convenience function that enables looking up an IP address in a
 [DNSBL](https://en.wikipedia.org/wiki/Domain_Name_System_blocklist).

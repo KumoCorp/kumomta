@@ -101,7 +101,7 @@ The strategy for fixing is simple:
 
 ## Fixing 8-bit content
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 The default behavior when fixing `NEEDS_TRANSFER_ENCODING` is to perform a
 lossy conversion to UTF-8, replacing any non-UTF-8 bytes with unicode

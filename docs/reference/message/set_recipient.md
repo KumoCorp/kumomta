@@ -18,7 +18,7 @@ See also [message:set_sender](set_sender.md).
 
 ## Recipient List
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 The value can be an array style table holding one `EnvelopeAddress` for each
 recipient that you wish to assign to the message.

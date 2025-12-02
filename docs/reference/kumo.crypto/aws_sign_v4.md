@@ -1,6 +1,6 @@
 # aws_sign_v4
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 ```lua
 kumo.crypto.aws_sign_v4(PARAMS)

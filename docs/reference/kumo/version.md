@@ -1,6 +1,6 @@
 # kumo.version
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 This constant is set to the kumo version string that is also reported by
 running `kumod --version`. This can potentially be used to adjust configuration

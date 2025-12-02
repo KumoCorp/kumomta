@@ -25,7 +25,7 @@ The log record is a JSON object with the following shape:
     //
     // If the message has multiple recipients (eg: it was part of
     // an SMTP batch transaction) this will be an array of the
-    // recipients. (Multi-recipient is possible {{since('dev', inline=True)}})
+    // recipients. (Multi-recipient is possible {{since('2025.12.02-67ee9e96', inline=True)}})
     "recipient": "user@recipient.example.com",
 
     // Which named queue the message was associated with
@@ -194,9 +194,9 @@ The following record types are defined:
 * `"Delayed"` - explains why a message landed in the scheduled queue when
   it doesn't otherwise have a `TransientFailure` record logged. {{since('2025.01.23-7273d2bc', inline=True)}}
 * `"XferOut"` - a message was transferred out from the current node to another
-  kumomta node as part of an [xfer](kcli/xfer.md). {{since('dev', inline=True)}}
+  kumomta node as part of an [xfer](kcli/xfer.md). {{since('2025.12.02-67ee9e96', inline=True)}}
 * `"XferIn"` - a message was transferred in to the current node from another
-  kumomta node as part of an [xfer](kcli/xfer.md). {{since('dev', inline=True)}}
+  kumomta node as part of an [xfer](kcli/xfer.md). {{since('2025.12.02-67ee9e96', inline=True)}}
 
 ## Feedback Report
 

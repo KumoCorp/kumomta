@@ -1,6 +1,6 @@
 # require_proxy_protocol
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 !!! danger
     Take care to apply this ONLY in an appropriate `peer` block,

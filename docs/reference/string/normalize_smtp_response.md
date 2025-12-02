@@ -4,7 +4,7 @@
 kumo.string.normalize_smtp_response(TEXT)
 ```
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 The purpose of this function is to normalize out per-user, per-transaction
 variations from an input SMTP response line.  The normalization is intended to

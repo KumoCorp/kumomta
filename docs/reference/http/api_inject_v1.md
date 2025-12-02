@@ -334,7 +334,7 @@ Hello John Smith!
 
 ## Template Dialect
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 It is now possible to specify which template engine will be
 used for template expansion via the `template_dialect` field.

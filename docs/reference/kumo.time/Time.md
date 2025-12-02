@@ -1,6 +1,6 @@
 # Time Object Type
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 The `Time` object type represents a date and time. It internally stores the time as
 [UTC](https://en.wikipedia.org/wiki/UTC%2B00:00), even if it was produced by

@@ -7,7 +7,7 @@ kumo.on(
 )
 ```
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 This event is triggered by the SMTP server just prior to sending a
 response to the connected client.  It enables you to adjust the response
