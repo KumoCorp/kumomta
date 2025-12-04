@@ -23,63 +23,68 @@
 
 [rules]
 InvalidRecipient = [
-  "^552.+mailbox not found", # Yahoo! Mail
-  "^5\\.5\\.0.+mailbox unavailable", # Microsoft
-  "^550.+mailbox unavailable",
-  "^550 5\\.1\\.1.+User unknown in virtual mailbox table",
-  "^550.+No such recipient here",
-  "^550.+No such user here",
-  "^550.+No such mailbox",
-  "^550.+Invalid Recipient", # Mimecast
-  "^550.*I cannot deliver mail for",
-  "^550.+Mailbox does not exist",
-  "^553.+address unknown",
-  "^550.+That recipient is not allowed",
-  "^550.+Address invalid",
-  "^550.+Address rejected",
-  "^550.+User.+unknown$",
-  "^553.+sorry, no mail-box here by that name",
-  "^550.+No such ID",
-  "^550.+Mailbox unavailable or access denied", # 58.com
-  "^550.+User Unknown",
-  "^550.+The mail server could not deliver mail to.+The account or domain may not exist, they may be blacklisted, or missing the proper dns entries",
-  "^550.+address does not exist",
-  "^550.+Message was not accepted -- invalid mailbox", # mail.ru
-  "^550.+Utilisateur inconnu", # isep.fr (means unknown user)
-  "^550.+sorry, no mailbox",
-  "^550.+Not our Customer", # comcast.net
-  "^553.+mailbox name not allowed", # citmo.net
-  "^550.+recipient .+ denied",
-  "^556.+Invalid account. Tenant or Domain not found",
-  "^554.+Recipient address rejected: User unknown",
-  "^550.+recipient unrecognized",
-  "^550.+permanent failure for one or more recipients",
-  "^585.+Recipient address rejected: undeliverable address: No such user here",
+  "Requested mail action aborted, mailbox not found", # Yahoo! Mail
+  "mailbox unavailable", # Microsoft
+  "User unknown in virtual mailbox table",
+  "No such recipient here",
+  "[nN]o [sS]uch [uU]ser",
+  "No such mailbox",
+  "Invalid Recipient", # Mimecast
+  "I cannot deliver mail for",
+  "Mailbox does not exist",
+  "address unknown",
+  "That recipient is not allowed",
+  "Address invalid",
+  "Address rejected",
+  "User.+unknown$",
+  "sorry, no mail-box here by that name",
+  "No such ID",
+  "Mailbox unavailable or access denied", # 58.com
+  "User Unknown",
+  "The mail server could not deliver mail to.+The account or domain may not exist, they may be blacklisted, or missing the proper dns entries",
+  "address does not exist",
+  "Message was not accepted -- invalid mailbox", # mail.ru
+  "Utilisateur inconnu", # isep.fr (means unknown user)
+  "sorry, no mailbox",
+  "Not our Customer", # comcast.net
+  "mailbox name not allowed", # citmo.net
+  "recipient .+ denied",
+  "Invalid account. Tenant or Domain not found",
+  "Recipient address rejected: User unknown",
+  "Recipient address rejected: unverified address",
+  "recipient unrecognized",
+  "permanent failure for one or more recipients",
+  "Recipient address rejected: undeliverable address: No such user here",
+  "User .+ does not exist",
   "^554.+undeliverable address",
   "^550.+not a valid user",
 ]
 BadDomain = [
-  "^556.+Recipient address has a null MX"
+  "Recipient address has a null MX",
+  "ResolvedAddress.+is on the list of prohibited_hosts",
+  "The domain .+ is currently suspended",
 ]
 InactiveMailbox = [
-   "This mailbox is disabled (554\\.30)", # Yahoo! Mail
-   "^550.+Account is not active",
-   "^550.+User account not activated",
-   "^550.+Account Closed, Please Remove", # comcast.net
-   "^505.+this account is suspended",
-   "^550.+Your message wasn't delivered due to an error; .+requires an upgrade to Enhanced Protection at .+forwardemail\\.net", # forwardemail.net
-   "^550.+DisabledUser",
+  "This mailbox is disabled", # Yahoo! Mail
+  "The email account that you tried to reach is inactive", # Google
+  "Account is not active",
+  "User account not activated",
+  "Account Closed, Please Remove", # comcast.net
+  "this account is suspended",
+  "Your message wasn't delivered due to an error; .+requires an upgrade to Enhanced Protection at .+forwardemail\\.net", # forwardemail.net
+  "^550.+DisabledUser"
 ]
 InvalidSender = [
 ]
 QuotaIssues = [
-  "^452 4\\.2\\.2.+The recipient's inbox is out of storage space", # Google
-  "^552.+Mailbox limit exeeded for this email address",
-  "^552.+exceeded storage allocation Quota exceeded", #web.de
-  "^552.+user's mailbox quota exceeded",
-  "^550.+Mailbox is full / Blocks limit exceeded / Inode limit exceeded",
-  "^552.+Mailbox full",
-  "^554.+Quota exceeded (mailbox for user is full)",
+  "inbox is out of storage space", # Google
+  "Mailbox limit exeeded for this email address",
+  "exceeded storage allocation Quota exceeded", #web.de
+  "mailbox quota exceeded",
+  "Mailbox is full",
+  "Mailbox full",
+  "Quota exceeded",
+  "reached capacity or is overloaded",
   "^552.+extended quota violation",
   "^552.+OverQuotaPerm",
   "^550.+account is overquota",
@@ -87,69 +92,85 @@ QuotaIssues = [
 NoAnswerFromHost = [
 ]
 BadConnection = [
+  "failed: invalid peer certificate: NotValidForName",
 ]
 DNSFailure = [
+  "MX didn't resolve to any hosts",
 ]
 RoutingErrors = [
-  "^503.+This mail server requires authentication when attempting to send to a non-local e-mail address",
-  "^550.+relay not permitted",
-  "^550.+isn't allowed to relay",
-  "^550.+Unrouteable address",
+  "This mail server requires authentication when attempting to send to a non-local e-mail address",
+  "relay not permitted",
+  "isn't allowed to relay",
+  "Unrouteable address",
   "^554.+MailLoop",
 ]
 TransientFailure = [
-  "^451.*Temporarily unable to process your email",
-  "^554.+Error: transaction failed, blame it on the weather: E2: Cannot accept your message due to internal error, please report that to our engineers",
+  "Temporarily unable to process your email",
+  "Error: transaction failed, blame it on the weather: E2: Cannot accept your message due to internal error, please report that to our engineers",
+  "closing transmission channel - command timeout",
+  "too many recent messages; Try again later",
+  "Internal server error",
   "^550.+ReceivingRatePerm",
 ]
 MessageExpired = [
 ]
 ProtocolErrors = [
-  "^503.+Bad sequence of commands",
+  "Bad sequence of commands",
+  "failed to connect to any candidate hosts: All failures are related to OpportunisticInsecure STARTTLS.",
+  "failed to connect to any candidate hosts: connect to ResolvedAddress.*read initial banner:",
+  "failed to connect to any candidate hosts: TLS handshake with ResolvedAddress.*failed: tls handshake eof",
 ]
 AuthenticationFailed = [
-  "^530.+Authentication required",
-  "^550.+Domain may not exist or DNS check failed",
-  "^501 5\\.0\\.2.+Mail rejected. DMARC check failed.", #orange.fr
-  "^550.+Access denied, sending domain.+does not pass DMARC verification and has a DMARC policy of reject",
-  "^550.+Please turn on SMTP Authentication in your mail client",
-  "^550.+Message rejected due to senders DMARC policy",
-  "^553.+Sender Domain Resolve Fail",
-  "^550.+sorry, your envelope sender domain must exist",
-  "^553.+Domain of sender address .+ does not exist",
-  "^550.+Sender .+ has no A, AAAA, or MX DNS records",
-  "^550.+authentication required",
+  "Authentication required",
+  "Domain may not exist or DNS check failed",
+  "Mail rejected. DMARC check failed.", #orange.fr
+  "Access denied, sending domain.+does not pass DMARC verification and has a DMARC policy of reject",
+  "Please turn on SMTP Authentication in your mail client",
+  "Message rejected due to senders DMARC policy",
+  "Sender Domain Resolve Fail",
+  "sorry, your envelope sender domain must exist",
+  "Domain of sender address .+ does not exist",
+  "Sender .+ has no A, AAAA, or MX DNS records",
+  "authentication required",
   "^550.+DmarcRejection",
 ]
 PolicyRelated = [
-  "^553 5\\.0\\.3.+DNSBL:RBL 521.+_is_blocked", # AT&T
-  "^550 5\\.7\\.1", # Microsoft: Network is on our block list (S3150)
-  "^554.+Email not accepted for policy reasons", # Yahoo
-  "^550.+Reject due to policy restrictions", # web.de, GMX
-  "^550 5\\.1\\.4.+Recipient address rejected: Access denied.", # outlook / microsoft
-  "^550 5\\.0\\.1.+Invalid Sender. Your domain has been blacklisted", #orange.fr
-  "^554.+Your access to this mail system has been rejected due to poor reputation of a domain used in message transfer",
-  "^550.+REJECT spam",
-  "^553.+Blocked Using Spam Pattern, Your Message May Contain The Spam Contents",
-  "^550.+A URL in this email.+is listed on.+Please resolve and retry",
-  "^550.+REJECTED - spamtext",
-  "^550.+Your access to submit messages to this e-mail system has been rejected",
-  "^550.+The sending IP.+is listed on.+Please resolve this and retry",
-  "^550.+Blocked by ivmSIP",
-  "^553 5\\.0\\.3.+Blocked by ivmSIP",
-  "^550.+Message rejected as spam",
-  "^550.+Email blocked by cbl.abuseat.org",
-  "^554.+Email rejected due to security policies",
-  "^553.+sorry, that domain isn't in my list of allowed rcpthosts",
-  "^550.+Your IP or Email address blocked by the FakeMail User",
-  "^550.+spam message rejected", # mail.ru
-  "^550.+Message denied", # duck.com
-  "^550.+Recipient not on bypass list, your IP has been found on a block list",
-  "^550.+JunkMail rejected",
-  "^501.+Mail From Domain does not include a usable MX or A entry", # free.fr
-  "^554.+We can't accept this message because it is spam", # wp.pl
-  "^550.+Rejected - Content Policy",
-  "^554.+Blocklisting in effect",
-  "^552.+sender rejected AUP", # mms.att.net
+  "DNSBL:RBL", # AT&T
+  "greylisting as a means of reducing spam",
+  "Greylisting in action",
+  "Greylisting in place",
+  "address rejected: Greylisted",
+  "550 5\\.7\\.1", # Microsoft: Network is on our block list (S3150)
+  "Email not accepted for policy reasons", # Yahoo
+  "Reject due to policy restrictions", # web.de, GMX
+  "Recipient address rejected: Access denied.", # outlook / microsoft
+  "Invalid Sender. Your domain has been blacklisted", #orange.fr
+  "Your access to this mail system has been rejected due to poor reputation of a domain used in message transfer",
+  "REJECT spam",
+  "Blocked Using Spam Pattern, Your Message May Contain The Spam Contents",
+  "A URL in this email.+is listed on.+Please resolve and retry",
+  "REJECTED - spamtext",
+  "Your access to submit messages to this e-mail system has been rejected",
+  "The sending IP.+is listed on.+Please resolve this and retry",
+  "Blocked by ivmSIP",
+  "Message rejected as spam",
+  "Email blocked by cbl.abuseat.org",
+  "Email rejected due to security policies",
+  "sorry, that domain isn't in my list of allowed rcpthosts",
+  "Your IP or Email address blocked by the FakeMail User",
+  "spam message rejected", # mail.ru
+  "Message denied", # duck.com
+  "Recipient not on bypass list, your IP has been found on a block list",
+  "JunkMail rejected",
+  "Mail From Domain does not include a usable MX or A entry", # free.fr
+  "Too many spams from your IP", # free.fr
+  "We can't accept this message because it is spam", # wp.pl
+  "Rejected - Content Policy",
+  "Blocklisting in effect",
+  "sender rejected AUP", # mms.att.net
+  "blacklisted at zen.spamhaus.org",
+  "Messages to .+ deferred due to excessive volume", # icloud
+  "The recipient has exceeded their limit for the number of messages they can receive per hour.", # google
+  "The user you are trying to contact is receiving mail at a rate that prevents additional messages from being delivered.", # google
   "^452.+restricted by policy error",
 ]
