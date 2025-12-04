@@ -18,6 +18,7 @@ use data_loader::KeySource;
 use derive_where::derive_where;
 use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::AtomicCounter;
+use kumo_server_common::authn_authz::{AuthInfo, Identity, IdentityContext};
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::{spawn, Runtime};
 use lruttl::declare_cache;
@@ -953,6 +954,9 @@ impl SmtpServerSession {
         meta.set_meta("reception_protocol", "ESMTP");
         meta.set_meta("received_via", my_address.to_string());
         meta.set_meta("received_from", peer_address.to_string());
+        meta.auth_info
+            .lock()
+            .set_peer_address(Some(peer_address.ip()));
 
         let mut concrete_params = ConcreteEsmtpListenerParams::default();
         meta.set_meta("hostname", concrete_params.hostname.to_string());
@@ -1939,6 +1943,18 @@ impl SmtpServerSession {
                                     self.meta.set_meta("authz_id", authz);
                                     self.meta.set_meta("authn_id", authc);
 
+                                    {
+                                        let mut auth_info = self.meta.auth_info.lock();
+                                        auth_info.add_identity(Identity {
+                                            identity: authz.to_string(),
+                                            context: IdentityContext::SmtpAuthPlainAuthorization,
+                                        });
+                                        auth_info.add_identity(Identity {
+                                            identity: authc.to_string(),
+                                            context: IdentityContext::SmtpAuthPlainAuthentication,
+                                        });
+                                    }
+
                                     self.write_response(
                                         235,
                                         "2.7.0 AUTH OK!",
@@ -2537,6 +2553,7 @@ impl SmtpServerSession {
             let new_port = port.unwrap_or(old_peer.port());
 
             self.peer_address = (new_addr, new_port).into();
+            self.meta.auth_info.lock().set_peer_address(Some(new_addr));
             self.meta
                 .set_meta("orig_received_from", self.orig_peer_address.to_string());
             self.meta
@@ -3184,12 +3201,14 @@ impl SmtpServerSession {
 #[derive(Clone)]
 pub(crate) struct ConnectionMetaData {
     map: Arc<Mutex<serde_json::Value>>,
+    auth_info: Arc<Mutex<AuthInfo>>,
 }
 
 impl ConnectionMetaData {
     pub fn new() -> Self {
         Self {
             map: Arc::new(Mutex::new(json!({}))),
+            auth_info: Arc::new(Mutex::new(AuthInfo::default())),
         }
     }
 
@@ -3343,8 +3362,29 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
         let msg = msgs.pop().expect("just verified that there is one");
 
         msg.set_meta("queue", serde_json::Value::Null).await?;
+
+        let mut auth_info = AuthInfo::default();
+        auth_info.set_peer_address(
+            msg.get_meta_string("received_from")
+                .await?
+                .and_then(|s| s.parse().ok()),
+        );
+        if let Some(identity) = msg.get_meta_string("authn_id").await? {
+            auth_info.add_identity(Identity {
+                identity,
+                context: IdentityContext::SmtpAuthPlainAuthentication,
+            });
+        }
+        if let Some(identity) = msg.get_meta_string("authz_id").await? {
+            auth_info.add_identity(Identity {
+                identity,
+                context: IdentityContext::SmtpAuthPlainAuthorization,
+            });
+        }
+
         let meta = ConnectionMetaData {
             map: Arc::new(msg.get_meta_obj().await?.into()),
+            auth_info: Arc::new(Mutex::new(auth_info)),
         };
 
         let mut config = load_config().await?;

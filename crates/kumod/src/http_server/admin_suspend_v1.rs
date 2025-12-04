@@ -6,7 +6,6 @@ use config::get_or_create_sub_module;
 use kumo_api_types::{
     SuspendV1CancelRequest, SuspendV1ListEntry, SuspendV1Request, SuspendV1Response,
 };
-use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
 use message::message::QueueNameComponents;
 use mlua::{Lua, LuaSerdeExt, Value};
@@ -112,7 +111,6 @@ impl AdminSuspendEntry {
     ),
 )]
 pub async fn suspend(
-    _: TrustedIpRequired,
     // Note: Json<> must be last in the param list
     Json(request): Json<SuspendV1Request>,
 ) -> Result<Json<SuspendV1Response>, AppError> {
@@ -144,7 +142,7 @@ pub async fn suspend(
         (status = 200, description = "Suspended", body=SuspendV1ListEntry),
     ),
 )]
-pub async fn list(_: TrustedIpRequired) -> Result<Json<Vec<SuspendV1ListEntry>>, AppError> {
+pub async fn list() -> Result<Json<Vec<SuspendV1ListEntry>>, AppError> {
     Ok(Json(AdminSuspendEntry::get_all_v1()))
 }
 
@@ -158,7 +156,7 @@ pub async fn list(_: TrustedIpRequired) -> Result<Json<Vec<SuspendV1ListEntry>>,
         (status = 404, description = "Suspension either expired or was never valid"),
     ),
 )]
-pub async fn delete(_: TrustedIpRequired, Json(request): Json<SuspendV1CancelRequest>) -> Response {
+pub async fn delete(Json(request): Json<SuspendV1CancelRequest>) -> Response {
     let removed = AdminSuspendEntry::remove_by_id(&request.id);
     if removed {
         (StatusCode::OK, format!("removed {}", request.id))

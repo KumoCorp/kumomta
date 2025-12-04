@@ -4,7 +4,6 @@ use kumo_api_types::{
     InspectMessageV1Response, InspectQueueV1Request, InspectQueueV1Response, MessageInformation,
 };
 use kumo_chrono_helper::Utc;
-use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
 use reqwest::StatusCode;
 
@@ -19,7 +18,6 @@ use reqwest::StatusCode;
     ),
 )]
 pub async fn inspect_v1(
-    _: TrustedIpRequired,
     Query(request): Query<InspectQueueV1Request>,
 ) -> Result<Json<InspectQueueV1Response>, AppError> {
     let Some(queue) = QueueManager::get_opt(&request.queue_name) else {

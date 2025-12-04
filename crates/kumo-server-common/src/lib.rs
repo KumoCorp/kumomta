@@ -8,6 +8,7 @@ use mod_redis::RedisConnKey;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicUsize;
 
+pub mod authn_authz;
 pub mod config_handle;
 pub mod diagnostic_logging;
 pub mod disk_space;
@@ -45,6 +46,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         mod_uuid::register,
         kumo_api_types::shaping::register,
         regex_set_map::register,
+        crate::authn_authz::register,
     ] {
         func(lua)?;
     }

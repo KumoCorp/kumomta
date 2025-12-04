@@ -285,7 +285,7 @@ where
         (status=200, description = "bump successful")
     ),
 )]
-async fn bump_config_epoch(_: TrustedIpRequired) -> Result<(), AppError> {
+async fn bump_config_epoch() -> Result<(), AppError> {
     config::epoch::bump_current_epoch();
     Ok(())
 }
@@ -301,7 +301,7 @@ async fn bump_config_epoch(_: TrustedIpRequired) -> Result<(), AppError> {
         (status=200, description = "stats were returned")
     ),
 )]
-async fn memory_stats(_: TrustedIpRequired) -> String {
+async fn memory_stats() -> String {
     use kumo_server_memory::NumBytes;
     use std::fmt::Write;
     let mut result = String::new();
@@ -359,10 +359,7 @@ struct PrometheusMetricsParams {
     prefix: Option<String>,
 }
 
-async fn report_metrics(
-    _: TrustedIpRequired,
-    Query(params): Query<PrometheusMetricsParams>,
-) -> impl IntoResponse {
+async fn report_metrics(Query(params): Query<PrometheusMetricsParams>) -> impl IntoResponse {
     StreamBodyAsOptions::new()
         .content_type(HttpHeaderValue::from_static("text/plain; charset=utf-8"))
         .text(kumo_prometheus::registry::Registry::stream_text(
@@ -370,7 +367,7 @@ async fn report_metrics(
         ))
 }
 
-async fn report_metrics_json(_: TrustedIpRequired) -> impl IntoResponse {
+async fn report_metrics_json() -> impl IntoResponse {
     StreamBodyAsOptions::new()
         .content_type(HttpHeaderValue::from_static(
             "application/json; charset=utf-8",
@@ -390,7 +387,6 @@ async fn report_metrics_json(_: TrustedIpRequired) -> impl IntoResponse {
     ),
 )]
 async fn set_diagnostic_log_filter_v1(
-    _: TrustedIpRequired,
     // Note: Json<> must be last in the param list
     Json(request): Json<SetDiagnosticFilterRequest>,
 ) -> Result<(), AppError> {

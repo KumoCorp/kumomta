@@ -1,7 +1,6 @@
 use crate::queue::QueueManager;
 use axum::extract::Json;
 use kumo_api_types::rebind::{RebindV1Request, RebindV1Response};
-use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
 use kumo_server_runtime::rt_spawn;
 use message::message::QueueNameComponents;
@@ -79,7 +78,6 @@ impl AdminRebindEntry {
     ),
 )]
 pub async fn rebind_v1(
-    _: TrustedIpRequired,
     // Note: Json<> must be last in the param list
     Json(request): Json<RebindV1Request>,
 ) -> Result<Json<RebindV1Response>, AppError> {

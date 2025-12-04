@@ -3,6 +3,9 @@
 ## Breaking Changes
 
 ## Other Changes and Enhancements
+ * Enhanced [Access Control](../reference/access_control.md) subsystem,
+   supported by a new Authentication, Authorization and Accounting (AAA) module
+   exposed to lua as [kumo.aaa](../reference/kumo.aaa/index.md).
  * The `Handlebars` template dialect now runs with recursive lookup
    for improved compatibility with other handlebars implementations.
  * `msg:check_fix_conformance()` can now detect and attempt to fix issues where

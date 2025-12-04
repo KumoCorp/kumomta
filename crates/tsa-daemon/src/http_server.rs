@@ -19,7 +19,6 @@ use kumo_api_types::tsa::{
     Suspensions,
 };
 use kumo_log_types::*;
-use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::{AppError, RouterAndDocs};
 use message::message::QueueNameComponents;
 use parking_lot::Mutex;
@@ -498,7 +497,6 @@ fn action_hash(m: &Rule, action: &Action) -> String {
 }
 
 async fn publish_log_v1(
-    _: TrustedIpRequired,
     // Note: Json<> must be last in the param list
     Json(record): Json<JsonLogRecord>,
 ) -> Result<(), AppError> {
@@ -647,7 +645,7 @@ pub async fn import_configs_from_sqlite(
         .await
 }
 
-async fn get_config_v1(_: TrustedIpRequired) -> Result<String, AppError> {
+async fn get_config_v1() -> Result<String, AppError> {
     let result = TSA_STATE
         .get()
         .expect("tsa_state missing")
@@ -722,7 +720,7 @@ pub async fn import_suspensions_from_sqlite(
         .await
 }
 
-async fn get_suspension_v1(_: TrustedIpRequired) -> Result<Json<Suspensions>, AppError> {
+async fn get_suspension_v1() -> Result<Json<Suspensions>, AppError> {
     Ok(Json(get_suspensions()))
 }
 
@@ -785,14 +783,11 @@ async fn process_suspension_subscription(socket: WebSocket) {
 
 /// This is a legacy endpoint that can only report on the old SuspensionEntry
 /// enum variants
-pub async fn subscribe_suspension_v1(
-    _: TrustedIpRequired,
-    ws: WebSocketUpgrade,
-) -> impl IntoResponse {
+pub async fn subscribe_suspension_v1(ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(process_suspension_subscription)
 }
 
-async fn get_bounce_v1(_: TrustedIpRequired) -> Result<Json<Vec<SchedQBounce>>, AppError> {
+async fn get_bounce_v1() -> Result<Json<Vec<SchedQBounce>>, AppError> {
     let result = TSA_STATE
         .get()
         .expect("tsa_state missing")
@@ -865,6 +860,6 @@ async fn process_event_subscription(socket: WebSocket) {
     }
 }
 
-pub async fn subscribe_event_v1(_: TrustedIpRequired, ws: WebSocketUpgrade) -> impl IntoResponse {
+pub async fn subscribe_event_v1(ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(process_event_subscription)
 }
