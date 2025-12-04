@@ -577,7 +577,7 @@ impl Shaping {
 
                 async fn http_get(url: &str, timeout: Duration) -> anyhow::Result<String> {
                     tokio::time::timeout(timeout, async {
-                        reqwest::Client::builder()
+                        let response = reqwest::Client::builder()
                             .timeout(timeout)
                             .connect_timeout(timeout)
                             .read_timeout(timeout)
@@ -585,7 +585,22 @@ impl Shaping {
                             .get(url)
                             .send()
                             .await
-                            .with_context(|| format!("making HTTP request to {url}"))?
+                            .with_context(|| format!("making HTTP request to {url}"))?;
+                        let status = response.status();
+                        if !status.is_success() {
+                            let err_text = match response.text().await {
+                                Ok(text) => text,
+                                Err(err) => {
+                                    format!("Additional error {err:#} while reading response body")
+                                }
+                            };
+                            anyhow::bail!(
+                                "HTTP request to {url} failed: status {status} {reason} {err_text}",
+                                status = status.as_u16(),
+                                reason = status.canonical_reason().unwrap_or("")
+                            );
+                        }
+                        response
                             .text()
                             .await
                             .with_context(|| format!("reading text from {url}"))
