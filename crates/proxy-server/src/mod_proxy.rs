@@ -1,4 +1,4 @@
-use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
+use config::{any_err, declare_event, from_lua_value, get_or_create_module};
 use data_loader::KeySource;
 use kumo_server_runtime::spawn;
 use mlua::{IntoLua, Lua, LuaSerdeExt, Value};
@@ -165,11 +165,11 @@ impl ProxyListenerParams {
     }
 }
 
-/// Connection metadata passed to the proxy_server_auth_1929 callback
+/// Connection metadata passed to the proxy_server_auth_rfc1929 callback
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct ConnMeta {
-    pub peer_address: String,
-    pub local_address: String,
+    pub peer_address: SocketAddr,
+    pub local_address: SocketAddr,
 }
 
 impl IntoLua for ConnMeta {
@@ -178,7 +178,16 @@ impl IntoLua for ConnMeta {
     }
 }
 
-/// Validates credentials via the proxy_server_auth_1929 Lua callback.
+declare_event! {
+    static CHECK_AUTH: Single(
+        "proxy_server_auth_rfc1929",
+        username: String,
+        password: String,
+        conn_meta: ConnMeta,
+    ) -> bool;
+}
+
+/// Validates credentials via the proxy_server_auth_rfc1929 Lua callback.
 /// The callback receives (username, password, conn_meta) where conn_meta is a table
 /// containing peer_address and local_address.
 pub async fn authenticate_user(
@@ -190,15 +199,12 @@ pub async fn authenticate_user(
     let mut config = config::load_config().await?;
 
     let conn_meta = ConnMeta {
-        peer_address: peer_address.to_string(),
-        local_address: local_address.to_string(),
+        peer_address,
+        local_address,
     };
 
-    // Use tuple (username, password, conn_meta) for the callback signature
-    let sig = CallbackSignature::<(String, String, ConnMeta), bool>::new("proxy_server_auth_1929");
-
     let result = config
-        .async_call_callback(&sig, (username, password, conn_meta))
+        .async_call_callback(&CHECK_AUTH, (username, password, conn_meta))
         .await?;
     config.put();
 

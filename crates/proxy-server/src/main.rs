@@ -1,12 +1,11 @@
 use anyhow::Context;
 use clap::Parser;
 use config::CallbackSignature;
-use data_loader::KeySource;
 use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
 use kumo_server_common::start::StartConfig;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
+use std::io::Write;
 use std::path::PathBuf;
-use std::time::Duration;
 
 mod mod_proxy;
 mod proxy_handler;
@@ -19,8 +18,8 @@ mod proxy_handler;
 struct Opt {
     /// Lua policy file to load.
     /// Mutually exclusive with --listen and other legacy options.
-    #[arg(long)]
-    policy: Option<PathBuf>,
+    #[arg(long, conflicts_with_all = ["listen", "no_splice", "timeout_seconds"])]
+    proxy_config: Option<PathBuf>,
 
     /// Directory where diagnostic log files will be placed.
     ///
@@ -36,66 +35,63 @@ struct Opt {
     diag_format: DiagnosticFormat,
 
     // Legacy CLI options for backwards compatibility
-    // These are mutually exclusive with --policy
+    // These are mutually exclusive with --proxy-config
     /// [Legacy] Address(es) to listen on (e.g., "0.0.0.0:5000").
-    /// Mutually exclusive with --policy.
-    #[arg(long)]
+    /// Mutually exclusive with --proxy-config.
+    #[arg(long, conflicts_with = "proxy_config")]
     listen: Vec<String>,
 
     /// [Legacy] Disable zero-copy splice optimization on Linux.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "proxy_config")]
     no_splice: bool,
 
     /// [Legacy] Timeout in seconds for all I/O operations.
-    #[arg(long, default_value = "60")]
+    #[arg(long, default_value = "60", conflicts_with = "proxy_config")]
     timeout_seconds: u64,
-
-    /// [Legacy] Path to TLS certificate file (PEM format).
-    #[arg(long)]
-    tls_certificate: Option<PathBuf>,
-
-    /// [Legacy] Path to TLS private key file (PEM format).
-    #[arg(long)]
-    tls_private_key: Option<PathBuf>,
 }
 
 impl Opt {
     /// Check if legacy CLI mode is being used
     fn is_legacy_mode(&self) -> bool {
-        !self.listen.is_empty() || self.tls_certificate.is_some() || self.tls_private_key.is_some()
+        !self.listen.is_empty()
     }
 
-    /// Validate CLI options
-    fn validate(&self) -> anyhow::Result<()> {
-        if self.policy.is_some() && self.is_legacy_mode() {
-            anyhow::bail!(
-                "--policy cannot be used with legacy options (--listen, --tls-certificate, etc.). \
-                 Use either --policy for Lua configuration or legacy CLI options, but not both."
-            );
+    /// Generate a temporary Lua config file from legacy CLI options
+    fn generate_legacy_config(&self) -> anyhow::Result<tempfile::NamedTempFile> {
+        let mut file = tempfile::NamedTempFile::with_prefix("kumo-proxy-config-")
+            .context("failed to create temporary config file")?;
+
+        writeln!(file, "local kumo = require 'kumo'")?;
+        writeln!(file)?;
+        writeln!(file, "kumo.on('proxy_init', function()")?;
+
+        for listen_addr in &self.listen {
+            writeln!(file, "  kumo.start_proxy_listener {{")?;
+            writeln!(file, "    listen = '{}',", listen_addr)?;
+            writeln!(file, "    timeout = '{} seconds',", self.timeout_seconds)?;
+            if self.no_splice {
+                writeln!(file, "    no_splice = true,")?;
+            }
+            writeln!(file, "  }}")?;
         }
 
-        if self.is_legacy_mode() {
-            if self.listen.is_empty() {
-                anyhow::bail!(
-                    "No listeners defined! Use --listen to specify at least one, \
-                     or use --policy for Lua-based configuration."
-                );
-            }
+        writeln!(file, "end)")?;
 
-            if self.tls_private_key.is_some() != self.tls_certificate.is_some() {
-                anyhow::bail!(
-                    "--tls-certificate and --tls-private-key must be specified together, or not at all"
-                );
-            }
-        }
-
-        Ok(())
+        file.flush()?;
+        Ok(file)
     }
 }
 
 fn main() -> anyhow::Result<()> {
     let opts = Opt::parse();
-    opts.validate()?;
+
+    // Validate that we have either a config file or legacy listen options
+    if opts.proxy_config.is_none() && opts.listen.is_empty() {
+        anyhow::bail!(
+            "No configuration specified! Use --proxy-config to specify a Lua policy file, \
+             or use --listen for legacy CLI mode."
+        );
+    }
 
     let (_no_file_soft, no_file_hard) = getrlimit(Resource::RLIMIT_NOFILE)?;
     setrlimit(Resource::RLIMIT_NOFILE, no_file_hard, no_file_hard).context("setrlimit NOFILE")?;
@@ -132,159 +128,30 @@ async fn signal_shutdown() {
 async fn run(opts: Opt) -> anyhow::Result<()> {
     kumo_server_runtime::assign_main_runtime(tokio::runtime::Handle::current());
 
-    if opts.is_legacy_mode() {
-        // Legacy mode: use CLI options directly without Lua
-        run_legacy(opts).await
+    // Determine the policy file to use
+    let (policy_path, _temp_file) = if opts.is_legacy_mode() {
+        // Legacy mode: generate a temporary Lua config from CLI options
+        let temp_file = opts.generate_legacy_config()?;
+        let path = temp_file.path().to_path_buf();
+        (path, Some(temp_file))
     } else {
-        // Modern mode: use Lua policy file
-        let policy = opts
-            .policy
+        // Modern mode: use the provided config file
+        let path = opts
+            .proxy_config
             .unwrap_or_else(|| PathBuf::from("/opt/kumomta/etc/proxy/init.lua"));
+        (path, None)
+    };
 
-        StartConfig {
-            logging: LoggingConfig {
-                log_dir: opts.diag_log_dir.clone(),
-                diag_format: opts.diag_format,
-                filter_env_var: "KUMO_PROXY_LOG",
-                default_filter:
-                    "proxy_server=info,kumo_server_common=info,kumo_server_runtime=info",
-            },
-            lua_funcs: &[kumo_server_common::register, mod_proxy::register],
-            policy: &policy,
-        }
-        .run(perform_init(), signal_shutdown())
-        .await
+    StartConfig {
+        logging: LoggingConfig {
+            log_dir: opts.diag_log_dir.clone(),
+            diag_format: opts.diag_format,
+            filter_env_var: "KUMO_PROXY_LOG",
+            default_filter: "proxy_server=info,kumo_server_common=info,kumo_server_runtime=info",
+        },
+        lua_funcs: &[kumo_server_common::register, mod_proxy::register],
+        policy: &policy_path,
     }
-}
-
-/// Run in legacy mode using CLI options (backwards compatibility)
-async fn run_legacy(opts: Opt) -> anyhow::Result<()> {
-    use kumo_server_common::diagnostic_logging::LoggingConfig;
-    use tokio::net::TcpListener;
-    use tokio_rustls::TlsAcceptor;
-
-    // Initialize logging
-    LoggingConfig {
-        log_dir: opts.diag_log_dir.clone(),
-        diag_format: opts.diag_format,
-        filter_env_var: "KUMO_PROXY_LOG",
-        default_filter: "proxy_server=info,kumo_server_common=info,kumo_server_runtime=info",
-    }
-    .init()
-    .context("failed to initialize logging")?;
-
-    tracing::info!("Version is {} (legacy mode)", version_info::kumo_version());
-
-    let timeout = Duration::from_secs(opts.timeout_seconds);
-
-    // Build TLS acceptor if TLS is configured
-    let tls_acceptor =
-        if let (Some(cert_path), Some(key_path)) = (&opts.tls_certificate, &opts.tls_private_key) {
-            let hostname = gethostname::gethostname()
-                .to_str()
-                .unwrap_or("localhost")
-                .to_string();
-
-            let cert_source = KeySource::File(cert_path.display().to_string());
-            let key_source = KeySource::File(key_path.display().to_string());
-
-            let config = kumo_server_common::tls_helpers::make_server_config(
-                &hostname,
-                &Some(key_source),
-                &Some(cert_source),
-                &None,
-            )
-            .await
-            .context("failed to create TLS configuration")?;
-
-            tracing::info!("TLS enabled");
-            Some(TlsAcceptor::from(config))
-        } else {
-            None
-        };
-
-    // Start listeners
-    for endpoint in &opts.listen {
-        let listener = TcpListener::bind(endpoint)
-            .await
-            .with_context(|| format!("failed to bind to {endpoint}"))?;
-
-        let local_address = listener.local_addr()?;
-        let tls_acceptor = tls_acceptor.clone();
-        let no_splice = opts.no_splice;
-
-        if tls_acceptor.is_some() {
-            tracing::info!("proxy listener (TLS) on {local_address:?}");
-        } else {
-            tracing::info!("proxy listener on {local_address:?}");
-        }
-
-        tokio::spawn(async move {
-            legacy_accept_loop(listener, local_address, timeout, no_splice, tls_acceptor).await;
-        });
-    }
-
-    tracing::info!("initialization complete");
-
-    // Wait for shutdown signal
-    tokio::signal::ctrl_c().await?;
-    tracing::info!("shutting down");
-
-    Ok(())
-}
-
-async fn legacy_accept_loop(
-    listener: tokio::net::TcpListener,
-    local_address: std::net::SocketAddr,
-    timeout: Duration,
-    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] no_splice: bool,
-    tls_acceptor: Option<tokio_rustls::TlsAcceptor>,
-) {
-    loop {
-        let (socket, peer_address) = match listener.accept().await {
-            Ok(tuple) => tuple,
-            Err(err) => {
-                tracing::error!("accept failed: {err:#}");
-                return;
-            }
-        };
-
-        let tls_acceptor = tls_acceptor.clone();
-
-        tokio::spawn(async move {
-            let result = if let Some(acceptor) = tls_acceptor {
-                match acceptor.accept(socket).await {
-                    Ok(tls_stream) => {
-                        proxy_handler::handle_proxy_client(
-                            tls_stream,
-                            peer_address,
-                            local_address,
-                            timeout,
-                            no_splice,
-                            false, // No auth in legacy mode without Lua
-                        )
-                        .await
-                    }
-                    Err(err) => {
-                        tracing::debug!("TLS handshake failed from {peer_address:?}: {err:#}");
-                        return;
-                    }
-                }
-            } else {
-                proxy_handler::handle_proxy_client(
-                    socket,
-                    peer_address,
-                    local_address,
-                    timeout,
-                    no_splice,
-                    false, // No auth in legacy mode without Lua
-                )
-                .await
-            };
-
-            if let Err(err) = result {
-                tracing::error!("proxy session error from {peer_address:?}: {err:#}");
-            }
-        });
-    }
+    .run(perform_init(), signal_shutdown())
+    .await
 }

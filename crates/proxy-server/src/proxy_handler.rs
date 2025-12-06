@@ -30,98 +30,20 @@ where
     .with_context(|| format!("timeout reading client handshake from {peer_address:?}"))?
     .with_context(|| format!("failed to read client handshake from {peer_address:?}"))?;
 
-    if require_auth {
-        // RFC 1929 username/password authentication required
-        if !handshake
-            .methods
-            .contains(&SocksV5AuthMethod::UsernamePassword)
-        {
-            // Tell client we require password auth, but they didn't offer it
-            timeout(timeout_duration, async {
-                socksv5::v5::write_auth_method(&mut stream, SocksV5AuthMethod::NoAcceptableMethod)
-                    .await
-            })
-            .await
-            .with_context(|| {
-                format!("timeout sending NoAcceptableMethod response to {peer_address:?}")
-            })?
-            .with_context(|| {
-                format!("failed to send NoAcceptableMethod response to {peer_address:?}")
-            })?;
-            return Err(anyhow::anyhow!(
-                "client {peer_address:?} did not offer password authentication"
-            ));
-        }
-
-        // Tell client we want password auth (method 0x02)
-        timeout(timeout_duration, async {
-            socksv5::v5::write_auth_method(&mut stream, SocksV5AuthMethod::UsernamePassword).await
-        })
-        .await
-        .with_context(|| format!("timeout sending UsernamePassword response to {peer_address:?}"))?
-        .with_context(|| format!("failed to send UsernamePassword response to {peer_address:?}"))?;
-
-        // Read RFC 1929 username/password from client
-        let (username, password) = timeout(timeout_duration, async {
-            read_rfc1929_auth(&mut stream).await
-        })
-        .await
-        .with_context(|| format!("timeout reading password auth from {peer_address:?}"))?
-        .with_context(|| format!("failed to read password auth from {peer_address:?}"))?;
-
-        // Validate via Lua callback
-        let authenticated = match crate::mod_proxy::authenticate_user(
-            username.clone(),
-            password,
-            peer_address,
-            local_address,
-        )
-        .await
-        {
-            Ok(result) => result,
-            Err(err) => {
-                tracing::error!(
-                    "authentication callback error for {username} from {peer_address:?}: {err:#}"
-                );
-                false
-            }
-        };
-
-        if !authenticated {
-            tracing::warn!("authentication failed for user {username} from {peer_address:?}");
-            timeout(timeout_duration, async {
-                write_rfc1929_status(&mut stream, false).await
-            })
-            .await
-            .with_context(|| format!("timeout sending auth failure response to {peer_address:?}"))?
-            .with_context(|| format!("failed to send auth failure response to {peer_address:?}"))?;
-            return Err(anyhow::anyhow!(
-                "authentication failed for user {username} from {peer_address:?}"
-            ));
-        }
-
-        tracing::debug!("user {username} authenticated from {peer_address:?}");
-        timeout(timeout_duration, async {
-            write_rfc1929_status(&mut stream, true).await
-        })
-        .await
-        .with_context(|| format!("timeout sending auth success response to {peer_address:?}"))?
-        .with_context(|| format!("failed to send auth success response to {peer_address:?}"))?;
-    } else {
-        // No auth required - accept NOAUTH
-        if !handshake.methods.contains(&SocksV5AuthMethod::Noauth) {
-            return Err(anyhow::anyhow!(
-                "client {peer_address:?} requested authentication methods not supported by this proxy"
-            ));
-        }
-
-        timeout(timeout_duration, async {
-            socksv5::v5::write_auth_method(&mut stream, SocksV5AuthMethod::Noauth).await
-        })
-        .await
-        .with_context(|| format!("timeout sending Noauth response to {peer_address:?}"))?
-        .with_context(|| format!("failed to send Noauth response to {peer_address:?}"))?;
-    }
+    // Perform authentication using a more flexible approach:
+    // 1. If client offers UsernamePassword, authenticate them (optional auth supported)
+    // 2. If require_auth is set but client didn't offer UsernamePassword, reject
+    // 3. If client offers Noauth and we don't require auth, accept
+    // 4. Otherwise reject with no acceptable method
+    perform_auth(
+        &mut stream,
+        &handshake,
+        peer_address,
+        local_address,
+        timeout_duration,
+        require_auth,
+    )
+    .await?;
 
     loop {
         let request = timeout(timeout_duration, async {
@@ -383,4 +305,132 @@ where
 {
     let status = if success { 0x00 } else { 0x01 };
     stream.write_all(&[0x01, status]).await
+}
+
+/// Perform SOCKS5 authentication following a flexible approach:
+/// 1. If client offers UsernamePassword, authenticate them (supports optional auth)
+/// 2. If require_auth is set but client didn't offer UsernamePassword, reject
+/// 3. If client offers Noauth and we don't require auth, accept
+/// 4. Otherwise reject with no acceptable method
+async fn perform_auth<S>(
+    stream: &mut S,
+    handshake: &socksv5::v5::SocksV5Handshake,
+    peer_address: SocketAddr,
+    local_address: SocketAddr,
+    timeout_duration: std::time::Duration,
+    require_auth: bool,
+) -> anyhow::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    // Case 1: Client offers UsernamePassword - always try to authenticate
+    if handshake
+        .methods
+        .contains(&SocksV5AuthMethod::UsernamePassword)
+    {
+        // Tell client we want password auth (method 0x02)
+        timeout(
+            timeout_duration,
+            socksv5::v5::write_auth_method(&mut *stream, SocksV5AuthMethod::UsernamePassword),
+        )
+        .await
+        .with_context(|| format!("timeout sending UsernamePassword response to {peer_address:?}"))?
+        .with_context(|| {
+            format!("failed to send UsernamePassword response to {peer_address:?}")
+        })?;
+
+        // Read RFC 1929 username/password from client
+        let (username, password) = timeout(timeout_duration, read_rfc1929_auth(&mut *stream))
+            .await
+            .with_context(|| format!("timeout reading password auth from {peer_address:?}"))?
+            .with_context(|| format!("failed to read password auth from {peer_address:?}"))?;
+
+        // Validate via Lua callback
+        let authenticated = match crate::mod_proxy::authenticate_user(
+            username.clone(),
+            password,
+            peer_address,
+            local_address,
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(err) => {
+                tracing::error!(
+                    "authentication callback error for {username} from {peer_address:?}: {err:#}"
+                );
+                false
+            }
+        };
+
+        if !authenticated {
+            tracing::warn!("authentication failed for user {username} from {peer_address:?}");
+            timeout(timeout_duration, write_rfc1929_status(&mut *stream, false))
+                .await
+                .with_context(|| {
+                    format!("timeout sending auth failure response to {peer_address:?}")
+                })?
+                .with_context(|| {
+                    format!("failed to send auth failure response to {peer_address:?}")
+                })?;
+            anyhow::bail!("authentication failed for user {username} from {peer_address:?}");
+        }
+
+        tracing::debug!("user {username} authenticated from {peer_address:?}");
+        timeout(timeout_duration, write_rfc1929_status(&mut *stream, true))
+            .await
+            .with_context(|| {
+                format!("timeout sending auth success response to {peer_address:?}")
+            })?
+            .with_context(|| {
+                format!("failed to send auth success response to {peer_address:?}")
+            })?;
+
+        return Ok(());
+    }
+
+    // Case 2: require_auth is set but client didn't offer UsernamePassword
+    if require_auth {
+        timeout(
+            timeout_duration,
+            socksv5::v5::write_auth_method(&mut *stream, SocksV5AuthMethod::NoAcceptableMethod),
+        )
+        .await
+        .with_context(|| {
+            format!("timeout sending NoAcceptableMethod response to {peer_address:?}")
+        })?
+        .with_context(|| {
+            format!("failed to send NoAcceptableMethod response to {peer_address:?}")
+        })?;
+        anyhow::bail!("client {peer_address:?} did not offer password authentication");
+    }
+
+    // Case 3: Client offers Noauth and we don't require auth - accept
+    if handshake.methods.contains(&SocksV5AuthMethod::Noauth) {
+        timeout(
+            timeout_duration,
+            socksv5::v5::write_auth_method(&mut *stream, SocksV5AuthMethod::Noauth),
+        )
+        .await
+        .with_context(|| format!("timeout sending Noauth response to {peer_address:?}"))?
+        .with_context(|| format!("failed to send Noauth response to {peer_address:?}"))?;
+
+        return Ok(());
+    }
+
+    // Case 4: No acceptable authentication method
+    timeout(
+        timeout_duration,
+        socksv5::v5::write_auth_method(&mut *stream, SocksV5AuthMethod::NoAcceptableMethod),
+    )
+    .await
+    .with_context(|| {
+        format!("timeout sending NoAcceptableMethod response to {peer_address:?}")
+    })?
+    .with_context(|| {
+        format!("failed to send NoAcceptableMethod response to {peer_address:?}")
+    })?;
+    anyhow::bail!(
+        "client {peer_address:?} requested authentication methods not supported by this proxy"
+    );
 }

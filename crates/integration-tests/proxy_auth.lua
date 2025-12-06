@@ -7,7 +7,7 @@ kumo.on('proxy_init', function()
   }
 end)
 
-kumo.on('proxy_server_auth_1929', function(username, password, conn_meta)
+kumo.on('proxy_server_auth_rfc1929', function(username, password, conn_meta)
   -- conn_meta is a table with peer_address and local_address
   -- Simple auth: accept testuser/testpass
   return username == 'testuser' and password == 'testpass'

@@ -19,7 +19,9 @@ pub struct ProxyDaemon {
 
 #[derive(Default, Debug)]
 pub struct ProxyArgs {
-    pub policy_file: String,
+    /// Path to the Lua proxy config file.
+    /// If None, uses legacy CLI mode with --listen 127.0.0.1:0
+    pub proxy_config: Option<String>,
     pub env: Vec<(String, String)>,
 }
 
@@ -30,17 +32,29 @@ impl ProxyDaemon {
         let dir = tempfile::tempdir().context("make temp dir")?;
 
         let mut cmd = Command::new(&path);
-        cmd.args(["--policy", &args.policy_file])
-            .env(
-                "KUMO_PROXY_LOG",
-                "proxy_server=trace,kumo_server_common=info,kumo_server_runtime=info",
-            )
-            .env("KUMO_PROXY_TEST_DIR", dir.path())
-            .envs(args.env.iter().cloned())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .stdin(Stdio::null())
-            .kill_on_drop(true);
+
+        // Use either --proxy-config or legacy --listen mode
+        let label = match &args.proxy_config {
+            Some(config_file) => {
+                cmd.args(["--proxy-config", config_file]);
+                config_file.clone()
+            }
+            None => {
+                cmd.args(["--listen", "127.0.0.1:0"]);
+                "legacy-mode".to_string()
+            }
+        };
+
+        cmd.env(
+            "KUMO_PROXY_LOG",
+            "proxy_server=trace,kumo_server_common=info,kumo_server_runtime=info",
+        )
+        .env("KUMO_PROXY_TEST_DIR", dir.path())
+        .envs(args.env.iter().cloned())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .kill_on_drop(true);
 
         let cmd_label = format!("{cmd:?}");
 
@@ -73,7 +87,7 @@ impl ProxyDaemon {
             }
         }
 
-        let stdout_prefix = format!("{} stdout", &args.policy_file);
+        let stdout_prefix = format!("{label} stdout");
         tokio::spawn(async move {
             copy_stream_with_line_prefix(&stdout_prefix, &mut stdout, &mut tokio::io::stderr())
                 .await
@@ -112,7 +126,7 @@ impl ProxyDaemon {
         }
 
         // Now just pipe the output through to the test harness
-        let stderr_prefix = format!("{} stderr", &args.policy_file);
+        let stderr_prefix = format!("{label} stderr");
         tokio::spawn(async move {
             copy_stream_with_line_prefix(&stderr_prefix, &mut stderr, &mut tokio::io::stderr())
                 .await
