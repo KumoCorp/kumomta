@@ -38,6 +38,8 @@ kumo.on('init', function()
   kumo.configure_local_logs {
     log_dir = TEST_DIR .. '/logs',
     max_segment_duration = '1s',
+    min_free_space = 0,
+    min_free_inodes = 0,
     meta = {
       '*',
     },

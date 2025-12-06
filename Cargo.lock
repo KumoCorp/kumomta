@@ -3744,6 +3744,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-tls-helper"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hickory-proto",
+ "libc",
+ "linkme",
+ "lruttl",
+ "openssl",
+ "rustls",
+ "rustls-pemfile",
+ "rustls-platform-verifier",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-openssl",
+ "tokio-rustls",
+ "tracing",
+]
+
+[[package]]
 name = "kumo-wrap"
 version = "0.1.0"
 dependencies = [
@@ -5809,13 +5829,27 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "env_logger",
+ "config",
+ "data-loader",
+ "duration-serde",
+ "gethostname 1.0.2",
+ "kumo-server-common",
+ "kumo-server-lifecycle",
+ "kumo-server-memory",
+ "kumo-server-runtime",
  "libc",
- "log",
+ "linkme",
+ "mlua",
  "nix 0.30.1",
+ "rustls",
+ "serde",
  "socksv5",
+ "tempfile",
  "tokio",
+ "tokio-rustls",
  "tokio-splice",
+ "tracing",
+ "version-info",
 ]
 
 [[package]]
@@ -6331,6 +6365,7 @@ dependencies = [
  "duration-serde",
  "hickory-proto",
  "idna",
+ "kumo-tls-helper",
  "libc",
  "linkme",
  "lruttl",

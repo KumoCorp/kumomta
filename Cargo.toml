@@ -11,6 +11,7 @@ members = [
   "crates/kumo-prometheus",
   "crates/kumo-spf",
   "crates/kumo-template",
+  "crates/kumo-tls-helper",
   "crates/kumo-wrap",
   "crates/kumod",
   "crates/mailparsing",
