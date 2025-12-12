@@ -1,10 +1,37 @@
 # Viewing Logs
 
 An important part of routine opperations is checking logs. KumoMTA compressed
-logs are found in `/var/log/kumomta/` and are named by date stamp. Logs are
-segmented by a combination of size/time and stored in compressed files named
-after the time that the segment was started. To read these, you need to unpack
-them first. You have many options for configuring logging.
+logs are found in `/var/log/kumomta/` by default and are named by date stamp.
+Logs are segmented by a combination of size/time and stored in compressed
+files named after the time that the segment was started. To read these, you
+need to unpack them first. You have many options for configuring logging.
+
+If you prefer to spread segments across a directory hierarchy, configure
+[`log_dir`](../../reference/kumo/configure_local_logs/log_dir.md) to include
+[`strftime`](https://docs.rs/chrono/latest/chrono/format/strftime/index.html)
+placeholders. For example, a configuration such as:
+
+```lua
+kumo.configure_local_logs {
+  log_dir = "/var/log/kumo-logs/%Y/%m/%d",
+}
+```
+
+stores new segments under directories like `/var/log/kumo-logs/2025/11/15`.
+Dynamic paths are resolved for every write using UTC by default, and the
+required directories are created automatically as the timestamps roll forward
+(hourly, daily, and so on).
+
+Time zone behavior:
+
+* Directory templates use **UTC** by default so the generated paths align across
+  hosts. Set `log_dir_timezone = 'Local'` (globally or per record) if you want
+  directories to match the server's `date` output instead.
+* The JSON log records themselves keep their timestamps in **UTC** (via
+  `chrono::Utc::now()`), matching the [`kumo.time/Time` API](../../reference/kumo.time/Time.md)
+  which stores wall-clock values in UTC internally. Using local or UTC for
+  paths and UTC inside the record payloads is intentional and does not affect
+  log creation or rotation.
 
 ```
 /var/log/kumomta
