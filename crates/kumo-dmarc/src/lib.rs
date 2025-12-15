@@ -162,10 +162,11 @@ impl<'a> DmarcContext<'a> {
     }
 
     pub async fn check(&self, resolver: &dyn Resolver) -> DispositionWithContext {
-        match fetch_dmarc_records(&format!("_dmarc.{}", self.from_domain), resolver).await {
+        let dmarc_domain = format!("_dmarc.{}", self.from_domain);
+        match fetch_dmarc_records(&dmarc_domain, resolver).await {
             DmarcRecordResolution::Records(records) => {
                 for record in records {
-                    return record.evaluate(self, SenderDomainAlignment::Exact).await;
+                    return record.evaluate(self, &dmarc_domain, SenderDomainAlignment::Exact).await;
                 }
             }
             x => {
@@ -191,7 +192,7 @@ impl<'a> DmarcContext<'a> {
                             DmarcRecordResolution::Records(records) => {
                                 for record in records {
                                     return record
-                                        .evaluate(self, SenderDomainAlignment::OrganizationalDomain)
+                                        .evaluate(self, &address, SenderDomainAlignment::OrganizationalDomain)
                                         .await;
                                 }
                             }
