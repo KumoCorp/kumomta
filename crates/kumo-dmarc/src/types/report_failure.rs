@@ -77,4 +77,3 @@ impl FromStr for ReportFailure {
         Ok(new)
     }
 }
-

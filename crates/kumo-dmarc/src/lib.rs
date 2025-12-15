@@ -34,7 +34,7 @@ pub struct CheckHostParams {
     pub spf_result: AuthenticationResult,
 
     /// The additional information needed to perform reporting
-    pub reporting_info: Option<ReportingInfo>
+    pub reporting_info: Option<ReportingInfo>,
 }
 
 impl CheckHostParams {
@@ -52,7 +52,7 @@ impl CheckHostParams {
             mail_from_domain.as_ref().map(|x| x.as_str()),
             &dkim_results[..],
             &spf_result,
-            reporting_info.as_ref()
+            reporting_info.as_ref(),
         );
 
         dmarc_context.check(resolver).await
@@ -127,7 +127,7 @@ impl<'a> DmarcContext<'a> {
             now: SystemTime::now(),
             dkim_results,
             spf_result,
-            reporting_info
+            reporting_info,
         }
     }
 
@@ -166,7 +166,9 @@ impl<'a> DmarcContext<'a> {
         match fetch_dmarc_records(&dmarc_domain, resolver).await {
             DmarcRecordResolution::Records(records) => {
                 for record in records {
-                    return record.evaluate(self, &dmarc_domain, SenderDomainAlignment::Exact).await;
+                    return record
+                        .evaluate(self, &dmarc_domain, SenderDomainAlignment::Exact)
+                        .await;
                 }
             }
             x => {
@@ -192,7 +194,11 @@ impl<'a> DmarcContext<'a> {
                             DmarcRecordResolution::Records(records) => {
                                 for record in records {
                                     return record
-                                        .evaluate(self, &address, SenderDomainAlignment::OrganizationalDomain)
+                                        .evaluate(
+                                            self,
+                                            &address,
+                                            SenderDomainAlignment::OrganizationalDomain,
+                                        )
                                         .await;
                                 }
                             }

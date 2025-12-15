@@ -51,12 +51,7 @@ impl Record {
                         }
                     } else {
                         let error_msg = "DMARC: DKIM signature missing 'd=' tag";
-                        cx.report_error(
-                            &self,
-                            dmarc_domain,
-                            error_msg,
-                        )
-                        .await;
+                        cx.report_error(&self, dmarc_domain, error_msg).await;
                         return DispositionWithContext {
                             result: self.select_failure_mode(sender_domain_alignment),
                             context: error_msg.into(),
@@ -69,8 +64,7 @@ impl Record {
                     if let Some(result) = dkim.props.get("header.d") {
                         if cx.from_domain != result {
                             let error_msg = "DMARC: DKIM strict check failed";
-                            cx.report_error(&self, dmarc_domain, error_msg)
-                                .await;
+                            cx.report_error(&self, dmarc_domain, error_msg).await;
 
                             return DispositionWithContext {
                                 result: self.select_failure_mode(sender_domain_alignment),
@@ -79,12 +73,7 @@ impl Record {
                         }
                     } else {
                         let error_msg = "DMARC: DKIM signature missing 'd=' tag";
-                        cx.report_error(
-                            &self,
-                            dmarc_domain,
-                            error_msg,
-                        )
-                        .await;
+                        cx.report_error(&self, dmarc_domain, error_msg).await;
                         return DispositionWithContext {
                             result: self.select_failure_mode(sender_domain_alignment),
                             context: error_msg.into(),
@@ -103,12 +92,7 @@ impl Record {
                         && organizational_domain != Some(cx.from_domain)
                     {
                         let error_msg = "DMARC: SPF relaxed check failed";
-                        cx.report_error(
-                            &self,
-                            dmarc_domain,
-                            error_msg,
-                        )
-                        .await;
+                        cx.report_error(&self, dmarc_domain, error_msg).await;
                         return DispositionWithContext {
                             result: self.select_failure_mode(sender_domain_alignment),
                             context: error_msg.into(),
@@ -120,12 +104,7 @@ impl Record {
                 if let Some(mail_from_domain) = cx.mail_from_domain {
                     if mail_from_domain != cx.from_domain {
                         let error_msg = "DMARC: SPF strict check failed";
-                        cx.report_error(
-                            &self,
-                            dmarc_domain,
-                            error_msg,
-                        )
-                        .await;
+                        cx.report_error(&self, dmarc_domain, error_msg).await;
                         return DispositionWithContext {
                             result: self.select_failure_mode(sender_domain_alignment),
                             context: error_msg.into(),

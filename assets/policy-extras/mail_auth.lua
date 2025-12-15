@@ -102,7 +102,13 @@ function mod.check(msg, config)
     local spf_disp = kumo.spf.check_msg(msg, config.resolver)
     spf_auth_result = spf_disp.result
 
-    local dmarc_disp = kumo.dmarc.check_msg(msg, false, dkim_auth_results, spf_auth_result, config.resolver)
+    local dmarc_disp = kumo.dmarc.check_msg(
+      msg,
+      false,
+      dkim_auth_results,
+      spf_auth_result,
+      config.resolver
+    )
     dmarc_auth_result = dmarc_disp.result
 
     table.insert(auth_results, dmarc_auth_result)

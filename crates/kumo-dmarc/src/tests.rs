@@ -366,8 +366,13 @@ async fn evaluate_ip<'a>(
         }
     }
 
-    let dmarc_context =
-        DmarcContext::new(from_domain, Some(mail_from_domain), &dkim_vec, &spf_result, None);
+    let dmarc_context = DmarcContext::new(
+        from_domain,
+        Some(mail_from_domain),
+        &dkim_vec,
+        &spf_result,
+        None,
+    );
 
     dmarc_context.check(resolver).await
 }
