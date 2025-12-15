@@ -7,6 +7,12 @@ pub struct DateRange {
     end: DateTime<Utc>,
 }
 
+impl DateRange {
+    pub fn new(begin: DateTime<Utc>, end: DateTime<Utc>) -> Self {
+        Self { begin, end }
+    }
+}
+
 impl ToXml for DateRange {
     fn serialize<W: std::fmt::Write + ?Sized>(
         &self,

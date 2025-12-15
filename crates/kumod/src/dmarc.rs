@@ -1,5 +1,5 @@
 use config::{any_err, get_or_create_sub_module, serialize_options};
-use kumo_dmarc::{CheckHostParams, Disposition};
+use kumo_dmarc::{CheckHostParams, Disposition, ReportingInfo};
 use mailparsing::AuthenticationResult;
 use message::Message;
 use mlua::{Lua, LuaSerdeExt, UserDataRef};
@@ -20,13 +20,16 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
         "check_msg",
         lua.create_async_function(
             |lua,
-             (msg, dkim_results, opt_resolver_name): (
+             (msg, use_reporting, dkim_results, spf_result, opt_reporting_info, opt_resolver_name): (
                 UserDataRef<Message>,
+                bool,
+                mlua::Value,
+                mlua::Value,
                 mlua::Value,
                 Option<String>,
             )| async move {
                 let resolver = get_resolver_instance(&opt_resolver_name).map_err(any_err)?;
-
+                
                 // MAIL FROM
                 let msg_sender = msg.sender().await;
 
@@ -72,10 +75,24 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 let dkim_results: Vec<AuthenticationResult> =
                     config::from_lua_value(&lua, dkim_results)?;
 
+                let spf_result: AuthenticationResult = config::from_lua_value(&lua, spf_result)?;
+
+                let reporting_info = if use_reporting {
+                    if let Ok(reporting_info) = config::from_lua_value::<ReportingInfo>(&lua, opt_reporting_info) {
+                        Some(reporting_info)
+                    } else {
+                        todo!("Report error code here")
+                    }
+                } else {
+                    None
+                };
+
                 let result = CheckHostParams {
                     from_domain,
                     mail_from_domain,
-                    dkim: dkim_results.clone().into_iter().map(|x| x.props).collect(),
+                    dkim_results,
+                    spf_result,
+                    reporting_info,
                 }
                 .check(&**resolver)
                 .await;

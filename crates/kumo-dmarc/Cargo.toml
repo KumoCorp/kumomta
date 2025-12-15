@@ -8,9 +8,11 @@ chrono = {workspace=true}
 dns-resolver = {path="../dns-resolver"}
 instant-xml = {workspace=true}
 kumo-spf = { path = "../kumo-spf" }
+mailparsing = {path="../mailparsing"}
 psl = {workspace=true}
 serde = {workspace=true}
 rand = {workspace=true}
+uuid = {workspace=true, features=["v4", "fast-rng"]}
 
 [dev-dependencies]
 k9 = {workspace=true}

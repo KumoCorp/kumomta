@@ -10,3 +10,19 @@ pub struct Feedback {
     policy: PolicyPublished,
     record: Vec<Results>,
 }
+
+impl Feedback {
+    pub fn new(
+        version: String,
+        metadata: ReportMetadata,
+        policy: PolicyPublished,
+        record: Vec<Results>,
+    ) -> Self {
+        Self {
+            version,
+            metadata,
+            policy,
+            record,
+        }
+    }
+}

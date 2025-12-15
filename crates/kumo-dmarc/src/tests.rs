@@ -1,6 +1,7 @@
 use crate::types::results::DispositionWithContext;
 use crate::{Disposition, DmarcContext};
 use dns_resolver::{Resolver, TestResolver};
+use mailparsing::AuthenticationResult;
 use std::collections::BTreeMap;
 
 struct TestData<'a> {
@@ -337,21 +338,38 @@ async fn evaluate_ip<'a>(
 ) -> DispositionWithContext {
     let mut dkim_vec = vec![];
 
-    for dkim_domain in dkim_domains {
-        if let Some(dkim_domain) = dkim_domain {
-            let mut map = BTreeMap::new();
-            map.insert("header.d".to_string(), dkim_domain.to_string());
+    let spf_result = AuthenticationResult {
+        method: "spf".to_string(),
+        method_version: None,
+        result: String::new(),
+        reason: None,
+        props: BTreeMap::new(),
+    };
 
-            dkim_vec.push(map);
+    for dkim_domain in dkim_domains {
+        let mut authentication_result = AuthenticationResult {
+            method: "dkim".to_string(),
+            method_version: None,
+            result: String::new(),
+            reason: None,
+            props: BTreeMap::new(),
+        };
+
+        if let Some(dkim_domain) = dkim_domain {
+            authentication_result
+                .props
+                .insert("header.d".to_string(), dkim_domain.to_string());
+
+            dkim_vec.push(authentication_result);
         } else {
-            dkim_vec.push(BTreeMap::new());
+            dkim_vec.push(authentication_result);
         }
     }
 
-    match DmarcContext::new(from_domain, Some(mail_from_domain), &dkim_vec) {
-        Ok(cx) => cx.check(resolver).await,
-        Err(result) => result,
-    }
+    let dmarc_context =
+        DmarcContext::new(from_domain, Some(mail_from_domain), &dkim_vec, &spf_result, None);
+
+    dmarc_context.check(resolver).await
 }
 
 const EXAMPLE_COM: &str = r#"; A domain with two mail servers, two hosts, and two servers
