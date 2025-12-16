@@ -12,13 +12,16 @@ use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use chrono::Utc;
 use cidr_map::{CidrMap, CidrSet};
-use config::{any_err, declare_event, load_config, serialize_options, CallbackSignature};
+use config::{
+    any_err, declare_event, load_config, serialize_options, CallbackSignature, SerdeWrappedValue,
+};
 use data_encoding::BASE64;
 use data_loader::KeySource;
 use derive_where::derive_where;
 use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::AtomicCounter;
 use kumo_server_common::authn_authz::{AuthInfo, Identity, IdentityContext};
+use kumo_server_common::http_server::auth::AuthKindResult;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::{spawn, Runtime};
 use lruttl::declare_cache;
@@ -101,6 +104,16 @@ static SMTP_SERVER_REWRITE_RESPONSE: Single(
     command: Option<String>,
     connection_metadata: ConnectionMetaData
 ) -> (Option<u16>, Option<String>);
+}
+
+declare_event! {
+static SMTP_SERVER_AUTH_PLAIN: Single(
+    "smtp_server_auth_plain",
+    authz: &str,
+    authc: &str,
+    password: &str,
+    connection_metadata: ConnectionMetaData
+) -> SerdeWrappedValue<AuthKindResult>;
 }
 
 static CRLF: LazyLock<Finder> = LazyLock::new(|| Finder::new("\r\n"));
@@ -1912,8 +1925,8 @@ impl SmtpServerSession {
                             let authz = if authz.is_empty() { authc } else { authz };
 
                             match self
-                                .call_callback(
-                                    "smtp_server_auth_plain",
+                                .call_callback_sig(
+                                    &SMTP_SERVER_AUTH_PLAIN,
                                     (authz, authc, pass, self.meta.clone()),
                                 )
                                 .await?
@@ -1928,41 +1941,105 @@ impl SmtpServerSession {
                                     .await?;
                                     continue;
                                 }
-                                Ok(false) => {
-                                    self.write_response(
-                                        535,
-                                        "5.7.8 AUTH invalid",
-                                        Some(response),
-                                        RejectDisconnect::If421,
-                                    )
-                                    .await?;
-                                }
-                                Ok(true) => {
-                                    self.authorization_id.replace(authz.to_string());
-                                    self.authentication_id.replace(authc.to_string());
-                                    self.meta.set_meta("authz_id", authz);
-                                    self.meta.set_meta("authn_id", authc);
-
-                                    {
-                                        let mut auth_info = self.meta.auth_info.lock();
-                                        auth_info.add_identity(Identity {
-                                            identity: authz.to_string(),
-                                            context: IdentityContext::SmtpAuthPlainAuthorization,
-                                        });
-                                        auth_info.add_identity(Identity {
-                                            identity: authc.to_string(),
-                                            context: IdentityContext::SmtpAuthPlainAuthentication,
-                                        });
+                                Ok(wrapped) => match wrapped.0 {
+                                    AuthKindResult::Bool(false) => {
+                                        self.write_response(
+                                            535,
+                                            "5.7.8 AUTH invalid",
+                                            Some(response),
+                                            RejectDisconnect::If421,
+                                        )
+                                        .await?;
                                     }
+                                    AuthKindResult::Bool(true) => {
+                                        self.authorization_id.replace(authz.to_string());
+                                        self.authentication_id.replace(authc.to_string());
+                                        self.meta.set_meta("authz_id", authz);
+                                        self.meta.set_meta("authn_id", authc);
 
-                                    self.write_response(
-                                        235,
-                                        "2.7.0 AUTH OK!",
-                                        None,
-                                        RejectDisconnect::If421,
-                                    )
-                                    .await?;
-                                }
+                                        {
+                                            let mut auth_info = self.meta.auth_info.lock();
+                                            auth_info.add_identity(Identity {
+                                                identity: authz.to_string(),
+                                                context:
+                                                    IdentityContext::SmtpAuthPlainAuthorization,
+                                            });
+                                            auth_info.add_identity(Identity {
+                                                identity: authc.to_string(),
+                                                context:
+                                                    IdentityContext::SmtpAuthPlainAuthentication,
+                                            });
+                                        }
+
+                                        self.write_response(
+                                            235,
+                                            "2.7.0 AUTH OK!",
+                                            None,
+                                            RejectDisconnect::If421,
+                                        )
+                                        .await?;
+                                    }
+                                    AuthKindResult::AuthInfo(info) => {
+                                        // Reconcile what they returned.
+                                        // In particular, they may not have explicitly
+                                        // populated identities with SmtpAuthPlainAuthentication or
+                                        // SmtpAuthPlainAuthorization contexts so we may
+                                        // need to infer something reasonable
+                                        let mut seen_authc = false;
+                                        let mut seen_authz = false;
+
+                                        if info.identities.is_empty() {
+                                            anyhow::bail!("smtp_server_auth_plain returned an AuthInfo with an empty identities list, which is not supported");
+                                        }
+
+                                        for ident in &info.identities {
+                                            match ident.context {
+                                                IdentityContext::SmtpAuthPlainAuthentication => {
+                                                    seen_authc = true;
+                                                    self.authentication_id
+                                                        .replace(ident.identity.to_string());
+                                                }
+                                                IdentityContext::SmtpAuthPlainAuthorization => {
+                                                    seen_authz = true;
+                                                    self.authorization_id
+                                                        .replace(ident.identity.to_string());
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+
+                                        if !seen_authc {
+                                            self.authentication_id = info
+                                                .identities
+                                                .first()
+                                                .map(|ident| ident.identity.to_string());
+                                        }
+                                        if !seen_authz {
+                                            self.authorization_id = info
+                                                .identities
+                                                .first()
+                                                .map(|ident| ident.identity.to_string());
+                                        }
+
+                                        self.meta
+                                            .set_meta("authz_id", self.authorization_id.clone());
+                                        self.meta
+                                            .set_meta("authn_id", self.authentication_id.clone());
+
+                                        {
+                                            let mut auth_info = self.meta.auth_info.lock();
+                                            auth_info.merge_from(info);
+                                        }
+
+                                        self.write_response(
+                                            235,
+                                            "2.7.0 AUTH OK!",
+                                            None,
+                                            RejectDisconnect::If421,
+                                        )
+                                        .await?;
+                                    }
+                                },
                             }
                         }
                         Err(_) => {
@@ -3250,6 +3327,10 @@ impl UserData for ConnectionMetaData {
                 Some(value) => Ok(lua.to_value_with(&value, serialize_options())?),
                 None => Ok(mlua::Value::Nil),
             }
+        });
+
+        methods.add_method("auth_info", move |_lua, this, ()| {
+            Ok(SerdeWrappedValue(this.auth_info.lock().clone()))
         });
     }
 }

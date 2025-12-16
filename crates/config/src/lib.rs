@@ -522,6 +522,24 @@ pub fn materialize_to_lua_value(lua: &Lua, value: mlua::Value) -> mlua::Result<m
 /// Helper wrapper type for passing/returning serde encoded values from/to lua
 pub struct SerdeWrappedValue<T>(pub T);
 
+impl<T: serde::Serialize> serde::Serialize for SerdeWrappedValue<T> {
+    fn serialize<S>(
+        &self,
+        s: S,
+    ) -> Result<<S as serde::Serializer>::Ok, <S as serde::Serializer>::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.serialize(s)
+    }
+}
+
+impl<T: Default> Default for SerdeWrappedValue<T> {
+    fn default() -> Self {
+        SerdeWrappedValue(Default::default())
+    }
+}
+
 impl<T: serde::Serialize> SerdeWrappedValue<T> {
     pub fn to_lua_value(&self, lua: &Lua) -> mlua::Result<mlua::Value> {
         lua.to_value_with(&self.0, serialize_options())

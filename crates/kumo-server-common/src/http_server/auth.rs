@@ -7,13 +7,27 @@ use axum::extract::{FromRequestParts, Request, State};
 use axum::http::{StatusCode, Uri};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use config::{load_config, CallbackSignature};
+use config::{declare_event, load_config, SerdeWrappedValue};
+use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
 use tokio::time::{Duration, Instant};
 
 lruttl::declare_cache! {
 /// Caches the results of the http server auth validation by auth credential
-static AUTH_CACHE: LruCacheWithTtl<AuthKind, Result<bool, String>>::new("http_server_auth", 128);
+static AUTH_CACHE: LruCacheWithTtl<AuthKind, Result<AuthKindResult, String>>::new("http_server_auth", 128);
+}
+
+declare_event! {
+static HTTP_AUTH_BASIC: Single("http_server_validate_auth_basic",
+    username: String,
+    password: Option<String>
+) -> SerdeWrappedValue<AuthKindResult>;
+}
+
+declare_event! {
+static HTTP_AUTH_BEARER: Single("http_server_validate_auth_bearer",
+    token: String
+) -> SerdeWrappedValue<AuthKindResult>;
 }
 
 /// Represents some authenticated identity.
@@ -29,6 +43,19 @@ pub enum AuthKind {
     Bearer {
         token: String,
     },
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum AuthKindResult {
+    Bool(bool),
+    AuthInfo(AuthInfo),
+}
+
+impl Default for AuthKindResult {
+    fn default() -> Self {
+        Self::Bool(false)
+    }
 }
 
 impl AuthKind {
@@ -52,33 +79,32 @@ impl AuthKind {
         }
     }
 
-    async fn check_authentication_impl(&self) -> anyhow::Result<bool> {
+    async fn check_authentication_impl(&self) -> anyhow::Result<AuthKindResult> {
         let mut config = load_config().await?;
         let result = match self {
-            Self::TrustedIp(_) => true,
+            Self::TrustedIp(_) => AuthKindResult::Bool(true),
             Self::Basic { user, password } => {
-                let sig = CallbackSignature::<(String, Option<String>), bool>::new(
-                    "http_server_validate_auth_basic",
-                );
                 config
-                    .async_call_callback(&sig, (user.to_string(), password.clone()))
+                    .async_call_callback(&HTTP_AUTH_BASIC, (user.to_string(), password.clone()))
                     .await?
+                    .0
             }
             Self::Bearer { token } => {
-                let sig =
-                    CallbackSignature::<String, bool>::new("http_server_validate_auth_bearer");
-                config.async_call_callback(&sig, token.to_string()).await?
+                config
+                    .async_call_callback(&HTTP_AUTH_BEARER, token.to_string())
+                    .await?
+                    .0
             }
         };
         config.put();
         Ok(result)
     }
 
-    async fn lookup_cache(&self) -> Option<Result<bool, String>> {
+    async fn lookup_cache(&self) -> Option<Result<AuthKindResult, String>> {
         AUTH_CACHE.get(self)
     }
 
-    pub async fn check_authentication(&self) -> anyhow::Result<bool> {
+    pub async fn check_authentication(&self) -> anyhow::Result<AuthKindResult> {
         match self.lookup_cache().await {
             Some(res) => res.map_err(|err| anyhow::anyhow!("{err}")),
             None => {
@@ -150,7 +176,7 @@ pub async fn auth_middleware(
                         .into_response()
                 }
                 Some(kind) => match kind.check_authentication().await {
-                    Ok(true) => {
+                    Ok(AuthKindResult::Bool(true)) => {
                         // Store the authentication info for later retrieval
                         if let AuthKind::Basic { user, .. } = &kind {
                             auth_info.add_identity(Identity {
@@ -160,8 +186,13 @@ pub async fn auth_middleware(
                         }
                         auth_kind.replace(kind);
                     }
-                    Ok(false) => {
+                    Ok(AuthKindResult::Bool(false)) => {
                         return (StatusCode::UNAUTHORIZED, "Authentication Failed").into_response()
+                    }
+                    Ok(AuthKindResult::AuthInfo(info)) => {
+                        // Copy identities and groups across
+                        auth_info.merge_from(info);
+                        auth_kind.replace(kind);
                     }
                     Err(err) => {
                         tracing::error!("Error validating {kind:?}: {err:#}");

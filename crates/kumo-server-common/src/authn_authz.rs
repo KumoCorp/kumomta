@@ -40,9 +40,6 @@ static GET_ACL_DEF_SIG: Multiple(
 // TODO: AAA log for audit/debugging purposes
 
 // TODO:
-//  * add ConnectionMetaData::add_auth_identity lua method for folks
-//    to call from inside their smtp_server_auth_plain event
-//  * Expand http_server_validate_auth_basic to allow something similar
 //  * Formalize object mapping. For example, in kumod we should map
 //    scheduled queues to some kind of object hierarchy. The default should
 //    be something like:
@@ -74,12 +71,6 @@ static GET_ACL_DEF_SIG: Multiple(
 //    that object mapping.  eg: one encodes `pool_tenant` in the campaign identifier.
 //    Is that neutral wrt. access control?
 //
-//  * Define some machine groups based on IP.  For example, the http listener
-//    has a cidrset of trusted hosts. We could pre-define a `machine-set:trusted`
-//    group to represent membership within that set.  For the smtp listener there
-//    is a relay_hosts config; we could mark those connections as having
-//    `machine-set:smtp-relay-hosts`.
-//
 //  * Sanity check that we can apply this model to the things that matter:
 //     * mailops doing queue flushing, bouncing, inspecting
 //     * mailops summarizing queue stats
@@ -108,6 +99,7 @@ pub enum IdentityContext {
     BearerToken,
     ProxyAuthRfc1929,
     LocalSystem,
+    GenericAuth,
 }
 
 #[derive(Default, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -165,6 +157,12 @@ impl AuthInfo {
             result.push_str(&format!("@ ip={peer}"));
         }
         result
+    }
+
+    /// Merges groups and identities from other, ignoring its peer_address
+    pub fn merge_from(&mut self, mut other: Self) {
+        self.identities.append(&mut other.identities);
+        self.groups.append(&mut other.groups);
     }
 
     /// Add an identity to the list

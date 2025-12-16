@@ -23,7 +23,7 @@ within your own custom policy.
 
 `PRIVILEGE` is a string describing the nature of the access privilege that is being attempted.
 
-`AUTH_INFO` is a lua object describing the authentication status of the current session.
+`AUTH_INFO` is an [AuthInfo](auth_info.md) describing the authentication status of the current session.
 You will typically obtain the auth info from the connection metadata, but you can also
 define an auth info for yourself in code if you have an advanced use case.
 

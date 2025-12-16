@@ -57,3 +57,13 @@ Values may be predefined by KumoMTA or may be set by policy scripts using `conn_
 
 Sets the value associated with *name* to *value*.  Value must be serializable as JSON; it can be simple
 strings or numbers, but may also be an array or object value.
+
+### `conn_meta:auth_info()`
+
+{{since('dev')}}
+
+Returns a *read-only copy* of the [AuthInfo](kumo.aaa/auth_info.md) object
+for the current session, which can be used in a call to
+[kumo.aaa.query_resource_access](kumo.aaa/query_resource_access.md) for
+advanced access control use-cases.
+
