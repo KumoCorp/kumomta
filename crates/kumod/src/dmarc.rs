@@ -7,6 +7,8 @@ use mod_dns_resolver::get_resolver_instance;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
+use crate::smtp_server::{RejectDisconnect, RejectError};
+
 #[derive(Debug, Serialize)]
 struct CheckHostOutput {
     disposition: Disposition,
@@ -41,6 +43,16 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 let msg_sender = msg.sender().await;
 
                 let mail_from_domain = msg_sender.ok().map(|x| x.domain().to_string());
+
+                let recipient_list = msg
+                    .recipient_list()
+                    .await
+                    .map(|x| {
+                        x.into_iter()
+                            .map(|x| x.domain().to_string())
+                            .collect::<Vec<String>>()
+                    })
+                    .unwrap_or_default();
 
                 // From:
                 let from_domain = if let Ok(Some(from)) = msg.get_address_header("From").await {
@@ -90,7 +102,11 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                     {
                         Some(reporting_info)
                     } else {
-                        todo!("Report error code here")
+                        return Err(mlua::Error::external(RejectError {
+                            code: 400,
+                            message: "DMARC reporting missing required fields".into(),
+                            disconnect: RejectDisconnect::If421,
+                        }));
                     }
                 } else {
                     None
@@ -99,6 +115,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 let result = CheckHostParams {
                     from_domain,
                     mail_from_domain,
+                    recipient_list,
                     dkim_results,
                     spf_result,
                     reporting_info,

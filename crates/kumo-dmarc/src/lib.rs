@@ -2,9 +2,11 @@
 
 use crate::types::date_range::DateRange;
 use crate::types::feedback::Feedback;
+use crate::types::identifier::Identifier;
 use crate::types::policy_published::PolicyPublished;
 use crate::types::record::Record;
 use crate::types::report_metadata::ReportMetadata;
+use crate::types::results::{AuthResults, Results, Row};
 pub use crate::types::results::{Disposition, DispositionWithContext};
 use chrono::Utc;
 use dns_resolver::Resolver;
@@ -27,6 +29,9 @@ pub struct CheckHostParams {
     /// The "MAIL FROM" email address if available.
     pub mail_from_domain: Option<String>,
 
+    /// The envelope to
+    pub recipient_list: Vec<String>,
+
     /// The results of the DKIM part of the checks
     pub dkim_results: Vec<AuthenticationResult>,
 
@@ -42,6 +47,7 @@ impl CheckHostParams {
         let Self {
             from_domain,
             mail_from_domain,
+            recipient_list,
             dkim_results,
             spf_result,
             reporting_info,
@@ -50,6 +56,7 @@ impl CheckHostParams {
         let dmarc_context = DmarcContext::new(
             &from_domain,
             mail_from_domain.as_ref().map(|x| x.as_str()),
+            &recipient_list[..],
             &dkim_results[..],
             &spf_result,
             reporting_info.as_ref(),
@@ -94,6 +101,7 @@ impl From<DmarcRecordResolution> for Disposition {
 struct DmarcContext<'a> {
     pub(crate) from_domain: &'a str,
     pub(crate) mail_from_domain: Option<&'a str>,
+    pub(crate) recipient_list: &'a [String],
     pub(crate) now: SystemTime,
     pub(crate) dkim_results: &'a [AuthenticationResult],
     pub(crate) spf_result: &'a AuthenticationResult,
@@ -117,6 +125,7 @@ impl<'a> DmarcContext<'a> {
     fn new(
         from_domain: &'a str,
         mail_from_domain: Option<&'a str>,
+        recipient_list: &'a [String],
         dkim_results: &'a [AuthenticationResult],
         spf_result: &'a AuthenticationResult,
         reporting_info: Option<&'a ReportingInfo>,
@@ -124,6 +133,7 @@ impl<'a> DmarcContext<'a> {
         Self {
             from_domain,
             mail_from_domain,
+            recipient_list,
             now: SystemTime::now(),
             dkim_results,
             spf_result,
@@ -152,7 +162,26 @@ impl<'a> DmarcContext<'a> {
                     record.rate,
                     record.report_failure,
                 ),
-                vec![],
+                vec![Results {
+                    row: Row {
+                        source_ip: todo!(),
+                        count: 1,
+                        policy_evaluated: todo!(),
+                    },
+                    identifiers: Identifier {
+                        envelope_to: self.recipient_list.into(),
+                        envelope_from: if let Some(mail_from_domain) = self.mail_from_domain {
+                            vec![mail_from_domain.into()]
+                        } else {
+                            vec![]
+                        },
+                        header_from: self.from_domain.into(),
+                    },
+                    auth_results: AuthResults {
+                        dkim: self.dkim_results.iter().map(|x| x.clone().into()).collect(),
+                        spf: vec![self.spf_result.clone().into()],
+                    },
+                }],
             );
 
             if let Ok(result) = instant_xml::to_string(&feedback) {

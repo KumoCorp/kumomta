@@ -3,6 +3,7 @@ use crate::types::policy::Policy;
 use crate::types::policy_override::PolicyOverrideReason;
 use instant_xml::{FromXml, ToXml};
 use kumo_spf::SpfDisposition;
+use mailparsing::AuthenticationResult;
 use serde::Serialize;
 use std::fmt;
 use std::net::IpAddr;
@@ -22,19 +23,31 @@ pub struct SpfAuthResult {
     result: SpfDisposition,
 }
 
+impl From<AuthenticationResult> for SpfAuthResult {
+    fn from(value: AuthenticationResult) -> Self {
+        let d = value.props.get("header.d");
+
+        Self {
+            domain: d.cloned().unwrap_or_default(),
+            scope: todo!(),
+            result: value.result.into(),
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, ToXml)]
 #[xml(rename = "auth_results")]
 pub struct AuthResults {
-    dkim: Vec<DkimAuthResult>,
-    spf: Vec<SpfAuthResult>,
+    pub(crate) dkim: Vec<DkimAuthResult>,
+    pub(crate) spf: Vec<SpfAuthResult>,
 }
 
 #[derive(Debug, Eq, PartialEq, ToXml)]
 #[xml(rename = "record")]
 pub struct Results {
-    row: Row,
-    identifiers: Identifier,
-    auth_results: AuthResults,
+    pub(crate) row: Row,
+    pub(crate) identifiers: Identifier,
+    pub(crate) auth_results: AuthResults,
 }
 
 #[derive(Debug, Eq, PartialEq, ToXml)]
@@ -49,12 +62,40 @@ pub enum DkimResult {
     PermError,
 }
 
+impl From<String> for DkimResult {
+    fn from(value: String) -> Self {
+        match value.to_lowercase().as_str() {
+            "none" => DkimResult::None,
+            "pass" => DkimResult::Pass,
+            "fail" => DkimResult::Fail,
+            "policy" => DkimResult::Policy,
+            "neutral" => DkimResult::Neutral,
+            "temperror" => DkimResult::TempError,
+            "permerror" => DkimResult::PermError,
+            _ => DkimResult::None,
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, ToXml)]
 pub struct DkimAuthResult {
     domain: String,
     selector: Option<String>,
     result: DkimResult,
     human_result: Option<String>,
+}
+
+impl From<AuthenticationResult> for DkimAuthResult {
+    fn from(value: AuthenticationResult) -> Self {
+        let d = value.props.get("header.d");
+        let s = value.props.get("header.s");
+        Self {
+            domain: d.cloned().unwrap_or_default(),
+            selector: s.cloned(),
+            result: value.result.clone().into(),
+            human_result: Some(value.result),
+        }
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy, ToXml, Serialize)]
@@ -125,16 +166,16 @@ pub struct DispositionWithContext {
 #[derive(Debug, Eq, PartialEq, ToXml)]
 #[xml(rename = "policy_evaluated")]
 pub struct PolicyEvaluated {
-    disposition: Policy,
-    dkim: DmarcResult,
-    spf: DmarcResult,
-    reason: Vec<PolicyOverrideReason>,
+    pub(crate) disposition: Policy,
+    pub(crate) dkim: DmarcResult,
+    pub(crate) spf: DmarcResult,
+    pub(crate) reason: Vec<PolicyOverrideReason>,
 }
 
 #[derive(Debug, Eq, PartialEq, ToXml)]
 #[xml(rename = "row")]
 pub struct Row {
-    source_ip: IpAddr,
-    count: u64,
-    policy_evaluated: PolicyEvaluated,
+    pub(crate) source_ip: IpAddr,
+    pub(crate) count: u64,
+    pub(crate) policy_evaluated: PolicyEvaluated,
 }
