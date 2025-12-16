@@ -216,6 +216,23 @@ pub async fn request_with_streaming_text_response<T: reqwest::IntoUrl, B: serde:
         .send()
         .await?;
 
+    let status = response.status();
+    if !status.is_success() {
+        let body_bytes = response.bytes().await.with_context(|| {
+            format!(
+                "request status {}: {}, and failed to read response body",
+                status.as_u16(),
+                status.canonical_reason().unwrap_or("")
+            )
+        })?;
+        let body_text = String::from_utf8_lossy(&body_bytes);
+        anyhow::bail!(
+            "request status {}: {}. Response body: {body_text}",
+            status.as_u16(),
+            status.canonical_reason().unwrap_or(""),
+        );
+    }
+
     Ok(response.bytes_stream())
 }
 

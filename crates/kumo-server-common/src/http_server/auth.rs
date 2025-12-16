@@ -1,3 +1,4 @@
+use crate::acct::{log_authn, AuthnAuditRecord};
 use crate::authn_authz::{
     ACLQueryDisposition, AccessControlList, AuthInfo, Identity, IdentityContext, Resource,
 };
@@ -7,6 +8,7 @@ use axum::extract::{FromRequestParts, Request, State};
 use axum::http::{StatusCode, Uri};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use chrono::Utc;
 use config::{declare_event, load_config, SerdeWrappedValue};
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
@@ -175,31 +177,82 @@ pub async fn auth_middleware(
                     )
                         .into_response()
                 }
-                Some(kind) => match kind.check_authentication().await {
-                    Ok(AuthKindResult::Bool(true)) => {
-                        // Store the authentication info for later retrieval
-                        if let AuthKind::Basic { user, .. } = &kind {
-                            auth_info.add_identity(Identity {
-                                identity: user.to_string(),
-                                context: IdentityContext::HttpBasicAuth,
-                            });
+                Some(kind) => {
+                    let mut attempted_identity = match &kind {
+                        AuthKind::Basic { user, .. } => Identity {
+                            identity: user.to_string(),
+                            context: IdentityContext::HttpBasicAuth,
+                        },
+                        AuthKind::Bearer { .. } => Identity {
+                            identity: String::new(),
+                            context: IdentityContext::BearerToken,
+                        },
+                        AuthKind::TrustedIp(_) => {
+                            unreachable!();
                         }
-                        auth_kind.replace(kind);
+                    };
+                    match kind.check_authentication().await {
+                        Ok(AuthKindResult::Bool(true)) => {
+                            // Store the authentication info for later retrieval
+                            auth_info.add_identity(attempted_identity.clone());
+                            log_authn(AuthnAuditRecord {
+                                attempted_identity,
+                                success: true,
+                                auth_info: auth_info.clone(),
+                                timestamp: Utc::now(),
+                            })
+                            .await
+                            .ok();
+                            auth_kind.replace(kind);
+                        }
+                        Ok(AuthKindResult::Bool(false)) => {
+                            let reason = format!(
+                                "{:?} Authentication Failed for {}",
+                                attempted_identity.context, attempted_identity.identity
+                            );
+                            log_authn(AuthnAuditRecord {
+                                attempted_identity,
+                                success: false,
+                                auth_info,
+                                timestamp: Utc::now(),
+                            })
+                            .await
+                            .ok();
+                            return (StatusCode::UNAUTHORIZED, reason).into_response();
+                        }
+                        Ok(AuthKindResult::AuthInfo(info)) => {
+                            if attempted_identity.identity.is_empty() {
+                                // eg: bearer token.
+                                // We assume that they expanded the token into
+                                // a usable identity string, so let's grab it
+                                // out of the auth_info they returned and update
+                                // it here
+
+                                if let Some(ident) = info.identities.first() {
+                                    attempted_identity = ident.clone();
+                                }
+                            }
+
+                            // Copy identities and groups across
+                            auth_info.merge_from(info);
+
+                            log_authn(AuthnAuditRecord {
+                                attempted_identity,
+                                success: true,
+                                auth_info: auth_info.clone(),
+                                timestamp: Utc::now(),
+                            })
+                            .await
+                            .ok();
+                            auth_kind.replace(kind);
+                        }
+                        Err(err) => {
+                            tracing::error!("Error validating {kind:?}: {err:#}");
+                            return (StatusCode::INTERNAL_SERVER_ERROR, "try again later")
+                                .into_response();
+                        }
                     }
-                    Ok(AuthKindResult::Bool(false)) => {
-                        return (StatusCode::UNAUTHORIZED, "Authentication Failed").into_response()
-                    }
-                    Ok(AuthKindResult::AuthInfo(info)) => {
-                        // Copy identities and groups across
-                        auth_info.merge_from(info);
-                        auth_kind.replace(kind);
-                    }
-                    Err(err) => {
-                        tracing::error!("Error validating {kind:?}: {err:#}");
-                        return (StatusCode::INTERNAL_SERVER_ERROR, "try again later")
-                            .into_response();
-                    }
-                },
+                }
             },
         }
     }

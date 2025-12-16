@@ -12,6 +12,7 @@ axum-client-ip = {workspace=true, features=["forwarded-header"]}
 axum-server = {workspace=true, features=["tls-rustls"]}
 axum-streams = {workspace=true}
 backtrace = {workspace=true}
+chrono.workspace = true
 cidr-map = {path="../cidr-map"}
 clap = {workspace=true}
 config = {path="../config"}
@@ -77,6 +78,7 @@ utoipa-rapidoc = {workspace=true}
 uuid = {workspace=true, features=["v4", "fast-rng"]}
 uuid-helper = {path="../uuid-helper"}
 version-info = {path="../version-info"}
+zstd.workspace = true
 
 [dev-dependencies]
 k9.workspace = true

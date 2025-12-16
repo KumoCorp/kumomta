@@ -8,7 +8,7 @@ There are three related parts to access control:
  * Authentication - deciding the identity of a session, which may be
    base on factors such as the peer address or an explicit credential
    exchanged as part of SMTP or HTTP authentication.
- * Authorization - decided whether the session is allowed to perform some
+ * Authorization - deciding whether the session is allowed to perform some
    action on a resource based on their identity and the configured Access
    Control List for that resource.
  * Accounting - tracking the disposition of each authorization check for
@@ -19,8 +19,9 @@ Accounting**, or more succinctly as **AAA**.
 
 ## Authentication
 
-Each session into the server has an associated `AuthInfo` object that records
-the authentication state.  It holds at least the following information:
+Each session into the server has an associated
+[AuthInfo](kumo.aaa/auth_info.md) object that records the authentication state.
+It holds at least the following information:
 
  * The peer address - the IP address that is connecting to the server
  * A list of identities - for instance, the SMTP or HTTP auth username if auth
@@ -39,14 +40,17 @@ HTTP sessions are authenticated via the
 event.
 
 If that event returns `true` then the `username` parameter is added to the list
-of identities in the `AuthInfo`.
+of identities in the `AuthInfo`.  Alternatively, the event can directly return
+an `AuthInfo` to provide additional authentication information.
 
 ### SMTP Authentication
 
 SMTP sessions are authenticated via the [smtp_server_auth_plain](events/smtp_server_auth_plain.md) event.
 
 If that event returns `true` then the `authz` AND `authc` identities are both
-added to the list of identities in the `AuthInfo`.
+added to the list of identities in the `AuthInfo`.  Alternatively, the event
+can directly return an `AuthInfo` to provide additional authentication
+information.
 
 ## Authorization
 
@@ -91,16 +95,16 @@ by one until a match is found.
 
 If no matching rules were found, the parent resource of this resource is
 resolved and the process is repeated until there are no more parent resources.
-At that point the disposition is that access is denied by default.
+At that point the disposition is that access is **denied by default**.
 
-## HTTP Resources
+### HTTP Resources
 
 Access to HTTP API endpoints is decided by an initial authorization check in
 the HTTP request routing layer based on the endpoint URL, HTTP method (which is
 mapped to the `privilege`) and auth info in the current HTTP session.
 
-When the AuthInfo for the HTTP session is instantiated, if the peer IP address
-matches the
+When the AuthInfo for the HTTP session is instantiated and if the peer IP
+address matches the
 [start_http_listener.trusted_hosts](kumo/start_http_listener/trusted_hosts.md)
 option then the built-in group `kumomta:http-listener-trusted-ip` is added to
 the list of groups.
@@ -112,9 +116,10 @@ For a URL like `http://localhost:8080/foo/bar/baz`:
 
  * The host portion of the request (`localhost:8080`) is ignored
  * The *listen* address of the listener (as per
-   [start_http_listener.listen](kumo/start_http_listener/listen.md)) is used to
-   decide which http listener is being accessed. For the sake of this example,
-   let's assume that it is `127.0.0.1:8080`.
+   [start_http_listener.listen](kumo/start_http_listener/listen.md)) on which
+   the request was received is used to decide which http listener is being
+   accessed. For the sake of this example, let's assume that it is
+   `127.0.0.1:8080`.
  * The HTTP request path is combined with the listen address to make a resource
    path of the form `http_listener/127.0.0.1:8080/foo/bar/baz`
 
@@ -131,8 +136,9 @@ these being checked first and so on:
  * `http_listener`
 
 Notice that the path is traversed similarly to a filesystem path, but when we
-reach the listener address the next step is the full resource path underneath a
-special `*` resource location which is consulted regardless of the listener
+reach the listener address (`http_listener/127.0.0.1:8080`) the next step is
+the full resource path underneath a special `*` resource location
+(`http_listener/*/foo/bar/baz`) which is consulted regardless of the listener
 address.
 
 Ultimately an HTTP access is checked against the logical `http_listener`
@@ -146,7 +152,7 @@ all admin API endpoints on all http listeners that may have been defined in the
 product, with the effect being that any IP in the list of trusted hosts for the
 listener is permitted to make admin API requests.
 
-# Defining ACLs
+### Defining ACLs
 
 If you wish to define your own ACLs then the recommended way is to deploy an
 ACL map file to the system and configure it as shown in [Augmenting the default
@@ -160,4 +166,14 @@ map file.
 It is also possible to dynamically load ACLs from other data sources, or
 compute them dynamically, and that is demonstrated in [Advanced ACL
 Building](events/get_acl_definition.md#advanced-acl-building).
+
+## Accounting
+
+You may enable and configure logging to an accounting log using
+[kumo.aaa.configure_acct_log](kumo.aaa/configure_acct_log.md).
+
+The accounting log configuration is similar to the delivery log configuration,
+except that authentication and authorization events are logged rather than
+delivery information.  You can choose whether to include or exclude successful
+or failing authentication or authorization events.
 

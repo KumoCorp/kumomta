@@ -8,11 +8,13 @@ use mod_redis::RedisConnKey;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicUsize;
 
+pub mod acct;
 pub mod authn_authz;
 pub mod config_handle;
 pub mod diagnostic_logging;
 pub mod disk_space;
 pub mod http_server;
+pub mod log;
 pub mod nodeid;
 pub mod panic;
 pub mod start;

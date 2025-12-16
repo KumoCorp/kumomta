@@ -3187,6 +3187,7 @@ dependencies = [
  "kumo-api-types",
  "kumo-dkim",
  "kumo-log-types",
+ "kumo-server-common",
  "lapin",
  "lipsum",
  "maildir",
@@ -3609,6 +3610,7 @@ dependencies = [
  "axum-server",
  "axum-streams",
  "backtrace",
+ "chrono",
  "cidr-map",
  "clap",
  "config",
@@ -3675,6 +3677,7 @@ dependencies = [
  "uuid",
  "uuid-helper",
  "version-info",
+ "zstd",
 ]
 
 [[package]]

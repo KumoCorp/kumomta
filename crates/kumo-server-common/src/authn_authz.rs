@@ -1,6 +1,8 @@
+use crate::acct::{log_authz, AuditLogParams};
 use crate::http_server::auth::HttpEndpointResource;
 use async_trait::async_trait;
 use axum::http::Uri;
+use chrono::{DateTime, Utc};
 use cidr_map::CidrSet;
 use config::{
     any_err, get_or_create_sub_module, load_config, serialize_options, SerdeWrappedValue,
@@ -36,8 +38,6 @@ static GET_ACL_DEF_SIG: Multiple(
     resource: &'static str
 ) -> Option<UserDataRef<AccessControlListWrap>>;
 }
-
-// TODO: AAA log for audit/debugging purposes
 
 // TODO:
 //  * Formalize object mapping. For example, in kumod we should map
@@ -233,6 +233,8 @@ struct CheckKey {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AuditRecord {
+    /// When the event occurred
+    pub timestamp: DateTime<Utc>,
     /// The resource being accessed
     pub target_resource: String,
     /// The privilege requested
@@ -281,12 +283,8 @@ impl AuditRecord {
             rule,
             auth_info: info.clone(),
             considered_resources,
+            timestamp: Utc::now(),
         }
-    }
-
-    pub fn log(&self) {
-        // FIXME: formalize AAA audit log destination
-        tracing::info!("Audit: {self:?}");
     }
 
     pub fn disposition(&self) -> ACLQueryDisposition {
@@ -371,7 +369,9 @@ impl AccessControlList {
             .await
             .map_err(|err| anyhow::anyhow!("{err:#}"))?;
 
-        lookup.item.log();
+        let mut audit_item = lookup.item.clone();
+        audit_item.timestamp = Utc::now();
+        log_authz(audit_item).await?;
         Ok(lookup.item.disposition())
     }
 
@@ -720,6 +720,15 @@ enum ACLFileCondition {
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let aaa_mod = get_or_create_sub_module(lua, "aaa")?;
+
+    aaa_mod.set(
+        "configure_acct_log",
+        lua.create_async_function(
+            move |_lua, params: SerdeWrappedValue<AuditLogParams>| async move {
+                params.init().await.map_err(any_err)
+            },
+        )?,
+    )?;
 
     aaa_mod.set(
         "set_acl_cache_ttl",
