@@ -3,6 +3,8 @@
 ## Breaking Changes
 
 ## Other Changes and Enhancements
+ * The `Handlebars` template dialect now runs with recursive lookup
+   for improved compatibility with other handlebars implementations.
 
 ## Fixes
 

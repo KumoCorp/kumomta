@@ -72,6 +72,7 @@ impl<'env, 'source> Template<'env, 'source> {
                 let context = handlebars::Context::wraps(context)?;
 
                 let mut render_context = handlebars::RenderContext::new(None);
+                render_context.set_recursive_lookup(true);
                 let is_html = template
                     .name
                     .as_deref()
@@ -120,12 +121,16 @@ impl TemplateEngine {
                     env: HashMap::new(),
                 },
             },
-            TemplateDialect::Handlebars => Self {
-                engine: Engine::Handlebars {
-                    registry: Handlebars::new(),
-                    globals: HashMap::new(),
-                },
-            },
+            TemplateDialect::Handlebars => {
+                let mut registry = Handlebars::new();
+                registry.set_recursive_lookup(true);
+                Self {
+                    engine: Engine::Handlebars {
+                        registry,
+                        globals: HashMap::new(),
+                    },
+                }
+            }
         }
     }
 
