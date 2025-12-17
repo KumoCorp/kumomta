@@ -304,7 +304,7 @@ impl<'a> Compiled<'a> {
                 let content = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
                 let mut msg = MimePart::parse(&*content)
                     .with_context(|| format!("failed to parse content: {content}"))?
-                    .rebuild()
+                    .rebuild(None)
                     .with_context(|| format!("failed to rebuild content {content}"))?;
 
                 if msg.headers().mime_version()?.is_none() {

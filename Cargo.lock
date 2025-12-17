@@ -4177,7 +4177,7 @@ name = "mailparsing"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.9.4",
- "charset",
+ "charset-normalizer-rs",
  "chrono",
  "data-encoding",
  "data-encoding-macro",
@@ -4266,7 +4266,6 @@ dependencies = [
  "data-loader",
  "dns-resolver",
  "duration-serde",
- "encoding_rs",
  "futures",
  "intrusive-collections",
  "k9",

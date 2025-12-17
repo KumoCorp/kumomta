@@ -168,7 +168,7 @@ impl UserData for PartRef {
 
         methods.add_method("rebuild", move |_lua, this, ()| {
             let root = this.root_part.lock();
-            let part = root.rebuild().map_err(any_err)?;
+            let part = root.rebuild(None).map_err(any_err)?;
             Ok(PartRef::new(part))
         });
 

@@ -66,7 +66,6 @@ bytes = "1.0"
 camino = "1.1"
 caps = "0.5"
 cgroups-rs = "0.3"
-charset = "0.1"
 # Using a git ref until https://github.com/nickspring/charset-normalizer-rs/pull/45 is merged
 charset-normalizer-rs = { git = "https://github.com/KumoCorp/charset-normalizer-rs.git", rev="1f1dc21b49d30d73a99b0136497352b569947ac2" }
 chrono = { version = "0.4.26", default-features = false }
@@ -86,7 +85,6 @@ data-encoding-macro = "0.1"
 deadpool = {version="0.12", features=["rt_tokio_1"]}
 derive-where = "1.2.7"
 ed25519-dalek = "2.0"
-encoding_rs = "0.8.35"
 env_logger = "0.11"
 fancy-regex = "0.16"
 filenamegen = "0.2.7"
