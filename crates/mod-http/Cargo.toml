@@ -11,8 +11,9 @@ futures-util = {workspace=true}
 humantime = {workspace=true}
 mail-builder = {workspace=true}
 mailparse = {workspace=true}
-mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
+mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize", "macros"]}
 reqwest = {workspace=true, default-features=false, features=["rustls-tls"]}
 serde = {workspace=true}
 tokio = {workspace=true}
 tokio-tungstenite = {workspace=true}
+mod-aws-sigv4 = {path="../mod-aws-sigv4"}

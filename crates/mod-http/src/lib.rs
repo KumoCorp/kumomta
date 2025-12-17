@@ -1,4 +1,4 @@
-use config::{any_err, from_lua_value, get_or_create_sub_module};
+use config::{any_err, from_lua_value, get_or_create_sub_module, SerdeWrappedValue};
 use futures_util::StreamExt;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, LuaSerdeExt, MetaMethod, UserDataMethods, Value};
@@ -234,97 +234,6 @@ impl LuaUserData for RequestWrapper {
             },
         );
 
-        methods.add_async_method("aws_sign_v4", |lua, this, params: Value| async move {
-            // params must be a table containing at least:
-            // access_key (KeySource), secret_key (KeySource),
-            // region (string), service (string), and optionally
-            // timestamp, session_token, headers, payload.
-            let params_table = match params {
-                Value::Table(t) => t,
-                _ => return Err(mlua::Error::external("aws_sign_v4: params must be a table")),
-            };
-
-            // Clone the underlying RequestBuilder so that we can
-            // inspect the request without consuming the builder.
-            let cloned = {
-                let builder_guard = this.builder.lock().unwrap();
-                let builder_ref = builder_guard
-                    .as_ref()
-                    .ok_or_else(|| mlua::Error::external("broken request builder"))?;
-                builder_ref
-                    .try_clone()
-                    .ok_or_else(|| mlua::Error::external("request body is not clonable"))?
-            };
-            let req = cloned.build().map_err(any_err)?;
-
-            let method = req.method().as_str().to_string();
-            let url = req.url().clone();
-            let path = url.path().to_string();
-
-            // Derive query parameters from the URL.
-            let qp_table = lua.create_table()?;
-            if let Some(_) = url.query() {
-                for (k, v) in url.query_pairs() {
-                    qp_table.set(k.to_string(), v.to_string())?;
-                }
-            }
-
-            // Build the parameter table for kumo.crypto.aws_sign_v4.
-            let signer_params = lua.create_table()?;
-
-            // Copy through user-provided fields.
-            for key in [
-                "access_key",
-                "secret_key",
-                "region",
-                "service",
-                "timestamp",
-                "session_token",
-                "payload",
-            ] {
-                if let Ok(val) = params_table.get::<Value>(key) {
-                    if !matches!(val, Value::Nil) {
-                        signer_params.set(key, val)?;
-                    }
-                }
-            }
-
-            // Set derived method and uri from the Request.
-            signer_params.set("method", method)?;
-            signer_params.set("uri", path)?;
-            signer_params.set("query_params", qp_table)?;
-
-            // Merge headers: start from any user-provided headers table,
-            // then ensure "host" is set from the URL if not already present.
-            let headers_value: Value = params_table.get("headers").unwrap_or(Value::Nil);
-            let headers_table = match headers_value {
-                Value::Table(t) => t,
-                _ => lua.create_table()?,
-            };
-            if headers_table.get::<Value>("host").is_err() {
-                if let Some(host) = url.host_str() {
-                    headers_table.set("host", host)?;
-                }
-            }
-            signer_params.set("headers", headers_table)?;
-
-            // Call kumo.crypto.aws_sign_v4 to compute the signature.
-            let crypto_mod = get_or_create_sub_module(&lua, "crypto").map_err(any_err)?;
-            let sign_fn: mlua::Function = crypto_mod.get("aws_sign_v4")?;
-            let sig: mlua::Table = sign_fn.call_async(signer_params).await?;
-
-            let authorization: String = sig.get("authorization")?;
-            let amz_date: String = sig.get("timestamp")?;
-
-            // Apply the Authorization and X-Amz-Date headers to the Request.
-            this.apply(|b| {
-                Ok(b.header("Authorization", authorization)
-                    .header("X-Amz-Date", amz_date))
-            })?;
-
-            Ok(this.clone())
-        });
-
         methods.add_async_method("send", |_, this, _: ()| async move {
             let response = this.send().await?;
             let status = response.status();
@@ -333,6 +242,56 @@ impl LuaUserData for RequestWrapper {
                 response: Arc::new(Mutex::new(Some(response))),
             })
         });
+
+        // Convenience helper to apply AWS SigV4 signing to this request
+        methods.add_async_method(
+            "aws_sign_v4",
+            |_lua, this, params: SerdeWrappedValue<mod_aws_sigv4::SigV4Request>| async move {
+                let mut signer_params = params.0;
+
+                // Clone the current RequestBuilder so we can inspect method, URI, and query params
+                let req_builder = this
+                    .builder
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .ok_or_else(|| mlua::Error::external("broken request builder"))?
+                    .try_clone()
+                    .ok_or_else(|| mlua::Error::external("failed to clone request builder"))?;
+
+                let req = req_builder.build().map_err(any_err)?;
+
+                // Populate method, uri and query parameters from the request
+                signer_params.method = req.method().as_str().to_string();
+                signer_params.uri = req.url().path().to_string();
+                signer_params.query_params = req
+                    .url()
+                    .query_pairs()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect();
+
+                // Ensure the Host header is present
+                if !signer_params.headers.contains_key("host") {
+                    if let Some(host) = req.url().host_str() {
+                        signer_params
+                            .headers
+                            .insert("host".to_string(), host.to_string());
+                    }
+                }
+
+                let sig = mod_aws_sigv4::sign_request(signer_params)
+                    .await
+                    .map_err(any_err)?;
+
+                // Apply the computed signature headers to the underlying request builder
+                this.apply(|b| {
+                    Ok(b.header("Authorization", sig.authorization)
+                        .header("X-Amz-Date", sig.timestamp))
+                })?;
+
+                Ok(this.clone())
+            },
+        );
     }
 }
 
@@ -421,21 +380,8 @@ impl LuaUserData for ResponseWrapper {
 
 // Headermap ---
 
-#[derive(Clone)]
+#[derive(Clone, mlua::FromLua)]
 struct HeaderMapWrapper(HeaderMap);
-
-impl mlua::FromLua for HeaderMapWrapper {
-    fn from_lua(value: Value, _lua: &Lua) -> mlua::Result<Self> {
-        if let Value::UserData(ud) = value {
-            if let Ok(h) = ud.borrow::<HeaderMapWrapper>() {
-                return Ok(h.clone());
-            }
-        }
-        Err(mlua::Error::external(
-            "expected HeaderMapWrapper userdata for HeaderMap iteration",
-        ))
-    }
-}
 
 impl LuaUserData for HeaderMapWrapper {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
@@ -449,7 +395,8 @@ impl LuaUserData for HeaderMapWrapper {
 
         methods.add_meta_method(MetaMethod::Pairs, |lua, this, ()| {
             let stateless_iter =
-                lua.create_function(|lua, (this, key): (HeaderMapWrapper, Option<String>)| {
+                lua.create_function(|lua, (ud, key): (mlua::AnyUserData, Option<String>)| {
+                    let this = ud.borrow::<HeaderMapWrapper>()?;
                     let iter = this.0.iter();
 
                     let mut this_is_key = false;
