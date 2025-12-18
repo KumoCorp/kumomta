@@ -846,6 +846,7 @@ impl<'a> MimePart<'a> {
 
         let mut text = None;
         let mut html = None;
+        let mut amp_html = None;
 
         let headers = &self
             .resolve_ptr(parts.header_part)
@@ -872,6 +873,16 @@ impl<'a> MimePart<'a> {
                 }
             };
         }
+        if let Some(p) = parts.amp_html_part.and_then(|p| self.resolve_ptr(p)) {
+            amp_html = match p.body()? {
+                DecodedBody::Text(t) => Some(t),
+                DecodedBody::Binary(_) => {
+                    return Err(MailParsingError::BodyParse(
+                        "expected text/x-amp-html part to be text, but it is binary".to_string(),
+                    ))
+                }
+            };
+        }
 
         let mut attachments = vec![];
         for ptr in parts.attachments {
@@ -881,6 +892,7 @@ impl<'a> MimePart<'a> {
         Ok(SimplifiedStructure {
             text,
             html,
+            amp_html,
             headers,
             attachments,
         })
@@ -948,6 +960,7 @@ impl<'a> MimePart<'a> {
             if is_inline {
                 if ct.value == "text/plain" {
                     return Ok(SimplifiedStructurePointers {
+                        amp_html_part: None,
                         text_part: Some(PartPointer::root_or_nth(my_idx)),
                         html_part: None,
                         header_part: PartPointer::root_or_nth(my_idx),
@@ -956,7 +969,17 @@ impl<'a> MimePart<'a> {
                 }
                 if ct.value == "text/html" {
                     return Ok(SimplifiedStructurePointers {
+                        amp_html_part: None,
                         html_part: Some(PartPointer::root_or_nth(my_idx)),
+                        text_part: None,
+                        header_part: PartPointer::root_or_nth(my_idx),
+                        attachments: vec![],
+                    });
+                }
+                if ct.value == "text/x-amp-html" {
+                    return Ok(SimplifiedStructurePointers {
+                        amp_html_part: Some(PartPointer::root_or_nth(my_idx)),
+                        html_part: None,
                         text_part: None,
                         header_part: PartPointer::root_or_nth(my_idx),
                         attachments: vec![],
@@ -967,6 +990,7 @@ impl<'a> MimePart<'a> {
             if ct.value.starts_with("multipart/") {
                 let mut text_part = None;
                 let mut html_part = None;
+                let mut amp_html_part = None;
                 let mut attachments = vec![];
 
                 for (i, p) in self.parts.iter().enumerate() {
@@ -986,11 +1010,19 @@ impl<'a> MimePart<'a> {
                                 attachments.push(p);
                             }
                         }
+                        if let Some(p) = s.amp_html_part {
+                            if amp_html_part.is_none() {
+                                amp_html_part.replace(PartPointer::root_or_nth(my_idx).append(p));
+                            } else {
+                                attachments.push(p);
+                            }
+                        }
                         attachments.append(&mut s.attachments);
                     }
                 }
 
                 return Ok(SimplifiedStructurePointers {
+                    amp_html_part,
                     html_part,
                     text_part,
                     header_part: PartPointer::root_or_nth(my_idx),
@@ -1001,6 +1033,7 @@ impl<'a> MimePart<'a> {
             return Ok(SimplifiedStructurePointers {
                 html_part: None,
                 text_part: None,
+                amp_html_part: None,
                 header_part: PartPointer::root_or_nth(my_idx),
                 attachments: vec![PartPointer::root_or_nth(my_idx)],
             });
@@ -1010,6 +1043,7 @@ impl<'a> MimePart<'a> {
         Ok(SimplifiedStructurePointers {
             text_part: Some(PartPointer::root_or_nth(my_idx)),
             html_part: None,
+            amp_html_part: None,
             header_part: PartPointer::root_or_nth(my_idx),
             attachments: vec![],
         })
@@ -1166,6 +1200,8 @@ pub struct SimplifiedStructurePointers {
     pub text_part: Option<PartPointer>,
     /// The primary text/html part
     pub html_part: Option<PartPointer>,
+    /// The primary text/x-amp-html part
+    pub amp_html_part: Option<PartPointer>,
     /// The "top level" set of headers for the message
     pub header_part: PartPointer,
     /// all other (terminal) parts are attachments
@@ -1176,6 +1212,7 @@ pub struct SimplifiedStructurePointers {
 pub struct SimplifiedStructure<'a> {
     pub text: Option<SharedString<'a>>,
     pub html: Option<SharedString<'a>>,
+    pub amp_html: Option<SharedString<'a>>,
     pub headers: &'a HeaderMap<'a>,
     pub attachments: Vec<MimePart<'a>>,
 }
@@ -1556,6 +1593,7 @@ Ok(
             ),
         ),
         html_part: None,
+        amp_html_part: None,
         header_part: PartPointer(
             [],
         ),
@@ -1636,6 +1674,7 @@ Ok(
                 ],
             ),
         ),
+        amp_html_part: None,
         header_part: PartPointer(
             [],
         ),

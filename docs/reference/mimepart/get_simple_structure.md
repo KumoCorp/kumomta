@@ -20,6 +20,7 @@ simplified structure:
   * `html_part` - The first `text/html` [MimePart](index.md) found in the walk, if any.
   * `header_part` - The "main" part from the perspective of header analysis
   * `attachments` - An array style table holding a list of all the attachments.
+  * `amp_html_part` - The first `text/x-amp-html` [MimePart](index.md) found in the walk, if any. {{since('dev', inline=True)}}
 
 Each attachment table entry has the following fields:
 

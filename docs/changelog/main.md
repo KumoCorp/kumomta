@@ -14,6 +14,13 @@
  * The lua HTTP `Request` object now supports AWS V4 signatures via a new
    [request:aws_sign_v4](../reference/kumo.http/Request.md#requestaws_sign_v4params)
    method.  Thanks to @AdityaAudi! #458
+ * The [HTTP Injection API](../reference/http/api_inject_v1.md) and [MIME
+   Builder API](../reference/kumo.mimepart/builder.md) now support creating
+   messages with [AMP
+   HTML](https://amp.dev/documentation/guides-and-tutorials/email/learn/email-spec/amp-email-structure)
+   parts.
+   [mimepart:get_simple_structure()](../reference/mimepart/get_simple_structure.md)
+   also supports AMP HTML parts.
 
 ## Fixes
 

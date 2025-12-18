@@ -60,6 +60,9 @@ demonstrated below.
     "content": {
         "text_body": "This is the plain text part",
         "html_body": "<p>This is the <b>HTML</b> part</p>",
+        // Optionally define an AMP email part.
+        // This is available {{since('dev', inline=True)}}
+        "amp_html_body": "<!doctype html><html amp4email>...</html>",
         "attachments": [
             {
                 // The attachment data.
@@ -104,8 +107,8 @@ demonstrated below.
 ```
 
 When building a message, template substitutions are applied to the *text_body*,
-*html_body* and *headers* fields.  Attachments are not subject to template
-substitution.
+*html_body*, *amp_html_body* and *headers* fields.  Attachments are not subject
+to template substitution.
 
 ## envelope_sender
 

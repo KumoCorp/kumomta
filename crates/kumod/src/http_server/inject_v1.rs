@@ -222,6 +222,10 @@ pub enum Content {
         #[serde(default)]
         html_body: Option<String>,
 
+        /// If set, will be used to create a text/x-amp-html part
+        #[serde(default)]
+        amp_html_body: Option<String>,
+
         /// Optional list of attachments
         #[serde(default)]
         attachments: Vec<Attachment>,
@@ -324,6 +328,7 @@ impl<'a> Compiled<'a> {
             Content::Builder {
                 text_body,
                 html_body,
+                amp_html_body,
                 headers,
                 ..
             } => {
@@ -338,6 +343,12 @@ impl<'a> Compiled<'a> {
                 if html_body.is_some() {
                     builder
                         .text_html(&self.env_and_templates.borrow_dependent()[id].render(&subst)?);
+                    id += 1;
+                }
+                if amp_html_body.is_some() {
+                    builder.text_amp_html(
+                        &self.env_and_templates.borrow_dependent()[id].render(&subst)?,
+                    );
                     id += 1;
                 }
 
@@ -374,6 +385,7 @@ impl InjectV1Request {
             Content::Builder {
                 text_body: _,
                 html_body: _,
+                amp_html_body: _,
                 attachments: _,
                 headers,
                 from,
@@ -423,6 +435,7 @@ impl InjectV1Request {
             Content::Builder {
                 text_body,
                 html_body,
+                amp_html_body,
                 headers,
                 ..
             } => {
@@ -432,6 +445,12 @@ impl InjectV1Request {
                     env.add_template(name, tb)?;
                 }
                 if let Some(hb) = html_body {
+                    // The filename extension is needed to enable auto-escaping
+                    let name = format!("{id}.html");
+                    id += 1;
+                    env.add_template(name, hb)?;
+                }
+                if let Some(hb) = amp_html_body {
                     // The filename extension is needed to enable auto-escaping
                     let name = format!("{id}.html");
                     id += 1;
@@ -461,6 +480,7 @@ impl InjectV1Request {
                 Content::Builder {
                     text_body,
                     html_body,
+                    amp_html_body,
                     headers,
                     ..
                 } => {
@@ -470,6 +490,12 @@ impl InjectV1Request {
                         templates.push(env.get_template(&name)?);
                     }
                     if html_body.is_some() {
+                        // The filename extension is needed to enable auto-escaping
+                        let name = format!("{id}.html");
+                        id += 1;
+                        templates.push(env.get_template(&name)?);
+                    }
+                    if amp_html_body.is_some() {
                         // The filename extension is needed to enable auto-escaping
                         let name = format!("{id}.html");
                         id += 1;
@@ -1196,6 +1222,7 @@ This is a test message to James Smythe, with some =F0=9F=91=BB=F0=9F=8D=89=\r
             substitutions: HashMap::new(),
             content: Content::Builder {
                 text_body: Some("I am the plain text, {{ name }}. 😀".to_string()),
+                amp_html_body: None,
                 html_body: Some(
                     "I am the <b>html</b> text, {{ name }}. 👾 <img src=\"cid:my-image\"/>"
                         .to_string(),
@@ -1280,6 +1307,7 @@ Some(
             substitutions: HashMap::new(),
             content: Content::Builder {
                 text_body: Some("I am the plain text, {{ name }}. 😀".to_string()),
+                amp_html_body: None,
                 html_body: Some(
                     "I am the <b>html</b> text, {{ name }}. 👾 <img src=\"cid:my-image\"/>"
                         .to_string(),
@@ -1378,6 +1406,7 @@ Ok(
                     "I am the <b>html</b> text, {{ name }}. 👾 <img src=\"cid:my-image\"/>"
                         .to_string(),
                 ),
+                amp_html_body: None,
                 subject: Some("hello {{ name }}".to_string()),
                 from: Some(FromHeader {
                     email: "from@example.com".to_string(),
@@ -1450,6 +1479,7 @@ Some(
             substitutions: HashMap::new(),
             content: Content::Builder {
                 text_body: Some("I am the plain text, {{ name }}. 😀".to_string()),
+                amp_html_body: None,
                 html_body: Some(
                     "I am the <b>html</b> text, {{ name }}. 👾 <img src=\"cid:my-image\"/>"
                         .to_string(),
@@ -1485,6 +1515,120 @@ Some(
         let structure = parsed.simplified_structure().unwrap();
         eprintln!("{structure:?}");
 
+        k9::snapshot!(
+            structure.html,
+            r#"
+Some(
+    "I am the <b>html</b> text, James Smythe. 👾 <img src="cid:my-image"/>\r
+",
+)
+"#
+        );
+        k9::snapshot!(
+            structure.text,
+            r#"
+Some(
+    "I am the plain text, James Smythe. 😀\r
+",
+)
+"#
+        );
+
+        k9::snapshot!(
+            structure.headers.subject().unwrap(),
+            r#"
+Some(
+    "hello James Smythe",
+)
+"#
+        );
+    }
+
+    #[tokio::test]
+    async fn test_builder_handlebars_dialect_with_amp() {
+        let mut request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: Some("James Smythe".to_string()),
+                substitutions: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Builder {
+                text_body: Some("I am the plain text, {{ name }}. 😀".to_string()),
+                html_body: Some(
+                    "I am the <b>html</b> text, {{ name }}. 👾 <img src=\"cid:my-image\"/>"
+                        .to_string(),
+                ),
+                amp_html_body: Some(
+                    r#"<!doctype html>
+<html ⚡4email>
+<head>
+  <meta charset="utf-8">
+  <style amp4email-boilerplate>body{visibility:hidden}</style>
+  <script async src="https://cdn.ampproject.org/v0.js"></script>
+</head>
+<body>
+Hello in AMP, {{ name }}!
+{{{{raw}}}}
+Don't expand in here {{ name }}
+{{{{/raw}}}}
+</body>
+</html>
+"#
+                    .replace("\n", "\r\n"),
+                ),
+                subject: Some("hello {{ name }}".to_string()),
+                from: Some(FromHeader {
+                    email: "from@example.com".to_string(),
+                    name: Some("Sender Name".to_string()),
+                }),
+                reply_to: None,
+                headers: Default::default(),
+                attachments: vec![],
+            },
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+            template_dialect: TemplateDialectWithSchema::Handlebars,
+        };
+
+        request.normalize().unwrap();
+        let compiled = request.compile().unwrap();
+        let generated = compiled
+            .expand_for_recip(
+                &request.recipients[0],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap();
+
+        println!("Generated: {generated}");
+        let parsed = MimePart::parse(generated.as_str()).unwrap();
+        println!("Parsed: {parsed:?}");
+        let structure = parsed.simplified_structure().unwrap();
+        eprintln!("Structure: {structure:?}");
+
+        k9::snapshot!(
+            structure.amp_html,
+            r#"
+Some(
+    "<!doctype html>\r
+<html ⚡4email>\r
+<head>\r
+  <meta charset="utf-8">\r
+  <style amp4email-boilerplate>body{visibility:hidden}</style>\r
+  <script async src="https://cdn.ampproject.org/v0.js"></script>\r
+</head>\r
+<body>\r
+Hello in AMP, James Smythe!\r
+Don't expand in here {{ name }}\r
+</body>\r
+</html>\r
+",
+)
+"#
+        );
         k9::snapshot!(
             structure.html,
             r#"
