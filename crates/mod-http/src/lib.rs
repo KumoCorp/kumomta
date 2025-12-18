@@ -395,8 +395,7 @@ impl LuaUserData for HeaderMapWrapper {
 
         methods.add_meta_method(MetaMethod::Pairs, |lua, this, ()| {
             let stateless_iter =
-                lua.create_function(|lua, (ud, key): (mlua::AnyUserData, Option<String>)| {
-                    let this = ud.borrow::<HeaderMapWrapper>()?;
+                lua.create_function(|lua, (this, key): (HeaderMapWrapper, Option<String>)| {
                     let iter = this.0.iter();
 
                     let mut this_is_key = false;
