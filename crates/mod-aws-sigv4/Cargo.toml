@@ -13,3 +13,6 @@ data-loader = {path="../data-loader"}
 mlua = {workspace=true, features=["serialize"]}
 percent-encoding = {workspace=true}
 serde = {workspace=true}
+
+[dev-dependencies]
+tokio = {workspace=true, features=["rt", "macros"]}

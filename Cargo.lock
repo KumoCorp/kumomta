@@ -4502,6 +4502,7 @@ dependencies = [
  "mlua",
  "percent-encoding",
  "serde",
+ "tokio",
 ]
 
 [[package]]
@@ -4595,6 +4596,7 @@ dependencies = [
  "mail-builder",
  "mailparse",
  "mlua",
+ "mod-aws-sigv4",
  "reqwest",
  "serde",
  "tokio",
