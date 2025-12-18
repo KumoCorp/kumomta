@@ -11,6 +11,9 @@
  * `msg:check_fix_conformance()` can now detect and attempt to fix issues where
    the charset is invalid for parts that use transfer-encoding, by applying
    any charset detection options, falling back to UTF-8.
+ * The lua HTTP `Request` object now supports AWS V4 signatures via a new
+   [request:aws_sign_v4](../reference/kumo.http/Request.md#aws_sign_v4) method.
+   Thanks to @AdityaAudi! #458
 
 ## Fixes
 
