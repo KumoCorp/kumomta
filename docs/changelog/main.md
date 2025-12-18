@@ -14,4 +14,6 @@
  * An SPF record containing U+200B (zero width space) could cause
    SPF record parsing to panic and the service to crash
  * MIME part body extraction did not always consider the charset for text parts
-
+ * Errors raised while dispatching
+   [should_enqueue_log_record](../reference/events/should_enqueue_log_record.md)
+   were not logged to the diagnostic log.
