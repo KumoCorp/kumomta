@@ -9,11 +9,11 @@ use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use axum::extract::{Json, State};
 use axum_client_ip::ClientIp;
-use config::{any_err, get_or_create_sub_module, load_config, CallbackSignature, LuaConfig};
+use config::{any_err, get_or_create_sub_module, load_config, LuaConfig, SerdeWrappedValue};
 use kumo_chrono_helper::Utc;
 use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::AtomicCounter;
-use kumo_server_common::http_server::auth::AuthKind;
+use kumo_server_common::authn_authz::AuthInfo;
 use kumo_server_common::http_server::{AppError, AppState};
 use kumo_server_runtime::{Runtime, RUNTIME};
 use kumo_template::{CompiledTemplates, TemplateDialect, TemplateEngine, TemplateList};
@@ -32,6 +32,14 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use throttle::ThrottleSpec;
 use utoipa::{ToResponse, ToSchema};
+
+config::declare_event! {
+static HTTP_MESSAGE_GENERATED: Single(
+    "http_message_generated",
+    message: Message,
+    auth_info: SerdeWrappedValue<AuthInfo>,
+) -> ();
+}
 
 pub const GENERATOR_QUEUE_NAME: &str = "generator.kumomta.internal";
 
@@ -528,7 +536,7 @@ async fn make_message<'a>(
     recip: &Recipient,
     request: &'a InjectV1Request,
     compiled: &Compiled<'a>,
-    auth: &AuthKind,
+    auth: &AuthInfo,
     via_address: &Option<IpAddr>,
     hostname: &Option<String>,
 ) -> anyhow::Result<Message> {
@@ -571,7 +579,9 @@ async fn make_message<'a>(
         Arc::new(normalized.into_boxed_slice()),
     )?;
 
-    message.set_meta("http_auth", auth.summarize()).await?;
+    message
+        .set_meta("http_auth", auth.summarize_for_http_auth())
+        .await?;
     message.set_meta("reception_protocol", "HTTP").await?;
     message
         .set_meta("received_from", peer_address.to_string())
@@ -592,7 +602,7 @@ async fn process_recipient<'a>(
     recip: &Recipient,
     request: &'a InjectV1Request,
     compiled: &Compiled<'a>,
-    auth: &AuthKind,
+    auth: &AuthInfo,
     via_address: &Option<IpAddr>,
     hostname: &Option<String>,
 ) -> anyhow::Result<()> {
@@ -611,8 +621,12 @@ async fn process_recipient<'a>(
     .await?;
 
     // call callback to assign to queue
-    let sig = CallbackSignature::<message::Message, ()>::new("http_message_generated");
-    config.async_call_callback(&sig, message.clone()).await?;
+    config
+        .async_call_callback(
+            &HTTP_MESSAGE_GENERATED,
+            (message.clone(), SerdeWrappedValue(auth.clone())),
+        )
+        .await?;
 
     // spool and insert to queue
     let queue_name = message.get_queue_name().await?;
@@ -656,7 +670,7 @@ async fn process_recipient<'a>(
 }
 
 async fn queue_deferred(
-    auth: AuthKind,
+    auth: AuthInfo,
     sender: EnvelopeAddress,
     peer_address: IpAddr,
     mut request: InjectV1Request,
@@ -673,7 +687,12 @@ async fn queue_deferred(
         Arc::new(payload.into_boxed_slice()),
     )?;
 
-    message.set_meta("http_auth", auth.summarize()).await?;
+    message
+        .set_meta("auth_info", serde_json::to_value(&auth)?)
+        .await?;
+    message
+        .set_meta("http_auth", auth.summarize_for_http_auth())
+        .await?;
     message.set_meta("reception_protocol", "HTTP").await?;
     message
         .set_meta("received_from", peer_address.to_string())
@@ -718,7 +737,7 @@ async fn queue_deferred(
 }
 
 async fn inject_v1_impl(
-    auth: AuthKind,
+    auth: AuthInfo,
     sender: EnvelopeAddress,
     peer_address: IpAddr,
     mut request: InjectV1Request,
@@ -774,7 +793,7 @@ async fn inject_v1_impl(
 }
 
 async fn build_from_v1_injection_request(
-    auth: AuthKind,
+    auth: AuthInfo,
     sender: EnvelopeAddress,
     peer_address: IpAddr,
     mut request: InjectV1Request,
@@ -820,7 +839,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 .map_err(any_err)?;
             let my_ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
             let result = inject_v1_impl(
-                AuthKind::TrustedIp(my_ip),
+                AuthInfo::new_local_system(),
                 sender,
                 my_ip,
                 request,
@@ -843,7 +862,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 .map_err(any_err)?;
             let my_ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
-            build_from_v1_injection_request(AuthKind::TrustedIp(my_ip), sender, my_ip, request)
+            build_from_v1_injection_request(AuthInfo::new_local_system(), sender, my_ip, request)
                 .await
                 .map_err(any_err)
         })?,
@@ -863,7 +882,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     ),
 )]
 pub async fn inject_v1(
-    auth: AuthKind,
+    auth: AuthInfo,
     ClientIp(peer_address): ClientIp,
     State(app_state): State<AppState>,
     // Note: Json<> must be last in the param list
@@ -939,6 +958,20 @@ impl HttpInjectionGeneratorDispatcher {
                     .await?
                     .ok_or_else(|| anyhow::anyhow!("received_from metadata is missing!?"))?
                     .parse()?;
+
+                let auth_info: AuthInfo = match msg.get_meta_string("auth_info").await? {
+                    Some(info) => serde_json::from_str(&info)?,
+                    None => {
+                        // We might not have auth_info serialized in the metadata
+                        // if we are upgrading from a prior version that did not
+                        // support AuthInfo, so default it to something approximating
+                        // the AuthInfo it would probably have
+                        let mut auth_info = AuthInfo::default();
+                        auth_info.set_peer_address(Some(peer_address));
+                        auth_info
+                    }
+                };
+
                 let via_address = match msg.get_meta_string("received_via").await {
                     Ok(Some(v)) => v.parse().ok(),
                     _ => None,
@@ -951,7 +984,7 @@ impl HttpInjectionGeneratorDispatcher {
                 let sender = msg.sender().await?;
 
                 let _ = inject_v1_impl(
-                    AuthKind::TrustedIp(peer_address),
+                    auth_info,
                     sender,
                     peer_address,
                     request,

@@ -534,6 +534,12 @@ impl<T: serde::Serialize> serde::Serialize for SerdeWrappedValue<T> {
     }
 }
 
+impl<T: Clone> Clone for SerdeWrappedValue<T> {
+    fn clone(&self) -> Self {
+        SerdeWrappedValue(self.0.clone())
+    }
+}
+
 impl<T: Default> Default for SerdeWrappedValue<T> {
     fn default() -> Self {
         SerdeWrappedValue(Default::default())

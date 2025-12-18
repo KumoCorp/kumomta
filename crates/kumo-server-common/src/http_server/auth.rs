@@ -36,7 +36,7 @@ static HTTP_AUTH_BEARER: Single("http_server_validate_auth_bearer",
 /// Use this as an extractor parameter when you need to reference
 /// that identity in the handler.
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
-pub enum AuthKind {
+enum AuthKind {
     TrustedIp(IpAddr),
     Basic {
         user: String,
@@ -121,14 +121,6 @@ impl AuthKind {
 
                 res.map_err(|err| anyhow::anyhow!("{err}"))
             }
-        }
-    }
-
-    pub fn summarize(&self) -> String {
-        match self {
-            Self::TrustedIp(addr) => addr.to_string(),
-            Self::Basic { user, .. } => user.to_string(),
-            Self::Bearer { .. } => "Bearer".to_string(),
         }
     }
 }

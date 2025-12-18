@@ -1,7 +1,8 @@
 use crate::acct::{log_authz, AuditLogParams};
 use crate::http_server::auth::HttpEndpointResource;
 use async_trait::async_trait;
-use axum::http::Uri;
+use axum::extract::FromRequestParts;
+use axum::http::{StatusCode, Uri};
 use chrono::{DateTime, Utc};
 use cidr_map::CidrSet;
 use config::{
@@ -13,7 +14,7 @@ use mlua::{Lua, LuaSerdeExt, UserDataFields, UserDataMethods, UserDataRef};
 use mod_memoize::Memoized;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
@@ -126,12 +127,29 @@ impl AuthInfo {
     /// It should be considered to be the most privileged identity
     pub fn new_local_system() -> Self {
         Self {
-            peer_address: None,
+            peer_address: Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
             identities: vec![Identity {
                 identity: "kumomta.internal".to_string(),
                 context: IdentityContext::LocalSystem,
             }],
             groups: vec![],
+        }
+    }
+
+    pub fn summarize_for_http_auth(&self) -> String {
+        if let Some(ident) = self
+            .identities
+            .iter()
+            .find(|ident| ident.context == IdentityContext::HttpBasicAuth)
+        {
+            return ident.identity.to_string();
+        }
+        if let Some(ident) = self.identities.first() {
+            return ident.identity.to_string();
+        }
+        match &self.peer_address {
+            Some(addr) => addr.to_string(),
+            None => "".to_string(),
         }
     }
 
@@ -213,6 +231,23 @@ impl AuthInfo {
             ACLRuleTerm::AnyOf(terms) => terms.iter().any(|term| self.matches_criteria(term)),
             ACLRuleTerm::AllOf(terms) => terms.iter().all(|term| self.matches_criteria(term)),
             ACLRuleTerm::Identity(ident) => self.matches_identity(ident),
+        }
+    }
+}
+
+impl<B> FromRequestParts<B> for AuthInfo
+where
+    B: Send + Sync,
+{
+    type Rejection = (StatusCode, &'static str);
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _: &B,
+    ) -> Result<Self, Self::Rejection> {
+        match parts.extensions.get::<AuthInfo>() {
+            Some(info) => Ok(info.clone()),
+            None => Ok(AuthInfo::default()),
         }
     }
 }

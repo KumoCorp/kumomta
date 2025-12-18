@@ -1,13 +1,15 @@
 # http_message_generated
 
 ```lua
-kumo.on('http_message_generated', function(message) end)
+kumo.on('http_message_generated', function(message, auth_info) end)
 ```
 
 Called by the HTTP injection API endpoint after generating a message, but prior
 to injecting it into the queue.
 
-The event handler will be passed a [Message](../message/index.md) object.
+The event handler will be passed a [Message](../message/index.md) object, as
+well as an [AuthInfo](../kumo.aaa/auth_info.md) {{since('dev', inline=True)}}
+that can be used to implement more granular access control policies.
 
 The HTTP injector does not add a `Received` header, but it will pre-set the
 following meta values in the message:
@@ -25,7 +27,7 @@ You may use [kumo.reject](../kumo/reject.md) to raise an error to prevent this
 message from being queued for delivery.
 
 ```lua
-kumo.on('http_message_generated', function(msg)
+kumo.on('http_message_generated', function(msg, auth_info)
   local signer = kumo.dkim.rsa_sha256_signer {
     domain = msg:from_header().domain,
     selector = 'default',
