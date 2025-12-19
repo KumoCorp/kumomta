@@ -88,7 +88,7 @@ impl std::hash::Hash for RustlsCacheKey {
 
 lruttl::declare_cache! {
 /// Caches TLS connector information for the RFC5321 SMTP client
-static RUSTLS_CACHE: LruCacheWithTtl<RustlsCacheKey, Arc<ClientConfig>>::new("kumo_tls_helper_rustls_config", 32);
+static RUSTLS_CACHE: LruCacheWithTtl<RustlsCacheKey, Arc<ClientConfig>>::new("rustls_client_config", 32);
 }
 
 impl RustlsCacheKey {
