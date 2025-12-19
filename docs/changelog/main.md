@@ -1,6 +1,10 @@
 # Unreleased Changes in The Mainline
 
 ## Breaking Changes
+ * The `rfc5321_rustls_config` cache has been renamed to `rustls_client_config`.
+   If you have a policy that tunes this cache via
+   [kumo.set_lruttl_cache_capacity](../reference/kumo/set_lruttl_cache_capacity.md),
+   you will need to update the cache name.
 
 ## Other Changes and Enhancements
  * Enhanced [Access Control](../reference/access_control.md) subsystem,
