@@ -65,7 +65,7 @@
     "doc": "Caches MTA-STS policy information by domain"
   },
   {
-    "name": "rfc5321_rustls_config",
+    "name": "rustls_client_config",
     "capacity": 32,
     "doc": "Caches TLS connector information for the RFC5321 SMTP client"
   },
