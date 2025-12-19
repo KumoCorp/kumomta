@@ -293,6 +293,7 @@ TOC = [
                     ),
                     Page("Routing Messages via AMQP", "userguide/policy/amqp.md"),
                     Page("Routing Messages via Kafka", "userguide/policy/kafka.md"),
+                    Page("Routing Messages via NATS", "userguide/policy/nats.md"),
                     Page(
                         "Storing Secrets in Hashicorp Vault",
                         "userguide/policy/hashicorp_vault.md",
@@ -458,6 +459,10 @@ TOC = [
             Gen(
                 "module: kumo.kafka",
                 "reference/kumo.kafka",
+            ),
+            Gen(
+                "module: kumo.nats",
+                "reference/kumo.nats",
             ),
             Gen(
                 "module: kumo.mimepart",
