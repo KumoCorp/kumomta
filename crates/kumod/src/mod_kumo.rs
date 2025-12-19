@@ -200,13 +200,11 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "invoke_get_egress_path_config",
         lua.create_async_function(
             |lua, (routing_domain, egress_source, site_name): (String, String, String)| async move {
-                let path_config: EgressPathConfig = config::async_call_callback(
-                    &lua,
-                    &GET_EGRESS_PATH_CONFIG_SIG,
-                    (routing_domain, egress_source, site_name),
-                )
-                .await
-                .map_err(any_err)?;
+                let path_config: EgressPathConfig = GET_EGRESS_PATH_CONFIG_SIG
+                    .call(&lua, (routing_domain, egress_source, site_name))
+                    .await
+                    .map_err(any_err)?
+                    .or_default();
                 lua.to_value(&path_config)
             },
         )?,
@@ -332,7 +330,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_async_function(
             move |_lua, (msg, deferred_spool): (Message, Option<bool>)| async move {
                 let deferred_spool = deferred_spool.unwrap_or(false);
-                let queue_name = msg.get_queue_name().map_err(any_err)?;
+                let queue_name = msg.get_queue_name().await.map_err(any_err)?;
                 if !deferred_spool {
                     msg.save(None).await.map_err(any_err)?;
                 }

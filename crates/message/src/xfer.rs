@@ -89,7 +89,7 @@ mod test {
     #[tokio::test]
     async fn xfer_serialization() {
         let msg = new_msg_body("Subject: simple message\r\n\r\nHello\r\n");
-        msg.set_meta("canary", true).unwrap();
+        msg.set_meta("canary", true).await.unwrap();
         let serialized = msg
             .serialize_for_xfer(json!({"additional": "meta"}))
             .await
@@ -97,8 +97,8 @@ mod test {
         eprintln!("serialized as: {}", String::from_utf8_lossy(&serialized));
 
         let round_trip = Message::deserialize_from_xfer(&serialized).unwrap();
-        assert_eq!(round_trip.get_meta("canary").unwrap(), true);
-        assert_eq!(round_trip.get_meta("additional").unwrap(), "meta");
+        assert_eq!(round_trip.get_meta("canary").await.unwrap(), true);
+        assert_eq!(round_trip.get_meta("additional").await.unwrap(), "meta");
         eprintln!(
             "deserialized message:\n{}",
             String::from_utf8_lossy(&round_trip.data().await.unwrap())

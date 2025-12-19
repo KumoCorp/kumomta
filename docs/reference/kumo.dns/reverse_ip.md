@@ -4,7 +4,7 @@
 local reversed = kumo.dns.reverse_ip(IP)
 ```
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 Given an IP address in either V4 or V6 format as the input, returns
 the reversed address.

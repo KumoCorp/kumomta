@@ -1,5 +1,15 @@
 [
   {
+    "name": "acl_check",
+    "capacity": 128,
+    "doc": null
+  },
+  {
+    "name": "acl_definition",
+    "capacity": 128,
+    "doc": null
+  },
+  {
     "name": "dkim_key_cache",
     "capacity": 1024,
     "doc": "Caches dkim loaded signing keys based on their KeySource spec"

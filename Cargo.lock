@@ -2483,8 +2483,7 @@ dependencies = [
 [[package]]
 name = "handlebars"
 version = "6.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "759e2d5aea3287cb1190c8ec394f42866cb5bf74fcbf213f354e3c856ea26098"
+source = "git+https://github.com/sunng87/handlebars-rust.git?rev=c349c39557700e6a5b5e5273f2fc0f42574b79f3#c349c39557700e6a5b5e5273f2fc0f42574b79f3"
 dependencies = [
  "derive_builder 0.20.2",
  "heck",
@@ -3188,6 +3187,7 @@ dependencies = [
  "kumo-api-types",
  "kumo-dkim",
  "kumo-log-types",
+ "kumo-server-common",
  "lapin",
  "lipsum",
  "maildir",
@@ -3604,19 +3604,23 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
+ "async-trait",
  "axum",
  "axum-client-ip",
  "axum-server",
  "axum-streams",
  "backtrace",
+ "chrono",
  "cidr-map",
  "clap",
  "config",
  "data-encoding",
  "data-loader",
  "domain-map",
+ "duration-serde",
  "gethostname 1.0.2",
  "human_bytes",
+ "k9",
  "kumo-api-types",
  "kumo-prometheus",
  "kumo-server-lifecycle",
@@ -3630,6 +3634,7 @@ dependencies = [
  "metrics-tracing-context",
  "mlua",
  "mod-amqp",
+ "mod-aws-sigv4",
  "mod-crypto",
  "mod-digest",
  "mod-dns-resolver",
@@ -3662,6 +3667,7 @@ dependencies = [
  "tokio-metrics",
  "tokio-metrics-collector",
  "tokio-stream",
+ "toml",
  "tower-http",
  "tracing",
  "tracing-appender",
@@ -3671,6 +3677,7 @@ dependencies = [
  "uuid",
  "uuid-helper",
  "version-info",
+ "zstd",
 ]
 
 [[package]]
@@ -4177,7 +4184,7 @@ name = "mailparsing"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.9.4",
- "charset",
+ "charset-normalizer-rs",
  "chrono",
  "data-encoding",
  "data-encoding-macro",
@@ -4266,7 +4273,6 @@ dependencies = [
  "data-loader",
  "dns-resolver",
  "duration-serde",
- "encoding_rs",
  "futures",
  "intrusive-collections",
  "k9",
@@ -4484,6 +4490,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mod-aws-sigv4"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aws-lc-rs",
+ "chrono",
+ "config",
+ "data-encoding",
+ "data-loader",
+ "mlua",
+ "percent-encoding",
+ "serde",
+ "tokio",
+]
+
+[[package]]
 name = "mod-crypto"
 version = "0.1.0"
 dependencies = [
@@ -4574,6 +4596,7 @@ dependencies = [
  "mail-builder",
  "mailparse",
  "mlua",
+ "mod-aws-sigv4",
  "reqwest",
  "serde",
  "tokio",

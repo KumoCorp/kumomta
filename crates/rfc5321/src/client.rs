@@ -46,17 +46,17 @@ pub enum ClientError {
     InvalidDnsName(String),
     #[error("Invalid client certificate configured: {error:?}")]
     FailedToBuildConnector { error: String },
-    #[error("Timed Out waiting {duration:?} for response to {command:?}")]
+    #[error("Timed Out waiting {duration:?} for response to cmd={}", self.command_for_err())]
     TimeOutResponse {
         command: Option<Command>,
         duration: Duration,
     },
-    #[error("Timed Out writing {duration:?} {commands:?}")]
+    #[error("Timed Out after {duration:?} writing cmd={}", self.command_for_err())]
     TimeOutRequest {
         commands: Vec<Command>,
         duration: Duration,
     },
-    #[error("Error {error} reading response to {command:?}")]
+    #[error("Error {error} reading response to cmd={}", self.command_for_err())]
     ReadError {
         command: Option<Command>,
         error: String,
@@ -64,7 +64,7 @@ pub enum ClientError {
     },
     #[error("Error {error} flushing send buffer")]
     FlushError { error: String },
-    #[error("Error {error} writing {commands:?}")]
+    #[error("Error {error} writing {}", self.command_for_err())]
     WriteError {
         commands: Vec<Command>,
         error: String,
@@ -97,6 +97,14 @@ impl ClientError {
             }
             _ => None,
         }
+    }
+
+    /// Returns the command(s) string suitable for embedding in the
+    /// overall error message
+    fn command_for_err(&self) -> String {
+        self.command()
+            .map(|cmd| cmd.replace("\r\n", ""))
+            .unwrap_or_else(|| "NONE".to_string())
     }
 
     /// If the error contents were likely caused by something
@@ -1251,6 +1259,7 @@ pub fn subject_name(cert: &X509Ref) -> Vec<String> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::{MailPath, Mailbox};
 
     #[test]
     fn test_stuffing() {
@@ -1412,5 +1421,38 @@ mod test {
         assert_eq!(extract_hostname("[foo.]:25"), "foo");
         assert_eq!(extract_hostname("[::1]:25"), "::1");
         assert_eq!(extract_hostname("::1:25"), "::1");
+    }
+
+    #[test]
+    fn test_format_error_command() {
+        assert_eq!(
+            format!(
+                "{:#}",
+                ClientError::TimeOutRequest {
+                    commands: vec![Command::DataDot],
+                    duration: Duration::from_secs(10),
+                }
+            ),
+            "Timed Out after 10s writing cmd=."
+        );
+        assert_eq!(
+            format!(
+                "{:#}",
+                ClientError::TimeOutResponse {
+                    command: Some(Command::MailFrom {
+                        address: ReversePath::Path(MailPath {
+                            at_domain_list: vec![],
+                            mailbox: Mailbox {
+                                local_part: "user".to_string(),
+                                domain: Domain::Name("host".to_string())
+                            }
+                        }),
+                        parameters: vec![],
+                    }),
+                    duration: Duration::from_secs(10),
+                }
+            ),
+            r#"Timed Out waiting 10s for response to cmd=MAIL FROM:<user@host>"#
+        );
     }
 }

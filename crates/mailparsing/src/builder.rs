@@ -5,6 +5,8 @@ use crate::{HeaderMap, MailParsingError, MimePart};
 pub struct MessageBuilder<'a> {
     text: Option<String>,
     html: Option<String>,
+    // <https://amp.dev/documentation/guides-and-tutorials/email/learn/email-spec/amp-email-structure>
+    amp_html: Option<String>,
     headers: HeaderMap<'a>,
     inline: Vec<MimePart<'a>>,
     attached: Vec<MimePart<'a>>,
@@ -26,6 +28,10 @@ impl<'a> MessageBuilder<'a> {
 
     pub fn text_html(&mut self, html: &str) {
         self.html.replace(html.to_string());
+    }
+
+    pub fn text_amp_html(&mut self, html: &str) {
+        self.amp_html.replace(html.to_string());
     }
 
     pub fn attach(
@@ -64,20 +70,46 @@ impl<'a> MessageBuilder<'a> {
     pub fn build(self) -> Result<MimePart<'a>, MailParsingError> {
         let text = self.text.as_deref().map(MimePart::new_text_plain);
         let html = self.html.as_deref().map(MimePart::new_html);
+        let amp_html = self
+            .amp_html
+            .as_deref()
+            .map(|html| MimePart::new_text("text/x-amp-html", html));
 
-        let content_node = match (text, html) {
-            (Some(t), Some(h)) => MimePart::new_multipart(
+        // Phrase the alternative parts.
+        // Note that, when there are both HTML and AMP HTML parts,
+        // we are careful to NOT place the amp part as the last part
+        // as the AMP docs recommend that we keep the regular HTML
+        // part as the last part as some clients can only render
+        // the last alternative part(!)
+        let content_node = match (text, html, amp_html) {
+            (Some(t), Some(h), Some(amp)) => MimePart::new_multipart(
                 "multipart/alternative",
-                vec![t?, h?],
+                vec![t?, amp?, h?],
                 if self.stable_content {
                     Some("ma-boundary")
                 } else {
                     None
                 },
             )?,
-            (Some(t), None) => t?,
-            (None, Some(h)) => h?,
-            (None, None) => {
+            (Some(first), Some(second), None)
+            | (None, Some(second), Some(first))
+            | (Some(first), None, Some(second)) => MimePart::new_multipart(
+                "multipart/alternative",
+                vec![first?, second?],
+                if self.stable_content {
+                    Some("ma-boundary")
+                } else {
+                    None
+                },
+            )?,
+            (Some(only), None, None) | (None, Some(only), None) => only?,
+            (None, None, Some(_amp)) => {
+                return Err(MailParsingError::BuildError(
+                    "the AMP email spec requires at least one non-amp part \
+                        to be present in the message",
+                ))
+            }
+            (None, None, None) => {
                 return Err(MailParsingError::BuildError(
                     "no text or html part was specified",
                 ))
@@ -183,6 +215,72 @@ Content-Type: text/plain;\r
 Content-Transfer-Encoding: quoted-printable\r
 \r
 This is the body! =F0=9F=91=BB\r
+--ma-boundary\r
+Content-Type: text/html;\r
+\tcharset="utf-8"\r
+Content-Transfer-Encoding: quoted-printable\r
+\r
+<b>this is html =F0=9F=9A=80</b>\r
+--ma-boundary--\r
+
+"#
+        );
+    }
+
+    #[test]
+    fn amp() {
+        let mut b = MessageBuilder::new();
+        b.set_stable_content(true);
+        b.set_subject("Hello there! 🍉").unwrap();
+        b.text_plain("This is the body! 👻");
+        b.text_html("<b>this is html 🚀</b>");
+        b.text_amp_html(
+            &r#"<!doctype html>
+<html ⚡4email>
+<head>
+  <meta charset="utf-8">
+  <style amp4email-boilerplate>body{visibility:hidden}</style>
+  <script async src="https://cdn.ampproject.org/v0.js"></script>
+</head>
+<body>
+Hello World in AMP!
+</body>
+</html>
+"#
+            .replace("\n", "\r\n"),
+        );
+        let msg = b.build().unwrap();
+        k9::snapshot!(
+            msg.to_message_string(),
+            r#"
+Content-Type: multipart/alternative;\r
+\tboundary="ma-boundary"\r
+Subject: =?UTF-8?q?Hello_there!_=F0=9F=8D=89?=\r
+Mime-Version: 1.0\r
+Date: Tue, 1 Jul 2003 10:52:37 +0200\r
+\r
+--ma-boundary\r
+Content-Type: text/plain;\r
+\tcharset="utf-8"\r
+Content-Transfer-Encoding: quoted-printable\r
+\r
+This is the body! =F0=9F=91=BB\r
+--ma-boundary\r
+Content-Type: text/x-amp-html;\r
+\tcharset="utf-8"\r
+Content-Transfer-Encoding: quoted-printable\r
+\r
+<!doctype html>\r
+<html =E2=9A=A14email>\r
+<head>\r
+  <meta charset=3D"utf-8">\r
+  <style amp4email-boilerplate>body{visibility:hidden}</style>\r
+  <script async src=3D"https://cdn.ampproject.org/v0.js"></script>\r
+</head>\r
+<body>\r
+Hello World in AMP!\r
+</body>\r
+</html>\r
 --ma-boundary\r
 Content-Type: text/html;\r
 \tcharset="utf-8"\r

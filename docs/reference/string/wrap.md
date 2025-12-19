@@ -4,7 +4,7 @@
 local wrapped = kumo.string.wrap(TEXT, SOFT_LIMIT, HARD_LIMIT)
 ```
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 Ensures that the `TEXT` parameter is no longer than `HARD_LIMIT` by breaking
 around whitespace to try to keep most lines below `SOFT_LIMIT`, but hard

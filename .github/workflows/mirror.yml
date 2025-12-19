@@ -1,0 +1,29 @@
+name: 'Mirror'
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['**']
+    tags: ['**']
+
+jobs:
+  mirror:
+    name: 'Mirror'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: 'Checkout'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 'Mirror to Codeberg'
+        uses: cssnr/mirror-repository-action@v1
+        with:
+          #url: https://codeberg.org/cssnr/mirror-repository-action
+          host: https://codeberg.org
+          owner: KumoCorp
+          repo: kumomta
+          username: ${{ secrets.CODEBERG_USERNAME }}
+          password: ${{ secrets.CODEBERG_TOKEN }}

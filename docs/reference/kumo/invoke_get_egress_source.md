@@ -4,7 +4,7 @@
 local config = kumo.invoke_get_egress_source(source_name)
 ```
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 This function triggers a call through to the
 [get_egress_source](../events/get_egress_source.md) event callback(s)

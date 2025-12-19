@@ -9,7 +9,7 @@ the message.
 
 The `VALUE` is taken as-is and used as the header value.
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 This method now accepts an additional optional `ENCODE` parameter, which should
 be a boolean value:

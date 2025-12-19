@@ -4,7 +4,7 @@
 local result = message:arc_verify(OPT_RESOLVER_NAME)
 ```
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 This method will verify the [Authenticated Received
 Chain](https://datatracker.ietf.org/doc/html/rfc8617) in the message, returning

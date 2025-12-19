@@ -6,6 +6,7 @@ use futures::stream::FusedStream;
 use futures::{SinkExt, StreamExt};
 use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Request};
 use kumo_log_types::*;
+use kumo_server_common::acct::AcctLogRecord;
 use maildir::{MailEntry, Maildir};
 use mailparsing::MessageBuilder;
 use nix::unistd::{Uid, User};
@@ -363,6 +364,14 @@ impl DaemonWithMaildir {
             sink_counts,
         })
     }
+
+    /// Raise an error if the acct log has any denied access entries.
+    /// That implies that there is an issue with the ACL definitions
+    pub async fn assert_no_acct_deny(&self) -> anyhow::Result<()> {
+        self.source.assert_no_acct_deny().await?;
+        self.sink.assert_no_acct_deny().await?;
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -642,6 +651,78 @@ impl KumoDaemon {
         Ok(())
     }
 
+    pub async fn collect_acct_logs(&self) -> anyhow::Result<Vec<AcctLogRecord>> {
+        let records = self.collect_acct_logs_impl().await?;
+
+        // and print it in the sorted order for easier understanding
+        eprintln!("--- collect_acct_logs begin");
+        for r in &records {
+            eprintln!("{}", serde_json::to_string(r).unwrap());
+        }
+        eprintln!("--- end of acct logs");
+
+        Ok(records)
+    }
+
+    /// Raise an error if the acct log has any denied access entries.
+    /// That implies that there is an issue with the ACL definitions
+    pub async fn assert_no_acct_deny(&self) -> anyhow::Result<()> {
+        let logs = self.collect_acct_logs().await?;
+
+        for entry in &logs {
+            anyhow::ensure!(entry.is_allow(), "Got a deny acct log entry: {entry:#?}");
+        }
+        Ok(())
+    }
+
+    pub async fn collect_acct_logs_impl(&self) -> anyhow::Result<Vec<AcctLogRecord>> {
+        let dir = self.dir.path().join("acct");
+        tokio::task::spawn_blocking(move || {
+            let mut records = vec![];
+
+            fn read_zstd_file(path: &Path) -> anyhow::Result<String> {
+                let f = std::fs::File::open(path).with_context(|| format!("open {path:?}"))?;
+                let data = zstd::stream::decode_all(f)
+                    .with_context(|| format!("decoding zstd from {path:?}"))?;
+                let text = String::from_utf8(data)?;
+                Ok(text)
+            }
+
+            fn read_zstd_file_with_retry(path: &Path) -> anyhow::Result<String> {
+                let mut error = None;
+                for _ in 0..10 {
+                    match read_zstd_file(path) {
+                        Ok(t) => {
+                            return Ok(t);
+                        }
+                        Err(err) => {
+                            eprintln!("collect_logs: Error reading {path:?}: {err:#}");
+                            error.replace(err);
+                            std::thread::sleep(std::time::Duration::from_secs(1));
+                        }
+                    }
+                }
+                anyhow::bail!("Failed: {error:?}");
+            }
+
+            for entry in std::fs::read_dir(&dir)? {
+                let entry = entry?;
+                if entry.file_type()?.is_file() {
+                    let text = read_zstd_file_with_retry(&entry.path())?;
+                    for line in text.lines() {
+                        let record: AcctLogRecord = serde_json::from_str(line)?;
+                        records.push(record);
+                    }
+                }
+            }
+
+            records.sort_by(|a, b| a.timestamp().cmp(b.timestamp()));
+
+            Ok(records)
+        })
+        .await?
+    }
+
     pub async fn collect_logs(&self) -> anyhow::Result<Vec<JsonLogRecord>> {
         let records = self.collect_logs_impl().await?;
 
@@ -763,6 +844,24 @@ impl KumoDaemon {
         }
 
         anyhow::bail!("unexpected state from accounting db");
+    }
+
+    pub async fn kcli_text(
+        &self,
+        args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+    ) -> anyhow::Result<String> {
+        let path = target_bin("kcli")?;
+        let mut cmd = Command::new(path);
+        cmd.args(["--endpoint", &format!("http://{}", self.listener("http"))]);
+        cmd.args(args);
+        cmd.stdout(std::process::Stdio::piped());
+        let label = format!("{cmd:?}");
+        let child = cmd.spawn()?;
+        let output = child.wait_with_output().await?;
+        anyhow::ensure!(output.status.success(), "{label}: {:?}", output.status);
+        let output = String::from_utf8_lossy(&output.stdout);
+        println!("kcli output is: {output}");
+        Ok(output.into())
     }
 
     pub async fn kcli_json<R: for<'a> serde::Deserialize<'a>>(

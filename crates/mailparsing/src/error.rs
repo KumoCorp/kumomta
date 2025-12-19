@@ -1,3 +1,4 @@
+use crate::MessageConformance;
 use thiserror::Error;
 
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -34,4 +35,8 @@ pub enum MailParsingError {
     TooManyParts,
     #[error("8-bit found when 7-bit is required")]
     EightBit,
+    #[error("Message has conformance issues: {}", .0.to_string())]
+    ConformanceIssues(MessageConformance),
+    #[error("Failed to detect the charset: {0}")]
+    CharsetDetectionFailed(String),
 }

@@ -23,6 +23,10 @@ up in a `multipart/alternative` container part.  If you add attachments, then a
   * `builder:attach_part(PART)` - call this to add an attachment part that you have constructed separately
   * `builder:set_stable_content(true)` - provided for testing purposes, when called and set to `true`, the generated boundaries and other automatically added headers will used fixed strings to aid in making test assertions.
   * `builder:build()` - finalize the message, consuming its internal state, and return the newly constructed [MimePart](../mimepart/index.md).
+  * `builder:text_amp_html(AMP_HTML)` - call this to set the [AMP
+    HTML](https://amp.dev/documentation/guides-and-tutorials/email/learn/email-spec/amp-email-structure)
+    part of the message. The part is constructed as though you created a new
+    text part with the content type `text/x-amp-html`. {{since('dev', inline=True)}}.
 
 ## Example
 

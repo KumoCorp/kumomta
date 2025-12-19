@@ -28,7 +28,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 let resolver = get_resolver_instance(&opt_resolver_name).map_err(any_err)?;
 
                 // MAIL FROM
-                let msg_sender = msg.sender();
+                let msg_sender = msg.sender().await;
 
                 let mail_from_domain = msg_sender.ok().map(|x| x.domain().to_string());
 

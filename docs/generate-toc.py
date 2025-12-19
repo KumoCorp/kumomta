@@ -397,10 +397,15 @@ TOC = [
             Page("Memory Management", "reference/memory.md"),
             Gen("Template Syntax", "reference/template"),
             Page("Log Record", "reference/log_record.md"),
+            Page("Access Control", "reference/access_control.md"),
             Gen("kcli", "reference/kcli", extract_title=True),
             Gen(
                 "module: kumo",
                 "reference/kumo",
+            ),
+            Gen(
+                "module: kumo.aaa",
+                "reference/kumo.aaa",
             ),
             Gen(
                 "module: kumo.amqp",

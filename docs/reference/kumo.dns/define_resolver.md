@@ -4,7 +4,7 @@
 kumo.dns.define_resolver(NAME, CONFIG)
 ```
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 This function defines an alternative resolver from the default configured via
 [configure_resolver](configure_resolver.md), and gives it a name.

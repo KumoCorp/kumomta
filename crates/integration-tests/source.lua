@@ -18,6 +18,10 @@ local USE_SPLIT_TXN = os.getenv 'KUMOD_USE_SPLIT_TXN'
 
 kumo.on('init', function()
   kumo.configure_accounting_db_path(TEST_DIR .. '/accounting.db')
+  kumo.aaa.configure_acct_log {
+    log_dir = TEST_DIR .. '/acct',
+    max_segment_duration = '1s',
+  }
 
   local relay_hosts = { '0.0.0.0/0' }
   local RELAY_HOSTS = os.getenv 'KUMOD_RELAY_HOSTS'

@@ -1,7 +1,6 @@
 use crate::ready_queue::ReadyQueueManager;
 use axum::extract::{Json, Query};
 use kumo_api_types::{QueueState, ReadyQueueStateRequest, ReadyQueueStateResponse};
-use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
 use std::collections::HashMap;
 
@@ -18,7 +17,6 @@ use std::collections::HashMap;
     ),
 )]
 pub async fn readyq_states(
-    _: TrustedIpRequired,
     Query(request): Query<ReadyQueueStateRequest>,
 ) -> Result<Json<ReadyQueueStateResponse>, AppError> {
     let mut states_by_ready_queue = HashMap::new();

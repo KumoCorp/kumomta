@@ -681,7 +681,7 @@ impl Logger {
             }
         }
 
-        let meta = self.extract_meta(&msg.get_meta_obj().unwrap_or(serde_json::Value::Null));
+        let meta = self.extract_meta(&msg.get_meta_obj().await.unwrap_or(serde_json::Value::Null));
 
         (headers, meta)
     }

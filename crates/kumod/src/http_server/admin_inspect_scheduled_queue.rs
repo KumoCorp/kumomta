@@ -4,7 +4,6 @@ use kumo_api_types::{
     InspectMessageV1Response, InspectQueueV1Request, InspectQueueV1Response, MessageInformation,
 };
 use kumo_chrono_helper::Utc;
-use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
 use reqwest::StatusCode;
 
@@ -19,7 +18,6 @@ use reqwest::StatusCode;
     ),
 )]
 pub async fn inspect_v1(
-    _: TrustedIpRequired,
     Query(request): Query<InspectQueueV1Request>,
 ) -> Result<Json<InspectQueueV1Response>, AppError> {
     let Some(queue) = QueueManager::get_opt(&request.queue_name) else {
@@ -32,11 +30,12 @@ pub async fn inspect_v1(
 
     for msg in queue.iter(request.limit) {
         if msg.load_meta_if_needed().await.is_ok() {
-            let recipient = msg.recipient_list_string()?;
-            let sender = msg.sender()?.to_string();
-            let meta = msg.get_meta_obj()?;
+            let recipient = msg.recipient_list_string().await?;
+            let sender = msg.sender().await?.to_string();
+            let meta = msg.get_meta_obj().await?;
             let scheduling = msg
                 .get_scheduling()
+                .await?
                 .and_then(|s| serde_json::to_value(s).ok());
 
             let data = if request.want_body {

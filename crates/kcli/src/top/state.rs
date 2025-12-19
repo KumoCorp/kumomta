@@ -353,6 +353,14 @@ impl State {
                 "",
                 2,
             ),
+            Entry::new(
+                "Rejections",
+                &self.get_series("smtp_server_rejections").unwrap().data,
+                Color::LightGreen,
+                false,
+                "",
+                1,
+            ),
         ];
 
         let pool_colors = [Color::LightGreen, Color::Green];

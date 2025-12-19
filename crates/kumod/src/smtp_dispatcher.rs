@@ -968,11 +968,12 @@ impl QueueDispatcher for SmtpDispatcher {
         let mut recips_this_txn = HashMap::new();
 
         let sender: ReversePath = msg
-            .sender()?
+            .sender()
+            .await?
             .try_into()
             .map_err(|err| anyhow::anyhow!("{err}"))?;
         let mut recipients: Vec<ForwardPath> = vec![];
-        for recip in msg.recipient_list()? {
+        for recip in msg.recipient_list().await? {
             let recip: ForwardPath = recip.try_into().map_err(|err| anyhow::anyhow!("{err:#}"))?;
             recips_this_txn.insert(
                 (spool_id, recip.clone()),
@@ -988,8 +989,8 @@ impl QueueDispatcher for SmtpDispatcher {
         self.tracer.set_meta("message_id", msg.id().to_string());
         self.tracer.set_meta("sender", sender.to_string());
         self.tracer
-            .set_meta("recipient", msg.recipient_list_string()?);
-        if let Ok(name) = msg.get_queue_name() {
+            .set_meta("recipient", msg.recipient_list_string().await?);
+        if let Ok(name) = msg.get_queue_name().await {
             let components = QueueNameComponents::parse(&name);
             self.tracer.set_meta("domain", components.domain);
             self.tracer
@@ -1139,7 +1140,7 @@ impl QueueDispatcher for SmtpDispatcher {
         }
 
         if rewrite_eligible {
-            let queue_name = msg.get_queue_name()?;
+            let queue_name = msg.get_queue_name().await?;
             let components = QueueNameComponents::parse(&queue_name);
 
             let sig = CallbackSignature::<
@@ -1325,7 +1326,7 @@ impl QueueDispatcher for SmtpDispatcher {
             // Revise the recipient list; all delivered and bounced
             // recipients are removed leaving just those that need
             // the message to be re-attempted
-            msg.set_recipient_list(revised_recipient_list)?;
+            msg.set_recipient_list(revised_recipient_list).await?;
             dispatcher.msgs.pop();
 
             if transport_error && try_next_host_on_transport_error {

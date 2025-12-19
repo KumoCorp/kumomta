@@ -1,7 +1,7 @@
 use crate::headermap::EncodeHeaderValue;
 use crate::nom_utils::{explain_nom, make_context_error, make_span, IResult, ParseError, Span};
 use crate::{MailParsingError, Result, SharedString};
-use charset::Charset;
+use charset_normalizer_rs::Encoding;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1};
 use nom::character::complete::{char, satisfy};
@@ -751,14 +751,19 @@ fn encoded_word(input: Span) -> IResult<Span, String> {
         }
     };
 
-    let charset = Charset::for_label_no_replacement(charset.as_bytes()).ok_or_else(|| {
+    let charset = Encoding::by_name(&*charset).ok_or_else(|| {
         make_context_error(
             input,
             format!("encoded_word: unsupported charset '{charset}'"),
         )
     })?;
 
-    let (decoded, _malformed) = charset.decode_without_bom_handling(&bytes);
+    let decoded = charset.decode_simple(&bytes).map_err(|err| {
+        make_context_error(
+            input,
+            format!("encoded_word: failed to decode as '{charset}': {err}"),
+        )
+    })?;
 
     Ok((loc, decoded.to_string()))
 }
@@ -1764,7 +1769,7 @@ impl MimeParameters {
 
         for ele in elements {
             if let Some(cset) = ele.mime_charset.as_deref() {
-                mime_charset = Charset::for_label_no_replacement(cset.as_bytes());
+                mime_charset = Encoding::by_name(&*cset);
             }
 
             match ele.encoding {
@@ -1821,8 +1826,9 @@ impl MimeParameters {
                             }
                         }
 
-                        let (decoded, _malformed) = charset.decode_without_bom_handling(&bytes);
-                        result.push_str(&decoded);
+                        if let Ok(decoded) = charset.decode_simple(&bytes) {
+                            result.push_str(&decoded);
+                        }
                     } else {
                         result.push_str(&ele.value);
                     }
@@ -2511,7 +2517,7 @@ Some(
 
         // There is no Content-Disposition in the rebuilt message, because
         // there was no valid Content-Disposition in what we parsed
-        let rebuilt = msg.rebuild().unwrap();
+        let rebuilt = msg.rebuild(None).unwrap();
         k9::assert_equal!(rebuilt.headers().content_disposition(), Ok(None));
     }
 
@@ -2677,7 +2683,7 @@ Some(
         );
 
         k9::snapshot!(
-            msg.rebuild().unwrap().to_message_string(),
+            msg.rebuild(None).unwrap().to_message_string(),
             r#"
 Content-Type: text/plain;\r
 \tcharset="us-ascii"\r

@@ -27,6 +27,10 @@ using a lua table:
 -- Use this to lookup and confirm a user/password credential
 -- used with the http endpoint
 kumo.on('http_server_validate_auth_basic', function(user, password)
+  -- This is just an example of how to populate the return value,
+  -- not a recommended way to handle passwords in production!
+  -- In particular, it is an absolutely terrible idea to hard code
+  -- a password here in plain text!
   local password_database = {
     ['daniel'] = 'tiger',
   }
@@ -59,5 +63,47 @@ kumo.on('http_message_generated', function(msg)
   if auth ~= 'some.one' then
     error 'only some.one is allowed to inject'
   end
+end)
+```
+
+## Returning Group and identity Information
+
+{{since('dev')}}
+
+Rather than just returning a boolean to indicate whether authentication was
+successful, you may now return an [AuthInfo](../kumo.aaa/auth_info.md) object
+holding additional information.  Here's an expanded version of the example
+above that shows how you can return group membership:
+
+```lua
+-- This is just an example of how to populate the return value,
+-- not a recommended way to handle passwords in production!
+-- In particular, it is an absolutely terrible idea to hard code
+-- a password here in plain text!
+
+local password_database = {
+  ['daniel'] = {
+    password = 'tiger',
+    groups = { 'group1', 'group2' },
+  },
+}
+
+kumo.on('http_server_validate_auth_basic', function(user, password)
+  local entry = password_database[user]
+  if not entry then
+    return false
+  end
+  if entry.password ~= password then
+    return false
+  end
+
+  -- Return an AuthInfo that lists out the identity and group
+  -- membership
+  return {
+    identities = {
+      { identity = user, context = 'HttpBasicAuth' },
+    },
+    groups = entry.groups,
+  }
 end)
 ```

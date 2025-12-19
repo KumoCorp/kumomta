@@ -66,7 +66,7 @@ The following classifications are pre-defined:
 |SpamRelated|messages refused or blocked due to spam related reasons|5.X.X error|
 |VirusRelated|messages refused or blocked due to virus related reasons|5.X.X error|
 |AuthenticationFailed|authentication policy was not met|
-|TooManyRecipients|A session or batch limit on the number of recipients was hit {{since('dev', inline=True)}}|
+|TooManyRecipients|A session or batch limit on the number of recipients was hit {{since('2025.12.02-67ee9e96', inline=True)}}|
 |Uncategorized|messages rejected due to other reasons|4.X.X or 5.X.X error|
 
 {{since('2023.12.28-63cde9c7', indent=True)}}

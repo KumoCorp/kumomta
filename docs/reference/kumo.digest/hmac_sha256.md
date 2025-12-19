@@ -4,7 +4,7 @@
 kumo.digest.hmac_sha256(KEY, MSG)
 ```
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 Computes an [HMAC](https://tools.ietf.org/html/rfc2104) digest over the `MSG`
 argument, using `KEY` as the means for signing/authenticating the data.

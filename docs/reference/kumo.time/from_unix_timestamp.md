@@ -1,6 +1,6 @@
 # kumo.time.from_unix_timestamp
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 ```lua
 local time = kumo.time.from_unix_timestamp(UNIX_TIMESTAMP)

@@ -1,23 +1,33 @@
-# Time Object
+# Time Object Type
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
-The `Time` object represents a date and time. It internally stores the time as
+The `Time` object type represents a date and time. It internally stores the time as
 [UTC](https://en.wikipedia.org/wiki/UTC%2B00:00), even if it was produced by
 parsing time from some other time zone.
+
+You do not create a `Time` object directly, but instead using one of the constructing functions:
+
+ * [kumo.time.from_unix_timestamp](from_unix_timestamp.md)
+ * [kumo.time.now](now.md)
+ * [kumo.time.parse_rfc2822](parse_rfc2822.md)
+ * [kumo.time.parse_rfc3339](parse_rfc3339.md)
+ * [kumo.time.with_ymd_hms](with_ymd_hms.md)
+
+or though metamethods of `Time` (see below).
 
 ## Metamethods
 
 The following metamethods are implemented on `Time` objects:
 
- * `__tostring` - returns a human readable representation of the time like `1970-01-01 00:00:01 UTC`.
- * `__eq` - compares two `Time` objects for equality
- * `+` - addition. You may add a [TimeDelta](TimeDelta.md) to a `Time` to produce a new
+ * `tostring(some_time)` - returns a human readable representation of the time like `1970-01-01 00:00:01 UTC`.
+ * `time1 == time2` - compares two `Time` objects for equality
+ * `some_time + time_delta` - addition. You may add a [TimeDelta](TimeDelta.md) to a `Time` to produce a new
    `Time` offset by the added delta.
  * `-` - subtraction:
-    * You may subtract a [TimeDelta](TimeDelta.md) from a `Time` to produce a
-      new `Time` offset by the added delta.
-    * You may subtract a `Time` from a `Time` to produce a
+    * `time1 - time_delta` - You may subtract a [TimeDelta](TimeDelta.md) from
+      a `Time` to produce a new `Time` offset by the added delta.
+    * `time1 - time2` - You may subtract a `Time` from a `Time` to produce a
       [TimeDelta](TimeDelta.md) representing the difference between the two
       times
 
@@ -42,6 +52,12 @@ Fields are accessed using dot notation, like `time.rfc2822`.
    between *this* `Time` object and the time at which the `elapsed` field is
    evaluated.
 
+```lua
+local now = kumo.time.now()
+print(now.year)
+print(now.unix_timestamp)
+```
+
 ## Methods
 
 The following methods are implemented on `Time` objects. Methods are accessed
@@ -50,7 +66,8 @@ using colon notation, like `time:format()`.
 ### Time:format
 
 ```lua
-local string = time:format '%H:%M:%S'
+local now = kumo.time.now()
+local string = now:format '%H:%M:%S'
 ```
 
 Formats the time object using the [strftime

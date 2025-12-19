@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 bitflags = {workspace=true}
-charset = {workspace=true}
+charset-normalizer-rs.workspace = true
 chrono = {workspace=true, default-features=false, features=["std", "clock"]}
 data-encoding = {workspace=true}
 data-encoding-macro = {workspace=true}

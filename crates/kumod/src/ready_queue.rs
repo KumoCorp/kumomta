@@ -1677,7 +1677,7 @@ impl Dispatcher {
         if !msg.is_meta_loaded() {
             msg.load_meta().await?;
         }
-        let queue_name = msg.get_queue_name()?;
+        let queue_name = msg.get_queue_name().await?;
         let queue = QueueManager::resolve(&queue_name).await?;
         queue.insert(msg, context, None).await
     }
@@ -1868,7 +1868,7 @@ impl Dispatcher {
         }
         while self.msgs.len() < queue_dispatcher.max_batch_size() {
             if let Some(msg) = self.ready.pop() {
-                if let Ok(queue_name) = msg.get_queue_name() {
+                if let Ok(queue_name) = msg.get_queue_name().await {
                     if let Some(entry) = AdminBounceEntry::cached_get_for_queue_name(
                         &queue_name,
                         &self.active_bounce,

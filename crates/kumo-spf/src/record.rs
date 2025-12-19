@@ -138,7 +138,7 @@ struct Directive {
 impl Directive {
     fn parse(s: &str) -> Result<Self, String> {
         let mut qualifier = Qualifier::default();
-        let s = match Qualifier::parse(&s[0..1]) {
+        let s = match s.get(0..1).and_then(Qualifier::parse) {
             Some(q) => {
                 qualifier = q;
                 &s[1..]
@@ -509,7 +509,7 @@ fn starts_with_ident<'a>(s: &'a str, ident: &str) -> Option<&'a str> {
         return None;
     }
 
-    if s[0..ident.len()].eq_ignore_ascii_case(ident) {
+    if s.get(0..ident.len())?.eq_ignore_ascii_case(ident) {
         Some(&s[ident.len()..])
     } else {
         None
@@ -656,6 +656,17 @@ mod test {
             Ok(r) => r,
             Err(err) => panic!("{err}: {s}"),
         }
+    }
+
+    #[test]
+    fn test_zero_width() {
+        k9::snapshot!(
+            Record::parse(
+                "v=spf1 mx a include:spf.host.example.com \u{200b}include:_spf.example.com ?all"
+            )
+            .unwrap_err(),
+            r#"invalid token '\u{200b}include:_spf.example.com'"#
+        );
     }
 
     #[test]

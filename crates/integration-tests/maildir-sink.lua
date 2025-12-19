@@ -7,6 +7,10 @@ local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 
 kumo.on('init', function()
   kumo.configure_accounting_db_path ':memory:'
+  kumo.aaa.configure_acct_log {
+    log_dir = TEST_DIR .. '/acct',
+    max_segment_duration = '1s',
+  }
 
   local smtp_params = {
     listen = '127.0.0.1:0',

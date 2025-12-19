@@ -296,7 +296,7 @@ impl SpoolManager {
         let num_attempts = queue_config.borrow().infer_num_attempts(age);
         msg.set_num_attempts(num_attempts);
 
-        match msg.get_scheduling().and_then(|sched| sched.expires) {
+        match msg.get_scheduling().await?.and_then(|sched| sched.expires) {
             Some(expires) => {
                 // Per-message expiry
                 let delay = queue_config
@@ -422,7 +422,7 @@ impl SpoolManager {
                             .async_call_callback(&spool_message_enumerated, msg.clone())
                             .await?;
 
-                        match msg.get_queue_name() {
+                        match msg.get_queue_name().await {
                             Ok(queue_name) => match QueueManager::resolve(&queue_name).await {
                                 Err(err) => {
                                     // We don't remove from the spool in this case, because

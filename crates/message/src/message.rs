@@ -19,7 +19,9 @@ use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
 #[cfg(feature = "impl")]
 use mailparsing::{AuthenticationResult, AuthenticationResults, EncodeHeaderValue};
-use mailparsing::{DecodedBody, Header, HeaderParseResult, MessageConformance, MimePart};
+use mailparsing::{
+    CheckFixSettings, DecodedBody, Header, HeaderParseResult, MessageConformance, MimePart,
+};
 #[cfg(feature = "impl")]
 use mlua::{IntoLua, LuaSerdeExt, UserData, UserDataMethods};
 #[cfg(feature = "impl")]
@@ -390,10 +392,11 @@ impl Message {
         inner.num_attempts += 1;
     }
 
-    pub fn set_scheduling(
+    pub async fn set_scheduling(
         &self,
         scheduling: Option<Scheduling>,
     ) -> anyhow::Result<Option<Scheduling>> {
+        self.load_meta_if_needed().await?;
         let mut inner = self.msg_and_id.inner.lock();
         match &mut inner.metadata {
             None => anyhow::bail!("set_scheduling: metadata must be loaded first"),
@@ -411,9 +414,10 @@ impl Message {
         }
     }
 
-    pub fn get_scheduling(&self) -> Option<Scheduling> {
+    pub async fn get_scheduling(&self) -> anyhow::Result<Option<Scheduling>> {
+        self.load_meta_if_needed().await?;
         let inner = self.msg_and_id.inner.lock();
-        inner.metadata.as_ref().and_then(|meta| meta.schedule)
+        Ok(inner.metadata.as_ref().and_then(|meta| meta.schedule))
     }
 
     pub fn get_due(&self) -> Option<DateTime<Utc>> {
@@ -649,15 +653,17 @@ impl Message {
         Ok(did_shrink)
     }
 
-    pub fn sender(&self) -> anyhow::Result<EnvelopeAddress> {
+    pub async fn sender(&self) -> anyhow::Result<EnvelopeAddress> {
+        self.load_meta_if_needed().await?;
         let inner = self.msg_and_id.inner.lock();
         match &inner.metadata {
             Some(meta) => Ok(meta.sender.clone()),
-            None => anyhow::bail!("metadata is not loaded"),
+            None => anyhow::bail!("Message::sender metadata is not loaded"),
         }
     }
 
-    pub fn set_sender(&self, sender: EnvelopeAddress) -> anyhow::Result<()> {
+    pub async fn set_sender(&self, sender: EnvelopeAddress) -> anyhow::Result<()> {
+        self.load_meta_if_needed().await?;
         let mut inner = self.msg_and_id.inner.lock();
         match &mut inner.metadata {
             Some(meta) => {
@@ -665,48 +671,53 @@ impl Message {
                 inner.flags.set(MessageFlags::DATA_DIRTY, true);
                 Ok(())
             }
-            None => anyhow::bail!("metadata is not loaded"),
+            None => anyhow::bail!("Message::set_sender: metadata is not loaded"),
         }
     }
 
     #[deprecated = "use recipient_list or first_recipient instead"]
-    pub fn recipient(&self) -> anyhow::Result<EnvelopeAddress> {
-        self.first_recipient()
+    pub async fn recipient(&self) -> anyhow::Result<EnvelopeAddress> {
+        self.first_recipient().await
     }
 
-    pub fn first_recipient(&self) -> anyhow::Result<EnvelopeAddress> {
+    pub async fn first_recipient(&self) -> anyhow::Result<EnvelopeAddress> {
+        self.load_meta_if_needed().await?;
         let inner = self.msg_and_id.inner.lock();
         match &inner.metadata {
             Some(meta) => match meta.recipient.first() {
                 Some(recip) => Ok(recip.clone()),
                 None => anyhow::bail!("recipient list is empty!?"),
             },
-            None => anyhow::bail!("metadata is not loaded"),
+            None => anyhow::bail!("Message::first_recipient: metadata is not loaded"),
         }
     }
 
-    pub fn recipient_list(&self) -> anyhow::Result<Vec<EnvelopeAddress>> {
+    pub async fn recipient_list(&self) -> anyhow::Result<Vec<EnvelopeAddress>> {
+        self.load_meta_if_needed().await?;
         let inner = self.msg_and_id.inner.lock();
         match &inner.metadata {
             Some(meta) => Ok(meta.recipient.clone()),
-            None => anyhow::bail!("metadata is not loaded"),
+            None => anyhow::bail!("Message::recipient_list: metadata is not loaded"),
         }
     }
 
-    pub fn recipient_list_string(&self) -> anyhow::Result<Vec<String>> {
+    pub async fn recipient_list_string(&self) -> anyhow::Result<Vec<String>> {
+        self.load_meta_if_needed().await?;
         let inner = self.msg_and_id.inner.lock();
         match &inner.metadata {
             Some(meta) => Ok(meta.recipient.iter().map(|a| a.to_string()).collect()),
-            None => anyhow::bail!("metadata is not loaded"),
+            None => anyhow::bail!("Message::recipient_list_string: metadata is not loaded"),
         }
     }
 
     #[deprecated = "use set_recipient_list instead"]
-    pub fn set_recipient(&self, recipient: EnvelopeAddress) -> anyhow::Result<()> {
-        self.set_recipient_list(vec![recipient])
+    pub async fn set_recipient(&self, recipient: EnvelopeAddress) -> anyhow::Result<()> {
+        self.set_recipient_list(vec![recipient]).await
     }
 
-    pub fn set_recipient_list(&self, recipient: Vec<EnvelopeAddress>) -> anyhow::Result<()> {
+    pub async fn set_recipient_list(&self, recipient: Vec<EnvelopeAddress>) -> anyhow::Result<()> {
+        self.load_meta_if_needed().await?;
+
         let mut inner = self.msg_and_id.inner.lock();
         match &mut inner.metadata {
             Some(meta) => {
@@ -714,7 +725,7 @@ impl Message {
                 inner.flags.set(MessageFlags::DATA_DIRTY, true);
                 Ok(())
             }
-            None => anyhow::bail!("metadata is not loaded"),
+            None => anyhow::bail!("Message::set_recipient_list: metadata is not loaded"),
         }
     }
 
@@ -796,11 +807,12 @@ impl Message {
         inner.data.clone()
     }
 
-    pub fn set_meta<S: AsRef<str>, V: Into<serde_json::Value>>(
+    pub async fn set_meta<S: AsRef<str>, V: Into<serde_json::Value>>(
         &self,
         key: S,
         value: V,
     ) -> anyhow::Result<()> {
+        self.load_meta_if_needed().await?;
         let mut inner = self.msg_and_id.inner.lock();
         match &mut inner.metadata {
             None => anyhow::bail!("set_meta: metadata must be loaded first"),
@@ -821,7 +833,8 @@ impl Message {
         }
     }
 
-    pub fn unset_meta<S: AsRef<str>>(&self, key: S) -> anyhow::Result<()> {
+    pub async fn unset_meta<S: AsRef<str>>(&self, key: S) -> anyhow::Result<()> {
+        self.load_meta_if_needed().await?;
         let mut inner = self.msg_and_id.inner.lock();
         match &mut inner.metadata {
             None => anyhow::bail!("set_meta: metadata must be loaded first"),
@@ -842,11 +855,11 @@ impl Message {
     }
 
     /// Retrieve `key` as a String.
-    pub fn get_meta_string<S: serde_json::value::Index + std::fmt::Display + Copy>(
+    pub async fn get_meta_string<S: serde_json::value::Index + std::fmt::Display + Copy>(
         &self,
         key: S,
     ) -> anyhow::Result<Option<String>> {
-        match self.get_meta(key) {
+        match self.get_meta(key).await {
             Ok(serde_json::Value::String(value)) => Ok(Some(value.to_string())),
             Ok(serde_json::Value::Null) => Ok(None),
             hmm => {
@@ -855,7 +868,8 @@ impl Message {
         }
     }
 
-    pub fn get_meta_obj(&self) -> anyhow::Result<serde_json::Value> {
+    pub async fn get_meta_obj(&self) -> anyhow::Result<serde_json::Value> {
+        self.load_meta_if_needed().await?;
         let inner = self.msg_and_id.inner.lock();
         match &inner.metadata {
             None => anyhow::bail!("get_meta_obj: metadata must be loaded first"),
@@ -863,10 +877,11 @@ impl Message {
         }
     }
 
-    pub fn get_meta<S: serde_json::value::Index>(
+    pub async fn get_meta<S: serde_json::value::Index>(
         &self,
         key: S,
     ) -> anyhow::Result<serde_json::Value> {
+        self.load_meta_if_needed().await?;
         let inner = self.msg_and_id.inner.lock();
         match &inner.metadata {
             None => anyhow::bail!("get_meta: metadata must be loaded first"),
@@ -881,15 +896,19 @@ impl Message {
         self.msg_and_id.id.age(now)
     }
 
-    pub fn get_queue_name(&self) -> anyhow::Result<String> {
-        Ok(match self.get_meta_string("queue")? {
+    pub async fn get_queue_name(&self) -> anyhow::Result<String> {
+        Ok(match self.get_meta_string("queue").await? {
             Some(name) => name,
             None => {
                 let name = QueueNameComponents::format(
-                    self.get_meta_string("campaign")?,
-                    self.get_meta_string("tenant")?,
-                    self.first_recipient()?.domain().to_string().to_lowercase(),
-                    self.get_meta_string("routing_domain")?,
+                    self.get_meta_string("campaign").await?,
+                    self.get_meta_string("tenant").await?,
+                    self.first_recipient()
+                        .await?
+                        .domain()
+                        .to_string()
+                        .to_lowercase(),
+                    self.get_meta_string("routing_domain").await?,
                 );
                 name.to_string()
             }
@@ -1151,7 +1170,7 @@ impl Message {
             };
             if do_import {
                 let name = imported_header_name(hdr.get_name());
-                self.set_meta(name, hdr.as_unstructured()?)?;
+                self.set_meta(name, hdr.as_unstructured()?).await?;
             }
         }
 
@@ -1195,7 +1214,7 @@ impl Message {
             let sched: Scheduling = serde_json::from_str(&value).with_context(|| {
                 format!("{value} from header {header_name} is not a valid Scheduling header")
             })?;
-            let result = self.set_scheduling(Some(sched))?;
+            let result = self.set_scheduling(Some(sched)).await?;
 
             if remove {
                 self.remove_all_named_headers(header_name).await?;
@@ -1276,85 +1295,27 @@ impl Message {
     ) -> anyhow::Result<()> {
         let data = self.data().await?;
         let data_bytes = data.as_ref().as_ref();
-        let mut msg = MimePart::parse(data_bytes)?;
+        let msg = MimePart::parse(data_bytes)?;
 
-        let conformance = msg.conformance();
+        let mut settings = settings.map(Clone::clone).unwrap_or_default();
 
-        // Don't raise errors for things that we're going to fix anyway
-        let check = check - fix;
-
-        if check.intersects(conformance) {
-            let problems = check.intersection(conformance).to_string();
-            anyhow::bail!("Message has conformance issues: {problems}");
+        if fix.contains(MessageConformance::MISSING_MESSAGE_ID_HEADER)
+            && settings.message_id.is_none()
+            && matches!(msg.headers().message_id(), Err(_) | Ok(None))
+        {
+            let sender = self.sender().await?;
+            let domain = sender.domain();
+            let id = *self.id();
+            settings.message_id.replace(format!("{id}@{domain}"));
         }
 
-        if fix.intersects(conformance) {
-            let to_fix = fix.intersection(conformance);
-            let problems = to_fix.to_string();
+        if settings.detect_encoding {
+            settings.data_bytes.replace(data.clone());
+        }
 
-            let missing_headers_only = to_fix
-                .difference(
-                    MessageConformance::MISSING_DATE_HEADER
-                        | MessageConformance::MISSING_MIME_VERSION
-                        | MessageConformance::MISSING_MESSAGE_ID_HEADER,
-                )
-                .is_empty();
+        let opt_msg = msg.check_fix_conformance(check, fix, settings)?;
 
-            if !missing_headers_only {
-                if to_fix.contains(MessageConformance::NEEDS_TRANSFER_ENCODING) {
-                    // Something is 8-bit. If we're lucky, it's simply UTF-8,
-                    // but it could be some other "legacy" charset encoding.
-                    // If we've been asked to detect an encoding, try that now,
-                    // and re-parse the message with the re-coded input.
-                    // Otherwise, we'll attempt a lossy conversion to UTF-8
-                    // and the resulting message will likely include unicode
-                    // replacement characters.
-
-                    if let Some(settings) = settings {
-                        if settings.detect_encoding {
-                            use charset_normalizer_rs::entity::NormalizerSettings;
-
-                            let norm_settings = NormalizerSettings {
-                                include_encodings: settings.include_encodings.clone(),
-                                exclude_encodings: settings.exclude_encodings.clone(),
-                                ..Default::default()
-                            };
-
-                            let guess = charset_normalizer_rs::from_bytes(
-                                &data_bytes.to_vec(),
-                                Some(norm_settings),
-                            )
-                            .map_err(|err| anyhow::anyhow!("{err}"))?;
-                            if let Some(best) = guess.get_best() {
-                                if let Some(decoded) = best.decoded_payload() {
-                                    msg = MimePart::parse(decoded.to_string())?;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                msg = msg.rebuild().with_context(|| {
-                    format!("Rebuilding message to correct conformance issues: {problems}")
-                })?;
-            }
-
-            if to_fix.contains(MessageConformance::MISSING_DATE_HEADER) {
-                msg.headers_mut().set_date(Utc::now())?;
-            }
-
-            if to_fix.contains(MessageConformance::MISSING_MIME_VERSION) {
-                msg.headers_mut().set_mime_version("1.0")?;
-            }
-
-            if to_fix.contains(MessageConformance::MISSING_MESSAGE_ID_HEADER) {
-                let sender = self.sender()?;
-                let domain = sender.domain();
-                let id = *self.id();
-                msg.headers_mut()
-                    .set_message_id(mailparsing::MessageID(format!("{id}@{domain}")))?;
-            }
-
+        if let Some(msg) = opt_msg {
             let new_data = msg.to_message_string();
             self.assign_data(new_data.into_bytes());
         }
@@ -1406,15 +1367,13 @@ impl UserData for Message {
         methods.add_async_method(
             "set_meta",
             move |_, this, (name, value): (String, mlua::Value)| async move {
-                this.load_meta_if_needed().await.map_err(any_err)?;
                 let value = serde_json::value::to_value(value).map_err(any_err)?;
-                this.set_meta(name, value).map_err(any_err)?;
+                this.set_meta(name, value).await.map_err(any_err)?;
                 Ok(())
             },
         );
         methods.add_async_method("get_meta", move |lua, this, name: String| async move {
-            this.load_meta_if_needed().await.map_err(any_err)?;
-            let value = this.get_meta(name).map_err(any_err)?;
+            let value = this.get_meta(name).await.map_err(any_err)?;
             Ok(Some(lua.to_value_with(&value, serialize_options())?))
         });
         methods.add_async_method("get_data", |lua, this, _: ()| async move {
@@ -1442,16 +1401,16 @@ impl UserData for Message {
         });
 
         methods.add_method("id", move |_, this, _: ()| Ok(this.id().to_string()));
-        methods.add_method("sender", move |_, this, _: ()| {
-            this.sender().map_err(any_err)
+        methods.add_async_method("sender", move |_, this, _: ()| async move {
+            this.sender().await.map_err(any_err)
         });
 
         methods.add_method("num_attempts", move |_, this, _: ()| {
             Ok(this.get_num_attempts())
         });
 
-        methods.add_method("queue_name", move |_, this, _: ()| {
-            this.get_queue_name().map_err(any_err)
+        methods.add_async_method("queue_name", move |_, this, _: ()| async move {
+            this.get_queue_name().await.map_err(any_err)
         });
 
         methods.add_async_method("set_due", move |lua, this, due: mlua::Value| async move {
@@ -1460,50 +1419,56 @@ impl UserData for Message {
             lua.to_value(&revised_due)
         });
 
-        methods.add_method("set_sender", move |lua, this, value: mlua::Value| {
-            let sender = match value {
-                mlua::Value::String(s) => {
-                    let s = s.to_str()?;
-                    EnvelopeAddress::parse(&s).map_err(any_err)?
-                }
-                _ => lua.from_value::<EnvelopeAddress>(value.clone())?,
-            };
-            this.set_sender(sender).map_err(any_err)
-        });
+        methods.add_async_method(
+            "set_sender",
+            move |lua, this, value: mlua::Value| async move {
+                let sender = match value {
+                    mlua::Value::String(s) => {
+                        let s = s.to_str()?;
+                        EnvelopeAddress::parse(&s).map_err(any_err)?
+                    }
+                    _ => lua.from_value::<EnvelopeAddress>(value.clone())?,
+                };
+                this.set_sender(sender).await.map_err(any_err)
+            },
+        );
 
-        methods.add_method("recipient", move |lua, this, _: ()| {
-            let mut recipients = this.recipient_list().map_err(any_err)?;
+        methods.add_async_method("recipient", move |lua, this, _: ()| async move {
+            let mut recipients = this.recipient_list().await.map_err(any_err)?;
             match recipients.len() {
                 0 => Ok(mlua::Value::Nil),
                 1 => {
                     let recip: EnvelopeAddress = recipients.pop().expect("have 1");
-                    recip.into_lua(lua)
+                    recip.into_lua(&lua)
                 }
-                _ => recipients.into_lua(lua),
+                _ => recipients.into_lua(&lua),
             }
         });
 
-        methods.add_method("recipient_list", move |lua, this, _: ()| {
-            let recipients = this.recipient_list().map_err(any_err)?;
-            recipients.into_lua(lua)
+        methods.add_async_method("recipient_list", move |lua, this, _: ()| async move {
+            let recipients = this.recipient_list().await.map_err(any_err)?;
+            recipients.into_lua(&lua)
         });
 
-        methods.add_method("set_recipient", move |lua, this, value: mlua::Value| {
-            let recipients = match value {
-                mlua::Value::String(s) => {
-                    let s = s.to_str()?;
-                    vec![EnvelopeAddress::parse(&s).map_err(any_err)?]
-                }
-                _ => {
-                    if let Ok(recips) = lua.from_value::<Vec<EnvelopeAddress>>(value.clone()) {
-                        recips
-                    } else {
-                        vec![lua.from_value::<EnvelopeAddress>(value.clone())?]
+        methods.add_async_method(
+            "set_recipient",
+            move |lua, this, value: mlua::Value| async move {
+                let recipients = match value {
+                    mlua::Value::String(s) => {
+                        let s = s.to_str()?;
+                        vec![EnvelopeAddress::parse(&s).map_err(any_err)?]
                     }
-                }
-            };
-            this.set_recipient_list(recipients).map_err(any_err)
-        });
+                    _ => {
+                        if let Ok(recips) = lua.from_value::<Vec<EnvelopeAddress>>(value.clone()) {
+                            recips
+                        } else {
+                            vec![lua.from_value::<EnvelopeAddress>(value.clone())?]
+                        }
+                    }
+                };
+                this.set_recipient_list(recipients).await.map_err(any_err)
+            },
+        );
 
         #[cfg(feature = "impl")]
         methods.add_async_method("dkim_sign", |_, this, signer: Signer| async move {
@@ -1690,11 +1655,14 @@ impl UserData for Message {
             },
         );
 
-        methods.add_method("set_scheduling", move |lua, this, params: mlua::Value| {
-            let sched: Option<Scheduling> = from_lua_value(lua, params)?;
-            let opt_schedule = this.set_scheduling(sched).map_err(any_err)?;
-            lua.to_value(&opt_schedule)
-        });
+        methods.add_async_method(
+            "set_scheduling",
+            move |lua, this, params: mlua::Value| async move {
+                let sched: Option<Scheduling> = from_lua_value(&lua, params)?;
+                let opt_schedule = this.set_scheduling(sched).await.map_err(any_err)?;
+                lua.to_value(&opt_schedule)
+            },
+        );
 
         methods.add_async_method("parse_rfc3464", |lua, this, _: ()| async move {
             let report = this.parse_rfc3464().await.map_err(any_err)?;
@@ -1743,14 +1711,6 @@ impl UserData for Message {
             },
         );
     }
-}
-
-#[derive(Default, Debug, Clone)]
-#[cfg_attr(feature = "impl", derive(Deserialize))]
-pub struct CheckFixSettings {
-    pub detect_encoding: bool,
-    pub include_encodings: Vec<String>,
-    pub exclude_encodings: Vec<String>,
 }
 
 impl TimerEntryWithDelay for WeakMessage {
@@ -1808,7 +1768,7 @@ pub(crate) mod test {
 
         msg.import_x_headers(vec![]).await.unwrap();
         k9::assert_equal!(
-            msg.get_meta_obj().unwrap(),
+            msg.get_meta_obj().await.unwrap(),
             json!({
                 "x_hello": "there",
                 "x_header": "value",
@@ -1816,12 +1776,12 @@ pub(crate) mod test {
         );
     }
 
-    #[test]
-    fn meta_and_nil() {
+    #[tokio::test]
+    async fn meta_and_nil() {
         let msg = new_msg_body(X_HDR_CONTENT);
         // Ensure that json null round-trips
-        msg.set_meta("test", serde_json::Value::Null).unwrap();
-        k9::assert_equal!(msg.get_meta("test").unwrap(), serde_json::Value::Null);
+        msg.set_meta("test", serde_json::Value::Null).await.unwrap();
+        k9::assert_equal!(msg.get_meta("test").await.unwrap(), serde_json::Value::Null);
 
         // and that it is exposed to lua as nil
         let lua = mlua::Lua::new();
@@ -1839,7 +1799,7 @@ pub(crate) mod test {
             .await
             .unwrap();
         k9::assert_equal!(
-            msg.get_meta_obj().unwrap(),
+            msg.get_meta_obj().await.unwrap(),
             json!({
                 "x_hello": "there",
             })
@@ -2139,7 +2099,8 @@ Hello";
                 None,
             )
             .await
-            .unwrap_err(),
+            .unwrap_err()
+            .to_string(),
             "Message has conformance issues: MISSING_MESSAGE_ID_HEADER"
         );
 
@@ -2262,10 +2223,8 @@ Body\r
 
     #[tokio::test]
     async fn check_fix_latin_input() {
-        // Note that the encoding_rs crate unifies latin1 into cp1252
-        const POUNDS: &str = "Subject: £\r\n\r\nGBP\r\n";
-        let (content, _, _) = encoding_rs::WINDOWS_1252.encode(POUNDS);
-        let msg = new_msg_body(&*content);
+        const POUNDS: &[u8] = b"Subject: \xa3\r\n\r\nGBP\r\n";
+        let msg = new_msg_body(&*POUNDS);
         msg.check_fix_conformance(
             MessageConformance::default(),
             MessageConformance::NEEDS_TRANSFER_ENCODING,
@@ -2286,8 +2245,8 @@ Body\r
         assert_eq!(subject, "£");
     }
 
-    #[test]
-    fn set_scheduling() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn set_scheduling() -> anyhow::Result<()> {
         let msg = new_msg_body(MULTI_HEADER_CONTENT);
         assert!(msg.get_due().is_none(), "due is implicitly now");
 
@@ -2298,7 +2257,8 @@ Body\r
             restriction: None,
             first_attempt: Some((now + one_day).into()),
             expires: None,
-        }))?;
+        }))
+        .await?;
 
         let due = msg.get_due().expect("due to now be set");
         assert!(due - now >= one_day, "due time is at least 1 day away");
