@@ -3557,10 +3557,12 @@ dependencies = [
  "instant-xml",
  "k9",
  "kumo-spf",
+ "mailparsing",
  "psl",
  "rand 0.8.5",
  "serde",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

@@ -68,6 +68,21 @@ impl SpfDisposition {
     }
 }
 
+impl From<String> for SpfDisposition {
+    fn from(value: String) -> Self {
+        match value.to_lowercase().as_str() {
+            "none" => Self::None,
+            "neutral" => Self::Neutral,
+            "pass" => Self::Pass,
+            "fail" => Self::Fail,
+            "softfail" => Self::SoftFail,
+            "temperror" => Self::TempError,
+            "permerror" => Self::PermError,
+            _ => Self::None,
+        }
+    }
+}
+
 impl Serialize for SpfDisposition {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(self.as_str())

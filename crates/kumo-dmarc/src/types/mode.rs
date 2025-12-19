@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ToXml)]
 #[xml(scalar)]
-pub enum Mode {
+pub(crate) enum Mode {
     Relaxed,
     Strict,
 }
