@@ -60,6 +60,7 @@ prometheus = {workspace=true}
 rand = {workspace=true}
 reqwest = {workspace=true, default-features=false, features=["rustls-tls"]}
 rfc5321 = {path="../rfc5321"}
+rocksdb = {workspace=true}
 rustls = {workspace=true}
 serde = {workspace=true, features=["rc"]}
 serde_json = {workspace=true}
@@ -84,3 +85,4 @@ caps = {workspace=true}
 [dev-dependencies]
 k9 = {workspace=true}
 maplit = {workspace=true}
+tempfile = {workspace=true}

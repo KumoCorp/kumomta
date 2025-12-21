@@ -416,6 +416,10 @@ TOC = [
                 "reference/kumo.api.inject",
             ),
             Gen(
+                "module: kumo.api.admin.suppression",
+                "reference/kumo.api.admin.suppression",
+            ),
+            Gen(
                 "module: kumo.crypto",
                 "reference/kumo.crypto",
             ),
