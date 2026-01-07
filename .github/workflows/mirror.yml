@@ -3,7 +3,10 @@ name: 'Mirror'
 on:
   workflow_dispatch:
   push:
-    branches: ['**']
+    branches:
+      - '**'
+      - '!dependabot/*'
+      - '!*/*'
     tags: ['**']
 
 jobs:
