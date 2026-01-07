@@ -384,10 +384,12 @@ where
                 (username.clone(), password, conn_meta),
             )
             .await;
-        config.put();
 
         let auth_kind_result = match callback_result {
-            Ok(wrapped) => wrapped.0,
+            Ok(wrapped) => {
+                config.put();
+                wrapped.0
+            }
             Err(err) => {
                 tracing::error!(
                     "authentication callback error for {username} from {peer_address:?}: {err:#}"
