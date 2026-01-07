@@ -1,13 +1,19 @@
 #![allow(dead_code)]
 
+use crate::types::date_range::DateRange;
+use crate::types::feedback::Feedback;
+use crate::types::identifier::Identifier;
+use crate::types::policy_published::PolicyPublished;
 use crate::types::record::Record;
+use crate::types::report_metadata::ReportMetadata;
+use crate::types::results::{AuthResults, Results, Row};
 pub use crate::types::results::{Disposition, DispositionWithContext};
+use chrono::Utc;
 use dns_resolver::Resolver;
-use std::collections::BTreeMap;
+use mailparsing::AuthenticationResult;
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::time::SystemTime;
-
-pub use types::results::DmarcResult;
 
 mod types;
 
@@ -23,8 +29,17 @@ pub struct CheckHostParams {
     /// The "MAIL FROM" email address if available.
     pub mail_from_domain: Option<String>,
 
+    /// The envelope to
+    pub recipient_list: Vec<String>,
+
     /// The results of the DKIM part of the checks
-    pub dkim: Vec<BTreeMap<String, String>>,
+    pub dkim_results: Vec<AuthenticationResult>,
+
+    /// The results of the SPF part of the checks
+    pub spf_result: AuthenticationResult,
+
+    /// The additional information needed to perform reporting
+    pub reporting_info: Option<ReportingInfo>,
 }
 
 impl CheckHostParams {
@@ -32,17 +47,22 @@ impl CheckHostParams {
         let Self {
             from_domain,
             mail_from_domain,
-            dkim,
+            recipient_list,
+            dkim_results,
+            spf_result,
+            reporting_info,
         } = self;
 
-        match DmarcContext::new(
+        let dmarc_context = DmarcContext::new(
             &from_domain,
             mail_from_domain.as_ref().map(|x| x.as_str()),
-            &dkim[..],
-        ) {
-            Ok(cx) => cx.check(resolver).await,
-            Err(result) => result,
-        }
+            &recipient_list[..],
+            &dkim_results[..],
+            &spf_result,
+            reporting_info.as_ref(),
+        );
+
+        dmarc_context.check(resolver).await
     }
 }
 
@@ -81,8 +101,19 @@ impl From<DmarcRecordResolution> for Disposition {
 struct DmarcContext<'a> {
     pub(crate) from_domain: &'a str,
     pub(crate) mail_from_domain: Option<&'a str>,
+    pub(crate) recipient_list: &'a [String],
     pub(crate) now: SystemTime,
-    pub(crate) dkim: &'a [BTreeMap<String, String>],
+    pub(crate) dkim_results: &'a [AuthenticationResult],
+    pub(crate) spf_result: &'a AuthenticationResult,
+    pub(crate) reporting_info: Option<&'a ReportingInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReportingInfo {
+    org_name: String,
+    email: String,
+    extra_contact_info: Option<String>,
 }
 
 impl<'a> DmarcContext<'a> {
@@ -94,21 +125,79 @@ impl<'a> DmarcContext<'a> {
     fn new(
         from_domain: &'a str,
         mail_from_domain: Option<&'a str>,
-        dkim: &'a [BTreeMap<String, String>],
-    ) -> Result<Self, DispositionWithContext> {
-        Ok(Self {
+        recipient_list: &'a [String],
+        dkim_results: &'a [AuthenticationResult],
+        spf_result: &'a AuthenticationResult,
+        reporting_info: Option<&'a ReportingInfo>,
+    ) -> DmarcContext<'a> {
+        Self {
             from_domain,
             mail_from_domain,
+            recipient_list,
             now: SystemTime::now(),
-            dkim,
-        })
+            dkim_results,
+            spf_result,
+            reporting_info,
+        }
+    }
+
+    pub async fn report_error(&self, record: &Record, dmarc_domain: &str, error: &str) {
+        if let Some(reporting_info) = self.reporting_info {
+            let feedback = Feedback::new(
+                "1.0".to_string(),
+                ReportMetadata::new(
+                    reporting_info.org_name.to_string(),
+                    reporting_info.email.to_string(),
+                    reporting_info.extra_contact_info.to_owned(),
+                    uuid::Uuid::new_v4().to_string(),
+                    DateRange::new(Utc::now(), Utc::now()),
+                    vec![error.to_string()],
+                ),
+                PolicyPublished::new(
+                    dmarc_domain.to_string(),
+                    Some(record.align_dkim),
+                    Some(record.align_spf),
+                    record.policy,
+                    record.subdomain_policy.unwrap_or(record.policy),
+                    record.rate,
+                    record.report_failure,
+                ),
+                vec![Results {
+                    row: Row {
+                        source_ip: todo!(),
+                        count: 1,
+                        policy_evaluated: todo!(),
+                    },
+                    identifiers: Identifier {
+                        envelope_to: self.recipient_list.into(),
+                        envelope_from: if let Some(mail_from_domain) = self.mail_from_domain {
+                            vec![mail_from_domain.into()]
+                        } else {
+                            vec![]
+                        },
+                        header_from: self.from_domain.into(),
+                    },
+                    auth_results: AuthResults {
+                        dkim: self.dkim_results.iter().map(|x| x.clone().into()).collect(),
+                        spf: vec![self.spf_result.clone().into()],
+                    },
+                }],
+            );
+
+            if let Ok(result) = instant_xml::to_string(&feedback) {
+                println!("log: {}", result);
+            }
+        }
     }
 
     pub async fn check(&self, resolver: &dyn Resolver) -> DispositionWithContext {
-        match fetch_dmarc_records(&format!("_dmarc.{}", self.from_domain), resolver).await {
+        let dmarc_domain = format!("_dmarc.{}", self.from_domain);
+        match fetch_dmarc_records(&dmarc_domain, resolver).await {
             DmarcRecordResolution::Records(records) => {
                 for record in records {
-                    return record.evaluate(self, SenderDomainAlignment::Exact).await;
+                    return record
+                        .evaluate(self, &dmarc_domain, SenderDomainAlignment::Exact)
+                        .await;
                 }
             }
             x => {
@@ -134,7 +223,11 @@ impl<'a> DmarcContext<'a> {
                             DmarcRecordResolution::Records(records) => {
                                 for record in records {
                                     return record
-                                        .evaluate(self, SenderDomainAlignment::OrganizationalDomain)
+                                        .evaluate(
+                                            self,
+                                            &address,
+                                            SenderDomainAlignment::OrganizationalDomain,
+                                        )
                                         .await;
                                 }
                             }
@@ -165,7 +258,6 @@ pub(crate) async fn fetch_dmarc_records(
             if answer.records.is_empty() || answer.nxdomain {
                 return DmarcRecordResolution::PermError;
             } else {
-                eprintln!("answer: {:?}", answer);
                 answer.as_txt()
             }
         }
