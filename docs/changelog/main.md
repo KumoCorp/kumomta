@@ -21,6 +21,8 @@
    parts.
    [mimepart:get_simple_structure()](../reference/mimepart/get_simple_structure.md)
    also supports AMP HTML parts.
+ * Improved the context shown in error messages produced by the HTTP injection
+   API
 
 ## Fixes
 

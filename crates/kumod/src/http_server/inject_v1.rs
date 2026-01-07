@@ -425,7 +425,8 @@ impl InjectV1Request {
         match &self.content {
             Content::Rfc822(text) => {
                 let name = id.to_string();
-                env.add_template(name, text)?;
+                env.add_template(name, text)
+                    .context("failed parsing field 'content' as template")?;
             }
             Content::Builder {
                 text_body: None,
@@ -442,24 +443,29 @@ impl InjectV1Request {
                 if let Some(tb) = text_body {
                     let name = id.to_string();
                     id += 1;
-                    env.add_template(name, tb)?;
+                    env.add_template(name, tb)
+                        .context("failed parsing field 'content.text_body' as template")?;
                 }
                 if let Some(hb) = html_body {
                     // The filename extension is needed to enable auto-escaping
                     let name = format!("{id}.html");
                     id += 1;
-                    env.add_template(name, hb)?;
+                    env.add_template(name, hb)
+                        .context("failed parsing field 'content.html_body' as template")?;
                 }
                 if let Some(hb) = amp_html_body {
                     // The filename extension is needed to enable auto-escaping
                     let name = format!("{id}.html");
                     id += 1;
-                    env.add_template(name, hb)?;
+                    env.add_template(name, hb)
+                        .context("failed parsing field 'content.amp_html_body' as template")?;
                 }
-                for value in headers.values() {
+                for (header_name, value) in headers.iter() {
                     let name = id.to_string();
                     id += 1;
-                    env.add_template(name, value)?;
+                    env.add_template(name, value).with_context(|| {
+                        format!("failed parsing field headers['{header_name}'] as template")
+                    })?;
                 }
             }
         }
