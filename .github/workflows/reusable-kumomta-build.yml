@@ -50,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Update PATH
       # We need to ensure that the cargo bin dir from the builder
       # image is in the PATH that GH actions uses
@@ -141,7 +141,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: "Fetch artifact"
         uses: actions/download-artifact@v6
         with:
@@ -161,7 +161,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: "Fetch artifact"
         uses: actions/download-artifact@v6
         with:
@@ -183,7 +183,7 @@ jobs:
       attestations: write
       id-token: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: "Fetch artifact"
         uses: actions/download-artifact@v6
         with:
