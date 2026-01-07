@@ -34,6 +34,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         mod_file_type::register,
         mod_http::register,
         mod_regex::register,
+        mod_rspamd::register,
         mod_serde::register,
         mod_sqlite::register,
         mod_crypto::register,

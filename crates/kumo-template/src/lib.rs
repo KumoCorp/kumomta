@@ -61,7 +61,7 @@ impl<'env, 'source> Template<'env, 'source> {
                 Ok(())
             }
             Self::Static(s) => {
-                w.write(s.as_bytes())?;
+                w.write_all(s.as_bytes())?;
                 Ok(())
             }
             Self::Handlebars { engine, template } => {
