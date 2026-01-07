@@ -419,13 +419,11 @@ impl InjectV1Request {
 
     fn compile(&'_ self) -> anyhow::Result<Compiled<'_>> {
         let mut env = TemplateEngine::with_dialect(self.template_dialect.into());
-        let mut id = 0;
 
         // Pass 1: create the templates
         match &self.content {
             Content::Rfc822(text) => {
-                let name = id.to_string();
-                env.add_template(name, text)
+                env.add_template("content", text)
                     .context("failed parsing field 'content' as template")?;
             }
             Content::Builder {
@@ -441,31 +439,24 @@ impl InjectV1Request {
                 ..
             } => {
                 if let Some(tb) = text_body {
-                    let name = id.to_string();
-                    id += 1;
-                    env.add_template(name, tb)
+                    env.add_template("text_body.txt", tb)
                         .context("failed parsing field 'content.text_body' as template")?;
                 }
                 if let Some(hb) = html_body {
                     // The filename extension is needed to enable auto-escaping
-                    let name = format!("{id}.html");
-                    id += 1;
-                    env.add_template(name, hb)
+                    env.add_template("html_body.html", hb)
                         .context("failed parsing field 'content.html_body' as template")?;
                 }
                 if let Some(hb) = amp_html_body {
                     // The filename extension is needed to enable auto-escaping
-                    let name = format!("{id}.html");
-                    id += 1;
-                    env.add_template(name, hb)
+                    env.add_template("amp_html_body.html", hb)
                         .context("failed parsing field 'content.amp_html_body' as template")?;
                 }
                 for (header_name, value) in headers.iter() {
-                    let name = id.to_string();
-                    id += 1;
-                    env.add_template(name, value).with_context(|| {
-                        format!("failed parsing field headers['{header_name}'] as template")
-                    })?;
+                    env.add_template(format!("headers[{header_name}]"), value)
+                        .with_context(|| {
+                            format!("failed parsing field headers['{header_name}'] as template")
+                        })?;
                 }
             }
         }
@@ -476,12 +467,10 @@ impl InjectV1Request {
             env: &'b TemplateEngine,
             content: &Content,
         ) -> anyhow::Result<TemplateList<'b>> {
-            let mut id = 0;
             let mut templates = vec![];
             match content {
                 Content::Rfc822(_) => {
-                    let name = id.to_string();
-                    templates.push(env.get_template(&name)?);
+                    templates.push(env.get_template("content")?);
                 }
                 Content::Builder {
                     text_body,
@@ -491,26 +480,18 @@ impl InjectV1Request {
                     ..
                 } => {
                     if text_body.is_some() {
-                        let name = id.to_string();
-                        id += 1;
-                        templates.push(env.get_template(&name)?);
+                        templates.push(env.get_template("text_body.txt")?);
                     }
                     if html_body.is_some() {
                         // The filename extension is needed to enable auto-escaping
-                        let name = format!("{id}.html");
-                        id += 1;
-                        templates.push(env.get_template(&name)?);
+                        templates.push(env.get_template("html_body.html")?);
                     }
                     if amp_html_body.is_some() {
                         // The filename extension is needed to enable auto-escaping
-                        let name = format!("{id}.html");
-                        id += 1;
-                        templates.push(env.get_template(&name)?);
+                        templates.push(env.get_template("amp_html_body.html")?);
                     }
-                    for _ in headers {
-                        let name = id.to_string();
-                        id += 1;
-                        templates.push(env.get_template(&name)?);
+                    for (header_name, _) in headers {
+                        templates.push(env.get_template(&format!("headers[{header_name}]"))?);
                     }
                 }
             };

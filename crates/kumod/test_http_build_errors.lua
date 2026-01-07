@@ -16,7 +16,7 @@ msg_or_err = tostring(msg_or_err)
 assert(
   utils.starts_with(
     msg_or_err,
-    "failed parsing field 'content.text_body' as template: syntax error: unexpected identifier, expected end of variable block (in template '0' line 1: 'Hello {{ First Name }},')\n"
+    "failed parsing field 'content.text_body' as template: syntax error: unexpected identifier, expected end of variable block (in template 'text_body.txt' line 1: 'Hello {{ First Name }},')\n"
   ),
   msg_or_err
 )
@@ -39,7 +39,7 @@ msg_or_err = tostring(msg_or_err)
 assert(
   utils.starts_with(
     msg_or_err,
-    "failed parsing field headers['X-Woot'] as template: syntax error: unexpected identifier, expected end of variable block (in template '1' line 1: '{{ First Name }}')\n"
+    "failed parsing field headers['X-Woot'] as template: syntax error: unexpected identifier, expected end of variable block (in template 'headers[X-Woot]' line 1: '{{ First Name }}')\n"
   ),
   msg_or_err
 )
