@@ -3,12 +3,12 @@ use config::{any_err, declare_event, from_lua_value, get_or_create_module, Serde
 use data_loader::KeySource;
 use kumo_server_common::http_server::auth::AuthKindResult;
 use kumo_server_runtime::spawn;
+use kumo_tls_helper::AsyncReadAndWrite;
 use mlua::{IntoLua, Lua, LuaSerdeExt, Value};
 use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
@@ -141,7 +141,7 @@ impl ProxyListenerParams {
         params: &ProxyListenerParams,
     ) -> anyhow::Result<()>
     where
-        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+        S: AsyncReadAndWrite + Unpin + Send + 'static,
     {
         crate::proxy_handler::handle_proxy_client(
             stream,

@@ -14,6 +14,8 @@ pub trait AsyncReadAndWrite: AsyncRead + AsyncWrite + Debug + Unpin + Send + Syn
     /// This only has an impl that returns Some for TcpStream.
     /// It is present to facilitate a workaround for some awkwardness
     /// in the SslStream implementation for the failed-handshake case.
+    /// It is also used to decide if we can call into tokio_splice in
+    /// the proxy implementation.
     fn try_dup(&self) -> Option<TcpStream> {
         None
     }

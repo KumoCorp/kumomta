@@ -1,6 +1,7 @@
 use anyhow::Context;
 use kumo_server_common::authn_authz::{AuthInfo, Identity, IdentityContext};
 use kumo_server_common::http_server::auth::AuthKindResult;
+use kumo_tls_helper::AsyncReadAndWrite;
 use socksv5::v5::{
     SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5Request, SocksV5RequestStatus,
 };
@@ -21,7 +22,7 @@ pub async fn handle_proxy_client<S>(
     require_auth: bool,
 ) -> anyhow::Result<()>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    S: AsyncReadAndWrite + Unpin + Send + 'static,
 {
     let mut state = ClientState::None;
 
@@ -104,9 +105,22 @@ where
 
     match state {
         ClientState::Connected(mut remote_stream) => {
-            // Note: splice(2) only works with raw TcpStream file descriptors,
-            // not with generic streams (like TLS). When using TLS or other
-            // wrapped streams, we always use copy_bidirectional.
+            #[cfg(target_os = "linux")]
+            if !no_splice {
+                // Note: splice(2) only works with raw TcpStream file descriptors,
+                // not with generic streams (like TLS). When using TLS or other
+                // wrapped streams, we always use copy_bidirectional.
+                // We're using AsyncReadAndWrite::try_dup() to determine if the `S`
+                // type is a TcpStream; that method is only implemented with a
+                // Some() return value for TcpStream
+                if let Some(mut tcp_stream) = stream.try_dup() {
+                    drop(stream);
+                    tracing::trace!("peer={peer_address:?} -> going to splice passthru mode");
+                    tokio_splice::zero_copy_bidirectional(&mut tcp_stream, &mut remote_stream)
+                        .await?;
+                    return Ok(());
+                }
+            }
             tracing::trace!("peer={peer_address:?} -> going to passthru mode");
             tokio::io::copy_bidirectional(&mut stream, &mut remote_stream).await?;
             Ok(())
