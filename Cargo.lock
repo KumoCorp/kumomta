@@ -5941,6 +5941,7 @@ dependencies = [
  "kumo-server-lifecycle",
  "kumo-server-memory",
  "kumo-server-runtime",
+ "kumo-tls-helper",
  "libc",
  "linkme",
  "mlua",
