@@ -13,6 +13,7 @@ use uuid::Uuid;
 pub mod egress_path;
 pub mod rebind;
 pub mod shaping;
+pub mod suppression;
 pub mod tsa;
 pub mod xfer;
 

@@ -3,6 +3,7 @@ use axum::routing::{delete, get, post};
 use axum::Router;
 use inject_v1::*;
 use kumo_api_types::rebind::*;
+use kumo_api_types::suppression::*;
 use kumo_api_types::xfer::*;
 use kumo_api_types::*;
 use kumo_server_common::http_server::RouterAndDocs;
@@ -14,6 +15,7 @@ pub mod admin_inspect_message;
 pub mod admin_inspect_scheduled_queue;
 pub mod admin_ready_queue_states;
 pub mod admin_rebind_v1;
+pub mod admin_suppression_v1;
 pub mod admin_suspend_ready_q_v1;
 pub mod admin_suspend_v1;
 pub mod admin_trace_smtp_client_v1;
@@ -40,6 +42,14 @@ pub mod queue_name_multi_index;
         admin_suspend_v1::suspend,
         admin_suspend_v1::list,
         admin_suspend_v1::delete,
+        admin_suppression_v1::suppression_create,
+        admin_suppression_v1::suppression_bulk_create,
+        admin_suppression_v1::suppression_get,
+        admin_suppression_v1::suppression_list,
+        admin_suppression_v1::suppression_delete,
+        admin_suppression_v1::suppression_bulk_delete,
+        admin_suppression_v1::suppression_check,
+        admin_suppression_v1::suppression_summary,
         check_liveness_v1::check_liveness_v1,
         crate::xfer::inject_xfer_v1,
         crate::xfer::request::xfer_v1,
@@ -77,6 +87,21 @@ pub mod queue_name_multi_index;
             XferV1Response,
             XferCancelV1Request,
             XferCancelV1Response,
+            SuppressionType,
+            SuppressionSource,
+            SuppressionEntry,
+            SuppressionCreateRequest,
+            SuppressionBulkCreateRequest,
+            SuppressionCreateResponse,
+            SuppressionError,
+            SuppressionDeleteRequest,
+            SuppressionBulkDeleteRequest,
+            SuppressionDeleteResponse,
+            SuppressionListRequest,
+            SuppressionListResponse,
+            SuppressionCheckRequest,
+            SuppressionCheckResponse,
+            SuppressionSummaryResponse,
         ),
         responses(
             InjectV1Response,
@@ -86,6 +111,12 @@ pub mod queue_name_multi_index;
             ReadyQueueStateResponse,
             XferV1Response,
             XferCancelV1Response,
+            SuppressionEntry,
+            SuppressionCreateResponse,
+            SuppressionDeleteResponse,
+            SuppressionListResponse,
+            SuppressionCheckResponse,
+            SuppressionSummaryResponse,
         ),
     )
 )]
@@ -146,6 +177,39 @@ pub fn make_router() -> RouterAndDocs {
             .route(
                 "/api/admin/trace-smtp-server/v1",
                 get(admin_trace_smtp_server_v1::trace),
+            )
+            // Suppression List API endpoints
+            .route(
+                "/api/admin/suppression/v1",
+                post(admin_suppression_v1::suppression_create),
+            )
+            .route(
+                "/api/admin/suppression/v1",
+                get(admin_suppression_v1::suppression_list),
+            )
+            .route(
+                "/api/admin/suppression/v1",
+                delete(admin_suppression_v1::suppression_delete),
+            )
+            .route(
+                "/api/admin/suppression/v1/bulk",
+                post(admin_suppression_v1::suppression_bulk_create),
+            )
+            .route(
+                "/api/admin/suppression/v1/bulk/delete",
+                post(admin_suppression_v1::suppression_bulk_delete),
+            )
+            .route(
+                "/api/admin/suppression/v1/check",
+                post(admin_suppression_v1::suppression_check),
+            )
+            .route(
+                "/api/admin/suppression/v1/summary",
+                get(admin_suppression_v1::suppression_summary),
+            )
+            .route(
+                "/api/admin/suppression/v1/{recipient}",
+                get(admin_suppression_v1::suppression_get),
             ),
         docs: ApiDoc::openapi(),
     }
