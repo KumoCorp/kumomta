@@ -18,7 +18,6 @@ kumo-api-types = {path="../kumo-api-types"}
 kumo-log-types = {path="../kumo-log-types"}
 kumo-server-common = {path="../kumo-server-common"}
 lapin.workspace = true
-lazy_static = "1.5.0"
 lipsum = {workspace=true}
 maildir = {path="../maildir"}
 mailparsing = {path="../mailparsing"}

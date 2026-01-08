@@ -3348,7 +3348,6 @@ dependencies = [
  "kumo-log-types",
  "kumo-server-common",
  "lapin",
- "lazy_static",
  "lipsum",
  "maildir",
  "mailparsing",
@@ -4864,6 +4863,7 @@ dependencies = [
  "data-loader",
  "duration-serde",
  "mlua",
+ "parking_lot",
  "serde",
  "serde_bytes",
 ]

@@ -1,4 +1,5 @@
 # kumo.nats.connect
+{{since('dev')}}
 
 ```lua
 kumo.nats.connect(CONFIG)
