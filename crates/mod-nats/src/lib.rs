@@ -1,10 +1,10 @@
 use async_nats::jetstream::{self, Context};
-use async_nats::rustls::lock::Mutex;
 use async_nats::{ConnectOptions, HeaderMap};
 use config::{any_err, get_or_create_sub_module};
 use data_loader::KeySource;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, LuaSerdeExt, UserDataMethods, Value};
+use parking_lot::Mutex;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -28,20 +28,14 @@ struct Config {
     certificate: Option<PathBuf>,
     client_cert: Option<PathBuf>,
     client_key: Option<PathBuf>,
-    // tls_client_config: Option<rustls::ClientConfig>,
     ping_interval: Option<Duration>,
-    // subscription_capacity: Option<usize>,
     client_capacity: Option<usize>,
-    // event_callback: Option<CallbackArg1<Event, ()>>,
     inbox_prefix: Option<String>,
     #[serde(default, with = "duration_serde")]
     request_timeout: Option<Duration>,
     retry_on_initial_connect: Option<bool>,
     ignore_discovered_servers: Option<bool>,
     retain_servers_order: Option<bool>,
-    // read_buffer_capacity: Option<u16>,
-    // reconnect_delay_callback: Box<dyn Fn(usize) -> Duration + Send + Sync + 'static>,
-    // auth_callback: Option<CallbackArg1<Vec<u8>, Result<Auth, AuthError>>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -54,10 +48,6 @@ struct ConfigAuth {
 // https://docs.rs/async-nats/0.45.0/src/async_nats/auth.rs.html#4
 #[derive(Debug, Deserialize)]
 struct Auth {
-    // jwt: Option<String>,
-    // nkey: Option<String>,
-    // signature_callback: Option<CallbackArg1<String, Result<String, AuthError>>>,
-    // signature: Option<Vec<u8>>,
     username: Option<String>,
     password: Option<String>,
     token: Option<String>,
@@ -71,8 +61,7 @@ struct Client {
 impl Client {
     fn get_context(&self) -> mlua::Result<Arc<Context>> {
         self.context
-            .lock()
-            .unwrap()
+            .lock_arc()
             .as_ref()
             .map(Arc::clone)
             .ok_or_else(|| mlua::Error::external("client was closed"))
@@ -118,7 +107,7 @@ impl LuaUserData for Client {
         });
 
         methods.add_async_method("close", |_lua, this, _: ()| async move {
-            this.context.lock().unwrap().take();
+            this.context.lock().take();
 
             Ok(())
         });
