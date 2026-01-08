@@ -110,16 +110,15 @@ where
                 // Note: splice(2) only works with raw TcpStream file descriptors,
                 // not with generic streams (like TLS). When using TLS or other
                 // wrapped streams, we always use copy_bidirectional.
-                // We're using AsyncReadAndWrite::try_dup() to determine if the `S`
-                // type is a TcpStream; that method is only implemented with a
-                // Some() return value for TcpStream
-                if let Some(mut tcp_stream) = stream.try_dup() {
-                    drop(stream);
-                    tracing::trace!("peer={peer_address:?} -> going to splice passthru mode");
-                    tokio_splice::zero_copy_bidirectional(&mut tcp_stream, &mut remote_stream)
-                        .await?;
-                    return Ok(());
-                }
+                stream = match stream.try_into_tcp_stream() {
+                    Ok(mut tcp_stream) => {
+                        tracing::trace!("peer={peer_address:?} -> going to splice passthru mode");
+                        tokio_splice::zero_copy_bidirectional(&mut tcp_stream, &mut remote_stream)
+                            .await?;
+                        return Ok(());
+                    }
+                    Err(stream) => stream,
+                };
             }
             tracing::trace!("peer={peer_address:?} -> going to passthru mode");
             tokio::io::copy_bidirectional(&mut stream, &mut remote_stream).await?;
