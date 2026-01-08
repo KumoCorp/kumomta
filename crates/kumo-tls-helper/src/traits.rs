@@ -14,10 +14,18 @@ pub trait AsyncReadAndWrite: AsyncRead + AsyncWrite + Debug + Unpin + Send + Syn
     /// This only has an impl that returns Some for TcpStream.
     /// It is present to facilitate a workaround for some awkwardness
     /// in the SslStream implementation for the failed-handshake case.
-    /// It is also used to decide if we can call into tokio_splice in
-    /// the proxy implementation.
     fn try_dup(&self) -> Option<TcpStream> {
         None
+    }
+
+    /// Returns Ok() if the type can be converted without loss to a TcpStream,
+    /// or Err(self) otherwise.  This is used by the proxy server to decide
+    /// whether we can use splice(2).
+    fn try_into_tcp_stream(self) -> Result<TcpStream, Self>
+    where
+        Self: Sized,
+    {
+        Err(self)
     }
 }
 impl AsyncReadAndWrite for TlsClientStream<TcpStream> {}
@@ -40,6 +48,11 @@ impl AsyncReadAndWrite for TcpStream {
             let duplicate_stream = unsafe { std::net::TcpStream::from_raw_fd(duplicate) };
             TcpStream::from_std(duplicate_stream).ok()
         }
+    }
+
+    // Yes, a TcpStream can be converted to a TcpStream
+    fn try_into_tcp_stream(self) -> Result<TcpStream, Self> {
+        Ok(self)
     }
 }
 impl AsyncReadAndWrite for SslStream<TcpStream> {}
