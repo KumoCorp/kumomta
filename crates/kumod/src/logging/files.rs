@@ -1,6 +1,6 @@
-use crate::logging::{LogCommand, LogRecordParams};
+use crate::logging::{LogCommand, LogDirTimeZone, LogDirectory, LogRecordParams};
 use anyhow::Context;
-use chrono::Utc;
+use chrono::FixedOffset;
 use flume::Receiver;
 pub use kumo_log_types::*;
 use kumo_server_common::disk_space::MinFree;
@@ -10,7 +10,7 @@ use kumo_template::{Template, TemplateEngine};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use zstd::stream::write::Encoder;
 
@@ -18,7 +18,10 @@ use zstd::stream::write::Encoder;
 #[serde(deny_unknown_fields)]
 pub struct LogFileParams {
     /// Where to place the log files
-    pub log_dir: PathBuf,
+    pub log_dir: LogDirectory,
+    /// Which timezone to use for resolving dynamic log_dir templates
+    #[serde(default)]
+    pub log_dir_timezone: LogDirTimeZone,
     /// How many uncompressed bytes to allow per file segment
     #[serde(default = "LogFileParams::default_max_file_size")]
     pub max_file_size: u64,
@@ -74,6 +77,7 @@ impl LogFileParams {
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub(crate) struct FileNameKey {
+    dir_id: usize,
     log_dir: PathBuf,
     suffix: Option<String>,
 }
@@ -158,14 +162,34 @@ impl LogThreadState {
     }
 
     fn mark_existing_logs_as_done(&self) {
-        if let Err(err) = mark_existing_logs_as_done_in_dir(&self.params.log_dir) {
-            tracing::error!("Error: {err:#}");
-        }
+        let now = self.params.log_dir_timezone.now();
+        self.mark_existing_logs_as_done_for_dir(&self.params.log_dir, now);
         for params in self.params.per_record.values() {
+            let per_rec_now = params
+                .log_dir_timezone
+                .unwrap_or(self.params.log_dir_timezone)
+                .now();
             if let Some(log_dir) = &params.log_dir {
-                if let Err(err) = mark_existing_logs_as_done_in_dir(log_dir) {
-                    tracing::error!("Error: {err:#}");
+                self.mark_existing_logs_as_done_for_dir(log_dir, per_rec_now);
+            }
+        }
+    }
+
+    fn mark_existing_logs_as_done_for_dir(
+        &self,
+        dir: &LogDirectory,
+        now: chrono::DateTime<FixedOffset>,
+    ) {
+        match dir.startup_scan_dirs(now) {
+            Ok(dirs) => {
+                for path in dirs {
+                    if let Err(err) = mark_existing_logs_as_done_in_dir(&path) {
+                        tracing::error!("Error: {err:#}");
+                    }
                 }
+            }
+            Err(err) => {
+                tracing::error!("Error resolving log directory {}: {err:#}", dir.display());
             }
         }
     }
@@ -192,6 +216,20 @@ impl LogThreadState {
             .or_else(|| self.params.per_record.get(&RecordType::Any))
     }
 
+    fn evict_stale_dir_entries(&mut self, dir_id: usize, is_dynamic: bool, active_dir: &Path) {
+        if !is_dynamic {
+            return;
+        }
+
+        self.file_map.retain(|key, _| {
+            if key.dir_id != dir_id {
+                return true;
+            }
+
+            key.log_dir == active_dir
+        });
+    }
+
     fn resolve_template<'a>(
         params: &LogFileParams,
         template_engine: &'a TemplateEngine,
@@ -214,35 +252,51 @@ impl LogThreadState {
 
     fn do_record(&mut self, record: JsonLogRecord) -> anyhow::Result<()> {
         tracing::trace!("do_record {record:?}");
-        let file_key = if let Some(per_rec) = self.per_record(record.kind) {
-            FileNameKey {
-                log_dir: per_rec
-                    .log_dir
-                    .as_deref()
-                    .unwrap_or(&self.params.log_dir)
-                    .to_path_buf(),
-                suffix: per_rec.suffix.clone(),
-            }
-        } else {
-            // Just use the global settings
-            FileNameKey {
-                log_dir: self.params.log_dir.clone(),
-                suffix: None,
+        let (dir_config, suffix, tz, segment_header) = {
+            if let Some(per_rec) = self.per_record(record.kind) {
+                (
+                    per_rec.log_dir.as_ref().unwrap_or(&self.params.log_dir),
+                    per_rec.suffix.clone(),
+                    per_rec
+                        .log_dir_timezone
+                        .unwrap_or(self.params.log_dir_timezone),
+                    if per_rec.segment_header.is_empty() {
+                        None
+                    } else {
+                        Some(per_rec.segment_header.clone())
+                    },
+                )
+            } else {
+                (
+                    &self.params.log_dir,
+                    None,
+                    self.params.log_dir_timezone,
+                    None,
+                )
             }
         };
 
-        if !self.file_map.contains_key(&file_key) {
-            let now = Utc::now();
+        let now = tz.now();
 
+        let dir_id = dir_config.id();
+        let is_dynamic = dir_config.is_dynamic();
+        let resolved_dir = dir_config.resolve(now)?;
+        self.evict_stale_dir_entries(dir_id, is_dynamic, resolved_dir.as_path());
+
+        let file_key = FileNameKey {
+            dir_id,
+            log_dir: resolved_dir.clone(),
+            suffix,
+        };
+
+        // open new segment if not exists
+        if !self.file_map.contains_key(&file_key) {
             let mut base_name = now.format("%Y%m%d-%H%M%S%.f").to_string();
             if let Some(suffix) = &file_key.suffix {
                 base_name.push_str(suffix);
             }
 
-            let name = file_key.log_dir.join(base_name);
-            // They might be trying to use multiple directories below
-            // the configured log_dir, so adjust our idea of its parent
-            // dir
+            let name = resolved_dir.join(base_name);
             let log_dir = name
                 .parent()
                 .expect("log_dir.join ensures we always have a parent");
@@ -256,14 +310,11 @@ impl LogThreadState {
                 Err(err) => {
                     if err.kind() == std::io::ErrorKind::NotFound {
                         match std::fs::create_dir_all(log_dir) {
-                            Ok(_) => {
-                                // Try opening it again now
-                                std::fs::OpenOptions::new()
-                                    .append(true)
-                                    .create(true)
-                                    .open(&name)
-                                    .with_context(|| format!("open log file {name:?}"))?
-                            }
+                            Ok(_) => std::fs::OpenOptions::new()
+                                .append(true)
+                                .create(true)
+                                .open(&name)
+                                .with_context(|| format!("open log file {name:?}"))?,
                             Err(dir_err) => {
                                 anyhow::bail!(
                                     "open log file {name:?}: failed: {err:#?}. \
@@ -289,23 +340,18 @@ impl LogThreadState {
                     .map(|duration| Instant::now() + duration),
             };
 
-            if let Some(per_rec) = self.per_record(record.kind) {
-                if !per_rec.segment_header.is_empty() {
-                    file.file
-                        .write_all(per_rec.segment_header.as_bytes())
-                        .with_context(|| {
-                            format!(
-                                "writing segment header to newly opened segment file {}",
-                                file.name.display()
-                            )
-                        })?;
-                }
+            // Header di segmento (se configurato)
+            if let Some(header) = &segment_header {
+                file.file.write_all(header.as_bytes()).with_context(|| {
+                    format!(
+                        "writing segment header to newly opened segment file {}",
+                        file.name.display()
+                    )
+                })?;
             }
 
             self.file_map.insert(file_key.clone(), file);
         }
-
-        let mut need_rotate = false;
 
         if let Some(file) = self.file_map.get_mut(&file_key) {
             let mut record_text = Vec::new();
@@ -314,27 +360,31 @@ impl LogThreadState {
             if let Some(template) =
                 Self::resolve_template(&self.params, &self.template_engine, record.kind)
             {
-                template.render_to_write(&record, &mut record_text)?;
+                template
+                    .render_to_write(&record, &mut record_text)
+                    .context("rendering templated log record")?;
             } else {
                 serde_json::to_writer(&mut record_text, &record).context("serializing record")?;
             }
+
             if record_text.last() != Some(&b'\n') {
                 record_text.push(b'\n');
             }
+
             file.file
                 .write_all(&record_text)
                 .with_context(|| format!("writing record to {}", file.name.display()))?;
             file.written += record_text.len() as u64;
 
-            need_rotate = file.written >= self.params.max_file_size
+            let need_rotate = file.written >= self.params.max_file_size
                 || file
                     .expires
                     .map(|exp| exp <= Instant::now())
                     .unwrap_or(false);
-        }
 
-        if need_rotate {
-            self.file_map.remove(&file_key);
+            if need_rotate {
+                self.file_map.remove(&file_key);
+            }
         }
 
         Ok(())
