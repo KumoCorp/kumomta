@@ -52,6 +52,7 @@ ahash = "0.8.11"
 amqprs = {version="2.0", features=["tls", "traces"]}
 anyhow = "1.0"
 arc-swap = "1.6"
+async-nats = "0.45.0"
 async-stream = "0.3"
 async-trait = "0.1"
 aws-lc-rs = "1.13.1"
