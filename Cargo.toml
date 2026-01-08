@@ -218,7 +218,7 @@ tracing-subscriber = {version="0.3", features=["env-filter", "std", "fmt", "json
 tui-prompts = "0.5"
 utoipa = {version="5", features=["axum_extras", "time", "uuid", "url", "chrono"]}
 utoipa-rapidoc = { version="6.0", features = ["axum"] }
-url = "2.4"
+url = {version="2.4", features = ["serde"]}
 uuid = "1.4"
 uuid-helper = { path = "crates/uuid-helper" }
 vaultrs = "0.7"
