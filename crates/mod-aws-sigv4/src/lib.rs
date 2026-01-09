@@ -35,46 +35,46 @@ const URI_ENCODE_SET: &AsciiSet = &CONTROLS
     .add(b']');
 
 #[derive(Deserialize, Debug)]
-struct SigV4Request {
+pub struct SigV4Request {
     /// AWS access key ID (can be a KeySource)
-    access_key: KeySource,
+    pub access_key: KeySource,
     /// AWS secret access key (can be a KeySource)
-    secret_key: KeySource,
+    pub secret_key: KeySource,
     /// AWS region (e.g., "us-east-1")
-    region: String,
+    pub region: String,
     /// AWS service name (e.g., "s3", "sns", "sqs")
-    service: String,
+    pub service: String,
     /// HTTP method (e.g., "GET", "POST")
-    method: String,
+    pub method: String,
     /// URI path (e.g., "/")
-    uri: String,
+    pub uri: String,
     /// Optional query string parameters
     #[serde(default)]
-    query_params: BTreeMap<String, String>,
+    pub query_params: BTreeMap<String, String>,
     /// HTTP headers to sign
     #[serde(default)]
-    headers: BTreeMap<String, String>,
+    pub headers: BTreeMap<String, String>,
     /// Request payload (body)
     #[serde(default)]
-    payload: String,
+    pub payload: String,
     /// Optional timestamp (defaults to current time)
-    timestamp: Option<DateTime<Utc>>,
+    pub timestamp: Option<DateTime<Utc>>,
     /// Optional session token for temporary credentials
-    session_token: Option<String>,
+    pub session_token: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-struct SigV4Response {
+pub struct SigV4Response {
     /// The authorization header value
-    authorization: String,
+    pub authorization: String,
     /// The timestamp used in ISO8601 format (YYYYMMDD'T'HHMMSS'Z')
-    timestamp: String,
+    pub timestamp: String,
     /// The canonical request (for debugging)
-    canonical_request: String,
+    pub canonical_request: String,
     /// The string to sign (for debugging)
-    string_to_sign: String,
+    pub string_to_sign: String,
     /// The signature
-    signature: String,
+    pub signature: String,
 }
 
 fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
@@ -162,7 +162,7 @@ fn create_signing_key(secret_key: &str, date_stamp: &str, region: &str, service:
     hmac_sha256(&k_service, b"aws4_request")
 }
 
-async fn sign_request(req: SigV4Request) -> anyhow::Result<SigV4Response> {
+pub async fn sign_request(req: SigV4Request) -> anyhow::Result<SigV4Response> {
     // Get the access key id and secret key from their KeySource values
     let access_key_bytes = req.access_key.get().await?;
     let access_key = std::str::from_utf8(&access_key_bytes)
@@ -316,5 +316,136 @@ mod tests {
             hex,
             "6e9ef29b75fffc5b7abae527d58fdadb2fe42e7219011976917343065f58ed4a"
         );
+    }
+
+    #[test]
+    fn test_signing_key_derivation() {
+        // Test vector based on AWS documentation
+        let signing_key = create_signing_key(
+            "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+            "20150830",
+            "us-east-1",
+            "iam",
+        );
+        let hex = HEXLOWER.encode(&signing_key);
+        assert_eq!(
+            hex,
+            "c4afb1cc5771d871763a393e44b703571b55cc28424d1a5e86da6ed3c154a4b9"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sign_request_basic() {
+        // Test the full sign_request function with inline key data
+        let req = SigV4Request {
+            access_key: KeySource::Data {
+                key_data: b"AKIAIOSFODNN7EXAMPLE".to_vec(),
+            },
+            secret_key: KeySource::Data {
+                key_data: b"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_vec(),
+            },
+            region: "us-east-1".to_string(),
+            service: "iam".to_string(),
+            method: "GET".to_string(),
+            uri: "/".to_string(),
+            query_params: BTreeMap::new(),
+            headers: {
+                let mut h = BTreeMap::new();
+                h.insert("host".to_string(), "iam.amazonaws.com".to_string());
+                h
+            },
+            payload: String::new(),
+            timestamp: Some(
+                DateTime::parse_from_rfc3339("2015-08-30T12:36:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+            ),
+            session_token: None,
+        };
+
+        let response = sign_request(req).await.expect("signing should succeed");
+
+        // Verify the response contains expected components
+        assert!(response.authorization.starts_with("AWS4-HMAC-SHA256"));
+        assert!(response
+            .authorization
+            .contains("Credential=AKIAIOSFODNN7EXAMPLE/20150830/us-east-1/iam/aws4_request"));
+        assert_eq!(response.timestamp, "20150830T123600Z");
+        // Signature should be a 64-character hex string
+        assert_eq!(response.signature.len(), 64);
+        assert!(response.signature.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[tokio::test]
+    async fn test_sign_request_with_query_params() {
+        let mut query_params = BTreeMap::new();
+        query_params.insert("Action".to_string(), "ListUsers".to_string());
+        query_params.insert("Version".to_string(), "2010-05-08".to_string());
+
+        let req = SigV4Request {
+            access_key: KeySource::Data {
+                key_data: b"AKIAIOSFODNN7EXAMPLE".to_vec(),
+            },
+            secret_key: KeySource::Data {
+                key_data: b"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_vec(),
+            },
+            region: "us-east-1".to_string(),
+            service: "iam".to_string(),
+            method: "GET".to_string(),
+            uri: "/".to_string(),
+            query_params,
+            headers: {
+                let mut h = BTreeMap::new();
+                h.insert("host".to_string(), "iam.amazonaws.com".to_string());
+                h
+            },
+            payload: String::new(),
+            timestamp: Some(
+                DateTime::parse_from_rfc3339("2015-08-30T12:36:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+            ),
+            session_token: None,
+        };
+
+        let response = sign_request(req).await.expect("signing should succeed");
+
+        // Verify query params are included in the canonical request
+        assert!(response.canonical_request.contains("Action=ListUsers"));
+        assert!(response.canonical_request.contains("Version=2010-05-08"));
+    }
+
+    #[tokio::test]
+    async fn test_sign_request_with_session_token() {
+        let req = SigV4Request {
+            access_key: KeySource::Data {
+                key_data: b"AKIAIOSFODNN7EXAMPLE".to_vec(),
+            },
+            secret_key: KeySource::Data {
+                key_data: b"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_vec(),
+            },
+            region: "us-east-1".to_string(),
+            service: "sts".to_string(),
+            method: "GET".to_string(),
+            uri: "/".to_string(),
+            query_params: BTreeMap::new(),
+            headers: {
+                let mut h = BTreeMap::new();
+                h.insert("host".to_string(), "sts.amazonaws.com".to_string());
+                h
+            },
+            payload: String::new(),
+            timestamp: Some(
+                DateTime::parse_from_rfc3339("2015-08-30T12:36:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+            ),
+            session_token: Some("AQoDYXdzEJr...".to_string()),
+        };
+
+        let response = sign_request(req).await.expect("signing should succeed");
+
+        // Verify session token header is included in signed headers
+        assert!(response.canonical_request.contains("x-amz-security-token"));
     }
 }

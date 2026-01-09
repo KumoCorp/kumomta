@@ -1,0 +1,110 @@
+# This file encodes the default ACLs in the kumomta software suite.
+# It is compiled into the software at build time.
+#
+# These defaults are not necessarily the best configuration for
+# any specific purpose, they are just a reasonable base.
+#
+# To make changes at runtime you must load your own ACL file via
+# your policy configuration. Consult the docs at:
+# <https://docs.kumomta.com/reference/events/get_acl_definition.md>
+# for information on how to do that.
+
+## KumoMTA HTTP Listener ACL rules -----------------------------------
+
+# Explicitly allow blanket unauthenticated access to the health status endpoint
+[[acl."http_listener/*/api/check-liveness"]]
+allow = true
+privileges = ["GET"]
+identity.Any = {}
+
+# Expose OpenAPI spec/schema/explorer to all
+[[acl."http_listener/*/rapidoc"]]
+allow = true
+privileges = ["GET"]
+identity.Any = {}
+
+[[acl."http_listener/*/api-docs/openapi.json"]]
+allow = true
+privileges = ["GET"]
+identity.Any = {}
+
+### Message Injection -----------------
+
+# Trusted ips can use the injection API
+[[acl."http_listener/*/api/inject"]]
+allow = true
+privileges = ["POST"]
+identity.Group = "kumomta:http-listener-trusted-ip"
+
+# Allow injection by other authenticated users
+[[acl."http_listener/*/api/inject"]]
+allow = true
+privileges = ["POST"]
+identity.Authenticated = {}
+
+### Admin Functions --------------------------------
+
+# Allow trusted ips that were defined in the http listener to do admin
+[[acl."http_listener/*/api/admin"]]
+allow = true
+privileges = ["GET", "DELETE", "POST"]
+identity.Group = "kumomta:http-listener-trusted-ip"
+
+# Metrics are a read-only admin function
+[[acl."http_listener/*/metrics"]]
+allow = true
+privileges = ["GET"]
+identity.Group = "kumomta:http-listener-trusted-ip"
+
+[[acl."http_listener/*/metrics.json"]]
+allow = true
+privileges = ["GET"]
+identity.Group = "kumomta:http-listener-trusted-ip"
+
+### Message Transfer -------------------------------
+# Trusted IPs can perform message transfer
+[[acl."http_listener/*/api/xfer"]]
+allow = true
+privileges = ["POST"]
+identity.Group = "kumomta:http-listener-trusted-ip"
+
+##############################################################
+### This ACL file is also loaded by tsa-daemon.
+### The following rules apply to its HTTP listener
+
+### TSA log publishing -----------------------------
+[[acl."http_listener/*/publish_log_v1"]]
+allow = true
+privileges = ["POST"]
+identity.Group = "kumomta:http-listener-trusted-ip"
+
+### TSA config access -----------------------------
+[[acl."http_listener/*/get_config_v1"]]
+allow = true
+privileges = ["GET"]
+identity.Group = "kumomta:http-listener-trusted-ip"
+
+### TSA suspension access -----------------------------
+[[acl."http_listener/*/get_suspension_v1"]]
+allow = true
+privileges = ["GET"]
+identity.Group = "kumomta:http-listener-trusted-ip"
+
+### TSA suspension subscription -----------------------------
+[[acl."http_listener/*/subscribe_suspension_v1"]]
+allow = true
+privileges = ["GET"]
+identity.Group = "kumomta:http-listener-trusted-ip"
+
+### TSA bounce access -----------------------------
+[[acl."http_listener/*/get_bounce_v1"]]
+allow = true
+privileges = ["GET"]
+identity.Group = "kumomta:http-listener-trusted-ip"
+
+### TSA event access -----------------------------
+[[acl."http_listener/*/subscribe_event_v1"]]
+allow = true
+privileges = ["GET"]
+identity.Group = "kumomta:http-listener-trusted-ip"
+

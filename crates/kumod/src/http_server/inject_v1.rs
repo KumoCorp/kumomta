@@ -9,11 +9,11 @@ use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use axum::extract::{Json, State};
 use axum_client_ip::ClientIp;
-use config::{any_err, get_or_create_sub_module, load_config, CallbackSignature, LuaConfig};
+use config::{any_err, get_or_create_sub_module, load_config, LuaConfig, SerdeWrappedValue};
 use kumo_chrono_helper::Utc;
 use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::AtomicCounter;
-use kumo_server_common::http_server::auth::AuthKind;
+use kumo_server_common::authn_authz::AuthInfo;
 use kumo_server_common::http_server::{AppError, AppState};
 use kumo_server_runtime::{Runtime, RUNTIME};
 use kumo_template::{CompiledTemplates, TemplateDialect, TemplateEngine, TemplateList};
@@ -32,6 +32,14 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use throttle::ThrottleSpec;
 use utoipa::{ToResponse, ToSchema};
+
+config::declare_event! {
+static HTTP_MESSAGE_GENERATED: Single(
+    "http_message_generated",
+    message: Message,
+    auth_info: SerdeWrappedValue<AuthInfo>,
+) -> ();
+}
 
 pub const GENERATOR_QUEUE_NAME: &str = "generator.kumomta.internal";
 
@@ -214,6 +222,10 @@ pub enum Content {
         #[serde(default)]
         html_body: Option<String>,
 
+        /// If set, will be used to create a text/x-amp-html part
+        #[serde(default)]
+        amp_html_body: Option<String>,
+
         /// Optional list of attachments
         #[serde(default)]
         attachments: Vec<Attachment>,
@@ -304,7 +316,7 @@ impl<'a> Compiled<'a> {
                 let content = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
                 let mut msg = MimePart::parse(&*content)
                     .with_context(|| format!("failed to parse content: {content}"))?
-                    .rebuild()
+                    .rebuild(None)
                     .with_context(|| format!("failed to rebuild content {content}"))?;
 
                 if msg.headers().mime_version()?.is_none() {
@@ -316,6 +328,7 @@ impl<'a> Compiled<'a> {
             Content::Builder {
                 text_body,
                 html_body,
+                amp_html_body,
                 headers,
                 ..
             } => {
@@ -330,6 +343,12 @@ impl<'a> Compiled<'a> {
                 if html_body.is_some() {
                     builder
                         .text_html(&self.env_and_templates.borrow_dependent()[id].render(&subst)?);
+                    id += 1;
+                }
+                if amp_html_body.is_some() {
+                    builder.text_amp_html(
+                        &self.env_and_templates.borrow_dependent()[id].render(&subst)?,
+                    );
                     id += 1;
                 }
 
@@ -366,6 +385,7 @@ impl InjectV1Request {
             Content::Builder {
                 text_body: _,
                 html_body: _,
+                amp_html_body: _,
                 attachments: _,
                 headers,
                 from,
@@ -399,13 +419,12 @@ impl InjectV1Request {
 
     fn compile(&'_ self) -> anyhow::Result<Compiled<'_>> {
         let mut env = TemplateEngine::with_dialect(self.template_dialect.into());
-        let mut id = 0;
 
         // Pass 1: create the templates
         match &self.content {
             Content::Rfc822(text) => {
-                let name = id.to_string();
-                env.add_template(name, text)?;
+                env.add_template("content", text)
+                    .context("failed parsing field 'content' as template")?;
             }
             Content::Builder {
                 text_body: None,
@@ -415,24 +434,29 @@ impl InjectV1Request {
             Content::Builder {
                 text_body,
                 html_body,
+                amp_html_body,
                 headers,
                 ..
             } => {
                 if let Some(tb) = text_body {
-                    let name = id.to_string();
-                    id += 1;
-                    env.add_template(name, tb)?;
+                    env.add_template("text_body.txt", tb)
+                        .context("failed parsing field 'content.text_body' as template")?;
                 }
                 if let Some(hb) = html_body {
                     // The filename extension is needed to enable auto-escaping
-                    let name = format!("{id}.html");
-                    id += 1;
-                    env.add_template(name, hb)?;
+                    env.add_template("html_body.html", hb)
+                        .context("failed parsing field 'content.html_body' as template")?;
                 }
-                for value in headers.values() {
-                    let name = id.to_string();
-                    id += 1;
-                    env.add_template(name, value)?;
+                if let Some(hb) = amp_html_body {
+                    // The filename extension is needed to enable auto-escaping
+                    env.add_template("amp_html_body.html", hb)
+                        .context("failed parsing field 'content.amp_html_body' as template")?;
+                }
+                for (header_name, value) in headers.iter() {
+                    env.add_template(format!("headers[{header_name}]"), value)
+                        .with_context(|| {
+                            format!("failed parsing field headers['{header_name}'] as template")
+                        })?;
                 }
             }
         }
@@ -443,34 +467,31 @@ impl InjectV1Request {
             env: &'b TemplateEngine,
             content: &Content,
         ) -> anyhow::Result<TemplateList<'b>> {
-            let mut id = 0;
             let mut templates = vec![];
             match content {
                 Content::Rfc822(_) => {
-                    let name = id.to_string();
-                    templates.push(env.get_template(&name)?);
+                    templates.push(env.get_template("content")?);
                 }
                 Content::Builder {
                     text_body,
                     html_body,
+                    amp_html_body,
                     headers,
                     ..
                 } => {
                     if text_body.is_some() {
-                        let name = id.to_string();
-                        id += 1;
-                        templates.push(env.get_template(&name)?);
+                        templates.push(env.get_template("text_body.txt")?);
                     }
                     if html_body.is_some() {
                         // The filename extension is needed to enable auto-escaping
-                        let name = format!("{id}.html");
-                        id += 1;
-                        templates.push(env.get_template(&name)?);
+                        templates.push(env.get_template("html_body.html")?);
                     }
-                    for _ in headers {
-                        let name = id.to_string();
-                        id += 1;
-                        templates.push(env.get_template(&name)?);
+                    if amp_html_body.is_some() {
+                        // The filename extension is needed to enable auto-escaping
+                        templates.push(env.get_template("amp_html_body.html")?);
+                    }
+                    for (header_name, _) in headers {
+                        templates.push(env.get_template(&format!("headers[{header_name}]"))?);
                     }
                 }
             };
@@ -528,7 +549,7 @@ async fn make_message<'a>(
     recip: &Recipient,
     request: &'a InjectV1Request,
     compiled: &Compiled<'a>,
-    auth: &AuthKind,
+    auth: &AuthInfo,
     via_address: &Option<IpAddr>,
     hostname: &Option<String>,
 ) -> anyhow::Result<Message> {
@@ -571,7 +592,9 @@ async fn make_message<'a>(
         Arc::new(normalized.into_boxed_slice()),
     )?;
 
-    message.set_meta("http_auth", auth.summarize()).await?;
+    message
+        .set_meta("http_auth", auth.summarize_for_http_auth())
+        .await?;
     message.set_meta("reception_protocol", "HTTP").await?;
     message
         .set_meta("received_from", peer_address.to_string())
@@ -592,7 +615,7 @@ async fn process_recipient<'a>(
     recip: &Recipient,
     request: &'a InjectV1Request,
     compiled: &Compiled<'a>,
-    auth: &AuthKind,
+    auth: &AuthInfo,
     via_address: &Option<IpAddr>,
     hostname: &Option<String>,
 ) -> anyhow::Result<()> {
@@ -611,8 +634,12 @@ async fn process_recipient<'a>(
     .await?;
 
     // call callback to assign to queue
-    let sig = CallbackSignature::<message::Message, ()>::new("http_message_generated");
-    config.async_call_callback(&sig, message.clone()).await?;
+    config
+        .async_call_callback(
+            &HTTP_MESSAGE_GENERATED,
+            (message.clone(), SerdeWrappedValue(auth.clone())),
+        )
+        .await?;
 
     // spool and insert to queue
     let queue_name = message.get_queue_name().await?;
@@ -656,7 +683,7 @@ async fn process_recipient<'a>(
 }
 
 async fn queue_deferred(
-    auth: AuthKind,
+    auth: AuthInfo,
     sender: EnvelopeAddress,
     peer_address: IpAddr,
     mut request: InjectV1Request,
@@ -673,7 +700,12 @@ async fn queue_deferred(
         Arc::new(payload.into_boxed_slice()),
     )?;
 
-    message.set_meta("http_auth", auth.summarize()).await?;
+    message
+        .set_meta("auth_info", serde_json::to_value(&auth)?)
+        .await?;
+    message
+        .set_meta("http_auth", auth.summarize_for_http_auth())
+        .await?;
     message.set_meta("reception_protocol", "HTTP").await?;
     message
         .set_meta("received_from", peer_address.to_string())
@@ -718,7 +750,7 @@ async fn queue_deferred(
 }
 
 async fn inject_v1_impl(
-    auth: AuthKind,
+    auth: AuthInfo,
     sender: EnvelopeAddress,
     peer_address: IpAddr,
     mut request: InjectV1Request,
@@ -774,7 +806,7 @@ async fn inject_v1_impl(
 }
 
 async fn build_from_v1_injection_request(
-    auth: AuthKind,
+    auth: AuthInfo,
     sender: EnvelopeAddress,
     peer_address: IpAddr,
     mut request: InjectV1Request,
@@ -820,7 +852,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 .map_err(any_err)?;
             let my_ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
             let result = inject_v1_impl(
-                AuthKind::TrustedIp(my_ip),
+                AuthInfo::new_local_system(),
                 sender,
                 my_ip,
                 request,
@@ -843,7 +875,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 .map_err(any_err)?;
             let my_ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
-            build_from_v1_injection_request(AuthKind::TrustedIp(my_ip), sender, my_ip, request)
+            build_from_v1_injection_request(AuthInfo::new_local_system(), sender, my_ip, request)
                 .await
                 .map_err(any_err)
         })?,
@@ -863,7 +895,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     ),
 )]
 pub async fn inject_v1(
-    auth: AuthKind,
+    auth: AuthInfo,
     ClientIp(peer_address): ClientIp,
     State(app_state): State<AppState>,
     // Note: Json<> must be last in the param list
@@ -939,6 +971,20 @@ impl HttpInjectionGeneratorDispatcher {
                     .await?
                     .ok_or_else(|| anyhow::anyhow!("received_from metadata is missing!?"))?
                     .parse()?;
+
+                let auth_info: AuthInfo = match msg.get_meta_string("auth_info").await? {
+                    Some(info) => serde_json::from_str(&info)?,
+                    None => {
+                        // We might not have auth_info serialized in the metadata
+                        // if we are upgrading from a prior version that did not
+                        // support AuthInfo, so default it to something approximating
+                        // the AuthInfo it would probably have
+                        let mut auth_info = AuthInfo::default();
+                        auth_info.set_peer_address(Some(peer_address));
+                        auth_info
+                    }
+                };
+
                 let via_address = match msg.get_meta_string("received_via").await {
                     Ok(Some(v)) => v.parse().ok(),
                     _ => None,
@@ -951,7 +997,7 @@ impl HttpInjectionGeneratorDispatcher {
                 let sender = msg.sender().await?;
 
                 let _ = inject_v1_impl(
-                    AuthKind::TrustedIp(peer_address),
+                    auth_info,
                     sender,
                     peer_address,
                     request,
@@ -1163,6 +1209,7 @@ This is a test message to James Smythe, with some =F0=9F=91=BB=F0=9F=8D=89=\r
             substitutions: HashMap::new(),
             content: Content::Builder {
                 text_body: Some("I am the plain text, {{ name }}. 😀".to_string()),
+                amp_html_body: None,
                 html_body: Some(
                     "I am the <b>html</b> text, {{ name }}. 👾 <img src=\"cid:my-image\"/>"
                         .to_string(),
@@ -1247,6 +1294,7 @@ Some(
             substitutions: HashMap::new(),
             content: Content::Builder {
                 text_body: Some("I am the plain text, {{ name }}. 😀".to_string()),
+                amp_html_body: None,
                 html_body: Some(
                     "I am the <b>html</b> text, {{ name }}. 👾 <img src=\"cid:my-image\"/>"
                         .to_string(),
@@ -1345,6 +1393,7 @@ Ok(
                     "I am the <b>html</b> text, {{ name }}. 👾 <img src=\"cid:my-image\"/>"
                         .to_string(),
                 ),
+                amp_html_body: None,
                 subject: Some("hello {{ name }}".to_string()),
                 from: Some(FromHeader {
                     email: "from@example.com".to_string(),
@@ -1417,6 +1466,7 @@ Some(
             substitutions: HashMap::new(),
             content: Content::Builder {
                 text_body: Some("I am the plain text, {{ name }}. 😀".to_string()),
+                amp_html_body: None,
                 html_body: Some(
                     "I am the <b>html</b> text, {{ name }}. 👾 <img src=\"cid:my-image\"/>"
                         .to_string(),
@@ -1452,6 +1502,120 @@ Some(
         let structure = parsed.simplified_structure().unwrap();
         eprintln!("{structure:?}");
 
+        k9::snapshot!(
+            structure.html,
+            r#"
+Some(
+    "I am the <b>html</b> text, James Smythe. 👾 <img src="cid:my-image"/>\r
+",
+)
+"#
+        );
+        k9::snapshot!(
+            structure.text,
+            r#"
+Some(
+    "I am the plain text, James Smythe. 😀\r
+",
+)
+"#
+        );
+
+        k9::snapshot!(
+            structure.headers.subject().unwrap(),
+            r#"
+Some(
+    "hello James Smythe",
+)
+"#
+        );
+    }
+
+    #[tokio::test]
+    async fn test_builder_handlebars_dialect_with_amp() {
+        let mut request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: Some("James Smythe".to_string()),
+                substitutions: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Builder {
+                text_body: Some("I am the plain text, {{ name }}. 😀".to_string()),
+                html_body: Some(
+                    "I am the <b>html</b> text, {{ name }}. 👾 <img src=\"cid:my-image\"/>"
+                        .to_string(),
+                ),
+                amp_html_body: Some(
+                    r#"<!doctype html>
+<html ⚡4email>
+<head>
+  <meta charset="utf-8">
+  <style amp4email-boilerplate>body{visibility:hidden}</style>
+  <script async src="https://cdn.ampproject.org/v0.js"></script>
+</head>
+<body>
+Hello in AMP, {{ name }}!
+{{{{raw}}}}
+Don't expand in here {{ name }}
+{{{{/raw}}}}
+</body>
+</html>
+"#
+                    .replace("\n", "\r\n"),
+                ),
+                subject: Some("hello {{ name }}".to_string()),
+                from: Some(FromHeader {
+                    email: "from@example.com".to_string(),
+                    name: Some("Sender Name".to_string()),
+                }),
+                reply_to: None,
+                headers: Default::default(),
+                attachments: vec![],
+            },
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+            template_dialect: TemplateDialectWithSchema::Handlebars,
+        };
+
+        request.normalize().unwrap();
+        let compiled = request.compile().unwrap();
+        let generated = compiled
+            .expand_for_recip(
+                &request.recipients[0],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap();
+
+        println!("Generated: {generated}");
+        let parsed = MimePart::parse(generated.as_str()).unwrap();
+        println!("Parsed: {parsed:?}");
+        let structure = parsed.simplified_structure().unwrap();
+        eprintln!("Structure: {structure:?}");
+
+        k9::snapshot!(
+            structure.amp_html,
+            r#"
+Some(
+    "<!doctype html>\r
+<html ⚡4email>\r
+<head>\r
+  <meta charset="utf-8">\r
+  <style amp4email-boilerplate>body{visibility:hidden}</style>\r
+  <script async src="https://cdn.ampproject.org/v0.js"></script>\r
+</head>\r
+<body>\r
+Hello in AMP, James Smythe!\r
+Don't expand in here {{ name }}\r
+</body>\r
+</html>\r
+",
+)
+"#
+        );
         k9::snapshot!(
             structure.html,
             r#"

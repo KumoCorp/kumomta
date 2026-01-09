@@ -36,6 +36,17 @@ The function returns a table `RESULT` with these fields:
 | `canonical_request` | string | Canonical request string (for debugging)             |
 | `string_to_sign`    | string | String-to-sign (for debugging)                       |
 
+## HTTP client integration
+
+If you are using the built-in HTTP client, you can use
+`kumo.http.Request:aws_sign_v4({PARAMS})` as a convenience wrapper around
+this function. It derives the HTTP method, URI path, query parameters and
+`host` header from the `Request` object and then calls
+`kumo.crypto.aws_sign_v4` internally to compute the signature.
+
+For details and an end-to-end example, see
+[`kumo.http.Request`](../kumo.http/Request.md).
+
 ## Examples
 
 ### S3 GET request

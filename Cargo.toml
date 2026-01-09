@@ -66,7 +66,6 @@ bytes = "1.0"
 camino = "1.1"
 caps = "0.5"
 cgroups-rs = "0.3"
-charset = "0.1"
 # Using a git ref until https://github.com/nickspring/charset-normalizer-rs/pull/45 is merged
 charset-normalizer-rs = { git = "https://github.com/KumoCorp/charset-normalizer-rs.git", rev="1f1dc21b49d30d73a99b0136497352b569947ac2" }
 chrono = { version = "0.4.26", default-features = false }
@@ -86,7 +85,6 @@ data-encoding-macro = "0.1"
 deadpool = {version="0.12", features=["rt_tokio_1"]}
 derive-where = "1.2.7"
 ed25519-dalek = "2.0"
-encoding_rs = "0.8.35"
 env_logger = "0.11"
 fancy-regex = "0.16"
 filenamegen = "0.2.7"
@@ -101,7 +99,9 @@ gcd = "2.3"
 gethostname = "1.0"
 getrandom = "0.3"
 git2 = { version = "0.20", default-features = false }
-handlebars = "6.3"
+# handlebars uses a git ref until the next release is made, so that we have
+# recursive lookup available.
+handlebars = { version="6.3", git = "https://github.com/sunng87/handlebars-rust.git", rev="c349c39557700e6a5b5e5273f2fc0f42574b79f3" }
 hdrhistogram = "7.5"
 hex = "0.4"
 # Be sure to update the link to the docs in docs/reference/kumo.dns/configure_resolver.md
@@ -218,7 +218,7 @@ tracing-subscriber = {version="0.3", features=["env-filter", "std", "fmt", "json
 tui-prompts = "0.5"
 utoipa = {version="5", features=["axum_extras", "time", "uuid", "url", "chrono"]}
 utoipa-rapidoc = { version="6.0", features = ["axum"] }
-url = "2.4"
+url = {version="2.4", features = ["serde"]}
 uuid = "1.4"
 uuid-helper = { path = "crates/uuid-helper" }
 vaultrs = "0.7"

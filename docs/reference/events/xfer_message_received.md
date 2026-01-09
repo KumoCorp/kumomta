@@ -3,7 +3,7 @@
 {{since('2025.12.02-67ee9e96')}}
 
 ```lua
-kumo.on('xfer_message_received', function(message) end)
+kumo.on('xfer_message_received', function(message, auth_info) end)
 ```
 
 Called during reception of a message transfer (xfer) from another kumomta,
@@ -19,3 +19,6 @@ Any errors that are raised by the event handler will cause the message xfer to
 transiently fail; the sending side will retry it according to its retry
 schedule.
 
+The `auth_info` parameter is an [AuthInfo](../kumo.aaa/auth_info.md) object
+that can be used to implement more granular access policies. {{since('dev',
+inline=True)}}

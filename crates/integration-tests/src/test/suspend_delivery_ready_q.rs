@@ -46,6 +46,7 @@ async fn suspend_delivery_ready_q() -> anyhow::Result<()> {
         .await;
 
     daemon.stop_both().await?;
+    daemon.assert_no_acct_deny().await?;
     let delivery_summary = daemon.dump_logs().await?;
     k9::snapshot!(
         delivery_summary,

@@ -3,7 +3,9 @@ use minijinja::{Environment, Template as JinjaTemplate, Value as JinjaValue};
 use minijinja_contrib::add_to_environment;
 use self_cell::self_cell;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fmt::Write;
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TemplateDialect {
@@ -72,6 +74,7 @@ impl<'env, 'source> Template<'env, 'source> {
                 let context = handlebars::Context::wraps(context)?;
 
                 let mut render_context = handlebars::RenderContext::new(None);
+                render_context.set_recursive_lookup(true);
                 let is_html = template
                     .name
                     .as_deref()
@@ -120,12 +123,16 @@ impl TemplateEngine {
                     env: HashMap::new(),
                 },
             },
-            TemplateDialect::Handlebars => Self {
-                engine: Engine::Handlebars {
-                    registry: Handlebars::new(),
-                    globals: HashMap::new(),
-                },
-            },
+            TemplateDialect::Handlebars => {
+                let mut registry = Handlebars::new();
+                registry.set_recursive_lookup(true);
+                Self {
+                    engine: Engine::Handlebars {
+                        registry,
+                        globals: HashMap::new(),
+                    },
+                }
+            }
         }
     }
 
@@ -138,7 +145,47 @@ impl TemplateEngine {
         S: Into<String>,
     {
         match &mut self.engine {
-            Engine::Jinja { env } => Ok(env.add_template_owned(name.into(), source.into())?),
+            Engine::Jinja { env } => {
+                let source: Cow<'_, str> = source.into().into();
+
+                Ok(env
+                    .add_template_owned(name.into(), source.clone())
+                    .map_err(|err| {
+                        let mut reason = String::new();
+
+                        if let Some(detail) = err.detail() {
+                            write!(&mut reason, "{}: {}", err.kind(), detail).ok();
+                        } else {
+                            write!(&mut reason, "{}", err.kind()).ok();
+                        }
+
+                        if let Some((line_no, source_line)) = err.line().and_then(|line| {
+                            source
+                                .lines()
+                                .nth(line - 1) // err.line() is 1-based
+                                .map(|source_line| (line, source_line))
+                        }) {
+                            let truncated_line =
+                                &source_line[..source_line.ceil_char_boundary(1024)];
+
+                            if let Some(name) = err.name() {
+                                write!(
+                                    &mut reason,
+                                    " (in template '{name}' line {line_no}: '{truncated_line}')"
+                                )
+                                .ok();
+                            } else {
+                                write!(
+                                    &mut reason,
+                                    " (in template line {line_no}: '{truncated_line}')"
+                                )
+                                .ok();
+                            }
+                        }
+
+                        anyhow::anyhow!("{reason}")
+                    })?)
+            }
             Engine::Static { env } => {
                 env.insert(name.into(), source.into());
                 Ok(())

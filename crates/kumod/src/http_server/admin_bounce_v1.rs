@@ -9,7 +9,6 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use config::get_or_create_sub_module;
 use kumo_api_types::{BounceV1CancelRequest, BounceV1ListEntry, BounceV1Request, BounceV1Response};
-use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
 use kumo_server_runtime::rt_spawn;
 use message::message::QueueNameComponents;
@@ -201,7 +200,6 @@ impl AdminBounceEntry {
     ),
 )]
 pub async fn bounce_v1(
-    _: TrustedIpRequired,
     // Note: Json<> must be last in the param list
     Json(request): Json<BounceV1Request>,
 ) -> Result<Json<BounceV1Response>, AppError> {
@@ -254,9 +252,7 @@ pub async fn bounce_v1(
         (status = 200, description = "Returned information about current admin bounces", body=[BounceV1ListEntry])
     ),
 )]
-pub async fn bounce_v1_list(
-    _: TrustedIpRequired,
-) -> Result<Json<Vec<BounceV1ListEntry>>, AppError> {
+pub async fn bounce_v1_list() -> Result<Json<Vec<BounceV1ListEntry>>, AppError> {
     Ok(Json(AdminBounceEntry::get_all_v1()))
 }
 
@@ -270,10 +266,7 @@ pub async fn bounce_v1_list(
         (status = 404, description = "The requested bounce id is no longer, or never was, valid"),
     ),
 )]
-pub async fn bounce_v1_delete(
-    _: TrustedIpRequired,
-    Json(request): Json<BounceV1CancelRequest>,
-) -> Response {
+pub async fn bounce_v1_delete(Json(request): Json<BounceV1CancelRequest>) -> Response {
     let removed = AdminBounceEntry::remove_by_id(&request.id);
     if removed {
         (StatusCode::OK, format!("removed {}", request.id))

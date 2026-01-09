@@ -1,6 +1,5 @@
 use axum::extract::{Json, Query};
 use kumo_api_types::{InspectMessageV1Request, InspectMessageV1Response, MessageInformation};
-use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
 use message::Message;
 
@@ -15,7 +14,6 @@ use message::Message;
     ),
 )]
 pub async fn inspect_v1(
-    _: TrustedIpRequired,
     Query(request): Query<InspectMessageV1Request>,
 ) -> Result<Json<InspectMessageV1Response>, AppError> {
     let msg = Message::new_with_id(request.id).await?;

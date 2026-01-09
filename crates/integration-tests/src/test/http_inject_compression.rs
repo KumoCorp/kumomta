@@ -85,6 +85,7 @@ DeliverySummary {
 "
     );
 
+    daemon.assert_no_acct_deny().await?;
     let mut messages = daemon.extract_maildir_messages()?;
     assert_equal!(messages.len(), 1);
     let parsed = messages[0].parsed()?;

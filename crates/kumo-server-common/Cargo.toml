@@ -6,17 +6,20 @@ edition = "2021"
 [dependencies]
 anyhow = {workspace=true}
 arc-swap = {workspace=true}
+async-trait.workspace = true
 axum = {workspace=true}
 axum-client-ip = {workspace=true, features=["forwarded-header"]}
 axum-server = {workspace=true, features=["tls-rustls"]}
 axum-streams = {workspace=true}
 backtrace = {workspace=true}
+chrono.workspace = true
 cidr-map = {path="../cidr-map"}
 clap = {workspace=true}
 config = {path="../config"}
 data-encoding = {workspace=true}
 data-loader = {path="../data-loader"}
 domain-map = {path="../domain-map"}
+duration-serde = {path="../duration-serde"}
 gethostname = {workspace=true}
 human_bytes = {workspace=true}
 kumo-api-types = {path="../kumo-api-types"}
@@ -65,6 +68,7 @@ tokio = {workspace=true, features=["full", "tracing"]}
 tokio-metrics = {workspace=true}
 tokio-metrics-collector = {workspace=true}
 tokio-stream.workspace = true
+toml.workspace = true
 tower-http = {workspace=true, features=["compression-deflate", "compression-gzip", "decompression-deflate", "decompression-gzip"]}
 tracing = {workspace=true}
 tracing-appender = {workspace=true}
@@ -74,3 +78,7 @@ utoipa-rapidoc = {workspace=true}
 uuid = {workspace=true, features=["v4", "fast-rng"]}
 uuid-helper = {path="../uuid-helper"}
 version-info = {path="../version-info"}
+zstd.workspace = true
+
+[dev-dependencies]
+k9.workspace = true

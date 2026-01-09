@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2025.10.15-42b65b22"
+    "version": "2025.12.19-0a112417"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -823,6 +823,13 @@
             "type": "object",
             "description": "Describe the MIME structure to be created",
             "properties": {
+              "amp_html_body": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "If set, will be used to create a text/x-amp-html part"
+              },
               "attachments": {
                 "type": "array",
                 "items": {

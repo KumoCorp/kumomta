@@ -455,6 +455,7 @@ async fn xfer_cancel() -> anyhow::Result<()> {
         )
         .await;
 
+    daemon.assert_no_acct_deny().await?;
     let delivery_summary = daemon.dump_logs().await?;
     k9::snapshot!(
         delivery_summary,

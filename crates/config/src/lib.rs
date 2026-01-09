@@ -256,6 +256,17 @@ impl LuaConfig {
         }
     }
 
+    pub async fn call_callback<'a, A: IntoLuaMulti + Clone, R: FromLuaMulti>(
+        &mut self,
+        sig: &'a CallbackSignature<A, R>,
+        args: A,
+    ) -> anyhow::Result<CallbackDisposition<'a, R>> {
+        let name = sig.name();
+        self.set_current_event(name)?;
+        let lua = self.inner.as_mut().unwrap();
+        sig.call(&lua.lua, args).await
+    }
+
     pub async fn async_call_callback<A: IntoLuaMulti + Clone, R: FromLuaMulti + Default>(
         &mut self,
         sig: &CallbackSignature<A, R>,
@@ -264,7 +275,7 @@ impl LuaConfig {
         let name = sig.name();
         self.set_current_event(name)?;
         let lua = self.inner.as_mut().unwrap();
-        async_call_callback(&lua.lua, sig, args).await
+        Ok(sig.call(&lua.lua, args).await?.or_default())
     }
 
     pub async fn async_call_callback_non_default<A: IntoLuaMulti + Clone, R: FromLuaMulti>(
@@ -275,7 +286,7 @@ impl LuaConfig {
         let name = sig.name();
         self.set_current_event(name)?;
         let lua = self.inner.as_mut().unwrap();
-        async_call_callback_non_default(&lua.lua, sig, args).await
+        sig.call(&lua.lua, args).await?.require_value()
     }
 
     pub async fn async_call_callback_non_default_opt<A: IntoLuaMulti + Clone, R: FromLua>(
@@ -284,42 +295,12 @@ impl LuaConfig {
         args: A,
     ) -> anyhow::Result<Option<R>> {
         let name = sig.name();
-        let decorated_name = sig.decorated_name();
         self.set_current_event(name)?;
         let lua = self.inner.as_mut().unwrap();
-
-        match lua
-            .lua
-            .named_registry_value::<mlua::Value>(&decorated_name)?
-        {
-            Value::Table(tbl) => {
-                for func in tbl.sequence_values::<mlua::Function>().collect::<Vec<_>>() {
-                    let func = func?;
-                    let _timer = latency_timer(name);
-                    let result: mlua::MultiValue = func.call_async(args.clone()).await?;
-                    if result.is_empty() {
-                        // Continue with other handlers
-                        continue;
-                    }
-                    let result = R::from_lua_multi(result, &lua.lua)?;
-                    return Ok(Some(result));
-                }
-                Ok(None)
-            }
-            Value::Function(func) => {
-                sig.raise_error_if_allow_multiple()?;
-                let _timer = latency_timer(name);
-                let value: Value = func.call_async(args.clone()).await?;
-
-                match value {
-                    Value::Nil => Ok(None),
-                    value => {
-                        let result = R::from_lua(value, &lua.lua)?;
-                        Ok(Some(result))
-                    }
-                }
-            }
-            _ => Ok(None),
+        let result = sig.call(&lua.lua, args).await?;
+        match result.result {
+            None => Ok(None),
+            Some(result) => Ok(result),
         }
     }
 
@@ -377,70 +358,6 @@ impl LuaConfig {
         let value = inner.lua.registry_value(value)?;
         let future = (func)(value)?;
         future.await
-    }
-}
-
-pub async fn async_call_callback<A: IntoLuaMulti + Clone, R: FromLuaMulti + Default>(
-    lua: &Lua,
-    sig: &CallbackSignature<A, R>,
-    args: A,
-) -> anyhow::Result<R> {
-    let name = sig.name();
-    let decorated_name = sig.decorated_name();
-
-    match lua.named_registry_value::<mlua::Value>(&decorated_name)? {
-        Value::Table(tbl) => {
-            for func in tbl.sequence_values::<mlua::Function>().collect::<Vec<_>>() {
-                let func = func?;
-                let _timer = latency_timer(name);
-                let result: mlua::MultiValue = func.call_async(args.clone()).await?;
-                if result.is_empty() {
-                    // Continue with other handlers
-                    continue;
-                }
-                let result = R::from_lua_multi(result, lua)?;
-                return Ok(result);
-            }
-            Ok(R::default())
-        }
-        Value::Function(func) => {
-            sig.raise_error_if_allow_multiple()?;
-            let _timer = latency_timer(name);
-            Ok(func.call_async(args.clone()).await?)
-        }
-        _ => Ok(R::default()),
-    }
-}
-
-pub async fn async_call_callback_non_default<A: IntoLuaMulti + Clone, R: FromLuaMulti>(
-    lua: &Lua,
-    sig: &CallbackSignature<A, R>,
-    args: A,
-) -> anyhow::Result<R> {
-    let name = sig.name();
-    let decorated_name = sig.decorated_name();
-
-    match lua.named_registry_value::<mlua::Value>(&decorated_name)? {
-        Value::Table(tbl) => {
-            for func in tbl.sequence_values::<mlua::Function>().collect::<Vec<_>>() {
-                let func = func?;
-                let _timer = latency_timer(name);
-                let result: mlua::MultiValue = func.call_async(args.clone()).await?;
-                if result.is_empty() {
-                    // Continue with other handlers
-                    continue;
-                }
-                let result = R::from_lua_multi(result, lua)?;
-                return Ok(result);
-            }
-            anyhow::bail!("invalid return type for {name} event");
-        }
-        Value::Function(func) => {
-            sig.raise_error_if_allow_multiple()?;
-            let _timer = latency_timer(name);
-            Ok(func.call_async(args.clone()).await?)
-        }
-        _ => anyhow::bail!("Event {name} has not been registered"),
     }
 }
 
@@ -604,6 +521,30 @@ pub fn materialize_to_lua_value(lua: &Lua, value: mlua::Value) -> mlua::Result<m
 
 /// Helper wrapper type for passing/returning serde encoded values from/to lua
 pub struct SerdeWrappedValue<T>(pub T);
+
+impl<T: serde::Serialize> serde::Serialize for SerdeWrappedValue<T> {
+    fn serialize<S>(
+        &self,
+        s: S,
+    ) -> Result<<S as serde::Serializer>::Ok, <S as serde::Serializer>::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.serialize(s)
+    }
+}
+
+impl<T: Clone> Clone for SerdeWrappedValue<T> {
+    fn clone(&self) -> Self {
+        SerdeWrappedValue(self.0.clone())
+    }
+}
+
+impl<T: Default> Default for SerdeWrappedValue<T> {
+    fn default() -> Self {
+        SerdeWrappedValue(Default::default())
+    }
+}
 
 impl<T: serde::Serialize> SerdeWrappedValue<T> {
     pub fn to_lua_value(&self, lua: &Lua) -> mlua::Result<mlua::Value> {
@@ -830,12 +771,105 @@ where
     }
 }
 
+impl<A, R> CallbackSignature<A, R>
+where
+    A: IntoLuaMulti + Clone,
+    R: FromLuaMulti,
+{
+    /// Calls the callback, passing in the supplied arguments.
+    /// Returns the callback disposition which allows further
+    /// intrepretation of the result, such as deciding whether
+    /// to Default the value based on whether the callback
+    /// was defined or not
+    pub async fn call<'a>(
+        &'a self,
+        lua: &Lua,
+        args: A,
+    ) -> anyhow::Result<CallbackDisposition<'a, R>> {
+        let name = self.name();
+        let decorated_name = self.decorated_name();
+
+        match lua.named_registry_value::<mlua::Value>(&decorated_name)? {
+            Value::Table(tbl) => {
+                for func in tbl.sequence_values::<mlua::Function>().collect::<Vec<_>>() {
+                    let func = func?;
+                    let _timer = latency_timer(name);
+                    let result: mlua::MultiValue = func.call_async(args.clone()).await?;
+                    if result.is_empty() {
+                        // Continue with other handlers
+                        continue;
+                    }
+                    let result = R::from_lua_multi(result, lua)?;
+                    return Ok(CallbackDisposition {
+                        handler_was_defined: true,
+                        result: Some(result),
+                        event_name: name,
+                    });
+                }
+                Ok(CallbackDisposition {
+                    handler_was_defined: false,
+                    result: None,
+                    event_name: name,
+                })
+            }
+            Value::Function(func) => {
+                self.raise_error_if_allow_multiple()?;
+                let _timer = latency_timer(name);
+                Ok(CallbackDisposition {
+                    handler_was_defined: true,
+                    result: Some(func.call_async(args.clone()).await?),
+                    event_name: name,
+                })
+            }
+            _ => Ok(CallbackDisposition {
+                handler_was_defined: false,
+                result: None,
+                event_name: name,
+            }),
+        }
+    }
+}
+
 pub fn does_callback_allow_multiple(name: &str) -> bool {
     CALLBACK_ALLOWS_MULTIPLE.lock().contains(name)
 }
 
 pub fn decorate_callback_name(name: &str) -> String {
     format!("kumomta-on-{name}")
+}
+
+/// Allows reasoning about the result of a callback to decide
+/// how to interpret the result
+pub struct CallbackDisposition<'a, T> {
+    /// Indicates whether the handler was found. If false,
+    /// then result will also be None.
+    /// If true and result.is_none(), it indicates that
+    /// none of the handlers returned a value.
+    pub handler_was_defined: bool,
+    /// The result!
+    pub result: Option<T>,
+    /// Which event was called (or to be called)
+    pub event_name: &'a str,
+}
+
+impl<'a, T> CallbackDisposition<'a, T> {
+    /// Requires that a value be returned.  Translates the disposition
+    /// into appropriate error messaging if no value was returned.
+    pub fn require_value(mut self) -> anyhow::Result<T> {
+        if !self.handler_was_defined {
+            anyhow::bail!("Event {} has not been registered", self.event_name);
+        }
+        match self.result.take() {
+            Some(value) => Ok(value),
+            None => anyhow::bail!("Event {} did not return a value", self.event_name),
+        }
+    }
+}
+impl<'a, T: Default> CallbackDisposition<'a, T> {
+    /// Unwraps the value type, or the Default impl if no value was returned
+    pub fn or_default(self) -> T {
+        self.result.unwrap_or_default()
+    }
 }
 
 pub fn serialize_options() -> mlua::SerializeOptions {

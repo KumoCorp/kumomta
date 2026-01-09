@@ -9,12 +9,12 @@ use axum::extract::State;
 use axum::Json;
 use axum_client_ip::ClientIp;
 use chrono::{DateTime, Utc};
-use config::{declare_event, load_config};
+use config::{declare_event, load_config, SerdeWrappedValue};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use kumo_api_types::xfer::XferProtocol;
 use kumo_log_types::{RecordType, ResolvedAddress};
-use kumo_server_common::http_server::auth::AuthKind;
+use kumo_server_common::authn_authz::AuthInfo;
 use kumo_server_common::http_server::{AppError, AppState};
 use message::scheduling::Scheduling;
 use message::Message;
@@ -31,6 +31,7 @@ declare_event! {
 static XFER_IN: Single(
     "xfer_message_received",
     message: Message,
+    auth_info: SerdeWrappedValue<AuthInfo>,
 ) -> ();
 }
 
@@ -270,23 +271,11 @@ pub struct XferResponseV1 {
     ),
 )]
 pub async fn inject_xfer_v1(
-    auth: AuthKind,
+    auth: AuthInfo,
     ClientIp(peer_address): ClientIp,
     State(app_state): State<AppState>,
     body: Bytes,
 ) -> Result<Json<XferResponseV1>, AppError> {
-    if !matches!(auth, AuthKind::TrustedIp(_)) {
-        // This check is equivalent to declaring the handler
-        // function as accepting TrustedIpRequired.
-        // I can see us wanting to add more flexibility for
-        // this in the future, so I'm OK with doing this here;
-        // we capture and summarize the auth info as part of
-        // the metadata below
-        return Err(AppError::new(
-            StatusCode::UNAUTHORIZED,
-            "Trusted IP is required to xfer",
-        ));
-    }
     if kumo_server_memory::get_headroom() == 0 {
         // Using too much memory
         return Err(AppError::new(
@@ -321,14 +310,17 @@ pub async fn inject_xfer_v1(
     msg.set_meta("xfer_from", peer_address.to_string()).await?;
     msg.set_meta("xfer_via", app_state.local_addr().to_string())
         .await?;
-    msg.set_meta("xfer_auth", auth.summarize()).await?;
+    msg.set_meta("xfer_auth", auth.summarize_for_http_auth())
+        .await?;
 
     // set up the next due time using the source due+scheduling info
     SavedQueueInfo::restore_info(&msg).await?;
 
     {
         let mut config = load_config().await?;
-        config.async_call_callback(&XFER_IN, msg.clone()).await?;
+        config
+            .async_call_callback(&XFER_IN, (msg.clone(), SerdeWrappedValue(auth.clone())))
+            .await?;
         config.put();
     }
 
