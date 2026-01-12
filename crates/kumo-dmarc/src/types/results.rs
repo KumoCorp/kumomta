@@ -29,7 +29,7 @@ impl From<AuthenticationResult> for SpfAuthResult {
 
         Self {
             domain: d.cloned().unwrap_or_default(),
-            scope: todo!(),
+            scope: SpfScope::Mfrom,
             result: value.result.into(),
         }
     }

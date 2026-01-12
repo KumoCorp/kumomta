@@ -96,6 +96,8 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
 
                 let spf_result: AuthenticationResult = config::from_lua_value(&lua, spf_result)?;
 
+                let received_from = spf_result.props.get("received_from").cloned().unwrap_or_default();
+
                 let reporting_info = if use_reporting {
                     if let Ok(reporting_info) =
                         config::from_lua_value::<ReportingInfo>(&lua, opt_reporting_info)
@@ -116,6 +118,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                     from_domain,
                     mail_from_domain,
                     recipient_list,
+                    received_from,
                     dkim_results,
                     spf_result,
                     reporting_info,
