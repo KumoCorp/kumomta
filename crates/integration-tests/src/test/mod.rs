@@ -15,6 +15,7 @@ mod end_to_end_webhook_batch;
 mod expires;
 mod http_auth;
 mod http_inject_compression;
+mod http_inject_size_limit;
 mod log_oob_arf;
 mod maildir_batch;
 mod maildir_batch_452;
