@@ -1,0 +1,16 @@
+[package]
+name = "mod-audit-series"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+config = {path="../config"}
+lruttl = {path="../lruttl"}
+lru-cache = {workspace=true}
+mlua = {workspace=true, features=["serialize"]}
+serde.workspace = true
+tokio = {workspace=true}
+
+[dev-dependencies]
+hex.workspace = true
