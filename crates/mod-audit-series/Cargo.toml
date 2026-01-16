@@ -9,8 +9,9 @@ config = {path="../config"}
 lruttl = {path="../lruttl"}
 lru-cache = {workspace=true}
 mlua = {workspace=true, features=["serialize"]}
-serde.workspace = true
+serde = {workspace=true}
 tokio = {workspace=true}
+duration-serde = {path="../duration-serde"}
 
 [dev-dependencies]
 hex.workspace = true
