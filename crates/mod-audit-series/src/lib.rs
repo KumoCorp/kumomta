@@ -10,10 +10,10 @@ use tokio::sync::Mutex;
 use tokio::time::{Duration, Instant};
 
 static AUDIT_COUNTERS: LazyLock<Mutex<LruCacheWithTtl<String, Arc<AtomicIsize>>>> =
-    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new("audit_counters", 512)));
+    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new("audit_counters", 256)));
 
 static AUDIT_DEFINITION: LazyLock<Mutex<LruCache<String, AuditConfig>>> =
-    LazyLock::new(|| Mutex::new(LruCache::new(256)));
+    LazyLock::new(|| Mutex::new(LruCache::new(64)));
 
 #[derive(Deserialize, Clone)]
 pub struct AuditConfig {

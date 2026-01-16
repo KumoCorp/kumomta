@@ -4590,7 +4590,6 @@ dependencies = [
  "anyhow",
  "config",
  "duration-serde",
- "hex",
  "lru-cache",
  "lruttl",
  "mlua",
