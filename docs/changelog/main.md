@@ -32,3 +32,7 @@
  * Errors raised while dispatching
    [should_enqueue_log_record](../reference/events/should_enqueue_log_record.md)
    were not logged to the diagnostic log.
+ * Rebuilding (eg: for conformance fixing via `msg:check_fix_conformance()`, or
+   as part of the post-HTTP injection fixup) a header like `From:
+   "something\n\tthat wraps lines" <user@example.com>` would produce an invalid
+   rendition of that header.
