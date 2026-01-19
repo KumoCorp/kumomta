@@ -18,7 +18,7 @@ pub async fn handle_proxy_client<S>(
     peer_address: SocketAddr,
     local_address: SocketAddr,
     timeout_duration: std::time::Duration,
-    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] no_splice: bool,
+    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] use_splice: bool,
     require_auth: bool,
 ) -> anyhow::Result<()>
 where
@@ -106,7 +106,7 @@ where
     match state {
         ClientState::Connected(mut remote_stream) => {
             #[cfg(target_os = "linux")]
-            if !no_splice {
+            if use_splice {
                 // Note: splice(2) only works with raw TcpStream file descriptors,
                 // not with generic streams (like TLS). When using TLS or other
                 // wrapped streams, we always use copy_bidirectional.

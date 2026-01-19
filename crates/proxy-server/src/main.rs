@@ -65,7 +65,7 @@ impl Opt {
             writeln!(file, "    listen = '{}',", listen_addr)?;
             writeln!(file, "    timeout = '{} seconds',", self.timeout_seconds)?;
             if self.no_splice {
-                writeln!(file, "    no_splice = true,")?;
+                writeln!(file, "    use_splice = false,")?;
             }
             writeln!(file, "  }}")?;
         }

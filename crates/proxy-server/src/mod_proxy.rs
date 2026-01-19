@@ -30,9 +30,9 @@ pub struct ProxyListenerParams {
     )]
     pub timeout: Duration,
 
-    /// Disable splice(2) on Linux for proxied connections
-    #[serde(default)]
-    pub no_splice: bool,
+    /// Whether to use splice(2) on Linux for proxied connections
+    #[serde(default = "default_true")]
+    pub use_splice: bool,
 
     /// Enable TLS for incoming connections
     #[serde(default)]
@@ -49,6 +49,10 @@ pub struct ProxyListenerParams {
     /// Require RFC 1929 username/password authentication
     #[serde(default)]
     pub require_auth: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl ProxyListenerParams {
@@ -148,7 +152,7 @@ impl ProxyListenerParams {
             peer_address,
             local_address,
             params.timeout,
-            params.no_splice,
+            params.use_splice,
             params.require_auth,
         )
         .await
