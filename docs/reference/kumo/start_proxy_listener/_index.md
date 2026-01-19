@@ -1,18 +1,23 @@
 # kumo.start_proxy_listener
 
+{{since('dev')}}
+
 ```lua
 kumo.start_proxy_listener { PARAMS }
 ```
 
 Configure and start a SOCKS5 proxy server.
 
-This function should be called only from inside your [init](../../events/init.md)
-event handler.
+!!! note
+    This function is only available to the `proxy-server` executable.
+
+This function should be called only from inside your
+[init](../../events/init.md) event handler.
 
 The proxy server implements the SOCKS5 protocol and can be used by KumoMTA's
-egress sources to route outbound connections through the proxy. This is useful
-for scenarios where you need to control the egress IP address or route traffic
-through specific network paths.
+egress sources to route outbound connections through the proxy. This is
+useful for scenarios where you need to control the egress IP address or route
+traffic through specific network paths.
 
 ```lua
 kumo.on('init', function()

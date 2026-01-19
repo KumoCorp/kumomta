@@ -1,5 +1,7 @@
 # use_splice
 
+{{since('dev')}}
+
 On Linux, the proxy server uses `splice(2)` for efficient zero-copy data
 transfer between the client and remote connections. This can significantly
 reduce CPU usage for high-throughput proxy scenarios.

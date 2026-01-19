@@ -27,12 +27,14 @@
    also supports AMP HTML parts.
  * Improved the context shown in error messages produced by the HTTP injection
    API
- * New [kumo.start_proxy_listener](../reference/kumo/start_proxy_listener/_index.md)
-   function to configure a SOCKS5 proxy server with optional TLS encryption and
-   RFC 1929 username/password authentication. The proxy uses efficient `splice(2)`
-   zero-copy data transfer on Linux for plain TCP connections.
-   See [proxy_server_auth_rfc1929](../reference/events/proxy_server_auth_rfc1929.md)
-   for authentication callback details. Thanks to @vietcgi! #459
+ * Kumo Proxy:
+     * Now optionally supports configuration via a proxy policy lua script.
+     * Optional support for TLS and mutual TLS when using a proxy policy script,
+       however, kumod itself doesn't currently support using TLS for SOCKS5.
+     * Optional support for RFC 1929 authentication
+     * Use [kumo.start_proxy_listener](../reference/kumo/start_proxy_listener/index.md)
+       function to configure a SOCKS5 proxy server
+     * Many thanks to @vietcgi! #459
 
 ## Fixes
 

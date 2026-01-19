@@ -1,13 +1,15 @@
 # require_auth
 
-If true, the proxy server will require RFC 1929 username/password authentication
-from clients before allowing them to use the proxy.
+{{since('dev')}}
+
+If true, the proxy server will require RFC 1929 username/password
+authentication from clients before allowing them to use the proxy.
 
 When enabled, you must also register a handler for the
 [proxy_server_auth_rfc1929](../../events/proxy_server_auth_rfc1929.md) event
 to validate credentials.
 
-The default is `false`.
+The default is `false` which allows clients to *optionally* authenticate.
 
 ```lua
 kumo.start_proxy_listener {

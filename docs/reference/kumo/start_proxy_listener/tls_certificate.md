@@ -1,5 +1,7 @@
 # tls_certificate
 
+{{since('dev')}}
+
 Specify the path to a TLS certificate file to use for the server identity when
 *use_tls* is set to `true`.
 

@@ -1,5 +1,7 @@
 # proxy_server_auth_rfc1929
 
+{{since('dev')}}
+
 ```lua
 kumo.on(
   'proxy_server_auth_rfc1929',
@@ -9,6 +11,9 @@ kumo.on(
 
 Called by the proxy server when a client attempts RFC 1929 username/password
 authentication.
+
+!!! note
+    This event is only available to the `proxy-server` executable.
 
 This event is triggered when [require_auth](../kumo/start_proxy_listener/require_auth.md)
 is enabled on the proxy listener, or when a client offers username/password
@@ -22,10 +27,13 @@ The event handler receives the following parameters:
     * `peer_address` - the client's socket address (IP and port)
     * `local_address` - the server's socket address (IP and port)
 
-The proxy server expects the event handler to return a bool value; if it returns
-`true` then it considers the credentials to be valid and will allow the client
-to use the proxy. If it returns `false` then the authentication attempt is
-considered to have failed and the connection will be closed.
+The proxy server expects the event handler to return either a bool value or
+an `AuthInfo` value.
+
+If it returns `true` then it considers the credentials to be valid and will
+allow the client to use the proxy. If it returns `false` then the
+authentication attempt is considered to have failed and the connection will
+be closed.
 
 This example shows how to implement a simple inline password database:
 

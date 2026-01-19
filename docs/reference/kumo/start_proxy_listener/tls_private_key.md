@@ -1,5 +1,7 @@
 # tls_private_key
 
+{{since('dev')}}
+
 Specify the path to a TLS private key file to use for the server identity when
 *use_tls* is set to `true`.
 

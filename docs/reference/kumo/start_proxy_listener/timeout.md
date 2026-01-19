@@ -1,5 +1,7 @@
 # timeout
 
+{{since('dev')}}
+
 Specifies the connection timeout duration. If a client does not complete
 the SOCKS5 handshake or send data within this duration, the connection
 will be closed.

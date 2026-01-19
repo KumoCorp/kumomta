@@ -1,5 +1,7 @@
 # hostname
 
+{{since('dev')}}
+
 Specifies the hostname to use when generating a self-signed TLS certificate.
 
 The default is the system hostname.
