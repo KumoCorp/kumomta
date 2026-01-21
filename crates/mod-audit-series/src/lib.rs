@@ -216,12 +216,12 @@ pub fn reset_audit_series(name: &str, key: &str) -> Result<(), mlua::Error> {
         let window_start = window_info
             .ordinal
             .saturating_sub(offset as u64 * window_info.ttl_secs);
-        let counter_key = AuditCounterKey {
-            series_name: name.to_string(),
-            key: key.to_string(),
+        let counter_key = BorrowedAuditCounterKey {
+            series_name: name,
+            key: key,
             ordinal: window_start,
         };
-        if let Some(counter) = AUDIT_COUNTERS.get(&counter_key) {
+        if let Some(counter) = AUDIT_COUNTERS.get(&counter_key as &dyn Key) {
             counter.store(0, std::sync::atomic::Ordering::Relaxed);
         }
     }
