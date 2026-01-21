@@ -6,9 +6,10 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 config = {path="../config"}
+duration-serde = {path="../duration-serde"}
 lruttl = {path="../lruttl"}
 lru-cache = {workspace=true}
 mlua = {workspace=true, features=["serialize"]}
+parking_lot = {workspace=true}
 serde = {workspace=true}
 tokio = {workspace=true}
-duration-serde = {path="../duration-serde"}

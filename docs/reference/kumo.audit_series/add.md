@@ -6,26 +6,25 @@ tags:
 # audit_series.add
 
 ```lua
-kumo.audit_series.add(name, options)
+kumo.audit_series.add(name, key, count)
 ```
 
 {{since('dev')}}
 
-Increment or decrement the counter in current bucket.
+Increment or decrement the counter in current window.
 
-`key` : key name to track counters for
-
+`name`: audit series name registered through define function
+`key` : key name of the window
 `count` : value to increment or use negative number to decrement
 
-Returned value represents the value in the current bucket. Use the get function to obtain the total of all buckets.
+Returned value represents the value in the current window. Use the get function to obtain the total of all windows.
 
 Error is generated if audit series name is not yet defined.
 
-```
+```lua
   local current_counter = kumo.audit_series.add(
     'failure_count',
-    { key = 'element_name',
-      count = 1
-    }
+    'element_name',
+    1
   )
 ```

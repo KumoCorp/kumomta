@@ -3,21 +3,24 @@ tags:
   - audit_series
 ---
 
-# audit_series.define
+# audit_series.get
 
 ```lua
-kumo.audit_series.get(name, options)
+kumo.audit_series.get(name, key)
 ```
 
 {{since('dev')}}
 
-Returns the total counter of all buckets for given name.
+Returns the total counter of all windows for given name.
+
+`name`: audit series name registered through define function
+`key` : key name to track counters for
 
 Error is generated if audit series name is not yet defined.
 
-```
+```lua
   local counter = kumo.audit_series.get(
     'failure_count',
-    { key = 'element_name' }
+    'element_name'
   )
 ```
