@@ -96,7 +96,11 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
 
                 let spf_result: AuthenticationResult = config::from_lua_value(&lua, spf_result)?;
 
-                let received_from = spf_result.props.get("received_from").cloned().unwrap_or_default();
+                let received_from = spf_result
+                    .props
+                    .get("received_from")
+                    .cloned()
+                    .unwrap_or_default();
 
                 let reporting_info = if use_reporting {
                     if let Ok(reporting_info) =

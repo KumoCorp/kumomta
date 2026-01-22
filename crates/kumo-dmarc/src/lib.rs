@@ -52,7 +52,7 @@ impl CheckHostParams {
             from_domain,
             mail_from_domain,
             recipient_list,
-            received_from, 
+            received_from,
             dkim_results,
             spf_result,
             reporting_info,
@@ -155,11 +155,17 @@ impl<'a> DmarcContext<'a> {
         }
     }
 
-    pub async fn report_error(&self, record: &Record, dmarc_domain: &str, error: &str) {
+    pub async fn report_error(
+        &self,
+        record: &Record,
+        dmarc_domain: &str,
+        sender_domain_alignment: SenderDomainAlignment,
+        error: &str,
+    ) {
         let Ok(source_ip): Result<IpAddr, _> = self.received_from.parse() else {
             return;
         };
-        
+
         if let Some(reporting_info) = self.reporting_info {
             let feedback = Feedback::new(
                 "1.0".to_string(),
@@ -185,10 +191,10 @@ impl<'a> DmarcContext<'a> {
                         source_ip,
                         count: 1,
                         policy_evaluated: PolicyEvaluated {
-                            disposition: todo!(),
+                            disposition: record.policy_result(sender_domain_alignment),
                             dkim: self.dkim_aligned,
                             spf: self.spf_aligned,
-                            reason: todo!(),
+                            reason: vec![],
                         },
                     },
                     identifiers: Identifier {

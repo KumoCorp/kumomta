@@ -46,13 +46,13 @@ impl Record {
                             cx.dkim_aligned = super::results::DmarcResult::Fail;
 
                             alignment_failure = Some(DispositionWithContext {
-                                result: self.select_failure_mode(sender_domain_alignment),
+                                result: self.disposition(sender_domain_alignment),
                                 context: "DMARC: DKIM relaxed check failed".into(),
                             });
                         }
                     } else {
                         alignment_failure = Some(DispositionWithContext {
-                            result: self.select_failure_mode(sender_domain_alignment),
+                            result: self.disposition(sender_domain_alignment),
                             context: "DMARC: DKIM signature missing 'd=' tag".into(),
                         });
                     }
@@ -63,13 +63,13 @@ impl Record {
                     if let Some(result) = dkim.props.get("header.d") {
                         if cx.from_domain != result {
                             alignment_failure = Some(DispositionWithContext {
-                                result: self.select_failure_mode(sender_domain_alignment),
+                                result: self.disposition(sender_domain_alignment),
                                 context: "DMARC: DKIM strict check failed".into(),
                             });
                         }
                     } else {
                         alignment_failure = Some(DispositionWithContext {
-                            result: self.select_failure_mode(sender_domain_alignment),
+                            result: self.disposition(sender_domain_alignment),
                             context: "DMARC: DKIM signature missing 'd=' tag".into(),
                         });
                     }
@@ -86,7 +86,7 @@ impl Record {
                         && organizational_domain != Some(cx.from_domain)
                     {
                         alignment_failure = Some(DispositionWithContext {
-                            result: self.select_failure_mode(sender_domain_alignment),
+                            result: self.disposition(sender_domain_alignment),
                             context: "DMARC: SPF relaxed check failed".into(),
                         });
                     }
@@ -96,7 +96,7 @@ impl Record {
                 if let Some(mail_from_domain) = cx.mail_from_domain {
                     if mail_from_domain != cx.from_domain {
                         alignment_failure = Some(DispositionWithContext {
-                            result: self.select_failure_mode(sender_domain_alignment),
+                            result: self.disposition(sender_domain_alignment),
                             context: "DMARC: SPF strict check failed".into(),
                         });
                     }
@@ -105,8 +105,13 @@ impl Record {
         }
 
         if let Some(alignment_failure) = alignment_failure {
-            cx.report_error(self, dmarc_domain, &alignment_failure.context)
-                .await;
+            cx.report_error(
+                self,
+                dmarc_domain,
+                sender_domain_alignment,
+                &alignment_failure.context,
+            )
+            .await;
             return DispositionWithContext {
                 result: alignment_failure.result,
                 context: alignment_failure.context,
@@ -119,7 +124,20 @@ impl Record {
         }
     }
 
-    fn select_failure_mode(&self, sender_domain_alignment: SenderDomainAlignment) -> Disposition {
+    pub(crate) fn policy_result(&self, sender_domain_alignment: SenderDomainAlignment) -> Policy {
+        match sender_domain_alignment {
+            SenderDomainAlignment::OrganizationalDomain => {
+                if let Some(policy) = self.subdomain_policy {
+                    policy
+                } else {
+                    self.policy
+                }
+            }
+            SenderDomainAlignment::Exact => self.policy,
+        }
+    }
+
+    fn disposition(&self, sender_domain_alignment: SenderDomainAlignment) -> Disposition {
         match sender_domain_alignment {
             SenderDomainAlignment::OrganizationalDomain => {
                 if let Some(policy) = self.subdomain_policy {
