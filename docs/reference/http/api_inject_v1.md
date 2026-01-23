@@ -142,6 +142,17 @@ Each recipient is a JSON object:
 }
 ```
 
+When generating the message for the recipient, a suitable `To` header will be
+constructed using the provided fields.
+
+If you also set a `To` header using the `headers` field, then the behavior
+depends on the version of kumomta:
+
+|Behavior|Version|
+|--------|-------|
+|The per-recipient `To` header will not be generated|{{since('dev', inline=True)}}|
+|Two `To` headers will be generated|All previous versions|
+
 ### substitutions
 
 Specifies a set of global substitutions to for template expansion:

@@ -352,19 +352,26 @@ impl<'a> Compiled<'a> {
                     id += 1;
                 }
 
-                builder.set_to(Address::Mailbox(Mailbox {
-                    name: recip.name.clone(),
-                    address: AddrSpec::parse(&recip.email)?,
-                }))?;
+                let mut need_to = true;
 
                 #[allow(clippy::for_kv_map)]
                 for (name, _value) in headers {
+                    if need_to && name.eq_ignore_ascii_case("to") {
+                        need_to = false;
+                    }
                     let expanded = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
                     id += 1;
                     builder.push(mailparsing::Header::new_unstructured(
                         name.to_string(),
                         expanded.to_string(),
                     ));
+                }
+
+                if need_to {
+                    builder.set_to(Address::Mailbox(Mailbox {
+                        name: recip.name.clone(),
+                        address: AddrSpec::parse(&recip.email)?,
+                    }))?;
                 }
 
                 for part in &self.attached {
@@ -1449,6 +1456,97 @@ Some(
             r#"
 Some(
     "hello {{ name }}",
+)
+"#
+        );
+        k9::snapshot!(
+            structure.headers.to().unwrap(),
+            r#"
+Some(
+    AddressList(
+        [
+            Mailbox(
+                Mailbox {
+                    name: Some(
+                        "James Smythe",
+                    ),
+                    address: AddrSpec {
+                        local_part: "user",
+                        domain: "example.com",
+                    },
+                },
+            ),
+        ],
+    ),
+)
+"#
+        );
+    }
+
+    #[tokio::test]
+    async fn test_builder_to_header() {
+        let mut request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: Some("James Smythe".to_string()),
+                substitutions: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Builder {
+                text_body: Some("I am the plain text, {{ name }}. 😀".to_string()),
+                amp_html_body: None,
+                html_body: None,
+                subject: Some("hello {{ name }}".to_string()),
+                from: Some(FromHeader {
+                    email: "from@example.com".to_string(),
+                    name: Some("Sender Name".to_string()),
+                }),
+                reply_to: None,
+                headers: [("To".to_string(), "someone.else@example.com".to_string())]
+                    .into_iter()
+                    .collect(),
+                attachments: vec![],
+            },
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+            template_dialect: TemplateDialectWithSchema::Handlebars,
+        };
+
+        request.normalize().unwrap();
+        let compiled = request.compile().unwrap();
+        let generated = compiled
+            .expand_for_recip(
+                &request.recipients[0],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap();
+
+        println!("{generated}");
+        let parsed = MimePart::parse(generated.as_str()).unwrap();
+        println!("{parsed:?}");
+        let structure = parsed.simplified_structure().unwrap();
+        eprintln!("{structure:?}");
+
+        k9::snapshot!(
+            structure.headers.to().unwrap(),
+            r#"
+Some(
+    AddressList(
+        [
+            Mailbox(
+                Mailbox {
+                    name: None,
+                    address: AddrSpec {
+                        local_part: "someone.else",
+                        domain: "example.com",
+                    },
+                },
+            ),
+        ],
+    ),
 )
 "#
         );

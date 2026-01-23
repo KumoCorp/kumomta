@@ -48,3 +48,8 @@
    as part of the post-HTTP injection fixup) a header like `From:
    "something\n\tthat wraps lines" <user@example.com>` would produce an invalid
    rendition of that header.
+ * Setting `content.headers["To"]` in the HTTP injection API would result in
+   two `To` headers being generated in the message; one for the per-recipient
+   `To` header, and one for the specified `content.headers["To"]` value.  This
+   has been fixed; the behavior now is to use the `content.headers["To"]`
+   header and not to emit a per-recipient `To` header in this situation.
