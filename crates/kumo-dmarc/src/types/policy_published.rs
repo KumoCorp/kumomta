@@ -20,3 +20,25 @@ pub struct PolicyPublished {
     #[xml(rename = "fo")]
     report_failure: ReportFailure,
 }
+
+impl PolicyPublished {
+    pub fn new(
+        domain: String,
+        align_dkim: Option<Mode>,
+        align_spf: Option<Mode>,
+        policy: Policy,
+        subdomain_policy: Policy,
+        rate: u8,
+        report_failure: ReportFailure,
+    ) -> Self {
+        PolicyPublished {
+            domain,
+            align_dkim,
+            align_spf,
+            policy,
+            subdomain_policy,
+            rate,
+            report_failure,
+        }
+    }
+}
