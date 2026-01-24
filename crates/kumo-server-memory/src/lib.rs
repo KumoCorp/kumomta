@@ -311,6 +311,41 @@ pub fn set_low_memory_thresh(limit: usize) {
     USER_LOW_THRESH.store(limit, Ordering::Relaxed);
 }
 
+pub fn get_hard_limit() -> Option<u64> {
+    let user_limit = USER_HARD_LIMIT.load(Ordering::Relaxed);
+    if user_limit > 0 {
+        return Some(user_limit as u64);
+    }
+
+    let result = get_usage_and_limit()
+        .ok()
+        .and_then(|(_, limits)| limits.hard_limit);
+    result
+}
+
+pub fn get_soft_limit() -> Option<u64> {
+    let user_limit = USER_SOFT_LIMIT.load(Ordering::Relaxed);
+    if user_limit > 0 {
+        return Some(user_limit as u64);
+    }
+
+    get_usage_and_limit()
+        .ok()
+        .and_then(|(_, limits)| limits.soft_limit)
+}
+
+pub fn get_low_memory_thresh() -> Option<u64> {
+    let user_thresh = USER_LOW_THRESH.load(Ordering::Relaxed);
+    if user_thresh > 0 {
+        return Some(user_thresh as u64);
+    }
+
+    get_usage_and_limit()
+        .ok()
+        .and_then(|(_, limits)| limits.soft_limit)
+        .map(|limit| limit * 8 / 10)
+}
+
 pub fn get_usage_and_limit() -> anyhow::Result<(MemoryUsage, MemoryLimits)> {
     let (usage, mut limit) = get_usage_and_limit_impl()?;
 

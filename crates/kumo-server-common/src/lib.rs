@@ -368,6 +368,21 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "get_memory_hard_limit",
+        lua.create_function(move |_, _: ()| Ok(kumo_server_memory::get_hard_limit()))?,
+    )?;
+
+    kumo_mod.set(
+        "get_memory_soft_limit",
+        lua.create_function(move |_, _: ()| Ok(kumo_server_memory::get_soft_limit()))?,
+    )?;
+
+    kumo_mod.set(
+        "get_memory_low_thresh",
+        lua.create_function(move |_, _: ()| Ok(kumo_server_memory::get_low_memory_thresh()))?,
+    )?;
+
+    kumo_mod.set(
         "configure_redis_throttles",
         lua.create_async_function(|lua, params: Value| async move {
             let key: RedisConnKey = from_lua_value(&lua, params)?;
