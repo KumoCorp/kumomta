@@ -21,6 +21,43 @@ kumo.configure_local_logs {
 For multiple log files, the `configure_local_logs` function can be called
 multiple times with different parameters.
 
+## Time-based directories
+
+The `log_dir` parameter accepts `strftime`-style placeholders that are expanded
+when a new segment is opened. Formatting uses UTC by default so every host
+shares a consistent directory layout. Set `log_dir_timezone = 'Local'` if you
+prefer directories to follow the host's `date` output. This makes it easy to
+route logs into time-partitioned directories without relying on an external log
+rotation tool.
+
+```lua
+kumo.configure_local_logs {
+  log_dir = '/var/log/kumo-logs/%Y/%m/%d',
+}
+```
+
+You can also apply the override per record type:
+
+```lua
+kumo.configure_local_logs {
+  log_dir = '/var/log/kumo-logs/%Y/%m/%d',
+  log_dir_timezone = 'UTC',
+  per_record = {
+    Reception = {
+      log_dir = '/var/log/kumo-logs/%Y/%m/%d/%H/reception/',
+    },
+    Delivery = {
+      log_dir = '/var/log/kumo-logs/%Y/%m/%d/delivery/',
+    },
+  },
+}
+```
+
+The same syntax is available inside `per_record` if only a subset of record
+types need to be routed to a dated hierarchy. Refer to the
+[`log_dir` reference](../../reference/kumo/configure_local_logs/log_dir.md) for
+more examples.
+
 <!-- prettier-ignore -->
 !!!note
     Logs can also be published as webhooks. See the [Publishing Log Events Via Webhooks](../operation/webhooks.md) chapter.
