@@ -32,7 +32,7 @@ test: build test-lua
 	RUST_BACKTRACE=1 cargo nextest run --no-fail-fast
 
 test-adhoc: build
-	cargo nextest run --no-fail-fast --no-capture -p integration-tests -- disconnect_in_data_try_next
+	cargo nextest run --no-fail-fast --no-capture -p integration-tests -- xfer_requeue
 
 test-kumod:
 	cargo nextest run --no-fail-fast -p kumod

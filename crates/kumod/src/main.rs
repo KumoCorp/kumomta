@@ -349,6 +349,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             message::dkim::register,
             crate::spf::register,
             crate::dmarc::register,
+            crate::xfer::lua::register,
         ],
         policy: &opts.policy,
     }

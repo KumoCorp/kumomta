@@ -36,6 +36,7 @@ static XFER_IN: Single(
 }
 
 pub mod cancel;
+pub mod lua;
 pub mod request;
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 use utoipa::{ToResponse, ToSchema};
 
-#[derive(Deserialize, Serialize, Debug, Clone, ToSchema)]
+#[derive(Deserialize, Serialize, Debug, Clone, ToSchema, PartialEq)]
 pub struct XferProtocol {
     /// Expected to be an HTTP url prefix like:
     /// `https://host.name:8008`

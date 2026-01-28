@@ -225,6 +225,8 @@ impl DaemonWithMaildir {
             .context("spawn_maildir")?;
         let smtp = sink.listener("smtp");
         env.push(("KUMOD_SMTP_SINK_PORT".to_string(), smtp.port().to_string()));
+        let http = sink.listener("http");
+        env.push(("KUMOD_HTTP_SINK_PORT".to_string(), http.port().to_string()));
 
         let source = KumoDaemon::spawn(KumoArgs {
             policy_file: options.policy_file,
