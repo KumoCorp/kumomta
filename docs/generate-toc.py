@@ -60,7 +60,14 @@ class Gen(object):
 
             if self.extract_title:
                 with open(filename, "r") as f:
-                    title = f.readline().strip("#").strip()
+                    # Find the title; it is usually the first line,
+                    # but we may have front-matter containing tags
+                    # that we need to skip, so we look for a line
+                    # starting with # to identify the title
+                    for line in f:
+                        if line.startswith("#"):
+                            title = line.strip("#").strip()
+                            break
 
             children.append(Page(title, filename))
 

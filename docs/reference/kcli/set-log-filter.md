@@ -1,3 +1,8 @@
+---
+tags:
+  - logging
+  - debugging
+---
 # kcli set-log-filter
 
 

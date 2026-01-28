@@ -2,6 +2,7 @@ use anyhow::Context;
 use clap::{Parser, ValueEnum};
 use futures::Stream;
 use reqwest::Url;
+use std::collections::HashMap;
 use std::time::Duration;
 
 mod bounce;
@@ -92,6 +93,30 @@ impl SubCommand {
                 let cmd = Opt::command();
                 let overall_help = help_markdown_command_custom(&cmd, &options);
 
+                let doc_tags: &[(&str, &[&str])] = &[
+                    ("bounce", &["bounce"]),
+                    ("bounce-list", &["bounce"]),
+                    ("bounce-cancel", &["bounce"]),
+                    ("suspend", &["suspend"]),
+                    ("suspend-list", &["suspend"]),
+                    ("suspend-cancel", &["suspend"]),
+                    ("suspend-ready-q", &["suspend"]),
+                    ("suspend-ready-q-list", &["suspend"]),
+                    ("suspend-ready-q-cancel", &["suspend"]),
+                    ("set-log-filter", &["logging", "debugging"]),
+                    ("inspect-message", &["message", "debugging"]),
+                    ("inspect-sched-q", &["debugging"]),
+                    ("provider-summary", &["ops"]),
+                    ("queue-summary", &["ops"]),
+                    ("trace-smtp-client", &["ops", "debugging"]),
+                    ("trace-smtp-server", &["ops", "debugging"]),
+                    ("top", &["ops", "debugging"]),
+                    ("xfer", &["ops", "xfer"]),
+                    ("xfer-cancel", &["ops", "xfer"]),
+                ];
+                let doc_tags: HashMap<&str, &[&str]> =
+                    doc_tags.into_iter().map(|(k, v)| (*k, &v[..])).collect();
+
                 // We want a separate markdown page per sub-command, so we're
                 // doing a bit of grubbing around to split that out here
 
@@ -114,7 +139,15 @@ impl SubCommand {
                     } else {
                         let (sub_command, remainder) = chunk.split_once('`').unwrap();
                         let filename = format!("docs/reference/kcli/{sub_command}.md");
-                        let help = format!("# kcli {sub_command}\n{remainder}");
+
+                        let tags = match doc_tags.get(sub_command) {
+                            Some(tags) => {
+                                format!("---\ntags:\n  - {}\n---\n", tags.join("\n  - "))
+                            }
+                            None => String::new(),
+                        };
+
+                        let help = format!("{tags}# kcli {sub_command}\n{remainder}");
                         std::fs::write(&filename, &help)?;
                     }
                 }
