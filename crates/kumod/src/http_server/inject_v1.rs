@@ -979,9 +979,10 @@ impl HttpInjectionGeneratorDispatcher {
                     .ok_or_else(|| anyhow::anyhow!("received_from metadata is missing!?"))?
                     .parse()?;
 
-                let auth_info: AuthInfo = match msg.get_meta_string("auth_info").await? {
-                    Some(info) => serde_json::from_str(&info)?,
-                    None => {
+                let auth_info: AuthInfo = match msg.get_meta("auth_info").await? {
+                    obj @ serde_json::Value::Object(_) => serde_json::from_value(obj)
+                        .context("auth_info should be the json repr of AuthInfo")?,
+                    serde_json::Value::Null => {
                         // We might not have auth_info serialized in the metadata
                         // if we are upgrading from a prior version that did not
                         // support AuthInfo, so default it to something approximating
@@ -989,6 +990,9 @@ impl HttpInjectionGeneratorDispatcher {
                         let mut auth_info = AuthInfo::default();
                         auth_info.set_peer_address(Some(peer_address));
                         auth_info
+                    }
+                    other => {
+                        anyhow::bail!("expected optional `auth_info` object, but got {other:?}")
                     }
                 };
 
