@@ -1,3 +1,4 @@
+use crate::metrics::outbound_connections_for;
 use anyhow::Context;
 use kumo_server_common::authn_authz::{AuthInfo, Identity, IdentityContext};
 use kumo_server_common::http_server::auth::AuthKindResult;
@@ -10,9 +11,19 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::timeout;
 
+/// Result of a successful proxy session containing bytes transferred.
+pub struct ProxySessionResult {
+    /// Bytes sent from client to remote (upstream)
+    pub bytes_to_remote: u64,
+    /// Bytes sent from remote to client (downstream)
+    pub bytes_to_client: u64,
+}
+
 /// Given a newly accepted client, perform a SOCKS5 handshake and then
 /// run the proxy logic, passing data from the client through to the
 /// host to which we have connected on the behalf of the client.
+///
+/// Returns `ProxySessionResult` containing the bytes transferred on success.
 pub async fn handle_proxy_client<S>(
     mut stream: S,
     peer_address: SocketAddr,
@@ -20,7 +31,7 @@ pub async fn handle_proxy_client<S>(
     timeout_duration: std::time::Duration,
     #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] use_splice: bool,
     require_auth: bool,
-) -> anyhow::Result<()>
+) -> anyhow::Result<ProxySessionResult>
 where
     S: AsyncReadAndWrite + Unpin + Send + 'static,
 {
@@ -63,7 +74,7 @@ where
         tracing::trace!("peer={peer_address:?} request: {request:?}");
 
         let status = match timeout(timeout_duration, async {
-            handle_request(&request, &mut state).await
+            handle_request(&request, &mut state, local_address).await
         })
         .await
         {
@@ -95,7 +106,11 @@ where
         })?;
 
         if !is_success {
-            return Ok(());
+            // Request failed (e.g., connection refused) - this is a completed session with no data
+            return Ok(ProxySessionResult {
+                bytes_to_remote: 0,
+                bytes_to_client: 0,
+            });
         }
 
         if matches!(state, ClientState::Connected(_)) {
@@ -113,16 +128,26 @@ where
                 stream = match stream.try_into_tcp_stream() {
                     Ok(mut tcp_stream) => {
                         tracing::trace!("peer={peer_address:?} -> going to splice passthru mode");
-                        tokio_splice::zero_copy_bidirectional(&mut tcp_stream, &mut remote_stream)
-                            .await?;
-                        return Ok(());
+                        let (to_remote, to_client) = tokio_splice::zero_copy_bidirectional(
+                            &mut tcp_stream,
+                            &mut remote_stream,
+                        )
+                        .await?;
+                        return Ok(ProxySessionResult {
+                            bytes_to_remote: to_remote,
+                            bytes_to_client: to_client,
+                        });
                     }
                     Err(stream) => stream,
                 };
             }
             tracing::trace!("peer={peer_address:?} -> going to passthru mode");
-            tokio::io::copy_bidirectional(&mut stream, &mut remote_stream).await?;
-            Ok(())
+            let (to_remote, to_client) =
+                tokio::io::copy_bidirectional(&mut stream, &mut remote_stream).await?;
+            Ok(ProxySessionResult {
+                bytes_to_remote: to_remote,
+                bytes_to_client: to_client,
+            })
         }
         _ => anyhow::bail!("Unexpected client state {state:?}"),
     }
@@ -178,6 +203,7 @@ enum ClientState {
 async fn handle_request(
     request: &SocksV5Request,
     state: &mut ClientState,
+    local_address: SocketAddr,
 ) -> std::io::Result<RequestStatus> {
     match request.command {
         SocksV5Command::Bind => {
@@ -200,6 +226,9 @@ async fn handle_request(
         }
         SocksV5Command::Connect => {
             let host = request_addr(request).await?;
+
+            // Track outbound connection metric
+            outbound_connections_for(local_address, host).inc();
 
             let addr = match std::mem::take(state) {
                 ClientState::None => {

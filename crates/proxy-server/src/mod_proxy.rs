@@ -1,7 +1,12 @@
+use crate::metrics::{
+    connections_accepted_for_listener, tls_handshake_failures_for_listener, ProxySessionMetrics,
+};
 use anyhow::Context;
 use config::{any_err, declare_event, from_lua_value, get_or_create_module, SerdeWrappedValue};
 use data_loader::KeySource;
 use kumo_server_common::http_server::auth::AuthKindResult;
+use kumo_server_common::http_server::{HttpListenerParams, RouterAndDocs};
+use kumo_server_common::router_with_docs;
 use kumo_server_runtime::spawn;
 use kumo_tls_helper::AsyncReadAndWrite;
 use mlua::{IntoLua, Lua, LuaSerdeExt, Value};
@@ -11,6 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
+use utoipa::OpenApi;
 
 /// Parameters for starting a proxy listener
 #[derive(Deserialize, Clone, Debug)]
@@ -121,9 +127,16 @@ impl ProxyListenerParams {
             tokio::spawn(async move {
                 let result: anyhow::Result<()> = async {
                     if let Some(acceptor) = tls_acceptor {
-                        let tls_stream = acceptor.accept(socket).await.with_context(|| {
-                            format!("failed TLS handshake from {peer_address:?}")
-                        })?;
+                        let tls_stream = match acceptor.accept(socket).await {
+                            Ok(stream) => stream,
+                            Err(err) => {
+                                // Track TLS handshake failure
+                                tls_handshake_failures_for_listener(local_address).inc();
+                                return Err(err).with_context(|| {
+                                    format!("failed TLS handshake from {peer_address:?}")
+                                });
+                            }
+                        };
                         Self::handle_client(tls_stream, peer_address, local_address, &params).await
                     } else {
                         Self::handle_client(socket, peer_address, local_address, &params).await
@@ -138,6 +151,12 @@ impl ProxyListenerParams {
         }
     }
 
+    /// Handle a single client connection with centralized metrics tracking.
+    ///
+    /// This function is responsible for:
+    /// - Tracking connection acceptance
+    /// - Managing the ProxySessionMetrics lifecycle (RAII for active connections)
+    /// - Recording success/failure and bytes transferred
     async fn handle_client<S>(
         stream: S,
         peer_address: SocketAddr,
@@ -147,7 +166,14 @@ impl ProxyListenerParams {
     where
         S: AsyncReadAndWrite + Unpin + Send + 'static,
     {
-        crate::proxy_handler::handle_proxy_client(
+        // Track connection acceptance
+        connections_accepted_for_listener(local_address).inc();
+
+        // Create session metrics (increments active connections gauge via RAII)
+        let session_metrics = ProxySessionMetrics::new(local_address);
+
+        // Perform the actual proxy work
+        let result = crate::proxy_handler::handle_proxy_client(
             stream,
             peer_address,
             local_address,
@@ -155,7 +181,23 @@ impl ProxyListenerParams {
             params.use_splice,
             params.require_auth,
         )
-        .await
+        .await;
+
+        // Update metrics based on result
+        match result {
+            Ok(session_result) => {
+                session_metrics.record_bytes(
+                    session_result.bytes_to_remote,
+                    session_result.bytes_to_client,
+                );
+                session_metrics.mark_completed();
+                Ok(())
+            }
+            Err(err) => {
+                session_metrics.mark_failed();
+                Err(err)
+            }
+        }
     }
 }
 
@@ -181,14 +223,55 @@ declare_event! {
     ) -> SerdeWrappedValue<AuthKindResult>;
 }
 
+/// Create the router for the proxy HTTP endpoint
+pub fn make_router() -> RouterAndDocs {
+    router_with_docs! {
+       title = "proxy-server",
+       handlers = [
+          proxy_status
+       ]
+    }
+}
+
+/// Simple health check endpoint for the proxy.
+/// Returns basic status information.
+#[utoipa::path(
+    get,
+    tag = "status",
+    path = "/proxy/status",
+    responses(
+        (status = 200, description = "Proxy is healthy", body = String)
+    ),
+)]
+async fn proxy_status() -> &'static str {
+    "KumoProxy OK"
+}
+
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
+    // Register start_proxy_listener in kumo namespace (existing API)
     let kumo_mod = get_or_create_module(lua, "kumo")?;
 
     kumo_mod.set(
         "start_proxy_listener",
         lua.create_async_function(|lua, params: Value| async move {
             let params: ProxyListenerParams = from_lua_value(&lua, params)?;
-            params.start().await.map_err(any_err)?;
+            if !config::is_validating() {
+                params.start().await.map_err(any_err)?;
+            }
+            Ok(())
+        })?,
+    )?;
+
+    // Register start_http_listener in proxy namespace (new in this PR)
+    let proxy_mod = get_or_create_module(lua, "proxy")?;
+
+    proxy_mod.set(
+        "start_http_listener",
+        lua.create_async_function(|lua, params: Value| async move {
+            let params: HttpListenerParams = from_lua_value(&lua, params)?;
+            if !config::is_validating() {
+                params.start(make_router(), None).await.map_err(any_err)?;
+            }
             Ok(())
         })?,
     )?;

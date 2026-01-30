@@ -527,6 +527,10 @@ TOC = [
                 "reference/policy-extras.mail_auth",
             ),
             Gen(
+                "module: proxy",
+                "reference/proxy",
+            ),
+            Gen(
                 "module: tsa",
                 "reference/tsa",
             ),

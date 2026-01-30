@@ -7,6 +7,7 @@ use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use std::io::Write;
 use std::path::PathBuf;
 
+mod metrics;
 mod mod_proxy;
 mod proxy_handler;
 
@@ -33,6 +34,11 @@ struct Opt {
     /// json outputs machine readable records.
     #[arg(long, default_value = "full")]
     diag_format: DiagnosticFormat,
+
+    /// Instead of running the daemon, output the openapi spec json
+    /// to stdout
+    #[arg(long)]
+    dump_openapi_spec: bool,
 
     // Legacy CLI options for backwards compatibility
     // These are mutually exclusive with --proxy-config
@@ -79,6 +85,12 @@ impl Opt {
 
 fn main() -> anyhow::Result<()> {
     let opts = Opt::parse();
+
+    if opts.dump_openapi_spec {
+        let router_and_docs = crate::mod_proxy::make_router();
+        println!("{}", router_and_docs.docs.to_pretty_json()?);
+        return Ok(());
+    }
 
     // Validate that we have either a config file or legacy listen options
     if opts.proxy_config.is_none() && opts.listen.is_empty() {
