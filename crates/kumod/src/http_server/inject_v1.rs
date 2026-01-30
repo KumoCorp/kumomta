@@ -114,7 +114,7 @@ pub struct Recipient {
     /// Note that `name` is implicitly set from the `name`
     /// field, so you do not need to duplicate it here.
     #[serde(default)]
-    #[schema(example=json!({
+    #[schema(additional_properties, example=json!({
         "age": 42,
         "gender": "male",
     }))]
@@ -141,7 +141,7 @@ pub struct InjectV1Request {
     /// recipients, with the per-recipient substitutions
     /// taking precedence.
     #[serde(default)]
-    #[schema(example=json!({
+    #[schema(additional_properties, example=json!({
         "campaign_title": "Fall Campaign",
     }))]
     pub substitutions: HashMap<String, Value>,

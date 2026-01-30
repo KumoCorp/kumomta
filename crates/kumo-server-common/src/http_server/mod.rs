@@ -93,6 +93,7 @@ impl RouterAndDocs {
     pub fn make_docs(&self) -> utoipa::openapi::OpenApi {
         let mut api_docs = ApiDoc::openapi();
         api_docs.info.title = self.docs.info.title.to_string();
+        api_docs.info.description = self.docs.info.description.clone();
         api_docs.merge(self.docs.clone());
         api_docs.info.version = version_info::kumo_version().to_string();
         api_docs.info.license = Some(

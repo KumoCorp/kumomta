@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2025.12.19-0a112417"
+    "version": "2026.01.29-dd9df65f"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -974,10 +974,7 @@
           "substitutions": {
             "type": "object",
             "description": "When using templating, this is the map of placeholder\nname to replacement value that should be used by\nthe templating engine.  This map applies to all\nrecipients, with the per-recipient substitutions\ntaking precedence.",
-            "additionalProperties": {},
-            "propertyNames": {
-              "type": "string"
-            },
+            "additionalProperties": true,
             "example": {
               "campaign_title": "Fall Campaign"
             }
@@ -1084,7 +1081,9 @@
             "type": "integer",
             "minimum": 0
           },
-          "queue_config": {},
+          "queue_config": {
+            "type": "object"
+          },
           "queue_name": {
             "type": "string"
           }
@@ -1113,6 +1112,7 @@
             "format": "date-time"
           },
           "meta": {
+            "type": "object",
             "description": "The message metadata"
           },
           "num_attempts": {
@@ -1131,7 +1131,9 @@
             "description": "The envelope-to address",
             "example": "recipient@example.com"
           },
-          "scheduling": {},
+          "scheduling": {
+            "type": "object"
+          },
           "sender": {
             "type": "string",
             "description": "The envelope sender",
@@ -1281,10 +1283,7 @@
           "substitutions": {
             "type": "object",
             "description": "When using templating, this is the map of placeholder\nname to replacement value that should be used by the\ntemplating engine when processing just this recipient.\nNote that `name` is implicitly set from the `name`\nfield, so you do not need to duplicate it here.",
-            "additionalProperties": {},
-            "propertyNames": {
-              "type": "string"
-            },
+            "additionalProperties": true,
             "example": {
               "age": 42,
               "gender": "male"
@@ -1795,7 +1794,9 @@
                   "type": "integer",
                   "minimum": 0
                 },
-                "queue_config": {},
+                "queue_config": {
+                  "type": "object"
+                },
                 "queue_name": {
                   "type": "string"
                 }

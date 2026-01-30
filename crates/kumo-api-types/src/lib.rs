@@ -366,6 +366,7 @@ pub struct InspectQueueV1Response {
     pub queue_name: String,
     pub messages: Vec<InspectMessageV1Response>,
     pub num_scheduled: usize,
+    #[schema(value_type=Object)]
     pub queue_config: serde_json::Value,
     pub delayed_metric: usize,
     pub now: DateTime<Utc>,
@@ -383,7 +384,7 @@ pub struct MessageInformation {
     #[serde_as(as = "OneOrMany<_, PreferOne>")] // FIXME: json schema
     pub recipient: Vec<String>,
     /// The message metadata
-    #[schema(example=json!({
+    #[schema(value_type=Object, example=json!({
         "received_from": "10.0.0.1:3488"
     }))]
     pub meta: serde_json::Value,
@@ -396,6 +397,7 @@ pub struct MessageInformation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_attempts: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type=Object)]
     pub scheduling: Option<serde_json::Value>,
 }
 
