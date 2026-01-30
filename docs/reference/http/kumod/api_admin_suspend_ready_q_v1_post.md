@@ -38,7 +38,7 @@ This is an object value, with the following properties:
 {
   "duration": "string",
   "expires": "1990-12-31T23:59:60Z",
-  "name": "string",
+  "name": "source_name->(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com@smtp_client",
   "reason": "pause while working on resolving a block with the destination postmaster"
 }
 ```

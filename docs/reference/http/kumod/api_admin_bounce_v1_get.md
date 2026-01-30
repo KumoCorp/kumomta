@@ -35,13 +35,13 @@ There are no constraints on the size of the array.
       "gmail.com": 200,
       "yahoo.com": 100
     },
-    "campaign": "string",
-    "domain": "string",
+    "campaign": "campaign_name",
+    "domain": "example.com",
     "duration": "string",
     "id": "552016f1-08e7-4e90-9da3-fd5c25acd069",
-    "reason": "string",
-    "routing_domain": "string",
-    "tenant": "string",
+    "reason": "cleaning up a bad send",
+    "routing_domain": "routing_domain.com",
+    "tenant": "tenant_name",
     "total_bounced": 42
   }
 ]

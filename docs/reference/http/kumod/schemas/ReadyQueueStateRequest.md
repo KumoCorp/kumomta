@@ -18,7 +18,7 @@ This is an object value, with the following properties:
 ```json
 {
   "queues": [
-    "string"
+    "campaign_name:tenant_name@example.com"
   ]
 }
 ```

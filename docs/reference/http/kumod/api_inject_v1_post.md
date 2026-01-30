@@ -59,7 +59,7 @@ This is an object value, with the following properties:
 ### Examples
 ```json
 {
-  "content": "string",
+  "content": "From: user@example.com\nSubject: Hello\n\nHello there",
   "deferred_generation": false,
   "deferred_spool": false,
   "envelope_sender": "some.id@bounces.sender-example.com",
@@ -103,7 +103,7 @@ This is an object value, with the following properties:
 
   * `fail_count` - required `integer`. The number of messages that failed to inject
 
-  * `failed_recipients` - required array of `string`. The list of failed recipients
+  * `failed_recipients` - required array of `string` (`email`). The list of failed recipients
 
   * `success_count` - required `integer`. The number of messages that were injected successfully
 
@@ -115,7 +115,7 @@ This is an object value, with the following properties:
   ],
   "fail_count": 42,
   "failed_recipients": [
-    "string"
+    "user@example.com"
   ],
   "success_count": 42
 }

@@ -12,7 +12,7 @@
 This is an object value, with the following properties:
 
 
-  * `email` - required `string`. The email address of the sender
+  * `email` - required `string` (`email`). The email address of the sender
 
   * `name` - optional nullable `string`. The displayable name of the sender
 

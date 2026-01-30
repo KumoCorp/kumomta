@@ -42,11 +42,11 @@ This is an object value, with the following properties:
 ### Examples
 ```json
 {
-  "campaign": "string",
-  "domain": "string",
+  "campaign": "campaign_name",
+  "domain": "example.com",
   "duration": "string",
   "id": "9511a32e-66f8-42aa-b151-ccb176df47d9",
   "reason": "pause while working on resolving a deliverability issue",
-  "tenant": "string"
+  "tenant": "tenant_name"
 }
 ```

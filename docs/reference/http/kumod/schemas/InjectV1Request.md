@@ -45,7 +45,7 @@ This is an object value, with the following properties:
 ### Examples
 ```json
 {
-  "content": "string",
+  "content": "From: user@example.com\nSubject: Hello\n\nHello there",
   "deferred_generation": false,
   "deferred_spool": false,
   "envelope_sender": "some.id@bounces.sender-example.com",

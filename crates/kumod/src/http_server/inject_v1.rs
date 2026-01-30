@@ -88,7 +88,7 @@ impl Default for HttpTraceHeaders {
 #[serde(deny_unknown_fields)]
 pub struct FromHeader {
     /// The email address of the sender
-    #[schema(example = "sales@sender-example.com")]
+    #[schema(example = "sales@sender-example.com", format = "email")]
     pub email: String,
     /// The displayable name of the sender
     #[serde(default)]
@@ -100,7 +100,7 @@ pub struct FromHeader {
 #[serde(deny_unknown_fields)]
 pub struct Recipient {
     /// The email address of the recipient
-    #[schema(example = "john.smith@mailbox-example.com")]
+    #[schema(example = "john.smith@mailbox-example.com", format = "email")]
     pub email: String,
 
     /// The displayable name of the recipient
@@ -153,12 +153,14 @@ pub struct InjectV1Request {
     /// were to crash before the message is delivered or written
     /// to spool, so use with caution!
     #[serde(default)]
+    #[schema(default = false)]
     pub deferred_spool: bool,
 
     /// When set to true, the injection request will be queued
     /// and the actual generation and substitution will happen
     /// asynchronously with respect to the injection request.
     #[serde(default)]
+    #[schema(default = false)]
     pub deferred_generation: bool,
 
     /// Controls which trace headers will be added to the message.
@@ -197,6 +199,7 @@ pub struct InjectV1Response {
     pub fail_count: usize,
 
     /// The list of failed recipients
+    #[schema(format = "email")]
     pub failed_recipients: Vec<String>,
 
     /// The list of error messages
@@ -211,6 +214,7 @@ pub struct InjectV1Response {
 #[serde(untagged)]
 pub enum Content {
     /// A complete MIME message string
+    #[schema(example = "From: user@example.com\nSubject: Hello\n\nHello there")]
     Rfc822(String),
     /// Describe the MIME structure to be created
     Builder {

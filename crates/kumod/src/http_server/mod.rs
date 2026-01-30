@@ -59,6 +59,7 @@ pub mod queue_name_multi_index;
             BounceV1ListEntry,
             BounceV1CancelRequest,
             InspectMessageV1Response,
+            InspectQueueV1Request,
             MessageInformation,
             ReadyQueueStateRequest,
             ReadyQueueStateResponse,

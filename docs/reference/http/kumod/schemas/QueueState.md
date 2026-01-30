@@ -19,7 +19,7 @@ This is an object value, with the following properties:
 ### Examples
 ```json
 {
-  "context": "string",
+  "context": "TooManyLeases for queue",
   "since": "1990-12-31T23:59:60Z"
 }
 ```

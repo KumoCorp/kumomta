@@ -21,7 +21,9 @@ This is an object value, with the following properties:
 
   * `num_attempts` - optional nullable `integer` (`u-int16`). 
 
-  * `recipient` - required array of `string`. The envelope-to address
+  * `recipient` - required array of `string` (`email`). The envelope-to address.
+    May be either an individual string or an array of strings
+    for multi-recipient messages.
 
   * `scheduling` - optional `object`. 
 
@@ -30,7 +32,7 @@ This is an object value, with the following properties:
 ### Examples
 ```json
 {
-  "data": "string",
+  "data": "From: user@example.com\nSubject: Hello\n\nHello there",
   "due": "1990-12-31T23:59:60Z",
   "meta": {},
   "num_attempts": 42,

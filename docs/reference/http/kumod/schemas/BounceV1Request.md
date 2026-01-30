@@ -45,16 +45,16 @@ This is an object value, with the following properties:
 ### Examples
 ```json
 {
-  "campaign": "string",
+  "campaign": "campaign_name",
   "domain": "example.com",
   "duration": "20m",
   "expires": "1990-12-31T23:59:60Z",
   "queue_names": [
-    "string"
+    "campaign_name:tenant_name@example.com"
   ],
   "reason": "Cleaning up a bad send",
-  "routing_domain": "string",
+  "routing_domain": "routing_domain.com",
   "suppress_logging": false,
-  "tenant": "string"
+  "tenant": "tenant_name"
 }
 ```

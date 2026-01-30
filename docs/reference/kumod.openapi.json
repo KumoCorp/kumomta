@@ -659,14 +659,16 @@
               "string",
               "null"
             ],
-            "description": "The campaign field of the original request, if any."
+            "description": "The campaign field of the original request, if any.",
+            "example": "campaign_name"
           },
           "domain": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The domain field of the original request, if any."
+            "description": "The domain field of the original request, if any.",
+            "example": "example.com"
           },
           "duration": {
             "type": "string",
@@ -680,21 +682,24 @@
           },
           "reason": {
             "type": "string",
-            "description": "The reason field of the original request"
+            "description": "The reason field of the original request",
+            "example": "cleaning up a bad send"
           },
           "routing_domain": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The routing_domain field of the original request, if any."
+            "description": "The routing_domain field of the original request, if any.",
+            "example": "routing_domain.com"
           },
           "tenant": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The tenant field of the original request, if any."
+            "description": "The tenant field of the original request, if any.",
+            "example": "tenant_name"
           },
           "total_bounced": {
             "type": "integer",
@@ -715,7 +720,8 @@
               "string",
               "null"
             ],
-            "description": "The campaign name to match. If omitted, any campaign will match."
+            "description": "The campaign name to match. If omitted, any campaign will match.",
+            "example": "campaign_name"
           },
           "domain": {
             "type": [
@@ -746,7 +752,10 @@
             "items": {
               "type": "string"
             },
-            "description": "If present, queue_names takes precedence over `campaign`,\n`tenant`, and `domain` and specifies the exact set of\nscheduled queue names to which the bounce applies."
+            "description": "If present, queue_names takes precedence over `campaign`,\n`tenant`, and `domain` and specifies the exact set of\nscheduled queue names to which the bounce applies.",
+            "example": [
+              "campaign_name:tenant_name@example.com"
+            ]
           },
           "reason": {
             "type": "string",
@@ -758,18 +767,21 @@
               "string",
               "null"
             ],
-            "description": "The routing_domain name to match. If omitted, any routing_domain will match."
+            "description": "The routing_domain name to match. If omitted, any routing_domain will match.",
+            "example": "routing_domain.com"
           },
           "suppress_logging": {
             "type": "boolean",
-            "description": "If true, do not generate AdminBounce delivery logs for matching\nmessages."
+            "description": "If true, do not generate AdminBounce delivery logs for matching\nmessages.",
+            "default": false
           },
           "tenant": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The tenant to match. If omitted, any tenant will match."
+            "description": "The tenant to match. If omitted, any tenant will match.",
+            "example": "tenant_name"
           }
         },
         "additionalProperties": false
@@ -817,7 +829,8 @@
         "oneOf": [
           {
             "type": "string",
-            "description": "A complete MIME message string"
+            "description": "A complete MIME message string",
+            "example": "From: user@example.com\nSubject: Hello\n\nHello there"
           },
           {
             "type": "object",
@@ -906,6 +919,7 @@
         "properties": {
           "email": {
             "type": "string",
+            "format": "email",
             "description": "The email address of the sender",
             "example": "sales@sender-example.com"
           },
@@ -937,11 +951,13 @@
           },
           "deferred_generation": {
             "type": "boolean",
-            "description": "When set to true, the injection request will be queued\nand the actual generation and substitution will happen\nasynchronously with respect to the injection request."
+            "description": "When set to true, the injection request will be queued\nand the actual generation and substitution will happen\nasynchronously with respect to the injection request.",
+            "default": false
           },
           "deferred_spool": {
             "type": "boolean",
-            "description": "When set to true, the message will not be written to\nthe spool until it encounters its first transient failure.\nThis can improve injection rate but introduces the risk\nof loss of accountability for the message if the system\nwere to crash before the message is delivered or written\nto spool, so use with caution!"
+            "description": "When set to true, the message will not be written to\nthe spool until it encounters its first transient failure.\nThis can improve injection rate but introduces the risk\nof loss of accountability for the message if the system\nwere to crash before the message is delivered or written\nto spool, so use with caution!",
+            "default": false
           },
           "envelope_sender": {
             "type": "string",
@@ -1003,7 +1019,8 @@
           "failed_recipients": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "format": "email"
             },
             "description": "The list of failed recipients"
           },
@@ -1028,6 +1045,31 @@
           "message": {
             "$ref": "#/components/schemas/MessageInformation",
             "description": "The message information"
+          }
+        }
+      },
+      "InspectQueueV1Request": {
+        "type": "object",
+        "required": [
+          "queue_name"
+        ],
+        "properties": {
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Return up to `limit` messages in the queue sample.\nDepending on the strategy configured for the queue,\nmessages may not be directly reachable via this endpoint.\nIf no limit is provided, all messages in the queue will\nbe sampled.",
+            "minimum": 0
+          },
+          "queue_name": {
+            "type": "string",
+            "description": "The name of the scheduled queue",
+            "example": "campaign_name:tenant_name@example.com"
+          },
+          "want_body": {
+            "type": "boolean",
+            "description": "If true, return the message body in addition to the\nmetadata"
           }
         }
       },
@@ -1069,7 +1111,8 @@
             "type": "object"
           },
           "queue_name": {
-            "type": "string"
+            "type": "string",
+            "example": "campaign_name:tenant_name@example.com"
           }
         }
       },
@@ -1086,7 +1129,8 @@
               "string",
               "null"
             ],
-            "description": "If `want_body` was set in the original request,\nholds the message body"
+            "description": "If `want_body` was set in the original request,\nholds the message body",
+            "example": "From: user@example.com\nSubject: Hello\n\nHello there"
           },
           "due": {
             "type": [
@@ -1110,9 +1154,10 @@
           "recipient": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "format": "email"
             },
-            "description": "The envelope-to address",
+            "description": "The envelope-to address.\nMay be either an individual string or an array of strings\nfor multi-recipient messages.",
             "example": "recipient@example.com"
           },
           "scheduling": {
@@ -1133,7 +1178,8 @@
         ],
         "properties": {
           "context": {
-            "type": "string"
+            "type": "string",
+            "example": "TooManyLeases for queue"
           },
           "since": {
             "type": "string",
@@ -1149,7 +1195,10 @@
             "items": {
               "type": "string"
             },
-            "description": "Which queues to request. If empty, request all queue states."
+            "description": "Which queues to request. If empty, request all queue states.",
+            "example": [
+              "campaign_name:tenant_name@example.com"
+            ]
           }
         }
       },
@@ -1253,6 +1302,7 @@
         "properties": {
           "email": {
             "type": "string",
+            "format": "email",
             "description": "The email address of the recipient",
             "example": "john.smith@mailbox-example.com"
           },
@@ -1320,7 +1370,8 @@
           },
           "name": {
             "type": "string",
-            "description": "The name of the ready queue that is suspended"
+            "description": "The name of the ready queue that is suspended",
+            "example": "source_name->(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com@smtp_client"
           },
           "reason": {
             "type": "string",
@@ -1352,7 +1403,8 @@
           },
           "name": {
             "type": "string",
-            "description": "The name of the ready queue that should be suspended"
+            "description": "The name of the ready queue that should be suspended",
+            "example": "source_name->(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com@smtp_client"
           },
           "reason": {
             "type": "string",
@@ -1387,14 +1439,16 @@
               "string",
               "null"
             ],
-            "description": "The campaign name to match. If omitted, any campaign will match."
+            "description": "The campaign name to match. If omitted, any campaign will match.",
+            "example": "campaign_name"
           },
           "domain": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The domain name to match. If omitted, any domain will match."
+            "description": "The domain name to match. If omitted, any domain will match.",
+            "example": "example.com"
           },
           "duration": {
             "type": "string",
@@ -1415,7 +1469,8 @@
               "string",
               "null"
             ],
-            "description": "The tenant name to match. If omitted, any tenant will match."
+            "description": "The tenant name to match. If omitted, any tenant will match.",
+            "example": "tenant_name"
           }
         }
       },
@@ -1430,14 +1485,16 @@
               "string",
               "null"
             ],
-            "description": "The campaign name to match. If omitted, any campaign will match."
+            "description": "The campaign name to match. If omitted, any campaign will match.",
+            "example": "campaign_name"
           },
           "domain": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The domain name to match. If omitted, any domain will match."
+            "description": "The domain name to match. If omitted, any domain will match.",
+            "example": "example.com"
           },
           "duration": {
             "type": [
@@ -1459,7 +1516,10 @@
             "items": {
               "type": "string"
             },
-            "description": "If present, queue_names takes precedence over `campaign`,\n`tenant`, and `domain` and specifies the exact set of\nscheduled queue names to which the suspension applies."
+            "description": "If present, queue_names takes precedence over `campaign`,\n`tenant`, and `domain` and specifies the exact set of\nscheduled queue names to which the suspension applies.",
+            "example": [
+              "campaign_name:tenant_name@example.com"
+            ]
           },
           "reason": {
             "type": "string",
@@ -1471,7 +1531,8 @@
               "string",
               "null"
             ],
-            "description": "The tenant name to match. If omitted, any tenant will match."
+            "description": "The tenant name to match. If omitted, any tenant will match.",
+            "example": "tenant_name"
           }
         }
       },
@@ -1702,7 +1763,8 @@
                 "failed_recipients": {
                   "type": "array",
                   "items": {
-                    "type": "string"
+                    "type": "string",
+                    "format": "email"
                   },
                   "description": "The list of failed recipients"
                 },
@@ -1782,7 +1844,8 @@
                   "type": "object"
                 },
                 "queue_name": {
-                  "type": "string"
+                  "type": "string",
+                  "example": "campaign_name:tenant_name@example.com"
                 }
               }
             }

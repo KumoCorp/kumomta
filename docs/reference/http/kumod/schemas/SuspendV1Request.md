@@ -32,14 +32,14 @@ This is an object value, with the following properties:
 ### Examples
 ```json
 {
-  "campaign": "string",
-  "domain": "string",
+  "campaign": "campaign_name",
+  "domain": "example.com",
   "duration": "string",
   "expires": "1990-12-31T23:59:60Z",
   "queue_names": [
-    "string"
+    "campaign_name:tenant_name@example.com"
   ],
   "reason": "pause while working on resolving a block with the destination postmaster",
-  "tenant": "string"
+  "tenant": "tenant_name"
 }
 ```

@@ -59,7 +59,7 @@ This is an object value, with the following properties:
     {
       "id": "d7ef132b5d7711eea8c8000c29c33806",
       "message": {
-        "data": "string",
+        "data": "From: user@example.com\nSubject: Hello\n\nHello there",
         "due": "1990-12-31T23:59:60Z",
         "meta": {},
         "num_attempts": 42,
@@ -72,6 +72,6 @@ This is an object value, with the following properties:
   "now": "1990-12-31T23:59:60Z",
   "num_scheduled": 42,
   "queue_config": {},
-  "queue_name": "string"
+  "queue_name": "campaign_name:tenant_name@example.com"
 }
 ```

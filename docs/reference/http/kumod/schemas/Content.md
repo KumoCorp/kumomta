@@ -45,7 +45,7 @@ This is an object value, with the following properties:
 
 ### Examples
 ```json
-"string"
+"From: user@example.com\nSubject: Hello\n\nHello there"
 ```
 ```json
 {
