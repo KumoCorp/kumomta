@@ -571,6 +571,9 @@ TOC = [
                 "reference/events",
             ),
             Page("HTTP API Explorer", "reference/rapidoc.md"),
+            Gen(
+                "kumod HTTP API (generated)", "reference/http/kumod", extract_title=True
+            ),
             Gen("HTTP API", "reference/http", extract_title=True),
             RustDoc(
                 "Internal Rust API",

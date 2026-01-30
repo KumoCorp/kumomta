@@ -22,6 +22,7 @@ update_if_different() {
   if ! cmp $candidate $current ; then
     echo "$specfile updated"
     $binary --dump-openapi-spec > $specfile
+    cargo run -p jsonschematodocs
   fi
 }
 
