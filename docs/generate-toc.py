@@ -570,7 +570,6 @@ TOC = [
                 "events",
                 "reference/events",
             ),
-            Page("HTTP API Explorer", "reference/rapidoc.md"),
             Gen(
                 "kumod HTTP API (generated)", "reference/http/kumod", extract_title=True
             ),
