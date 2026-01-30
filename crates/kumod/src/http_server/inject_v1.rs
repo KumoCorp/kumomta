@@ -252,14 +252,6 @@ pub enum Content {
     },
 }
 
-/// An email header.
-#[derive(Serialize, Deserialize, Debug, ToSchema)]
-#[serde(untagged)]
-pub enum Header {
-    Full(String),
-    NameValue(String, String),
-}
-
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Attachment {

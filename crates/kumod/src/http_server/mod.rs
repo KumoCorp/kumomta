@@ -50,7 +50,6 @@ pub mod queue_name_multi_index;
             FromHeader,
             Recipient,
             Content,
-            Header,
             Attachment,
             InjectV1Request,
             InjectV1Response,

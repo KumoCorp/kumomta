@@ -19,7 +19,7 @@ This is an object value, with the following properties:
 
   * `meta` - required `object`. The message metadata
 
-  * `num_attempts` - optional nullable `integer` (`int32`). 
+  * `num_attempts` - optional nullable `integer` (`u-int16`). 
 
   * `recipient` - required array of `string`. The envelope-to address
 

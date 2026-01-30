@@ -920,22 +920,6 @@
         },
         "additionalProperties": false
       },
-      "Header": {
-        "oneOf": [
-          {
-            "type": "string"
-          },
-          {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "maxItems": 2,
-            "minItems": 2
-          }
-        ],
-        "description": "An email header."
-      },
       "HttpTraceHeaders": {
         "$ref": "#/components/schemas/TraceHeaders"
       },
@@ -1120,7 +1104,7 @@
               "integer",
               "null"
             ],
-            "format": "int32",
+            "format": "u-int16",
             "minimum": 0
           },
           "recipient": {
