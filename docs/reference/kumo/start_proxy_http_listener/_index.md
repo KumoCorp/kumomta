@@ -58,8 +58,15 @@ The following Prometheus metrics are exposed:
 | `proxy_bytes_received_total` | Counter | Total bytes received from clients |
 | `proxy_bytes_sent_total` | Counter | Total bytes sent to clients |
 | `proxy_outbound_connections_total` | Counter | Total outbound connections by destination |
+| `proxy_tls_handshake_failures_total` | Counter | Total TLS handshake failures (when TLS is enabled) |
 
-All metrics are labeled with `listener` (the listener address).
+All metrics are labeled with `listener` (the listener address). The `proxy_outbound_connections_total` metric is additionally labeled with `destination`.
+
+!!! warning "High Cardinality Metric"
+    The `proxy_outbound_connections_total` metric tracks connections by destination IP address.
+    If your proxy connects to many unique destinations, this can create high cardinality
+    in Prometheus, which may impact memory usage and query performance. This metric uses
+    a pruning counter registry to mitigate this, but monitor cardinality in production environments.
 
 ## Example Prometheus Query
 

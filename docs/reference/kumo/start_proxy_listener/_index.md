@@ -12,7 +12,7 @@ Configure and start a SOCKS5 proxy server.
     This function is only available to the `proxy-server` executable.
 
 This function should be called only from inside your
-[init](../../events/init.md) event handler.
+[proxy_init](../../events/proxy_init.md) event handler.
 
 The proxy server implements the SOCKS5 protocol and can be used by KumoMTA's
 egress sources to route outbound connections through the proxy. This is
@@ -20,7 +20,7 @@ useful for scenarios where you need to control the egress IP address or route
 traffic through specific network paths.
 
 ```lua
-kumo.on('init', function()
+kumo.on('proxy_init', function()
   kumo.start_proxy_listener {
     listen = '0.0.0.0:1080',
   }
@@ -30,7 +30,7 @@ end)
 To enable TLS and authentication:
 
 ```lua
-kumo.on('init', function()
+kumo.on('proxy_init', function()
   kumo.start_proxy_listener {
     listen = '0.0.0.0:1080',
     use_tls = true,
@@ -49,4 +49,3 @@ end)
 `PARAMS` is a lua table that can accept the keys listed below:
 
 ## Proxy Listener Parameters { data-search-exclude }
-

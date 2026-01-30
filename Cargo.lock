@@ -5949,7 +5949,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
- "chrono",
  "clap",
  "config",
  "data-loader",
@@ -5975,7 +5974,6 @@ dependencies = [
  "tokio-splice",
  "tracing",
  "utoipa",
- "uuid",
  "version-info",
 ]
 

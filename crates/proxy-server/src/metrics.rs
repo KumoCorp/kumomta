@@ -26,7 +26,7 @@ pub static TOTAL_CONNECTIONS_ACCEPTED: LazyLock<CounterRegistry<ListenerKey>> =
     LazyLock::new(|| {
         CounterRegistry::register(
             "proxy_connections_accepted_total",
-            "total number of incoming connections accepted by the proxy",
+            "total number of incoming connections accepted by the proxy".to_string(),
         )
     });
 
@@ -34,16 +34,25 @@ pub static TOTAL_CONNECTIONS_ACCEPTED: LazyLock<CounterRegistry<ListenerKey>> =
 pub static TOTAL_CONNECTIONS_FAILED: LazyLock<CounterRegistry<ListenerKey>> = LazyLock::new(|| {
     CounterRegistry::register(
         "proxy_connections_failed_total",
-        "total number of connections that failed during handshake or proxying",
+        "total number of connections that failed during handshake or proxying".to_string(),
     )
 });
+
+/// Total number of TLS handshake failures (counter)
+pub static TOTAL_TLS_HANDSHAKE_FAILURES: LazyLock<CounterRegistry<ListenerKey>> =
+    LazyLock::new(|| {
+        CounterRegistry::register(
+            "proxy_tls_handshake_failures_total",
+            "total number of TLS handshake failures".to_string(),
+        )
+    });
 
 /// Total number of successful proxy sessions completed (counter)
 pub static TOTAL_CONNECTIONS_COMPLETED: LazyLock<CounterRegistry<ListenerKey>> =
     LazyLock::new(|| {
         CounterRegistry::register(
             "proxy_connections_completed_total",
-            "total number of proxy sessions that completed successfully",
+            "total number of proxy sessions that completed successfully".to_string(),
         )
     });
 
@@ -52,7 +61,7 @@ pub static ACTIVE_CONNECTIONS: LazyLock<PruningCounterRegistry<ListenerKey>> =
     LazyLock::new(|| {
         PruningCounterRegistry::register_gauge(
             "proxy_active_connections",
-            "current number of active proxy connections",
+            "current number of active proxy connections".to_string(),
         )
     });
 
@@ -60,13 +69,16 @@ pub static ACTIVE_CONNECTIONS: LazyLock<PruningCounterRegistry<ListenerKey>> =
 pub static BYTES_RECEIVED: LazyLock<CounterRegistry<ListenerKey>> = LazyLock::new(|| {
     CounterRegistry::register(
         "proxy_bytes_received_total",
-        "total bytes received from clients",
+        "total bytes received from clients".to_string(),
     )
 });
 
 /// Total bytes sent to clients (counter)
 pub static BYTES_SENT: LazyLock<CounterRegistry<ListenerKey>> = LazyLock::new(|| {
-    CounterRegistry::register("proxy_bytes_sent_total", "total bytes sent to clients")
+    CounterRegistry::register(
+        "proxy_bytes_sent_total",
+        "total bytes sent to clients".to_string(),
+    )
 });
 
 /// Total outbound connections made to destinations (counter)
@@ -74,7 +86,7 @@ pub static OUTBOUND_CONNECTIONS_TOTAL: LazyLock<PruningCounterRegistry<Connectio
     LazyLock::new(|| {
         PruningCounterRegistry::register(
             "proxy_outbound_connections_total",
-            "total number of outbound connections made to destinations",
+            "total number of outbound connections made to destinations".to_string(),
         )
     });
 
@@ -87,6 +99,11 @@ pub fn connections_accepted_for_listener(listener: &str) -> AtomicCounter {
 pub fn connections_failed_for_listener(listener: &str) -> AtomicCounter {
     let key = BorrowedListenerKey { listener };
     TOTAL_CONNECTIONS_FAILED.get_or_create(&key as &dyn ListenerKeyTrait)
+}
+
+pub fn tls_handshake_failures_for_listener(listener: &str) -> AtomicCounter {
+    let key = BorrowedListenerKey { listener };
+    TOTAL_TLS_HANDSHAKE_FAILURES.get_or_create(&key as &dyn ListenerKeyTrait)
 }
 
 pub fn connections_completed_for_listener(listener: &str) -> AtomicCounter {
@@ -117,11 +134,11 @@ pub fn outbound_connections_for(listener: &str, destination: &str) -> AtomicCoun
     OUTBOUND_CONNECTIONS_TOTAL.get_or_create(&key as &dyn ConnectionKeyTrait)
 }
 
-/// Metrics bundle for a single proxy session
+/// Metrics bundle for a single proxy session.
+/// Uses RAII pattern: active_connections is incremented on creation
+/// and decremented on drop.
 #[derive(Clone)]
 pub struct ProxySessionMetrics {
-    #[allow(dead_code)]
-    listener: String,
     active_connections: AtomicCounter,
     connections_completed: AtomicCounter,
     connections_failed: AtomicCounter,
@@ -135,7 +152,6 @@ impl ProxySessionMetrics {
         active.inc();
 
         Self {
-            listener: listener.to_string(),
             active_connections: active,
             connections_completed: connections_completed_for_listener(listener),
             connections_failed: connections_failed_for_listener(listener),

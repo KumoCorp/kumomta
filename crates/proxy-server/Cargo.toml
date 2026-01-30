@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = {workspace=true}
-chrono = {workspace=true}
 clap = {workspace=true}
 config = {path="../config"}
 data-loader = {path="../data-loader"}
@@ -30,7 +29,6 @@ tokio = {workspace=true, features=["full", "tracing"]}
 tokio-rustls = {workspace=true}
 tracing = {workspace=true}
 utoipa = {workspace=true}
-uuid = {workspace=true, features=["v4"]}
 version-info = {path="../version-info"}
 axum = {workspace=true}
 

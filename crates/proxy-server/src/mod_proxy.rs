@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
+use utoipa::OpenApi;
 
 /// Parameters for starting a proxy listener
 #[derive(Deserialize, Clone, Debug)]
@@ -124,9 +125,19 @@ impl ProxyListenerParams {
             tokio::spawn(async move {
                 let result: anyhow::Result<()> = async {
                     if let Some(acceptor) = tls_acceptor {
-                        let tls_stream = acceptor.accept(socket).await.with_context(|| {
-                            format!("failed TLS handshake from {peer_address:?}")
-                        })?;
+                        let tls_stream = match acceptor.accept(socket).await {
+                            Ok(stream) => stream,
+                            Err(err) => {
+                                // Track TLS handshake failure - convert to string only in error case
+                                crate::metrics::tls_handshake_failures_for_listener(
+                                    &local_address.to_string(),
+                                )
+                                .inc();
+                                return Err(err).with_context(|| {
+                                    format!("failed TLS handshake from {peer_address:?}")
+                                });
+                            }
+                        };
                         Self::handle_client(tls_stream, peer_address, local_address, &params).await
                     } else {
                         Self::handle_client(socket, peer_address, local_address, &params).await
@@ -184,28 +195,37 @@ declare_event! {
     ) -> SerdeWrappedValue<AuthKindResult>;
 }
 
-/// Create a simple router for the proxy metrics HTTP endpoint
-fn make_proxy_router() -> RouterAndDocs {
-    use utoipa::OpenApi;
+#[derive(OpenApi)]
+#[openapi(
+    info(title = "KumoProxy", license(name = "Apache-2.0")),
+    paths(proxy_status)
+)]
+struct ApiDoc;
 
-    #[derive(OpenApi)]
-    #[openapi(info(title = "KumoProxy API", license(name = "Apache-2.0")))]
-    struct ApiDoc;
-
-    let router = Router::new().route("/proxy/status", get(proxy_status));
-
+/// Create the router for the proxy HTTP endpoint
+pub fn make_router() -> RouterAndDocs {
     RouterAndDocs {
-        router,
+        router: Router::new().route("/proxy/status", get(proxy_status)),
         docs: ApiDoc::openapi(),
     }
 }
 
-/// Simple status endpoint for the proxy
+/// Simple health check endpoint for the proxy.
+/// Returns basic status information.
+#[utoipa::path(
+    get,
+    tag = "status",
+    path = "/proxy/status",
+    responses(
+        (status = 200, description = "Proxy is healthy", body = String)
+    ),
+)]
 async fn proxy_status() -> &'static str {
     "KumoProxy OK"
 }
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
+    // Register start_proxy_listener in kumo namespace (existing API)
     let kumo_mod = get_or_create_module(lua, "kumo")?;
 
     kumo_mod.set(
@@ -219,15 +239,15 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         })?,
     )?;
 
-    kumo_mod.set(
-        "start_proxy_http_listener",
+    // Register start_http_listener in proxy namespace (new in this PR)
+    let proxy_mod = get_or_create_module(lua, "proxy")?;
+
+    proxy_mod.set(
+        "start_http_listener",
         lua.create_async_function(|lua, params: Value| async move {
             let params: HttpListenerParams = from_lua_value(&lua, params)?;
             if !config::is_validating() {
-                params
-                    .start(make_proxy_router(), None)
-                    .await
-                    .map_err(any_err)?;
+                params.start(make_router(), None).await.map_err(any_err)?;
             }
             Ok(())
         })?,
