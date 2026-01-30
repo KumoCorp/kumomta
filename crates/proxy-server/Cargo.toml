@@ -5,11 +5,13 @@ edition = "2021"
 
 [dependencies]
 anyhow = {workspace=true}
+chrono = {workspace=true}
 clap = {workspace=true}
 config = {path="../config"}
 data-loader = {path="../data-loader"}
 duration-serde = {path="../duration-serde"}
 gethostname = {workspace=true}
+kumo-prometheus = {path="../kumo-prometheus"}
 kumo-server-common = {path="../kumo-server-common"}
 kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
 kumo-server-memory = {path="../kumo-server-memory"}
@@ -19,6 +21,7 @@ libc = {workspace=true}
 linkme = {workspace=true}
 mlua = {workspace=true}
 nix = {workspace=true, features=["resource", "user"]}
+parking_lot = {workspace=true}
 rustls = {workspace=true}
 serde = {workspace=true}
 socksv5 = {workspace=true}
@@ -26,7 +29,10 @@ tempfile = {workspace=true}
 tokio = {workspace=true, features=["full", "tracing"]}
 tokio-rustls = {workspace=true}
 tracing = {workspace=true}
+utoipa = {workspace=true}
+uuid = {workspace=true, features=["v4"]}
 version-info = {path="../version-info"}
+axum = {workspace=true}
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tokio-splice = {workspace=true}

@@ -7,6 +7,7 @@ use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use std::io::Write;
 use std::path::PathBuf;
 
+mod metrics;
 mod mod_proxy;
 mod proxy_handler;
 

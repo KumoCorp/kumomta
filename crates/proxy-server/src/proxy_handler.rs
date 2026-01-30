@@ -1,4 +1,8 @@
+use crate::metrics::{
+    connections_accepted_for_listener, outbound_connections_for, ProxySessionMetrics,
+};
 use anyhow::Context;
+use chrono::Utc;
 use kumo_server_common::authn_authz::{AuthInfo, Identity, IdentityContext};
 use kumo_server_common::http_server::auth::AuthKindResult;
 use kumo_tls_helper::AsyncReadAndWrite;
@@ -9,6 +13,89 @@ use std::net::{IpAddr, SocketAddr};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::timeout;
+use uuid::Uuid;
+
+/// Connection info for logging purposes
+#[derive(Clone, Debug)]
+pub struct ConnectionInfo {
+    /// Unique identifier for this connection
+    pub connection_id: String,
+    /// Client/origin IP address
+    pub origin_ip: SocketAddr,
+    /// Proxy listener address
+    pub proxy_ip: SocketAddr,
+    /// Destination address (populated after CONNECT)
+    pub destination_ip: Option<SocketAddr>,
+    /// Bound source address for outbound connection
+    pub source_ip: Option<SocketAddr>,
+    /// Authenticated username, if any
+    pub username: Option<String>,
+}
+
+impl ConnectionInfo {
+    fn new(peer_address: SocketAddr, local_address: SocketAddr) -> Self {
+        Self {
+            connection_id: Uuid::new_v4().to_string(),
+            origin_ip: peer_address,
+            proxy_ip: local_address,
+            destination_ip: None,
+            source_ip: None,
+            username: None,
+        }
+    }
+
+    fn log_connect(&self, result: &str) {
+        let timestamp = Utc::now().to_rfc3339();
+        let dest = self
+            .destination_ip
+            .map(|d| d.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let source = self
+            .source_ip
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let user = self.username.as_deref().unwrap_or("-");
+
+        tracing::info!(
+            timestamp = %timestamp,
+            connection_id = %self.connection_id,
+            origin_ip = %self.origin_ip,
+            proxy_ip = %self.proxy_ip,
+            source_ip = %source,
+            destination_ip = %dest,
+            username = %user,
+            result = %result,
+            "proxy_connection"
+        );
+    }
+
+    fn log_disconnect(&self, bytes_sent: u64, bytes_received: u64, duration_secs: f64) {
+        let timestamp = Utc::now().to_rfc3339();
+        let dest = self
+            .destination_ip
+            .map(|d| d.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let source = self
+            .source_ip
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let user = self.username.as_deref().unwrap_or("-");
+
+        tracing::info!(
+            timestamp = %timestamp,
+            connection_id = %self.connection_id,
+            origin_ip = %self.origin_ip,
+            proxy_ip = %self.proxy_ip,
+            source_ip = %source,
+            destination_ip = %dest,
+            username = %user,
+            bytes_sent = bytes_sent,
+            bytes_received = bytes_received,
+            duration_secs = duration_secs,
+            "proxy_disconnect"
+        );
+    }
+}
 
 /// Given a newly accepted client, perform a SOCKS5 handshake and then
 /// run the proxy logic, passing data from the client through to the
@@ -24,6 +111,18 @@ pub async fn handle_proxy_client<S>(
 where
     S: AsyncReadAndWrite + Unpin + Send + 'static,
 {
+    let start_time = std::time::Instant::now();
+    let listener_label = local_address.to_string();
+
+    // Track connection acceptance
+    connections_accepted_for_listener(&listener_label).inc();
+
+    // Create session metrics (increments active connections gauge)
+    let session_metrics = ProxySessionMetrics::new(&listener_label);
+
+    // Create connection info for logging
+    let mut conn_info = ConnectionInfo::new(peer_address, local_address);
+
     let mut state = ClientState::None;
 
     let handshake = timeout(timeout_duration, async {
@@ -42,7 +141,7 @@ where
     // The returned auth_info contains the peer address and any authenticated identity.
     // While not currently used, this enables future ACL-based access control for
     // restricting which source/destination addresses the client can use.
-    let _auth_info = perform_auth(
+    let auth_info = perform_auth(
         &mut stream,
         &handshake,
         peer_address,
@@ -52,6 +151,11 @@ where
     )
     .await?;
 
+    // Extract username if authenticated
+    if let Some(identity) = auth_info.identities.first() {
+        conn_info.username = Some(identity.identity.clone());
+    }
+
     loop {
         let request = timeout(timeout_duration, async {
             socksv5::v5::read_request(&mut stream).await
@@ -60,17 +164,31 @@ where
         .with_context(|| format!("timeout reading request from {peer_address:?} {state:?}"))?
         .with_context(|| format!("failed reading request from {peer_address:?} {state:?}"))?;
 
-        tracing::trace!("peer={peer_address:?} request: {request:?}");
+        tracing::trace!(
+            connection_id = %conn_info.connection_id,
+            peer = %peer_address,
+            "request: {request:?}"
+        );
 
         let status = match timeout(timeout_duration, async {
-            handle_request(&request, &mut state).await
+            handle_request(&request, &mut state, &mut conn_info, &listener_label).await
         })
         .await
         {
-            Err(_) => RequestStatus::timeout(),
+            Err(_) => {
+                conn_info.log_connect("timeout");
+                session_metrics.mark_failed();
+                RequestStatus::timeout()
+            }
             Ok(Ok(s)) => s,
             Ok(Err(err)) => {
-                tracing::error!("peer={peer_address:?}: {state:?} {request:?} -> {err:#}");
+                tracing::error!(
+                    connection_id = %conn_info.connection_id,
+                    peer = %peer_address,
+                    "{state:?} {request:?} -> {err:#}"
+                );
+                conn_info.log_connect("error");
+                session_metrics.mark_failed();
                 RequestStatus::error(err)
             }
         };
@@ -80,7 +198,11 @@ where
         let status_debug = format!("{status:?}");
 
         let is_success = status.status == SocksV5RequestStatus::Success;
-        tracing::trace!("peer={peer_address:?}: {state:?} status -> {status:?}");
+        tracing::trace!(
+            connection_id = %conn_info.connection_id,
+            peer = %peer_address,
+            "{state:?} status -> {status:?}"
+        );
 
         timeout(timeout_duration, async {
             socksv5::v5::write_request_status(&mut stream, status.status, status.host, status.port)
@@ -99,6 +221,8 @@ where
         }
 
         if matches!(state, ClientState::Connected(_)) {
+            // Log successful connection establishment
+            conn_info.log_connect("connected");
             break;
         }
     }
@@ -112,17 +236,50 @@ where
                 // wrapped streams, we always use copy_bidirectional.
                 stream = match stream.try_into_tcp_stream() {
                     Ok(mut tcp_stream) => {
-                        tracing::trace!("peer={peer_address:?} -> going to splice passthru mode");
-                        tokio_splice::zero_copy_bidirectional(&mut tcp_stream, &mut remote_stream)
-                            .await?;
-                        return Ok(());
+                        tracing::trace!(
+                            connection_id = %conn_info.connection_id,
+                            peer = %peer_address,
+                            "going to splice passthru mode"
+                        );
+                        let result = tokio_splice::zero_copy_bidirectional(
+                            &mut tcp_stream,
+                            &mut remote_stream,
+                        )
+                        .await;
+
+                        let duration = start_time.elapsed().as_secs_f64();
+                        // Note: splice doesn't give us byte counts easily
+                        conn_info.log_disconnect(0, 0, duration);
+                        session_metrics.mark_completed();
+                        return result.map(|_| ());
                     }
                     Err(stream) => stream,
                 };
             }
-            tracing::trace!("peer={peer_address:?} -> going to passthru mode");
-            tokio::io::copy_bidirectional(&mut stream, &mut remote_stream).await?;
-            Ok(())
+
+            tracing::trace!(
+                connection_id = %conn_info.connection_id,
+                peer = %peer_address,
+                "going to passthru mode"
+            );
+
+            let result = tokio::io::copy_bidirectional(&mut stream, &mut remote_stream).await;
+
+            let duration = start_time.elapsed().as_secs_f64();
+            match &result {
+                Ok((to_remote, to_client)) => {
+                    session_metrics.record_bytes_sent(*to_client as usize);
+                    session_metrics.record_bytes_received(*to_remote as usize);
+                    conn_info.log_disconnect(*to_client, *to_remote, duration);
+                    session_metrics.mark_completed();
+                }
+                Err(_) => {
+                    conn_info.log_disconnect(0, 0, duration);
+                    session_metrics.mark_failed();
+                }
+            }
+
+            Ok(result.map(|_| ())?)
         }
         _ => anyhow::bail!("Unexpected client state {state:?}"),
     }
@@ -178,6 +335,8 @@ enum ClientState {
 async fn handle_request(
     request: &SocksV5Request,
     state: &mut ClientState,
+    conn_info: &mut ConnectionInfo,
+    listener_label: &str,
 ) -> std::io::Result<RequestStatus> {
     match request.command {
         SocksV5Command::Bind => {
@@ -194,6 +353,9 @@ async fn handle_request(
             socket.bind(host)?;
             let addr = socket.local_addr()?;
 
+            // Record the bound source address
+            conn_info.source_ip = Some(addr);
+
             *state = ClientState::Bound(socket);
 
             Ok(RequestStatus::success(addr))
@@ -201,16 +363,24 @@ async fn handle_request(
         SocksV5Command::Connect => {
             let host = request_addr(request).await?;
 
+            // Record the destination address
+            conn_info.destination_ip = Some(host);
+
+            // Track outbound connection metric
+            outbound_connections_for(listener_label, &host.to_string()).inc();
+
             let addr = match std::mem::take(state) {
                 ClientState::None => {
                     let stream = TcpStream::connect(host).await?;
                     let addr = stream.local_addr()?;
+                    conn_info.source_ip = Some(addr);
                     *state = ClientState::Connected(stream);
                     addr
                 }
                 ClientState::Bound(socket) => {
                     let stream = socket.connect(host).await?;
                     let addr = stream.local_addr()?;
+                    conn_info.source_ip = Some(addr);
                     *state = ClientState::Connected(stream);
                     addr
                 }

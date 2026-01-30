@@ -1,7 +1,10 @@
 use anyhow::Context;
+use axum::routing::get;
+use axum::Router;
 use config::{any_err, declare_event, from_lua_value, get_or_create_module, SerdeWrappedValue};
 use data_loader::KeySource;
 use kumo_server_common::http_server::auth::AuthKindResult;
+use kumo_server_common::http_server::{HttpListenerParams, RouterAndDocs};
 use kumo_server_runtime::spawn;
 use kumo_tls_helper::AsyncReadAndWrite;
 use mlua::{IntoLua, Lua, LuaSerdeExt, Value};
@@ -181,6 +184,27 @@ declare_event! {
     ) -> SerdeWrappedValue<AuthKindResult>;
 }
 
+/// Create a simple router for the proxy metrics HTTP endpoint
+fn make_proxy_router() -> RouterAndDocs {
+    use utoipa::OpenApi;
+
+    #[derive(OpenApi)]
+    #[openapi(info(title = "KumoProxy API", license(name = "Apache-2.0")))]
+    struct ApiDoc;
+
+    let router = Router::new().route("/proxy/status", get(proxy_status));
+
+    RouterAndDocs {
+        router,
+        docs: ApiDoc::openapi(),
+    }
+}
+
+/// Simple status endpoint for the proxy
+async fn proxy_status() -> &'static str {
+    "KumoProxy OK"
+}
+
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let kumo_mod = get_or_create_module(lua, "kumo")?;
 
@@ -188,7 +212,23 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "start_proxy_listener",
         lua.create_async_function(|lua, params: Value| async move {
             let params: ProxyListenerParams = from_lua_value(&lua, params)?;
-            params.start().await.map_err(any_err)?;
+            if !config::is_validating() {
+                params.start().await.map_err(any_err)?;
+            }
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "start_proxy_http_listener",
+        lua.create_async_function(|lua, params: Value| async move {
+            let params: HttpListenerParams = from_lua_value(&lua, params)?;
+            if !config::is_validating() {
+                params
+                    .start(make_proxy_router(), None)
+                    .await
+                    .map_err(any_err)?;
+            }
             Ok(())
         })?,
     )?;

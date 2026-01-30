@@ -5948,11 +5948,14 @@ name = "proxy-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
+ "chrono",
  "clap",
  "config",
  "data-loader",
  "duration-serde",
  "gethostname 1.1.0",
+ "kumo-prometheus",
  "kumo-server-common",
  "kumo-server-lifecycle",
  "kumo-server-memory",
@@ -5962,6 +5965,7 @@ dependencies = [
  "linkme",
  "mlua",
  "nix 0.30.1",
+ "parking_lot",
  "rustls",
  "serde",
  "socksv5",
@@ -5970,6 +5974,8 @@ dependencies = [
  "tokio-rustls",
  "tokio-splice",
  "tracing",
+ "utoipa",
+ "uuid",
  "version-info",
 ]
 
