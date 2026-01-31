@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.01.30-ee70f2db"
+    "version": "2026.01.31-3793b4de"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -192,6 +192,20 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/admin/memory/stats": {
+      "get": {
+        "tags": [
+          "memory"
+        ],
+        "summary": "Returns information about the system memory usage in an unstructured\nhuman readable format.  The output is not machine parseable and may\nchange without notice between versions of kumomta.",
+        "operationId": "memory_stats",
+        "responses": {
+          "200": {
+            "description": "stats were returned"
           }
         }
       }
@@ -436,6 +450,26 @@
         }
       }
     },
+    "/api/admin/trace-smtp-client/v1": {
+      "get": {
+        "tags": [
+          "debugging"
+        ],
+        "summary": "This is a websocket endpoint that provides outbound SMTP tracing.\nIt cannot be described via auto-generated docs extracted from the JSON Schema.",
+        "operationId": "trace",
+        "responses": {}
+      }
+    },
+    "/api/admin/trace-smtp-server/v1": {
+      "get": {
+        "tags": [
+          "debugging"
+        ],
+        "summary": "This is a websocket endpoint that provides inbound SMTP tracing.\nIt cannot be described via auto-generated docs extracted from the JSON Schema.",
+        "operationId": "trace",
+        "responses": {}
+      }
+    },
     "/api/admin/xfer/cancel/v1": {
       "post": {
         "tags": [
@@ -573,6 +607,36 @@
                   "$ref": "#/components/schemas/XferResponseV1"
                 }
               }
+            }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "tags": [],
+        "summary": "Returns the current set of metrics in Prometheus Exposition format",
+        "operationId": "report_metrics",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {}
+            }
+          }
+        }
+      }
+    },
+    "/metrics.json": {
+      "get": {
+        "tags": [],
+        "summary": "Returns the current set of metrics in a json representation.\nThis is easier to consume than the Prometheus Exposition format, but\nis more resource intensive to produce and parse when the number of\nmetrics is large, such as for a busy server.",
+        "operationId": "report_metrics_json",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {}
             }
           }
         }

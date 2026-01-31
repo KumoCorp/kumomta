@@ -8,8 +8,7 @@ use crate::state::{
 use anyhow::anyhow;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::Json;
 use chrono::{DateTime, Utc};
 use kumo_api_types::shaping::{
     Action, EgressPathConfigValueUnchecked, Regex, Rule, Shaping, Trigger,
@@ -20,6 +19,7 @@ use kumo_api_types::tsa::{
 };
 use kumo_log_types::*;
 use kumo_server_common::http_server::{AppError, RouterAndDocs};
+use kumo_server_common::router_with_docs;
 use message::message::QueueNameComponents;
 use parking_lot::Mutex;
 use rfc5321::ForwardPath;
@@ -40,21 +40,18 @@ pub fn open_history_db() -> anyhow::Result<Database> {
     Database::open(&path)
 }
 
-#[derive(OpenApi)]
-#[openapi(info(title = "tsa-daemon",), paths(), components())]
-struct ApiDoc;
-
 pub fn make_router() -> RouterAndDocs {
-    RouterAndDocs {
-        router: Router::new()
-            .route("/publish_log_v1", post(publish_log_v1))
-            .route("/get_config_v1/shaping.toml", get(get_config_v1))
-            .route("/get_suspension_v1/suspended.json", get(get_suspension_v1))
-            .route("/subscribe_suspension_v1", get(subscribe_suspension_v1))
-            .route("/get_bounce_v1/bounced.json", get(get_bounce_v1))
-            .route("/subscribe_event_v1", get(subscribe_event_v1)),
-        docs: ApiDoc::openapi(),
-    }
+    router_with_docs!(
+        title = "tsa-daemon",
+        handlers = [
+            publish_log_v1,
+            get_config_v1,
+            get_suspension_v1,
+            subscribe_suspension_v1,
+            get_bounce_v1,
+            subscribe_event_v1,
+        ]
+    )
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -496,6 +493,7 @@ fn action_hash(m: &Rule, action: &Action) -> String {
     hasher.get()
 }
 
+#[utoipa::path(post, path="/publish_log_v1", request_body=())]
 async fn publish_log_v1(
     // Note: Json<> must be last in the param list
     Json(record): Json<JsonLogRecord>,
@@ -645,6 +643,7 @@ pub async fn import_configs_from_sqlite(
         .await
 }
 
+#[utoipa::path(get, path = "/get_config_v1/shaping.toml")]
 async fn get_config_v1() -> Result<String, AppError> {
     let result = TSA_STATE
         .get()
@@ -720,6 +719,7 @@ pub async fn import_suspensions_from_sqlite(
         .await
 }
 
+#[utoipa::path(get, path = "/get_suspension_v1/suspended.json")]
 async fn get_suspension_v1() -> Result<Json<Suspensions>, AppError> {
     Ok(Json(get_suspensions()))
 }
@@ -783,10 +783,13 @@ async fn process_suspension_subscription(socket: WebSocket) {
 
 /// This is a legacy endpoint that can only report on the old SuspensionEntry
 /// enum variants
+#[utoipa::path(get, path = "/subscribe_suspension_v1")]
+#[deprecated]
 pub async fn subscribe_suspension_v1(ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(process_suspension_subscription)
 }
 
+#[utoipa::path(get, path = "/get_bounce_v1/bounced.json")]
 async fn get_bounce_v1() -> Result<Json<Vec<SchedQBounce>>, AppError> {
     let result = TSA_STATE
         .get()
@@ -860,6 +863,7 @@ async fn process_event_subscription(socket: WebSocket) {
     }
 }
 
+#[utoipa::path(get, path = "/subscribe_event_v1")]
 pub async fn subscribe_event_v1(ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(process_event_subscription)
 }

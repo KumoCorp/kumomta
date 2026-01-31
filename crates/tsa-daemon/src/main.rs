@@ -48,7 +48,7 @@ fn main() -> anyhow::Result<()> {
     let opts = Opt::parse();
 
     if opts.dump_openapi_spec {
-        let api_docs = crate::http_server::make_router().make_docs();
+        let api_docs = crate::http_server::make_router().docs;
         println!("{}", api_docs.to_pretty_json()?);
         return Ok(());
     }

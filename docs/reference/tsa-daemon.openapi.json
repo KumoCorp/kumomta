@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2025.10.08-4be75084"
+    "version": "2026.01.31-3793b4de"
   },
   "paths": {
     "/api/admin/bump-config-epoch": {
@@ -19,6 +19,20 @@
         "responses": {
           "200": {
             "description": "bump successful"
+          }
+        }
+      }
+    },
+    "/api/admin/memory/stats": {
+      "get": {
+        "tags": [
+          "memory"
+        ],
+        "summary": "Returns information about the system memory usage in an unstructured\nhuman readable format.  The output is not machine parseable and may\nchange without notice between versions of kumomta.",
+        "operationId": "memory_stats",
+        "responses": {
+          "200": {
+            "description": "stats were returned"
           }
         }
       }
@@ -45,6 +59,90 @@
             "description": "Diagnostic level set successfully"
           }
         }
+      }
+    },
+    "/get_bounce_v1/bounced.json": {
+      "get": {
+        "tags": [],
+        "operationId": "get_bounce_v1",
+        "responses": {}
+      }
+    },
+    "/get_config_v1/shaping.toml": {
+      "get": {
+        "tags": [],
+        "operationId": "get_config_v1",
+        "responses": {}
+      }
+    },
+    "/get_suspension_v1/suspended.json": {
+      "get": {
+        "tags": [],
+        "operationId": "get_suspension_v1",
+        "responses": {}
+      }
+    },
+    "/metrics": {
+      "get": {
+        "tags": [],
+        "summary": "Returns the current set of metrics in Prometheus Exposition format",
+        "operationId": "report_metrics",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {}
+            }
+          }
+        }
+      }
+    },
+    "/metrics.json": {
+      "get": {
+        "tags": [],
+        "summary": "Returns the current set of metrics in a json representation.\nThis is easier to consume than the Prometheus Exposition format, but\nis more resource intensive to produce and parse when the number of\nmetrics is large, such as for a busy server.",
+        "operationId": "report_metrics_json",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {}
+            }
+          }
+        }
+      }
+    },
+    "/publish_log_v1": {
+      "post": {
+        "tags": [],
+        "operationId": "publish_log_v1",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "default": null
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {}
+      }
+    },
+    "/subscribe_event_v1": {
+      "get": {
+        "tags": [],
+        "operationId": "subscribe_event_v1",
+        "responses": {}
+      }
+    },
+    "/subscribe_suspension_v1": {
+      "get": {
+        "tags": [],
+        "summary": "This is a legacy endpoint that can only report on the old SuspensionEntry\nenum variants",
+        "operationId": "subscribe_suspension_v1",
+        "responses": {},
+        "deprecated": true
       }
     }
   },

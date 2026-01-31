@@ -146,11 +146,10 @@ fn generate_path_op(
     {
         writeln!(&mut output, "status: deprecated")?;
     }
-    if let Some(tags) = op
-        .tags
-        .as_ref()
-        .and_then(|t| if t.is_empty() { None } else { Some(t) })
-    {
+    let tags = op.tags.as_ref().map(|v| &v[..]).unwrap_or(&[]);
+    if tags.is_empty() {
+        writeln!(&mut output, "tags: []")?;
+    } else {
         writeln!(&mut output, "tags:")?;
         for t in tags {
             writeln!(&mut output, "  - {t}")?;
@@ -232,10 +231,9 @@ fn generate_path_op(
                     writeln!(&mut output, "### Status {status}\n{}\n", &resp.description)?;
 
                     for (ct, content) in &resp.content {
+                        writeln!(&mut output, "\n`Content-Type: {ct}`\n")?;
                         if let Some(ros) = &content.schema {
                             if let Some(s) = resolve_schema(api, ros) {
-                                writeln!(&mut output, "\n`Content-Type: {ct}`\n")?;
-
                                 let mut examples = vec![];
                                 emit_schema(&mut output, api, s, schema_dir, &mut examples)?;
                                 emit_examples(&mut output, &mut examples)?;
