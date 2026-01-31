@@ -1,12 +1,6 @@
-use crate::smtp_server::TraceHeaders;
 use axum::routing::{delete, get, post};
 use axum::Router;
-use inject_v1::*;
-use kumo_api_types::rebind::*;
-use kumo_api_types::xfer::*;
-use kumo_api_types::*;
 use kumo_server_common::http_server::RouterAndDocs;
-use spool::SpoolId;
 use utoipa::OpenApi;
 
 pub mod admin_bounce_v1;
@@ -44,49 +38,6 @@ pub mod queue_name_multi_index;
         crate::xfer::inject_xfer_v1,
         crate::xfer::request::xfer_v1,
         crate::xfer::cancel::xfer_cancel_v1,
-    ),
-    components(
-        schemas(
-            FromHeader,
-            Recipient,
-            Content,
-            Attachment,
-            InjectV1Request,
-            InjectV1Response,
-            SpoolId,
-            BounceV1Request,
-            BounceV1Response,
-            BounceV1ListEntry,
-            BounceV1CancelRequest,
-            InspectMessageV1Response,
-            InspectQueueV1Request,
-            MessageInformation,
-            ReadyQueueStateRequest,
-            ReadyQueueStateResponse,
-            QueueState,
-            RebindV1Request,
-            RebindV1Response,
-            SuspendReadyQueueV1Request,
-            SuspendV1Response,
-            SuspendReadyQueueV1ListEntry,
-            SuspendV1CancelRequest,
-            SuspendV1ListEntry,
-            SuspendV1Request,
-            TraceHeaders,
-            XferV1Request,
-            XferV1Response,
-            XferCancelV1Request,
-            XferCancelV1Response,
-        ),
-        responses(
-            InjectV1Response,
-            BounceV1Response,
-            InspectMessageV1Response,
-            InspectQueueV1Response,
-            ReadyQueueStateResponse,
-            XferV1Response,
-            XferCancelV1Response,
-        ),
     )
 )]
 struct ApiDoc;

@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.01.29-dd9df65f"
+    "version": "2026.01.30-ee70f2db"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -1048,31 +1048,6 @@
           }
         }
       },
-      "InspectQueueV1Request": {
-        "type": "object",
-        "required": [
-          "queue_name"
-        ],
-        "properties": {
-          "limit": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "description": "Return up to `limit` messages in the queue sample.\nDepending on the strategy configured for the queue,\nmessages may not be directly reachable via this endpoint.\nIf no limit is provided, all messages in the queue will\nbe sampled.",
-            "minimum": 0
-          },
-          "queue_name": {
-            "type": "string",
-            "description": "The name of the scheduled queue",
-            "example": "campaign_name:tenant_name@example.com"
-          },
-          "want_body": {
-            "type": "boolean",
-            "description": "If true, return the message body in addition to the\nmetadata"
-          }
-        }
-      },
       "InspectQueueV1Response": {
         "type": "object",
         "required": [
@@ -1184,21 +1159,6 @@
           "since": {
             "type": "string",
             "format": "date-time"
-          }
-        }
-      },
-      "ReadyQueueStateRequest": {
-        "type": "object",
-        "properties": {
-          "queues": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Which queues to request. If empty, request all queue states.",
-            "example": [
-              "campaign_name:tenant_name@example.com"
-            ]
           }
         }
       },
@@ -1686,221 +1646,6 @@
       },
       "XferV1Response": {
         "type": "object"
-      }
-    },
-    "responses": {
-      "BounceV1Response": {
-        "description": "",
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "id",
-                "bounced",
-                "total_bounced"
-              ],
-              "properties": {
-                "bounced": {
-                  "type": "object",
-                  "description": "Deprecated: this field is no longer populated, as bounces\nare now always asynchronous. In earlier versions the following\napplies:\n\nA map of queue name to number of bounced messages that\nwere processed as part of the initial sweep.\nAdditional bounces may be generated if/when other messages\nthat match the rule are discovered, but those obviously\ncannot be reported in the context of the initial request.",
-                  "additionalProperties": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "propertyNames": {
-                    "type": "string"
-                  },
-                  "deprecated": true,
-                  "example": {
-                    "gmail.com": 200,
-                    "yahoo.com": 100
-                  }
-                },
-                "id": {
-                  "type": "string",
-                  "format": "uuid",
-                  "description": "The id of the bounce rule that was registered.\nThis can be used later to delete the rule if desired.",
-                  "example": "552016f1-08e7-4e90-9da3-fd5c25acd069"
-                },
-                "total_bounced": {
-                  "type": "integer",
-                  "description": "Deprecated: this field is no longer populated, as bounces are\nnow always asynchronous. In earlier versions the following applies:\n\nThe sum of the number of bounced messages reported by\nthe `bounced` field.",
-                  "deprecated": true,
-                  "example": 300,
-                  "minimum": 0
-                }
-              }
-            }
-          }
-        }
-      },
-      "InjectV1Response": {
-        "description": "",
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "success_count",
-                "fail_count",
-                "failed_recipients",
-                "errors"
-              ],
-              "properties": {
-                "errors": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "description": "The list of error messages"
-                },
-                "fail_count": {
-                  "type": "integer",
-                  "description": "The number of messages that failed to inject",
-                  "minimum": 0
-                },
-                "failed_recipients": {
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "format": "email"
-                  },
-                  "description": "The list of failed recipients"
-                },
-                "success_count": {
-                  "type": "integer",
-                  "description": "The number of messages that were injected successfully",
-                  "minimum": 0
-                }
-              }
-            }
-          }
-        }
-      },
-      "InspectMessageV1Response": {
-        "description": "",
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "id",
-                "message"
-              ],
-              "properties": {
-                "id": {
-                  "$ref": "#/components/schemas/SpoolId",
-                  "description": "The spool identifier of the message"
-                },
-                "message": {
-                  "$ref": "#/components/schemas/MessageInformation",
-                  "description": "The message information"
-                }
-              }
-            }
-          }
-        }
-      },
-      "InspectQueueV1Response": {
-        "description": "",
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "queue_name",
-                "messages",
-                "num_scheduled",
-                "queue_config",
-                "delayed_metric",
-                "now",
-                "last_changed"
-              ],
-              "properties": {
-                "delayed_metric": {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                "last_changed": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "messages": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/InspectMessageV1Response"
-                  }
-                },
-                "now": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "num_scheduled": {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                "queue_config": {
-                  "type": "object"
-                },
-                "queue_name": {
-                  "type": "string",
-                  "example": "campaign_name:tenant_name@example.com"
-                }
-              }
-            }
-          }
-        }
-      },
-      "ReadyQueueStateResponse": {
-        "description": "",
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "states_by_ready_queue"
-              ],
-              "properties": {
-                "states_by_ready_queue": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/QueueState"
-                    },
-                    "propertyNames": {
-                      "type": "string"
-                    }
-                  },
-                  "propertyNames": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "XferCancelV1Response": {
-        "description": "",
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object"
-            }
-          }
-        }
-      },
-      "XferV1Response": {
-        "description": "",
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object"
-            }
-          }
-        }
       }
     },
     "securitySchemes": {

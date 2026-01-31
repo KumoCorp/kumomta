@@ -73,6 +73,7 @@ impl AdminRebindEntry {
     post,
     tag="rebind",
     path="/api/admin/rebind/v1",
+    request_body=RebindV1Request,
     responses(
         (status = 200, description = "Rebind added successfully", body=RebindV1Response)
     ),

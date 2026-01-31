@@ -195,6 +195,7 @@ impl AdminBounceEntry {
     post,
     tag="bounce",
     path="/api/admin/bounce/v1",
+    request_body=BounceV1Request,
     responses(
         (status = 200, description = "Bounce added successfully", body=BounceV1Response)
     ),
@@ -261,6 +262,7 @@ pub async fn bounce_v1_list() -> Result<Json<Vec<BounceV1ListEntry>>, AppError> 
     delete,
     tag="bounce",
     path="/api/admin/bounce/v1",
+    request_body=BounceV1CancelRequest,
     responses(
         (status = 200, description = "Removed the requested bounce id"),
         (status = 404, description = "The requested bounce id is no longer, or never was, valid"),

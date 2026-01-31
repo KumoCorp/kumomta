@@ -893,6 +893,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     post,
     tag="inject",
     path="/api/inject/v1",
+    request_body=InjectV1Request,
     responses(
         (status = 200, description = "Message(s) injected successfully", body=InjectV1Response)
     ),

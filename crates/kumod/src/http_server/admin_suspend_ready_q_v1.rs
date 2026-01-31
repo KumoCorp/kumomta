@@ -177,6 +177,7 @@ impl AdminSuspendReadyQEntry {
     post,
     tag="suspend",
     path="/api/admin/suspend-ready-q/v1",
+    request_body=SuspendReadyQueueV1Request,
     responses(
         (status = 200, description = "Suspended", body=SuspendV1Response),
     ),
@@ -216,6 +217,7 @@ pub async fn list() -> Result<Json<Vec<SuspendReadyQueueV1ListEntry>>, AppError>
     delete,
     tag="suspend",
     path="/api/admin/suspend-ready-q/v1",
+    request_body=SuspendV1CancelRequest,
     responses(
         (status = 200, description = "Removed the suspension"),
         (status = 404, description = "Suspension either expired or was never valid"),

@@ -39,7 +39,6 @@ use auth::*;
     security(
         ("basic_auth" = [""])
     ),
-    components(schemas(SetDiagnosticFilterRequest)),
     modifiers(&OptionalAuth),
 )]
 struct ApiDoc;
@@ -383,6 +382,7 @@ async fn report_metrics_json() -> impl IntoResponse {
     post,
     tag="logging",
     path="/api/admin/set_diagnostic_log_filter/v1",
+    request_body=SetDiagnosticFilterRequest,
     responses(
         (status = 200, description = "Diagnostic level set successfully")
     ),
