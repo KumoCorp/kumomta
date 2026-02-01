@@ -111,7 +111,8 @@ kumo.on('init', function()
 end)
 ```
 
-You can adjust the log filter level dynamically using [kcli set-log-filter](../../reference/kcli/set-log-filter):
+You can adjust the log filter level dynamically using [kcli
+set-log-filter](../../reference/kcli/set-log-filter.md):
 
 ```console
 $ kcli set-log-filter 'kumod=debug'
