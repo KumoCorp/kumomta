@@ -15,6 +15,8 @@ tags:
 
 Allows the system operator to delete an administrative bounce entry by its id.
 
+This API endpoint is used by the [kcli bounce-cancel](../../kcli/bounce-cancel.md) command.
+
 ## Request Body
 
 The request body is required.

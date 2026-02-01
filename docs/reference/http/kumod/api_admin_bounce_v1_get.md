@@ -16,6 +16,8 @@ tags:
 Allows the system operator to list all currently active administrative bounces that have been
 configured.
 
+This API endpoint is used by the [kcli bounce-list](../../kcli/bounce-list.md) command.
+
 ## Responses
 ### Status 200
 Returned information about current admin bounces

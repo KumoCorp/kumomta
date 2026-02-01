@@ -15,6 +15,8 @@ tags:
 
 Retrieve information about messages in a scheduled queue.
 
+This API endpoint is used by the [kcli inspect-sched-q](../../kcli/inspect-sched-q.md) command.
+
 ## Query Parameters
   * `queue_name` - required `string`. The name of the scheduled queue
   * `want_body` - optional `boolean`. If true, return the message body in addition to the

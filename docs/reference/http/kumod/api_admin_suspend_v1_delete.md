@@ -15,6 +15,8 @@ tags:
 
 Remove a scheduled-queue suspension
 
+This API endpoint is used by the [kcli suspend-cancel](../../kcli/suspend-cancel.md) command.
+
 ## Request Body
 
 The request body is required.

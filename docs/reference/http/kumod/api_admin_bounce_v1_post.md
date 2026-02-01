@@ -16,6 +16,8 @@ tags:
 Allows the system operator to administratively bounce messages that match
 certain criteria, or if no criteria are provided, ALL messages.
 
+This API endpoint is used by the [kcli bounce](../../kcli/bounce.md) command.
+
 ## Request Body
 
 The request body is required.

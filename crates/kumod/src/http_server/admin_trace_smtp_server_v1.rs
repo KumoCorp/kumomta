@@ -244,7 +244,7 @@ async fn process_websocket(socket: WebSocket) {
 
 /// This is a websocket endpoint that provides inbound SMTP tracing.
 /// It cannot be described via auto-generated docs extracted from the JSON Schema.
-#[utoipa::path(get, tag = "debugging", path = "/api/admin/trace-smtp-server/v1")]
+#[utoipa::path(get, tags=["debugging", "kcli:trace-smtp-server"], path = "/api/admin/trace-smtp-server/v1")]
 pub async fn trace(ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(|socket| process_websocket(socket))
 }

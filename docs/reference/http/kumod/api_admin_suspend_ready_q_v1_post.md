@@ -15,6 +15,8 @@ tags:
 
 Define a suspension for a ready queue
 
+This API endpoint is used by the [kcli suspend-ready-q](../../kcli/suspend-ready-q.md) command.
+
 ## Request Body
 
 The request body is required.

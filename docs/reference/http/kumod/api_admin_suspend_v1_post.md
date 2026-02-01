@@ -15,6 +15,8 @@ tags:
 
 Define a suspension for a scheduled queue
 
+This API endpoint is used by the [kcli suspend](../../kcli/suspend.md) command.
+
 ## Request Body
 
 The request body is required.

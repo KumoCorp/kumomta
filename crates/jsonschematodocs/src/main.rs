@@ -147,12 +147,17 @@ fn generate_path_op(
         writeln!(&mut output, "status: deprecated")?;
     }
     let tags = op.tags.as_ref().map(|v| &v[..]).unwrap_or(&[]);
+    let mut kcli = None;
     if tags.is_empty() {
         writeln!(&mut output, "tags: []")?;
     } else {
         writeln!(&mut output, "tags:")?;
         for t in tags {
-            writeln!(&mut output, "  - {t}")?;
+            if let Some(k) = t.strip_prefix("kcli:") {
+                kcli.replace(k);
+            } else {
+                writeln!(&mut output, "  - {t}")?;
+            }
         }
     }
     writeln!(&mut output, "---")?;
@@ -165,6 +170,14 @@ fn generate_path_op(
     if let Some(text) = &op.summary {
         writeln!(&mut output, "{text}")?;
     }
+
+    if let Some(k) = kcli {
+        writeln!(
+            &mut output,
+            "\nThis API endpoint is used by the [kcli {k}](../../kcli/{k}.md) command."
+        )?;
+    }
+
     if let Some(text) = &op.description {
         writeln!(&mut output, "{text}")?;
     }

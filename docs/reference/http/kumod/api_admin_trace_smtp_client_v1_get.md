@@ -15,3 +15,5 @@ tags:
 
 This is a websocket endpoint that provides outbound SMTP tracing.
 It cannot be described via auto-generated docs extracted from the JSON Schema.
+
+This API endpoint is used by the [kcli trace-smtp-client](../../kcli/trace-smtp-client.md) command.

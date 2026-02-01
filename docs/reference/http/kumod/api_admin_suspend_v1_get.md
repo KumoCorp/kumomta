@@ -15,6 +15,8 @@ tags:
 
 List the active scheduled-queue suspensions
 
+This API endpoint is used by the [kcli suspend-list](../../kcli/suspend-list.md) command.
+
 ## Responses
 ### Status 200
 Suspended

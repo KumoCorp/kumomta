@@ -6,13 +6,14 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.01.31-3793b4de"
+    "version": "2026.02.01-a8163b6e"
   },
   "paths": {
     "/api/admin/bounce/v1": {
       "get": {
         "tags": [
-          "bounce"
+          "bounce",
+          "kcli:bounce-list"
         ],
         "summary": "Allows the system operator to list all currently active administrative bounces that have been\nconfigured.",
         "operationId": "bounce_v1_list",
@@ -34,7 +35,8 @@
       },
       "post": {
         "tags": [
-          "bounce"
+          "bounce",
+          "kcli:bounce"
         ],
         "summary": "Allows the system operator to administratively bounce messages that match\ncertain criteria, or if no criteria are provided, ALL messages.",
         "operationId": "bounce_v1",
@@ -63,7 +65,8 @@
       },
       "delete": {
         "tags": [
-          "bounce"
+          "bounce",
+          "kcli:bounce-cancel"
         ],
         "summary": "Allows the system operator to delete an administrative bounce entry by its id.",
         "operationId": "bounce_v1_delete",
@@ -104,7 +107,8 @@
     "/api/admin/inspect-message/v1": {
       "get": {
         "tags": [
-          "inspect"
+          "inspect",
+          "kcli:inspect-message"
         ],
         "summary": "Retrieve information about a message given its spool id.",
         "operationId": "inspect_v1",
@@ -145,7 +149,8 @@
     "/api/admin/inspect-sched-q/v1": {
       "get": {
         "tags": [
-          "inspect"
+          "inspect",
+          "kcli:inspect-sched-q"
         ],
         "summary": "Retrieve information about messages in a scheduled queue.",
         "operationId": "inspect_v1",
@@ -213,7 +218,8 @@
     "/api/admin/ready-q-states/v1": {
       "get": {
         "tags": [
-          "inspect"
+          "inspect",
+          "kcli:queue-summary"
         ],
         "summary": "Retrieve information about the states that apply to a set of\nready queues, or all queues if no specific queues were named\nin the request.",
         "operationId": "readyq_states",
@@ -248,7 +254,8 @@
     "/api/admin/rebind/v1": {
       "post": {
         "tags": [
-          "rebind"
+          "rebind",
+          "kcli:rebind"
         ],
         "summary": "Allows the system operator to administratively rebind messages.\nRebinding can target queues that match\ncertain criteria, or if no criteria are provided, ALL queues.\nRebinding is moving a message from one scheduled queue into another.\nQueue selection is based upon the envelope recipient and message\nmetadata as described in <https://docs.kumomta.com/reference/queues/>",
         "operationId": "rebind_v1",
@@ -303,7 +310,8 @@
     "/api/admin/suspend-ready-q/v1": {
       "get": {
         "tags": [
-          "suspend"
+          "suspend",
+          "kcli:suspend-ready-q-list"
         ],
         "summary": "List the active ready-queue suspensions",
         "operationId": "list",
@@ -322,7 +330,8 @@
       },
       "post": {
         "tags": [
-          "suspend"
+          "suspend",
+          "kcli:suspend-ready-q"
         ],
         "summary": "Define a suspension for a ready queue",
         "operationId": "suspend",
@@ -351,7 +360,8 @@
       },
       "delete": {
         "tags": [
-          "suspend"
+          "suspend",
+          "kcli:suspend-ready-q-cancel"
         ],
         "summary": "Remove a ready-queue suspension",
         "operationId": "delete",
@@ -378,7 +388,8 @@
     "/api/admin/suspend/v1": {
       "get": {
         "tags": [
-          "suspend"
+          "suspend",
+          "kcli:suspend-list"
         ],
         "summary": "List the active scheduled-queue suspensions",
         "operationId": "list",
@@ -397,7 +408,8 @@
       },
       "post": {
         "tags": [
-          "suspend"
+          "suspend",
+          "kcli:suspend"
         ],
         "summary": "Define a suspension for a scheduled queue",
         "operationId": "suspend",
@@ -426,7 +438,8 @@
       },
       "delete": {
         "tags": [
-          "suspend"
+          "suspend",
+          "kcli:suspend-cancel"
         ],
         "summary": "Remove a scheduled-queue suspension",
         "operationId": "delete",
@@ -453,7 +466,8 @@
     "/api/admin/trace-smtp-client/v1": {
       "get": {
         "tags": [
-          "debugging"
+          "debugging",
+          "kcli:trace-smtp-client"
         ],
         "summary": "This is a websocket endpoint that provides outbound SMTP tracing.\nIt cannot be described via auto-generated docs extracted from the JSON Schema.",
         "operationId": "trace",
@@ -463,7 +477,8 @@
     "/api/admin/trace-smtp-server/v1": {
       "get": {
         "tags": [
-          "debugging"
+          "debugging",
+          "kcli:trace-smtp-server"
         ],
         "summary": "This is a websocket endpoint that provides inbound SMTP tracing.\nIt cannot be described via auto-generated docs extracted from the JSON Schema.",
         "operationId": "trace",

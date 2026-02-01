@@ -17,6 +17,8 @@ Retrieve information about the states that apply to a set of
 ready queues, or all queues if no specific queues were named
 in the request.
 
+This API endpoint is used by the [kcli queue-summary](../../kcli/queue-summary.md) command.
+
 ## Query Parameters
   * `queues` - optional array of `string`. Which queues to request. If empty, request all queue states.
 

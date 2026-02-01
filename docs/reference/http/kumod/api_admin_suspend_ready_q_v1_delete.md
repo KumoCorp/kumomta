@@ -15,6 +15,8 @@ tags:
 
 Remove a ready-queue suspension
 
+This API endpoint is used by the [kcli suspend-ready-q-cancel](../../kcli/suspend-ready-q-cancel.md) command.
+
 ## Request Body
 
 The request body is required.

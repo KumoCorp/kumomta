@@ -15,6 +15,8 @@ tags:
 
 List the active ready-queue suspensions
 
+This API endpoint is used by the [kcli suspend-ready-q-list](../../kcli/suspend-ready-q-list.md) command.
+
 ## Responses
 ### Status 200
 Suspended

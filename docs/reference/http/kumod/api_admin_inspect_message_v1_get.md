@@ -15,6 +15,8 @@ tags:
 
 Retrieve information about a message given its spool id.
 
+This API endpoint is used by the [kcli inspect-message](../../kcli/inspect-message.md) command.
+
 ## Query Parameters
   * `id` - required [SpoolId](schemas/SpoolId.md). The spool identifier for the message whose information
     is being requested
