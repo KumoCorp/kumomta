@@ -18,7 +18,7 @@ node to some other target node.
 The transfer (xfer) can target queues that match
 certain criteria, or if no criteria are provided, ALL queues.
 Queue selection is based upon the envelope recipient and message
-metadata as described in <https://docs.kumomta.com/reference/queues/>.
+metadata as described in [Queues](../../queues.md).
 Messages in the selected queues will be moved into an xfer queue
 whose name is based on the target specified by the transfer request.
 

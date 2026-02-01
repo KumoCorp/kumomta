@@ -118,6 +118,28 @@ fn resolve_schema<'a>(api: &'a OpenApi, ros: &'a RefOr<Schema>) -> Option<&'a Sc
     }
 }
 
+fn fixup_absolute_doc_links_on_path_page(text: &str) -> String {
+    // TODO: maybe one day make this use a regex, for now, just
+    // remap some known links
+
+    let mut text = text.to_string();
+
+    for (search, replace) in &[
+        (
+            "<https://docs.kumomta.com/reference/kumo/set_diagnostic_log_filter/>",
+            "[kumo.set_diagnostic_log_filter](../../kumo/set_diagnostic_log_filter.md)",
+        ),
+        (
+            "<https://docs.kumomta.com/reference/queues/>",
+            "[Queues](../../queues.md)",
+        ),
+    ] {
+        text = text.replace(search, replace);
+    }
+
+    text
+}
+
 fn generate_path_op(
     api: &OpenApi,
     service: &str,
@@ -168,7 +190,11 @@ fn generate_path_op(
     writeln!(&mut output, "{DISCLAIMER}")?;
 
     if let Some(text) = &op.summary {
-        writeln!(&mut output, "{text}")?;
+        writeln!(
+            &mut output,
+            "{}",
+            fixup_absolute_doc_links_on_path_page(text)
+        )?;
     }
 
     if let Some(k) = kcli {
@@ -179,7 +205,11 @@ fn generate_path_op(
     }
 
     if let Some(text) = &op.description {
-        writeln!(&mut output, "{text}")?;
+        writeln!(
+            &mut output,
+            "{}",
+            fixup_absolute_doc_links_on_path_page(text)
+        )?;
     }
 
     if let Some(params) = &op.parameters {

@@ -18,7 +18,7 @@ Rebinding can target queues that match
 certain criteria, or if no criteria are provided, ALL queues.
 Rebinding is moving a message from one scheduled queue into another.
 Queue selection is based upon the envelope recipient and message
-metadata as described in <https://docs.kumomta.com/reference/queues/>
+metadata as described in [Queues](../../queues.md)
 
 This API endpoint is used by the [kcli rebind](../../kcli/rebind.md) command.
 
