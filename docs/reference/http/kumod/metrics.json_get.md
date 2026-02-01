@@ -16,6 +16,30 @@ Returns the current set of metrics in a json representation.
 This is easier to consume than the Prometheus Exposition format, but
 is more resource intensive to produce and parse when the number of
 metrics is large, such as for a busy server.
+!!! note
+    Metrics generally represent data at the current point in time,
+    to be consumed by an external system (such as Prometheus) which
+    then in turn can build time series data around those metrics.
+
+    In addition, in order to avoid unbounded RAM usage for systems
+    with many queues, a number of queue- or service-specific metrics
+    will be automatically pruned away when the corresponding queue
+    idles out for a period of time.
+
+In the default configuration, access to this endpoint requires *Trusted IP*
+authentication.  See the [Authorization](../../access_control.md) documentation
+for more information on adjusting ACLs.
+
+See also [metrics](metrics_get.md).
+
+## Example Data
+
+Here's an example of the shape of the data.  The precise set of
+counters will vary as we continue to enhance KumoMTA:
+
+```json
+{% include "reference/http/sample-metrics.json" %}
+```
 
 ## Responses
 ### Status 200

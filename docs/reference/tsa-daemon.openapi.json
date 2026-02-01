@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.02.01-cebf0774"
+    "version": "2026.02.01-70863b30"
   },
   "paths": {
     "/api/admin/bump-config-epoch": {
@@ -86,7 +86,8 @@
     "/metrics": {
       "get": {
         "tags": [],
-        "summary": "Returns the current set of metrics in Prometheus Exposition format",
+        "summary": "Returns the current set of metrics in\n[Prometheus Text Exposition Format](https://prometheus.io/docs/instrumenting/exposition_formats/).",
+        "description": "!!! note\n    Metrics generally represent data at the current point in time,\n    to be consumed by an external system (such as Prometheus) which\n    then in turn can build time series data around those metrics.\n\n    In addition, in order to avoid unbounded RAM usage for systems\n    with many queues, a number of queue- or service-specific metrics\n    will be automatically pruned away when the corresponding queue\n    idles out for a period of time.\n\nIn the default configuration, access to this endpoint requires *Trusted IP*\nauthentication.  See the [Authorization](../../access_control.md) documentation\nfor more information on adjusting ACLs.\n\nSee also [metrics.json](metrics.json_get.md).\n\n## Example Data\n\nHere's an example of the shape of the data.  The precise set of\ncounters will vary as we continue to enhance KumoMTA.\n\nYou can see the current list by querying the endpoint with no arguments:\n\n```console\n$ curl http://localhost:8000/metrics\n```\n\n```txt\n{% include \"reference/http/sample-metrics.txt\" %}\n```",
         "operationId": "report_metrics",
         "responses": {
           "200": {
@@ -102,6 +103,7 @@
       "get": {
         "tags": [],
         "summary": "Returns the current set of metrics in a json representation.\nThis is easier to consume than the Prometheus Exposition format, but\nis more resource intensive to produce and parse when the number of\nmetrics is large, such as for a busy server.",
+        "description": "!!! note\n    Metrics generally represent data at the current point in time,\n    to be consumed by an external system (such as Prometheus) which\n    then in turn can build time series data around those metrics.\n\n    In addition, in order to avoid unbounded RAM usage for systems\n    with many queues, a number of queue- or service-specific metrics\n    will be automatically pruned away when the corresponding queue\n    idles out for a period of time.\n\nIn the default configuration, access to this endpoint requires *Trusted IP*\nauthentication.  See the [Authorization](../../access_control.md) documentation\nfor more information on adjusting ACLs.\n\nSee also [metrics](metrics_get.md).\n\n## Example Data\n\nHere's an example of the shape of the data.  The precise set of\ncounters will vary as we continue to enhance KumoMTA:\n\n```json\n{% include \"reference/http/sample-metrics.json\" %}\n```",
         "operationId": "report_metrics_json",
         "responses": {
           "200": {
