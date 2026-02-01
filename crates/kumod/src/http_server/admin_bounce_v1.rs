@@ -191,6 +191,9 @@ impl AdminBounceEntry {
 
 /// Allows the system operator to administratively bounce messages that match
 /// certain criteria, or if no criteria are provided, ALL messages.
+///
+/// !!! danger
+///     There is no way to undo the actions carried out by this request!
 #[utoipa::path(
     post,
     tags=["bounce", "kcli:bounce"],

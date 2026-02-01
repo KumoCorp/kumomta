@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.02.01-a8163b6e"
+    "version": "2026.02.01-cebf0774"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -39,6 +39,7 @@
           "kcli:bounce"
         ],
         "summary": "Allows the system operator to administratively bounce messages that match\ncertain criteria, or if no criteria are provided, ALL messages.",
+        "description": "!!! danger\n    There is no way to undo the actions carried out by this request!",
         "operationId": "bounce_v1",
         "requestBody": {
           "content": {
@@ -286,7 +287,8 @@
     "/api/admin/set_diagnostic_log_filter/v1": {
       "post": {
         "tags": [
-          "logging"
+          "logging",
+          "kcli:set-log-filter"
         ],
         "summary": "Changes the diagnostic log filter dynamically.\nSee <https://docs.kumomta.com/reference/kumo/set_diagnostic_log_filter/>\nfor more information on diagnostic log filters.",
         "operationId": "set_diagnostic_log_filter_v1",
@@ -789,7 +791,7 @@
       },
       "BounceV1Request": {
         "type": "object",
-        "description": "Describes which messages should be bounced.\nThe criteria apply to the scheduled queue associated\nwith a given message.",
+        "description": "Describes which messages should be bounced.\nThe criteria apply to the scheduled queue associated\nwith a given message.\n\n!!! danger\n    If you specify none of `domain`, `campaign`, `tenant`,\n    `routing_domain` or `queue`, then **ALL** queues will\n    be bounced.\n\n    With great power comes great responsibility!\n",
         "required": [
           "reason"
         ],
@@ -846,7 +848,7 @@
               "string",
               "null"
             ],
-            "description": "The routing_domain name to match. If omitted, any routing_domain will match.",
+            "description": "The routing_domain name to match. If omitted, any routing_domain will match.\n{{since('2023.08.22-4d895015', inline=True)}}",
             "example": "routing_domain.com"
           },
           "suppress_logging": {

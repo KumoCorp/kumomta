@@ -515,7 +515,7 @@ async fn report_metrics_json() -> impl IntoResponse {
 /// for more information on diagnostic log filters.
 #[utoipa::path(
     post,
-    tag="logging",
+    tags=["logging", "kcli:set-log-filter"],
     path="/api/admin/set_diagnostic_log_filter/v1",
     request_body=SetDiagnosticFilterRequest,
     responses(

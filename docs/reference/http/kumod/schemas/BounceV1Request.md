@@ -12,6 +12,14 @@ Describes which messages should be bounced.
 The criteria apply to the scheduled queue associated
 with a given message.
 
+!!! danger
+    If you specify none of `domain`, `campaign`, `tenant`,
+    `routing_domain` or `queue`, then **ALL** queues will
+    be bounced.
+
+    With great power comes great responsibility!
+
+
 This is an object value, with the following properties:
 
 
@@ -36,6 +44,7 @@ This is an object value, with the following properties:
     bounces.
 
   * `routing_domain` - optional nullable `string`. The routing_domain name to match. If omitted, any routing_domain will match.
+    {{since('2023.08.22-4d895015', inline=True)}}
 
   * `suppress_logging` - optional `boolean`. If true, do not generate AdminBounce delivery logs for matching
     messages.

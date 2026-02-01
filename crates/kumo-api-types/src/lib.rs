@@ -19,6 +19,14 @@ pub mod xfer;
 /// Describes which messages should be bounced.
 /// The criteria apply to the scheduled queue associated
 /// with a given message.
+///
+/// !!! danger
+///     If you specify none of `domain`, `campaign`, `tenant`,
+///     `routing_domain` or `queue`, then **ALL** queues will
+///     be bounced.
+///
+///     With great power comes great responsibility!
+///
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BounceV1Request {
@@ -38,6 +46,7 @@ pub struct BounceV1Request {
     pub domain: Option<String>,
 
     /// The routing_domain name to match. If omitted, any routing_domain will match.
+    /// {{since('2023.08.22-4d895015', inline=True)}}
     #[serde(default)]
     #[schema(example = "routing_domain.com")]
     pub routing_domain: Option<String>,

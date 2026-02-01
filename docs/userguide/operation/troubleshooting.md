@@ -101,7 +101,9 @@ For information on how to read the logs, see the [Viewing Logs](./logs.md) page.
 
 Sometimes the default logging level will not expose sufficient information to troubleshoot certain issues.
 
-To increase the verbosity of the logs written to the system journal, use the [kumo.set_diagnostic_log_filter](../../reference/kumo/set_diagnostic_log_filter.md) function in your `init.lua`` policy's **init** event handler:
+To increase the verbosity of the logs written to the system journal, use the
+[kumo.set_diagnostic_log_filter](../../reference/kumo/set_diagnostic_log_filter.md)
+function in your `init.lua`` policy's **init** event handler:
 
 ```lua
 kumo.on('init', function()
@@ -109,7 +111,15 @@ kumo.on('init', function()
 end)
 ```
 
-In addition, you can adjust the log filter level dynamically [using the HTTP API](../../reference/http/api_admin_set_diagnostic_log_filter_v1.md):
+You can adjust the log filter level dynamically using [kcli set-log-filter](../../reference/kcli/set-log-filter):
+
+```console
+$ kcli set-log-filter 'kumod=debug'
+OK
+```
+
+In addition, you can adjust the log filter level dynamically using [the HTTP
+API](../../reference/http/kumod/api_admin_set_diagnostic_log_filter_v1_post.md):
 
 ```console
 curl -i 'http://localhost:8000/api/admin/set_diagnostic_log_filter/v1' \

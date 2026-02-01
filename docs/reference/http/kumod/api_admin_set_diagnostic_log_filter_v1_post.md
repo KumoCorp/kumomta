@@ -17,6 +17,8 @@ Changes the diagnostic log filter dynamically.
 See <https://docs.kumomta.com/reference/kumo/set_diagnostic_log_filter/>
 for more information on diagnostic log filters.
 
+This API endpoint is used by the [kcli set-log-filter](../../kcli/set-log-filter.md) command.
+
 ## Request Body
 
 The request body is required.
