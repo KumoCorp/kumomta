@@ -35,7 +35,10 @@ with a given message.
 
 This is an object value, with the following properties:
 
-  * The fields allowed by [XferProtocol](schemas/XferProtocol.md)
+
+  * `target` - required `string` (`uri`). Expected to be an HTTP url prefix like:
+    `https://host.name:8008`
+    `http://127.0.0.1:8000`
 
   * `campaign` - optional nullable `string`. The campaign name to match. If omitted, any campaign will match.
 
@@ -63,6 +66,7 @@ This is an object value, with the following properties:
   ],
   "reason": "Scaling down",
   "routing_domain": "string",
+  "target": "http://127.0.0.1:8000",
   "tenant": "string"
 }
 ```

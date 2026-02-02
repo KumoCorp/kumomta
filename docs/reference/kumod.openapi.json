@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.02.02-12c4a2f8"
+    "version": "2026.02.02-f53ed1ae"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -1670,7 +1670,11 @@
           "target": {
             "type": "string",
             "format": "uri",
-            "description": "Expected to be an HTTP url prefix like:\n`https://host.name:8008`\n`http://127.0.0.1:8000`"
+            "description": "Expected to be an HTTP url prefix like:\n`https://host.name:8008`\n`http://127.0.0.1:8000`",
+            "examples": [
+              "http://127.0.0.1:8000",
+              "https://host.name:8008"
+            ]
           }
         }
       },

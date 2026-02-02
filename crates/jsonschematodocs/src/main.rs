@@ -4,7 +4,8 @@ use std::io::{Cursor, Write};
 use utoipa::openapi::path::{Operation, ParameterIn};
 use utoipa::openapi::schema::{ArrayItems, SchemaType};
 use utoipa::openapi::{
-    Deprecated, KnownFormat, Object, OpenApi, PathItem, RefOr, Required, Schema, SchemaFormat, Type,
+    Deprecated, KnownFormat, Object, OpenApi, PathItem, Ref, RefOr, Required, Schema, SchemaFormat,
+    Type,
 };
 
 const DISCLAIMER: &str = r#"
@@ -105,16 +106,18 @@ fn schema_link(
     })
 }
 
+fn resolve_ref<'a>(api: &'a OpenApi, r: &Ref) -> Option<&'a Schema> {
+    let comp = r.ref_location.strip_prefix("#/components/schemas/")?;
+    api.components
+        .as_ref()
+        .and_then(|components| components.schemas.get(comp))
+        .and_then(|ros| resolve_schema(api, ros))
+}
+
 fn resolve_schema<'a>(api: &'a OpenApi, ros: &'a RefOr<Schema>) -> Option<&'a Schema> {
     match ros {
         RefOr::T(s) => Some(s),
-        RefOr::Ref(r) => {
-            let comp = r.ref_location.strip_prefix("#/components/schemas/")?;
-            api.components
-                .as_ref()
-                .and_then(|components| components.schemas.get(comp))
-                .and_then(|ros| resolve_schema(api, ros))
-        }
+        RefOr::Ref(r) => resolve_ref(api, r),
     }
 }
 
@@ -711,14 +714,21 @@ fn emit_schema(
             let mut example = BTreeMap::new();
             for item in &allof.items {
                 match item {
-                    RefOr::Ref(_r) => {
-                        writeln!(
-                            output,
-                            "  * The fields allowed by {}",
-                            schema_link(api, Some(item), schema_dir)
-                                .as_deref()
-                                .unwrap_or("unknown")
-                        )?;
+                    RefOr::Ref(r) => {
+                        if let Some(o) = resolve_ref(api, r).and_then(|s| match s {
+                            Schema::Object(o) => Some(o),
+                            _ => None,
+                        }) {
+                            emit_object(output, api, o, &mut example, schema_dir)?;
+                        } else {
+                            writeln!(
+                                output,
+                                "  * The fields allowed by {}",
+                                schema_link(api, Some(item), schema_dir)
+                                    .as_deref()
+                                    .unwrap_or("unknown")
+                            )?;
+                        }
                     }
                     RefOr::T(Schema::Object(o)) => {
                         emit_object(output, api, o, &mut example, schema_dir)?;

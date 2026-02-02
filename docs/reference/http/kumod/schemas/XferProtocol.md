@@ -19,6 +19,6 @@ This is an object value, with the following properties:
 ### Examples
 ```json
 {
-  "target": "http://example.com/some/path"
+  "target": "http://127.0.0.1:8000"
 }
 ```
