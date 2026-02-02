@@ -32,9 +32,27 @@ kumo.on('init', function()
   }
 end)
 
-kumo.on('requeue_message', function(msg)
-  kumo.xfer.xfer(msg, BACKUP_HOST, 'reroute to backup infra')
-end)
+kumo.on(
+  'requeue_message',
+  function(msg, smtp_response, insert_context, increment_attempts, delay)
+    print(
+      string.format(
+        'requeue_message called inc=%s ctx=%s delay=%s',
+        increment_attempts,
+        kumo.serde.json_encode(insert_context),
+        delay
+      )
+    )
+    kumo.xfer.xfer_in_requeue(
+      msg,
+      BACKUP_HOST,
+      insert_context,
+      increment_attempts,
+      delay,
+      'reroute to backup infra'
+    )
+  end
+)
 
 kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   local protocol = {
@@ -46,6 +64,11 @@ kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
 
   return kumo.make_queue_config {
     protocol = protocol,
+    -- Use a short interval because the xfer will increment the attempts
+    -- and respect the delay from the transfail and we don't want to wait 20 minutes
+    -- in the test
+    max_retry_interval = '5s',
+    retry_interval = '5s',
   }
 end)
 

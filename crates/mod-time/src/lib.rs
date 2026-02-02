@@ -99,12 +99,18 @@ impl From<DateTime<Utc>> for Time {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct TimeDelta(chrono::TimeDelta);
 
 impl From<chrono::TimeDelta> for TimeDelta {
     fn from(delta: chrono::TimeDelta) -> Self {
         Self(delta)
+    }
+}
+
+impl From<TimeDelta> for chrono::TimeDelta {
+    fn from(delta: TimeDelta) -> Self {
+        delta.0
     }
 }
 

@@ -1,7 +1,7 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use smallvec::{smallvec, SmallVec};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(transparent)]
 pub struct InsertContext(SmallVec<[InsertReason; 4]>);
 
@@ -44,7 +44,7 @@ impl From<InsertReason> for InsertContext {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum InsertReason {
     /// Message was just received
@@ -90,5 +90,8 @@ mod test {
         let context: InsertContext = InsertReason::ThrottledByThrottleInsertReadyQueue.into();
         let s = serde_json::to_string(&context).unwrap();
         k9::assert_equal!(s, "[\"ThrottledByThrottleInsertReadyQueue\"]");
+
+        let round_trip: InsertContext = serde_json::from_str(&s).unwrap();
+        k9::assert_equal!(context, round_trip);
     }
 }
