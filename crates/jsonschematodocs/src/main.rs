@@ -331,11 +331,28 @@ fn schema_description(s: &Schema) -> Option<&str> {
     match s {
         Schema::Array(a) => a.description.as_deref(),
         Schema::Object(o) => o.description.as_deref(),
-        Schema::OneOf(o) => o.description.as_deref(),
+        Schema::OneOf(o) => {
+            if o.description.is_some() {
+                return o.description.as_deref();
+            }
+            o.items.first().and_then(|ros| match ros {
+                RefOr::Ref(r) => Some(r.description.as_str()),
+                RefOr::T(s) => schema_description(s),
+            })
+        }
         Schema::AllOf(o) => o.description.as_deref(),
         Schema::AnyOf(o) => o.description.as_deref(),
         _ => None,
     }
+}
+
+fn ref_or_schema_description<'a>(api: &'a OpenApi, r: &'a RefOr<Schema>) -> Option<&'a str> {
+    if let RefOr::Ref(r) = r {
+        if !r.description.is_empty() {
+            return Some(&r.description);
+        }
+    }
+    schema_description(resolve_schema(api, r).expect("ref to resolve"))
 }
 
 fn schema_format_example(f: &SchemaFormat) -> Option<Value> {
@@ -504,7 +521,7 @@ fn emit_object(
             .map(|_| "required")
             .unwrap_or("optional");
         let s = resolve_schema(api, v).expect("schema to resolve");
-        let description = schema_description(s).unwrap_or("");
+        let description = ref_or_schema_description(api, v).unwrap_or("");
 
         writeln!(
             output,

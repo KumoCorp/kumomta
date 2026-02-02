@@ -103,7 +103,9 @@ pub struct Recipient {
     #[schema(example = "john.smith@mailbox-example.com", format = "email")]
     pub email: String,
 
-    /// The displayable name of the recipient
+    /// The optional displayable name of the recipient.
+    /// This field will be set as the `name` field when
+    /// processing template expansion.
     #[serde(default)]
     #[schema(example = "John Smith")]
     pub name: Option<String>,
@@ -126,13 +128,39 @@ pub struct Recipient {
 pub struct InjectV1Request {
     /// Specify the envelope sender that will be sent in the
     /// MAIL FROM portion of SMTP.
-    #[schema(example = "some.id@bounces.sender-example.com")]
+    #[schema(example = "some.id@bounces.sender-example.com", format = "email")]
     pub envelope_sender: String,
 
-    /// The list of recipients
+    /// Specifies the list of recipients to which message(s) will be sent.
+    /// When generating the message for the recipient, a suitable `To` header will be
+    /// constructed using the provided fields.
+    ///
+    /// If you also set a `To` header using the `headers` field, then the behavior
+    /// depends on the version of kumomta:
+    ///
+    /// |Behavior|Version|
+    /// |--------|-------|
+    /// |The per-recipient `To` header will not be generated|{{since('dev', inline=True)}}|
+    /// |Two `To` headers will be generated|All previous versions|
     pub recipients: Vec<Recipient>,
 
-    /// The content of the message
+    /// Specifies the message content. It can either be a string value or
+    /// a JSON object describing how to build a the message.
+    ///
+    /// If a simple string is provided, it must be an RFC822 compliant
+    /// message.  If template substitutions are used in the request, then
+    /// the entire RFC822 message string is used as-is for the template;
+    /// no message parsing or decoding is performed as part of template
+    /// expansion.
+    ///
+    /// Alternatively the content can be specified as a JSON object as
+    /// demonstrated in the docs for the `Content` type.
+    ///
+    /// When building a message, template substitutions are
+    /// applied to the `text_body`, `html_body`,
+    /// `amp_html_body` and `headers` fields.
+    ///
+    /// Attachments are not subject to template substitution.
     pub content: Content,
 
     /// When using templating, this is the map of placeholder
@@ -146,28 +174,167 @@ pub struct InjectV1Request {
     }))]
     pub substitutions: HashMap<String, Value>,
 
-    /// When set to true, the message will not be written to
-    /// the spool until it encounters its first transient failure.
-    /// This can improve injection rate but introduces the risk
-    /// of loss of accountability for the message if the system
-    /// were to crash before the message is delivered or written
-    /// to spool, so use with caution!
+    /// {{since('2024.11.08-d383b033', inline=True)}}
+    ///
+    /// !!! danger
+    ///     Enabling deferred spooling may result in loss
+    ///     of accountability for messages.  You should satisfy
+    ///     yourself that your system is able to recognize and
+    ///     deal with that scenario if/when it arises.
+    ///
+    /// When set to `true`, the generated message(s) will
+    /// not be written to the spool until it encounters its
+    /// first transient failure.  This can improve injection
+    /// rate but introduces the risk of loss of
+    /// accountability for the message if the system were to
+    /// crash before the message is delivered or written to
+    /// spool, so use with caution!
+    ///
+    /// When used in conjunction with `deferred_generation`,
+    /// both the queued generation request and the messages
+    /// which it produces are subject to deferred spooling.
     #[serde(default)]
     #[schema(default = false)]
     pub deferred_spool: bool,
 
+    /// {{since('2024.11.08-d383b033', inline=True)}}
+    ///
     /// When set to true, the injection request will be queued
     /// and the actual generation and substitution will happen
     /// asynchronously with respect to the injection request.
+    /// The default mode of operation is to respond to the injection request only
+    /// once every message in the request has been enqueued to the internal queue
+    /// system. This provides *back pressure* to the injection system and prevents
+    /// the service from being overwhelmed if the rate of ingress exceeds the
+    /// maximum rate of egress.
+    ///
+    /// The result of this back pressure is that the latency of the injection request
+    /// depends on the load of the system.
+    ///
+    /// Setting `deferred_generation: true` in the request alters the processing flow:
+    /// instead of immediately expanding the request into the desired number of
+    /// messages and queueing them up, the injection request is itself queued up and
+    /// processed asynchronously with respect to the incoming request.
+    ///
+    /// This `deferred_generation` submission is typically several orders of magnitude
+    /// faster than the immediate generation mode, so it is possible to very very quickly
+    /// queue up large batches of messages this way.
+    ///
+    /// The deferred generation requests are queued internally to a special queue
+    /// named `generator.kumomta.internal` that will process them by spawning each
+    /// request into the `httpinject` thread pool.
+    ///
+    /// You will likely want and need to configure shaping to accomodate this queue
+    /// for best performance:
+    ///
+    /// ```lua
+    /// -- Locate this before any other helpers or modules that define
+    /// -- `get_egress_path_config` event handlers in order for it to take effect
+    /// kumo.on(
+    ///   'get_egress_path_config',
+    ///   function(routing_domain, egress_source, site_name)
+    ///     if routing_domain == 'generator.kumomta.internal' then
+    ///       return kumo.make_egress_path {
+    ///         -- This is a good place to start, but you may want to
+    ///         -- experiment with 1/2, 3/4, or 1.5 times this to find
+    ///         -- what works best in your environment
+    ///         connection_limit = kumo.available_parallelism(),
+    ///         refresh_strategy = 'Epoch',
+    ///         max_ready = 80000,
+    ///       }
+    ///     end
+    ///   end
+    /// )
+    /// ```
+    ///
+    /// !!! note
+    ///     It is possible to very quickly generate millions of queued messages when
+    ///     using `deferred_generation: true`. You may wish to look into configuring
+    ///     a rate limit to constrain the system appropriately for your environment.
+    ///     <https://docs.kumomta.com/reference/kumo/set_httpinject_recipient_rate_limit/>
+    ///     can be used for this purpose.
     #[serde(default)]
     #[schema(default = false)]
     pub deferred_generation: bool,
 
-    /// Controls which trace headers will be added to the message.
+    /// {{since('2024.11.08-d383b033', inline=True)}}
+    ///
+    /// Controls the addition of tracing headers to received messages.
+    ///
+    /// KumoMTA can add two different headers to aid in later tracing:
+    ///
+    /// * The standard `"Received"` header which captures SMTP relay
+    ///   hops on their path to the inbox
+    ///
+    /// * A supplemental header which can be used to match feedback
+    ///   reports back to the originating mailing
+    ///
+    /// Prior to triggering the
+    /// <https://docs.kumomta.com/reference/events/http_message_generated/>
+    /// event the standard `"Received"` header will be added to the
+    /// message.  Then, once the event completes and your policy has had the
+    /// opportunity to alter the meta data associated with the message, the
+    /// supplemental header will be added.
+    ///
+    /// ```json
+    /// {
+    ///   "trace_headers": {
+    ///     // this is the default: do NOT add the Received: header
+    ///     "received_header": false,
+    ///
+    ///     // this is the default: add the supplemental header
+    ///     "supplemental_header": true,
+    ///
+    ///     // this is the default: the name of the supplemental header
+    ///     "header_name": "X-KumoRef",
+    ///
+    ///     // names of additional meta data fields
+    ///     // to include in the header. TAKE CARE! The header will be
+    ///     // base64 encoded to prevent casual introspection, but the
+    ///     // header is NOT encrypted and the values of the meta data
+    ///     // fields included here should be considered to be public.
+    ///     // The default is not to add any meta data fields, but you
+    ///     // might consider setting something like:
+    ///     // "include_meta_names": { "tenant", "campaign" },
+    ///     "include_meta_names": {},
+    ///   },
+    /// }
+    /// ```
+    ///
+    /// Here's an example of a supplemental header from a message:
+    ///
+    /// ```
+    /// X-KumoRef: eyJfQF8iOiJcXF8vIiwicmVjaXBpZW50IjoidGVzdEBleGFtcGxlLmNvbSJ9
+    /// ```
+    ///
+    /// the decoded payload contains a magic marker key as well as the recipient of the
+    /// original message:
+    ///
+    /// ```json
+    /// {"_@_":"\\_/","recipient":"test@example.com"}
+    /// ```
+    ///
+    /// Any meta data fields that were listed in `include_meta_names`, if the corresponding
+    /// meta data was set in the message, would also be captured in the decoded payload.
+    ///
+    /// KumoMTA will automatically extract this supplemental trace header information
+    /// from any `X-` header that is successfully parsed and has the magic marker key
+    /// when processing the original message payload of an incoming ARF report.
     #[serde(default)]
     pub trace_headers: HttpTraceHeaders,
 
-    /// Specify the template dialect to be used
+    /// {{since('2025.12.02-67ee9e96', inline=True)}}
+    ///
+    /// It is now possible to specify which template engine will be
+    /// used for template expansion via the `template_dialect` field.
+    /// It can have one of the following values:
+    ///
+    ///  * `Jinja` - this is the implied default.  The Mini Jinja
+    ///    template dialect will be parsed and evaluated.
+    ///  * `Static` - The content is treated as a static string and
+    ///    no template expansion will be performed
+    ///  * `Handlebars` - The content will be evaluated by a handlebars
+    ///    compatible template engine.
     #[serde(default)]
     #[schema(default = "Jinja")]
     pub template_dialect: TemplateDialectWithSchema,
@@ -175,9 +342,15 @@ pub struct InjectV1Request {
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug, ToSchema)]
 pub enum TemplateDialectWithSchema {
+    /// This is the implied default.  The Mini Jinja
+    /// template dialect will be parsed and evaluated.
     #[default]
     Jinja,
+    /// The content will be treated as a static string and
+    /// *NO* template expansion will be performed.
     Static,
+    /// The content will be evaluated by a handlebars
+    /// compatible template engine.
     Handlebars,
 }
 
@@ -220,17 +393,21 @@ pub enum Content {
     Builder {
         /// If set, will be used to create a text/plain part
         #[serde(default)]
+        #[schema(example = "This is the plain text part")]
         text_body: Option<String>,
 
         /// If set, will be used to create a text/html part
         #[serde(default)]
+        #[schema(example = "<p>This is the <b>HTML</b> part</p>")]
         html_body: Option<String>,
 
-        /// If set, will be used to create a text/x-amp-html part
+        /// If set, will be used to create a text/x-amp-html part.
+        /// This is available {{since('dev', inline=True)}}
         #[serde(default)]
+        #[schema(example = "<!doctype html><html amp4email>...</html>")]
         amp_html_body: Option<String>,
 
-        /// Optional list of attachments
+        /// Optional list of attachments.
         #[serde(default)]
         attachments: Vec<Attachment>,
 
@@ -258,6 +435,15 @@ pub enum Content {
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 #[serde(deny_unknown_fields)]
+#[schema(examples(
+    json!({
+        "data": "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+        "base64": true,
+        "content_type": "image/gif",
+        "content_id": "my-image",
+        "file_name": "pixel.gif"
+    })
+))]
 pub struct Attachment {
     /// The content of the payload.
     /// This is interpreted as UTF-8 text unless the
@@ -266,9 +452,11 @@ pub struct Attachment {
     /// The MIME `Content-Type` header that should be
     /// set for this attachment.
     content_type: String,
-    /// Set the `Content-ID` header for this attachment.
-    /// This is used in multipart/related messages to
-    /// embed inline images in text/html parts.
+    /// Optional `Content-ID` header for this attachment.
+    /// If specified, this attachment will be added as an
+    /// inline attachment and a multipart/related MIME
+    /// container will be generated in the message to hold
+    /// it and the textual content.
     #[serde(default)]
     content_id: Option<String>,
     /// The the preferred filename for the attachment
@@ -889,6 +1077,84 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
 /// Inject a message using a given message body, with template expansion,
 /// to a list of recipients.
+/// Both message assembly and templating are supported, and multiple recipients
+/// and template substitutions can be passed in a single request.
+///
+/// The body of the post request must be a JSON object; here's a very basic
+/// example:
+///
+/// ```json
+/// {
+///     "envelope_sender": "noreply@example.com",
+///     "content": "Subject: hello\n\nHello there",
+///     "recipients": [
+///         {
+///             "email": "recipient@example.com",
+///         }
+///     ]
+/// }
+/// ```
+///
+/// The response will look something like:
+///
+/// ```json
+/// {
+///     "success_count": 1,
+///     "fail_count": 0,
+///     "failed_recipients": [],
+///     "errors": []
+/// }
+/// ```
+///
+/// !!! note
+///     The `success_count` will always be reported as `0` when using `deferred_generation: true`.
+///
+/// ## Template Substitution
+///
+/// The injection API embeds the Mini Jinja templating engine, with
+/// some supplemental extensions.  The syntax and extensions are
+/// [documented here](../../template/index.md).  You may use the
+/// `template_dialect` field to specify an alternative templating
+/// engine, or disable templating by setting the dialect to `"Static"`.
+///
+/// For each recipient, the set of variables pre-defined in the template are:
+///
+/// * The set of global substitutions defined by `request.substitutions`
+///
+/// * The set of per-recipient substitutions, if any are defined in
+///   `request.recipients[].substitutions`, are overlaid and take precedence over
+///   any global substitutions
+///
+/// * The recipient `name` and `email` fields are assigned to the `"name"` and
+///   `"email"` variables respectively.
+///
+/// !!! note
+///     Both sets of *substitutions* can use any JSON value for the values of
+///     the variables; they don't have to be strings.
+///
+/// A very basic example of using templating:
+///
+/// ```json
+/// {
+///     "envelope_sender": "noreply@example.com",
+///     "content": "To: \"{{ name }}\" <{{ email }}>\nSubject: hello\n\nHello {{ name }}!",
+///     "recipients": [
+///         {
+///             "email": "recipient@example.com",
+///             "name": "John Smith"
+///         }
+///     ]
+/// }
+/// ```
+///
+/// would result in a message with the following content:
+///
+/// ```
+/// To: "John Smith" <recipient@example.com>
+/// Subject: hello
+///
+/// Hello John Smith!
+/// ```
 #[utoipa::path(
     post,
     tag="inject",

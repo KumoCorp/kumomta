@@ -34,9 +34,9 @@ Obtained message information
 This is an object value, with the following properties:
 
 
-  * `id` - required [SpoolId](schemas/SpoolId.md). Identifies a message within the spool of its host node.
+  * `id` - required [SpoolId](schemas/SpoolId.md). The spool identifier of the message
 
-  * `message` - required [MessageInformation](schemas/MessageInformation.md). 
+  * `message` - required [MessageInformation](schemas/MessageInformation.md). The message information
 
 ### Examples
 ```json

@@ -14,7 +14,9 @@ This is an object value, with the following properties:
 
   * `email` - required `string` (`email`). The email address of the recipient
 
-  * `name` - optional nullable `string`. The displayable name of the recipient
+  * `name` - optional nullable `string`. The optional displayable name of the recipient.
+    This field will be set as the `name` field when
+    processing template expansion.
 
   * `substitutions` - optional `object`. When using templating, this is the map of placeholder
     name to replacement value that should be used by the

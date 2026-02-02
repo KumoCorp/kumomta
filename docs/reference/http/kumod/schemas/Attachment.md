@@ -14,9 +14,11 @@ This is an object value, with the following properties:
 
   * `base64` - optional `boolean`. If true, the `data` field must be encoded as base64
 
-  * `content_id` - optional nullable `string`. Set the `Content-ID` header for this attachment.
-    This is used in multipart/related messages to
-    embed inline images in text/html parts.
+  * `content_id` - optional nullable `string`. Optional `Content-ID` header for this attachment.
+    If specified, this attachment will be added as an
+    inline attachment and a multipart/related MIME
+    container will be generated in the message to hold
+    it and the textual content.
 
   * `content_type` - required `string`. The MIME `Content-Type` header that should be
     set for this attachment.
@@ -35,5 +37,14 @@ This is an object value, with the following properties:
   "content_type": "string",
   "data": "string",
   "file_name": "string"
+}
+```
+```json
+{
+  "base64": true,
+  "content_id": "my-image",
+  "content_type": "image/gif",
+  "data": "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+  "file_name": "pixel.gif"
 }
 ```

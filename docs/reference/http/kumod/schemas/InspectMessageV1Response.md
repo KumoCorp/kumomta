@@ -12,9 +12,9 @@
 This is an object value, with the following properties:
 
 
-  * `id` - required [SpoolId](SpoolId.md). Identifies a message within the spool of its host node.
+  * `id` - required [SpoolId](SpoolId.md). The spool identifier of the message
 
-  * `message` - required [MessageInformation](MessageInformation.md). 
+  * `message` - required [MessageInformation](MessageInformation.md). The message information
 
 ### Examples
 ```json

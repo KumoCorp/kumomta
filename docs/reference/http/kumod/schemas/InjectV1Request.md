@@ -12,25 +12,115 @@
 This is an object value, with the following properties:
 
 
-  * `content` - required [Content](Content.md). The message content.
-    Can either be a fully formed MIME message, or a json
-    object describing the MIME structure that should be created.
+  * `content` - required [Content](Content.md). Specifies the message content. It can either be a string value or
+    a JSON object describing how to build a the message.
+    
+    If a simple string is provided, it must be an RFC822 compliant
+    message.  If template substitutions are used in the request, then
+    the entire RFC822 message string is used as-is for the template;
+    no message parsing or decoding is performed as part of template
+    expansion.
+    
+    Alternatively the content can be specified as a JSON object as
+    demonstrated in the docs for the `Content` type.
+    
+    When building a message, template substitutions are
+    applied to the `text_body`, `html_body`,
+    `amp_html_body` and `headers` fields.
+    
+    Attachments are not subject to template substitution.
 
-  * `deferred_generation` - optional `boolean`. When set to true, the injection request will be queued
+  * `deferred_generation` - optional `boolean`. {{since('2024.11.08-d383b033', inline=True)}}
+    
+    When set to true, the injection request will be queued
     and the actual generation and substitution will happen
     asynchronously with respect to the injection request.
+    The default mode of operation is to respond to the injection request only
+    once every message in the request has been enqueued to the internal queue
+    system. This provides *back pressure* to the injection system and prevents
+    the service from being overwhelmed if the rate of ingress exceeds the
+    maximum rate of egress.
+    
+    The result of this back pressure is that the latency of the injection request
+    depends on the load of the system.
+    
+    Setting `deferred_generation: true` in the request alters the processing flow:
+    instead of immediately expanding the request into the desired number of
+    messages and queueing them up, the injection request is itself queued up and
+    processed asynchronously with respect to the incoming request.
+    
+    This `deferred_generation` submission is typically several orders of magnitude
+    faster than the immediate generation mode, so it is possible to very very quickly
+    queue up large batches of messages this way.
+    
+    The deferred generation requests are queued internally to a special queue
+    named `generator.kumomta.internal` that will process them by spawning each
+    request into the `httpinject` thread pool.
+    
+    You will likely want and need to configure shaping to accomodate this queue
+    for best performance:
+    
+    ```lua
+    -- Locate this before any other helpers or modules that define
+    -- `get_egress_path_config` event handlers in order for it to take effect
+    kumo.on(
+      'get_egress_path_config',
+      function(routing_domain, egress_source, site_name)
+        if routing_domain == 'generator.kumomta.internal' then
+          return kumo.make_egress_path {
+            -- This is a good place to start, but you may want to
+            -- experiment with 1/2, 3/4, or 1.5 times this to find
+            -- what works best in your environment
+            connection_limit = kumo.available_parallelism(),
+            refresh_strategy = 'Epoch',
+            max_ready = 80000,
+          }
+        end
+      end
+    )
+    ```
+    
+    !!! note
+        It is possible to very quickly generate millions of queued messages when
+        using `deferred_generation: true`. You may wish to look into configuring
+        a rate limit to constrain the system appropriately for your environment.
+        <https://docs.kumomta.com/reference/kumo/set_httpinject_recipient_rate_limit/>
+        can be used for this purpose.
 
-  * `deferred_spool` - optional `boolean`. When set to true, the message will not be written to
-    the spool until it encounters its first transient failure.
-    This can improve injection rate but introduces the risk
-    of loss of accountability for the message if the system
-    were to crash before the message is delivered or written
-    to spool, so use with caution!
+  * `deferred_spool` - optional `boolean`. {{since('2024.11.08-d383b033', inline=True)}}
+    
+    !!! danger
+        Enabling deferred spooling may result in loss
+        of accountability for messages.  You should satisfy
+        yourself that your system is able to recognize and
+        deal with that scenario if/when it arises.
+    
+    When set to `true`, the generated message(s) will
+    not be written to the spool until it encounters its
+    first transient failure.  This can improve injection
+    rate but introduces the risk of loss of
+    accountability for the message if the system were to
+    crash before the message is delivered or written to
+    spool, so use with caution!
+    
+    When used in conjunction with `deferred_generation`,
+    both the queued generation request and the messages
+    which it produces are subject to deferred spooling.
 
-  * `envelope_sender` - required `string`. Specify the envelope sender that will be sent in the
+  * `envelope_sender` - required `string` (`email`). Specify the envelope sender that will be sent in the
     MAIL FROM portion of SMTP.
 
-  * `recipients` - required array of [Recipient](Recipient.md). The list of recipients
+  * `recipients` - required array of [Recipient](Recipient.md). Specifies the list of recipients to which message(s) will be sent.
+    When generating the message for the recipient, a suitable `To` header will be
+    constructed using the provided fields.
+    
+    If you also set a `To` header using the `headers` field, then the behavior
+    depends on the version of kumomta:
+    
+    |Behavior|Version|
+    |--------|-------|
+    |The per-recipient `To` header will not be generated|{{since('dev', inline=True)}}|
+    |Two `To` headers will be generated|All previous versions|
 
   * `substitutions` - optional `object`. When using templating, this is the map of placeholder
     name to replacement value that should be used by
@@ -38,9 +128,82 @@ This is an object value, with the following properties:
     recipients, with the per-recipient substitutions
     taking precedence.
 
-  * `template_dialect` - optional [TemplateDialectWithSchema](TemplateDialectWithSchema.md). 
+  * `template_dialect` - optional [TemplateDialectWithSchema](TemplateDialectWithSchema.md). {{since('2025.12.02-67ee9e96', inline=True)}}
+    
+    It is now possible to specify which template engine will be
+    used for template expansion via the `template_dialect` field.
+    It can have one of the following values:
+    
+     * `Jinja` - this is the implied default.  The Mini Jinja
+       template dialect will be parsed and evaluated.
+     * `Static` - The content is treated as a static string and
+       no template expansion will be performed
+     * `Handlebars` - The content will be evaluated by a handlebars
+       compatible template engine.
 
-  * `trace_headers` - optional [HttpTraceHeaders](HttpTraceHeaders.md). 
+  * `trace_headers` - optional [HttpTraceHeaders](HttpTraceHeaders.md). {{since('2024.11.08-d383b033', inline=True)}}
+    
+    Controls the addition of tracing headers to received messages.
+    
+    KumoMTA can add two different headers to aid in later tracing:
+    
+    * The standard `"Received"` header which captures SMTP relay
+      hops on their path to the inbox
+    
+    * A supplemental header which can be used to match feedback
+      reports back to the originating mailing
+    
+    Prior to triggering the
+    <https://docs.kumomta.com/reference/events/http_message_generated/>
+    event the standard `"Received"` header will be added to the
+    message.  Then, once the event completes and your policy has had the
+    opportunity to alter the meta data associated with the message, the
+    supplemental header will be added.
+    
+    ```json
+    {
+      "trace_headers": {
+        // this is the default: do NOT add the Received: header
+        "received_header": false,
+    
+        // this is the default: add the supplemental header
+        "supplemental_header": true,
+    
+        // this is the default: the name of the supplemental header
+        "header_name": "X-KumoRef",
+    
+        // names of additional meta data fields
+        // to include in the header. TAKE CARE! The header will be
+        // base64 encoded to prevent casual introspection, but the
+        // header is NOT encrypted and the values of the meta data
+        // fields included here should be considered to be public.
+        // The default is not to add any meta data fields, but you
+        // might consider setting something like:
+        // "include_meta_names": { "tenant", "campaign" },
+        "include_meta_names": {},
+      },
+    }
+    ```
+    
+    Here's an example of a supplemental header from a message:
+    
+    ```
+    X-KumoRef: eyJfQF8iOiJcXF8vIiwicmVjaXBpZW50IjoidGVzdEBleGFtcGxlLmNvbSJ9
+    ```
+    
+    the decoded payload contains a magic marker key as well as the recipient of the
+    original message:
+    
+    ```json
+    {"_@_":"\\_/","recipient":"test@example.com"}
+    ```
+    
+    Any meta data fields that were listed in `include_meta_names`, if the corresponding
+    meta data was set in the message, would also be captured in the decoded payload.
+    
+    KumoMTA will automatically extract this supplemental trace header information
+    from any `X-` header that is successfully parsed and has the magic marker key
+    when processing the original message payload of an incoming ARF report.
 
 ### Examples
 ```json

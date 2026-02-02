@@ -26,9 +26,10 @@ Describe the MIME structure to be created
 This is an object value, with the following properties:
 
 
-  * `amp_html_body` - optional nullable `string`. If set, will be used to create a text/x-amp-html part
+  * `amp_html_body` - optional nullable `string`. If set, will be used to create a text/x-amp-html part.
+    This is available {{since('dev', inline=True)}}
 
-  * `attachments` - optional array of [Attachment](Attachment.md). Optional list of attachments
+  * `attachments` - optional array of [Attachment](Attachment.md). Optional list of attachments.
 
   * `from` - optional nullable [FromHeader](FromHeader.md). 
 
@@ -49,14 +50,14 @@ This is an object value, with the following properties:
 ```
 ```json
 {
-  "amp_html_body": "string",
+  "amp_html_body": "<!doctype html><html amp4email>...</html>",
   "attachments": [
     {
-      "base64": false,
-      "content_id": "string",
-      "content_type": "string",
-      "data": "string",
-      "file_name": "string"
+      "base64": true,
+      "content_id": "my-image",
+      "content_type": "image/gif",
+      "data": "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+      "file_name": "pixel.gif"
     }
   ],
   "from": {
@@ -66,12 +67,12 @@ This is an object value, with the following properties:
   "headers": {
     "X-Tenant": "MyTenant"
   },
-  "html_body": "string",
+  "html_body": "<p>This is the <b>HTML</b> part</p>",
   "reply_to": {
     "email": "sales@sender-example.com",
     "name": "Sales"
   },
   "subject": "string",
-  "text_body": "string"
+  "text_body": "This is the plain text part"
 }
 ```
