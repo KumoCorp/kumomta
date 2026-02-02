@@ -21,9 +21,9 @@ for detailed options.
 ## What can you use the HTTP listener for?
 
 Aside from injecting messages using the [Inject
-API](../..//reference/http/api_inject_v1.md), you can also
+API](../..//reference/http/kumod/api_inject_v1_post.md), you can also
 perform arbitrary administrative bounces, and collect detailed metrics.  A list
-of HTTP API functions exists [here](../../reference/http/index.md).
+of HTTP API functions exists [here](../../reference/http/kumod/index.md).
 
 ## Configuring for HTTPS
 
