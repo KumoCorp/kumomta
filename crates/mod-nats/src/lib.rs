@@ -79,8 +79,12 @@ struct Message {
     #[serde(default)]
     headers: HashMap<String, String>,
     /// Optional acknowledgement
-    #[serde(default)]
+    #[serde(default = "default_true")]
     await_ack: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl LuaUserData for Client {
@@ -99,11 +103,18 @@ impl LuaUserData for Client {
                 .await
                 .map_err(|err| any_err(err))?;
 
+            let ret = lua.create_table()?;
+
             if message.await_ack {
-                ack_fut.await.map_err(|err| any_err(err))?;
+                let resp = ack_fut.await.map_err(|err| any_err(err))?;
+                ret.set("stream", resp.stream)?;
+                ret.set("value", resp.value.unwrap_or("".to_string()))?;
+                ret.set("duplicate", resp.duplicate)?;
+                ret.set("sequence", resp.sequence)?;
+                ret.set("domain", resp.domain)?;
             }
 
-            Ok(())
+            Ok(ret)
         });
 
         methods.add_async_method("close", |_lua, this, _: ()| async move {

@@ -231,13 +231,12 @@ if NATS_ADDRESS then
           password = { key_data = os.getenv 'NATS_PASSWORD' },
         },
       }
-      client:publish {
+      ret = client:publish {
         subject = os.getenv 'NATS_SUBJECT',
         payload = 'payload',
-        await_ack = true,
       }
       client:close()
-      return "published to nats@" .. address
+      return "published message " .. ret.sequence .. " to nats@" .. address
     end
     return sender
   end)
