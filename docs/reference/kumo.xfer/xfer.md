@@ -36,15 +36,9 @@ If the message is configured to xfer to a different target, then that xfer
 will be cancelled and then the message will be configured to xfer to
 `target_url`.
 
-## Example: move message to backup tier if underliverable after two attempts
+!!! note
+    This function does not alter any of the scheduling parameters on the
+    message.  It is NOT intended to be used as part of retry processing.  You
+    should look at [kumo.xfer.xfer_in_requeue](xfer_in_requeue.md) for a
+    function that does handle that situation.
 
-```lua
-local BACKUP_HOST = 'http://backup-kumomta:8000'
-
-kumo.on('requeue_message', function(msg)
-  if msg:num_attempts() >= 2 then
-    -- Re-route to alternative infra to manage the rest of the send
-    kumo.xfer.xfer(msg, BACKUP_HOST, 'reroute to backup infra')
-  end
-end)
-```

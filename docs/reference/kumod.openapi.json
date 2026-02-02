@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.02.01-d0278947"
+    "version": "2026.02.02-12c4a2f8"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -604,7 +604,8 @@
         "tags": [
           "xfer"
         ],
-        "summary": "Performs a message transfer.\nThis is considered to be an internal API and should not be\ntargeted by external consumers.",
+        "summary": "Performs a message transfer.",
+        "description": "!!! warning\n    This is considered to be an internal API and should not be\n    used by external consumers.  It is intentionally under-specified\n    in these auto-generated docs.\n\nYou probably want to look at the [inject](api_admin_xfer_v1_post.md)\nendpoint which is used to request that a specific queue should\nbe re-routed via this XFER endpoint on the target node.",
         "operationId": "inject_xfer_v1",
         "requestBody": {
           "content": {

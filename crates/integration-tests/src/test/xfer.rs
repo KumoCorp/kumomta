@@ -550,6 +550,13 @@ async fn xfer_requeue() -> anyhow::Result<()> {
         )
         .await;
 
+    daemon
+        .wait_for_sink_summary(
+            |summary| summary.get(&Delivery).copied().unwrap_or(0) > 0,
+            Duration::from_secs(50),
+        )
+        .await;
+
     // And now verify that the expected things happened
     let delivery_summary = daemon.dump_logs().await?;
     k9::snapshot!(
@@ -565,6 +572,7 @@ DeliverySummary {
     sink_counts: {
         Delivery: 1,
         Rejection: 2,
+        Delayed: 1,
         XferIn: 1,
     },
 }
@@ -594,7 +602,9 @@ DeliverySummary {
     );
 
     // Two Rejections because of pipelining and the tranfail.
-    // Then we receive the xfer and deliver to the maildir
+    // Then we receive the xfer and deliver to the maildir.
+    // There is a Delayed record because we respect the delay
+    // set in the source node before we deliver.
     let sink_logs = daemon.sink.collect_logs().await?;
     let sink_records: Vec<RecordType> = sink_logs.iter().map(|r| r.kind).collect();
     k9::snapshot!(
@@ -604,6 +614,7 @@ DeliverySummary {
     Rejection,
     Rejection,
     XferIn,
+    Delayed,
     Delivery,
 ]
 "

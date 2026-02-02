@@ -6,8 +6,10 @@ use crate::queue::{opt_timeout_at, IncrementAttempts, Queue};
 use crate::smtp_server::RejectError;
 use crate::spool::SpoolManager;
 use ::config::{declare_event, load_config};
+use config::SerdeWrappedValue;
 use dashmap::DashMap;
 use message::Message;
+use mod_time::TimeDelta;
 use prometheus::{Histogram, IntGauge};
 use rfc5321::Response;
 use std::sync::{Arc, LazyLock};
@@ -41,7 +43,10 @@ declare_event! {
 pub static REQUEUE_MESSAGE_SIG: Multiple(
     "requeue_message",
     message: Message,
-    response: String
+    response: String,
+    insert_context: SerdeWrappedValue<InsertContext>,
+    increment_attempts: bool,
+    delay: Option<TimeDelta>,
 ) -> ();
 }
 
@@ -210,7 +215,13 @@ impl QueueManager {
                 let result: anyhow::Result<()> = config
                     .async_call_callback(
                         &REQUEUE_MESSAGE_SIG,
-                        (msg.clone(), response.to_single_line()),
+                        (
+                            msg.clone(),
+                            response.to_single_line(),
+                            SerdeWrappedValue(context.clone()),
+                            increment_attempts == IncrementAttempts::Yes,
+                            delay.map(Into::into),
+                        ),
                     )
                     .await;
 
