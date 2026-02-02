@@ -8,6 +8,7 @@ local SINK_PORT = tonumber(os.getenv 'KUMOD_SMTP_SINK_PORT')
 local WEBHOOK_PORT = os.getenv 'KUMOD_WEBHOOK_PORT'
 local AMQPHOOK_URL = os.getenv 'KUMOD_AMQPHOOK_URL'
 local AMQP_HOST_PORT = os.getenv 'KUMOD_AMQP_HOST_PORT'
+local NATS_ADDRESS = os.getenv 'NATS_ADDRESS'
 local LISTENER_MAP = os.getenv 'KUMOD_LISTENER_DOMAIN_MAP'
 local DEFERRED_SMTP_SERVER_MSG_INJECT =
   os.getenv 'KUMOD_DEFERRED_SMTP_SERVER_MSG_INJECT'
@@ -216,6 +217,32 @@ if WEBHOOK_PORT then
   end
 end
 
+if NATS_ADDRESS then
+  kumo.on('make.nats', function(_domain, _tenant, _campaign)
+    local sender = {}
+
+    function sender:send(message)
+      local address = os.getenv 'NATS_ADDRESS'
+      local client = kumo.nats.connect {
+        servers = { address },
+        name = 'nats-client',
+        auth = {
+          username = { key_data = os.getenv 'NATS_USERNAME' },
+          password = { key_data = os.getenv 'NATS_PASSWORD' },
+        },
+      }
+      client:publish {
+        subject = os.getenv 'NATS_SUBJECT',
+        payload = 'payload',
+        await_ack = true,
+      }
+      client:close()
+      return "published to nats@" .. address
+    end
+    return sender
+  end)
+end
+
 kumo.on('get_listener_domain', function(domain, listener, conn_meta)
   if LISTENER_MAP then
     local map = kumo.json_parse(LISTENER_MAP)
@@ -272,6 +299,16 @@ kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
       protocol = {
         custom_lua = {
           constructor = 'make.webhook',
+        },
+      },
+    }
+  end
+
+  if domain == 'nats' then
+    return kumo.make_queue_config {
+      protocol = {
+        custom_lua = {
+          constructor = 'make.nats',
         },
       },
     }
