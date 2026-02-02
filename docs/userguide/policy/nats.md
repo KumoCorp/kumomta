@@ -20,12 +20,12 @@ end)
 
 kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   if domain == 'nats' then
-    -- Use the `make.webhook` event to handle delivery
-    -- of webhook log records
+    -- Use the `make.nats` event to handle delivery
+    -- of nats log records
     return kumo.make_queue_config {
       protocol = {
         custom_lua = {
-          -- this will cause an event called `make.webhook` to trigger.
+          -- this will cause an event called `make.nats` to trigger.
           -- You can pick any name for this event, so long as it doesn't
           -- collide with a pre-defined event, and so long as you bind
           -- to it with a kumo.on call
