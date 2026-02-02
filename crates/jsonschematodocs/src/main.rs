@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use std::io::Write;
+use std::io::{Cursor, Write};
 use utoipa::openapi::path::{Operation, ParameterIn};
 use utoipa::openapi::schema::{ArrayItems, SchemaType};
 use utoipa::openapi::{
@@ -133,6 +133,14 @@ fn fixup_absolute_doc_links_on_path_page(text: &str) -> String {
             "<https://docs.kumomta.com/reference/queues/>",
             "[Queues](../../queues.md)",
         ),
+        (
+            "<https://docs.kumomta.com/reference/kumo/set_httpinject_recipient_rate_limit/>",
+            "[kumo.set_httpinject_recipient_rate_limit](../../kumo/set_httpinject_recipient_rate_limit.md)",
+        ),
+        (
+            "<https://docs.kumomta.com/reference/events/http_message_generated/>",
+            "[http_message_generated](../../events/http_message_generated.md)",
+        ),
     ] {
         text = text.replace(search, replace);
     }
@@ -155,7 +163,8 @@ fn generate_path_op(
     .replace(|c| c == '/' || c == '-', "_");
     let output_path = format!("{}/{page_name}.md", doc_dir_for_service(service));
 
-    let mut output = std::fs::File::create(&output_path)?;
+    let mut output_file = std::fs::File::create(&output_path)?;
+    let mut output = Cursor::new(vec![]);
 
     let schema_dir = Some("schemas/");
 
@@ -190,11 +199,7 @@ fn generate_path_op(
     writeln!(&mut output, "{DISCLAIMER}")?;
 
     if let Some(text) = &op.summary {
-        writeln!(
-            &mut output,
-            "{}",
-            fixup_absolute_doc_links_on_path_page(text)
-        )?;
+        writeln!(&mut output, "{text}",)?;
     }
 
     if let Some(k) = kcli {
@@ -294,6 +299,13 @@ fn generate_path_op(
             }
         }
     }
+
+    let output = String::from_utf8(output.into_inner()).unwrap();
+    write!(
+        &mut output_file,
+        "{}",
+        fixup_absolute_doc_links_on_path_page(&output)
+    )?;
 
     Ok(())
 }

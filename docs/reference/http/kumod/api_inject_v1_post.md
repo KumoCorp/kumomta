@@ -175,7 +175,7 @@ This is an object value, with the following properties:
         It is possible to very quickly generate millions of queued messages when
         using `deferred_generation: true`. You may wish to look into configuring
         a rate limit to constrain the system appropriately for your environment.
-        <https://docs.kumomta.com/reference/kumo/set_httpinject_recipient_rate_limit/>
+        [kumo.set_httpinject_recipient_rate_limit](../../kumo/set_httpinject_recipient_rate_limit.md)
         can be used for this purpose.
 
   * `deferred_spool` - optional `boolean`. {{since('2024.11.08-d383b033', inline=True)}}
@@ -245,7 +245,7 @@ This is an object value, with the following properties:
       reports back to the originating mailing
     
     Prior to triggering the
-    <https://docs.kumomta.com/reference/events/http_message_generated/>
+    [http_message_generated](../../events/http_message_generated.md)
     event the standard `"Received"` header will be added to the
     message.  Then, once the event completes and your policy has had the
     opportunity to alter the meta data associated with the message, the
