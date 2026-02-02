@@ -14,8 +14,14 @@ tags:
     from there and into these docs.
 
 Performs a message transfer.
-This is considered to be an internal API and should not be
-targeted by external consumers.
+!!! warning
+    This is considered to be an internal API and should not be
+    used by external consumers.  It is intentionally under-specified
+    in these auto-generated docs.
+
+You probably want to look at the [inject](api_admin_xfer_v1_post.md)
+endpoint which is used to request that a specific queue should
+be re-routed via this XFER endpoint on the target node.
 
 ## Request Body
 
