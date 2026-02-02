@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-// https://docs.rs/async-nats/0.45.0/src/async_nats/options.rs.html#44
+// https://docs.rs/async-nats/0.46.0/src/async_nats/options.rs.html#43
 #[derive(Debug, Deserialize)]
 struct Config {
     servers: Vec<String>,
@@ -45,7 +45,7 @@ struct ConfigAuth {
     token: Option<KeySource>,
 }
 
-// https://docs.rs/async-nats/0.45.0/src/async_nats/auth.rs.html#4
+// https://docs.rs/async-nats/0.46.0/src/async_nats/auth.rs.html#4
 #[derive(Debug, Deserialize)]
 struct Auth {
     username: Option<String>,
