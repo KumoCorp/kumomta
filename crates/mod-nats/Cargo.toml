@@ -5,12 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow.workspace = true
-async-nats = { workspace = true, features = [
-    "server_2_10",
-    "server_2_11",
-    "server_2_12",
-    "ring",
-] }
+async-nats = { workspace = true }
 config = { path = "../config" }
 data-loader = { path = "../data-loader", default-features = false }
 duration-serde = { path = "../duration-serde" }
