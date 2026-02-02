@@ -38,6 +38,9 @@
  * New [kumo.xfer.xfer](../reference/kumo.xfer/xfer.md) function to enable
    per-message transfer between nodes, which is useful in combination with the
    [requeue_message](../reference/events/requeue_message.md) event.
+ * New
+   [message:increment_num_attempts](../reference/message/increment_num_attempts.md)
+   method for advanced message manipulation.
 
 ## Fixes
 

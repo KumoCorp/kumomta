@@ -1408,6 +1408,9 @@ impl UserData for Message {
         methods.add_method("num_attempts", move |_, this, _: ()| {
             Ok(this.get_num_attempts())
         });
+        methods.add_method("increment_num_attempts", move |_, this, _: ()| {
+            Ok(this.increment_num_attempts())
+        });
 
         methods.add_async_method("queue_name", move |_, this, _: ()| async move {
             this.get_queue_name().await.map_err(any_err)
