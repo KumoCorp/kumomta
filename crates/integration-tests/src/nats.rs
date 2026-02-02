@@ -1,5 +1,5 @@
 #![cfg(test)]
-use crate::kumod::DaemonWithMaildirOptions;
+use crate::kumod::{generate_message_text, DaemonWithMaildirOptions, MailGenParams};
 use anyhow::Context;
 use async_nats::jetstream::stream::Config;
 use async_nats::jetstream::{self, consumer};
@@ -10,6 +10,7 @@ use testcontainers_modules::nats::Nats;
 use testcontainers_modules::testcontainers::core::ContainerPort;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::ImageExt;
+use tokio::time::Duration;
 
 const SUBJECT: &str = "events";
 const USERNAME: &str = "user";
@@ -77,17 +78,39 @@ async fn test_nats() -> anyhow::Result<()> {
         })
         .await?;
 
-    let _ = DaemonWithMaildirOptions::new()
-        .env("ADDRESS", address)
-        .env("SUBJECT", SUBJECT)
-        .env("USERNAME", USERNAME)
-        .env("PASSWORD", PASSWORD)
-        .policy_file("nats.lua")
+    let mut daemon = DaemonWithMaildirOptions::new()
+        .env("NATS_ADDRESS", address)
+        .env("NATS_SUBJECT", SUBJECT)
+        .env("NATS_USERNAME", USERNAME)
+        .env("NATS_PASSWORD", PASSWORD)
         .start()
         .await
-        .context("DaemonWithMaildir::start")?
-        .stop_both()
-        .await?;
+        .context("DaemonWithMaildir::start")?;
+
+    let num_msgs = 3;
+    eprintln!("sending message");
+    let mut client = daemon.smtp_client().await.context("make smtp_client")?;
+
+    for _ in 0..num_msgs {
+        let body = generate_message_text(1024, 78);
+        let response = MailGenParams {
+            body: Some(&body),
+            recip: Some("rec@nats"),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await
+        .context("send message")?;
+        eprintln!("{response:?}");
+        anyhow::ensure!(response.code == 250);
+    }
+
+    daemon
+        .wait_for_maildir_count(num_msgs, Duration::from_secs(10))
+        .await;
+
+    daemon.stop_both().await.context("stop_both")?;
+    println!("Stopped!");
 
     let messages = stream
         .get_or_create_consumer(
@@ -101,7 +124,7 @@ async fn test_nats() -> anyhow::Result<()> {
         .messages()
         .await?;
 
-    assert_eq!(messages.count().await, 3);
+    assert_eq!(messages.count().await, num_msgs);
 
     Ok(())
 }
