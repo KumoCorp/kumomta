@@ -89,11 +89,24 @@ async fn sleep(_lua: Lua, seconds: f64) -> mlua::Result<()> {
     Ok(())
 }
 
-struct Time {
+pub struct Time {
     t: DateTime<Utc>,
 }
 
-struct TimeDelta(chrono::TimeDelta);
+impl From<DateTime<Utc>> for Time {
+    fn from(t: DateTime<Utc>) -> Self {
+        Self { t }
+    }
+}
+
+#[derive(Clone)]
+pub struct TimeDelta(chrono::TimeDelta);
+
+impl From<chrono::TimeDelta> for TimeDelta {
+    fn from(delta: chrono::TimeDelta) -> Self {
+        Self(delta)
+    }
+}
 
 impl Time {
     fn now(_lua: &Lua, _: ()) -> mlua::Result<Self> {

@@ -41,6 +41,9 @@
  * New
    [message:increment_num_attempts](../reference/message/increment_num_attempts.md)
    method for advanced message manipulation.
+ * The [requeue_message](../reference/events/requeue_message.md) event now
+   exposes additional context about the event leading to the the requeue,
+   allowing for more nuanced/advanced requeue logic.
 
 ## Fixes
 
