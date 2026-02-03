@@ -84,6 +84,11 @@ struct Opt {
     #[arg(long)]
     dump_lruttl_caches: bool,
 
+    /// Instead of running the daemon, output the list of metric metadata
+    /// to stdout.
+    #[arg(long)]
+    dump_metric_metadata: bool,
+
     /// Required if started as root; specifies which user to run as once
     /// privileges have been dropped.
     ///
@@ -179,6 +184,12 @@ fn main() -> anyhow::Result<()> {
             "{}",
             serde_json::to_string_pretty(&lruttl::get_definitions())?
         );
+        return Ok(());
+    }
+
+    if opts.dump_metric_metadata {
+        let data = kumo_prometheus::export_metadata();
+        println!("{}", serde_json::to_string_pretty(&data)?);
         return Ok(());
     }
 

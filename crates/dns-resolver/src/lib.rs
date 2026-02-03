@@ -7,6 +7,7 @@ pub use hickory_resolver::Name;
 use kumo_address::host::HostAddress;
 use kumo_address::host_or_socket::HostOrSocketAddress;
 use kumo_log_types::ResolvedAddress;
+use kumo_prometheus::declare_metric;
 use lruttl::declare_cache;
 use rand::prelude::SliceRandom;
 use serde::Serialize;
@@ -61,42 +62,31 @@ static MX_TIMEOUT_MS: AtomicUsize = AtomicUsize::new(5000);
 /// 5 minutes in ms
 static MX_NEGATIVE_TTL: AtomicUsize = AtomicUsize::new(300 * 1000);
 
-static MX_IN_PROGRESS: LazyLock<prometheus::IntGauge> = LazyLock::new(|| {
-    prometheus::register_int_gauge!(
-        "dns_mx_resolve_in_progress",
-        "number of MailExchanger::resolve calls currently in progress"
-    )
-    .unwrap()
-});
-static MX_SUCCESS: LazyLock<prometheus::IntCounter> = LazyLock::new(|| {
-    prometheus::register_int_counter!(
-        "dns_mx_resolve_status_ok",
-        "total number of successful MailExchanger::resolve calls"
-    )
-    .unwrap()
-});
-static MX_FAIL: LazyLock<prometheus::IntCounter> = LazyLock::new(|| {
-    prometheus::register_int_counter!(
-        "dns_mx_resolve_status_fail",
-        "total number of failed MailExchanger::resolve calls"
-    )
-    .unwrap()
-});
-static MX_CACHED: LazyLock<prometheus::IntCounter> = LazyLock::new(|| {
-    prometheus::register_int_counter!(
-        "dns_mx_resolve_cache_hit",
-        "total number of MailExchanger::resolve calls satisfied by level 1 cache"
-    )
-    .unwrap()
-});
-static MX_QUERIES: LazyLock<prometheus::IntCounter> = LazyLock::new(|| {
-    prometheus::register_int_counter!(
-        "dns_mx_resolve_cache_miss",
-        "total number of MailExchanger::resolve calls that resulted in an \
-        MX DNS request to the next level of cache"
-    )
-    .unwrap()
-});
+declare_metric! {
+/// number of MailExchanger::resolve calls currently in progress
+static MX_IN_PROGRESS: IntGauge("dns_mx_resolve_in_progress");
+}
+
+declare_metric! {
+/// total number of successful MailExchanger::resolve calls
+static MX_SUCCESS: IntCounter(
+        "dns_mx_resolve_status_ok");
+}
+
+declare_metric! {
+/// total number of failed MailExchanger::resolve calls
+static MX_FAIL: IntCounter("dns_mx_resolve_status_fail");
+}
+
+declare_metric! {
+/// total number of MailExchanger::resolve calls satisfied by level 1 cache
+static MX_CACHED: IntCounter("dns_mx_resolve_cache_hit");
+}
+
+declare_metric! {
+/// total number of MailExchanger::resolve calls that resulted in an MX DNS request to the next level of cache
+static MX_QUERIES: IntCounter("dns_mx_resolve_cache_miss");
+}
 
 fn default_resolver() -> impl Resolver {
     #[cfg(feature = "default-unbound")]

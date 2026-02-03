@@ -6,9 +6,9 @@ use crate::metrics_helper::{
     TOTAL_MSGS_FAIL_BY_PROVIDER, TOTAL_MSGS_FAIL_BY_PROVIDER_AND_SOURCE,
     TOTAL_MSGS_TRANSFAIL_BY_PROVIDER, TOTAL_MSGS_TRANSFAIL_BY_PROVIDER_AND_SOURCE,
 };
+use kumo_prometheus::prometheus::Histogram;
 use kumo_prometheus::{counter_bundle, AtomicCounter};
 use parking_lot::Mutex;
-use prometheus::Histogram;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 

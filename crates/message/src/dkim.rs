@@ -2,12 +2,12 @@ use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_sub_module};
 use data_loader::KeySource;
 use kumo_dkim::DkimPrivateKey;
+use kumo_prometheus::declare_metric;
 use lruttl::declare_cache;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, Value};
-use prometheus::{Counter, Histogram};
 use serde::Deserialize;
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, OnceLock};
 use tokio::runtime::Runtime;
 use tokio::time::Duration;
 
@@ -20,77 +20,55 @@ declare_cache! {
 static KEY_CACHE: LruCacheWithTtl<KeySource, Arc<DkimPrivateKey>>::new("dkim_key_cache", 1024);
 }
 
-static SIGNER_KEY_FETCH: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "dkim_signer_key_fetch",
-        "how long it takes to obtain a dkim key"
-    )
-    .unwrap()
-});
-static SIGNER_CREATE: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "dkim_signer_creation",
-        "how long it takes to create a signer on a cache miss"
-    )
-    .unwrap()
-});
-static SIGNER_SIGN: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "dkim_signer_sign",
-        "how long it takes to dkim sign parsed messages"
-    )
-    .unwrap()
-});
-static SIGNER_PARSE: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "dkim_signer_message_parse",
-        "how long it takes to parse messages as prep for signing"
-    )
-    .unwrap()
-});
-static SIGNER_CACHE_HIT: LazyLock<Counter> = LazyLock::new(|| {
-    prometheus::register_counter!(
-        "dkim_signer_cache_hit",
-        "how many cache dkim signer requests hit cache"
-    )
-    .unwrap()
-});
-static SIGNER_CACHE_MISS: LazyLock<Counter> = LazyLock::new(|| {
-    prometheus::register_counter!(
-        "dkim_signer_cache_miss",
-        "how many cache dkim signer requests miss cache"
-    )
-    .unwrap()
-});
-static SIGNER_CACHE_LOOKUP: LazyLock<Counter> = LazyLock::new(|| {
-    prometheus::register_counter!(
-        "dkim_signer_cache_lookup_count",
-        "how many cache dkim signer requests occurred"
-    )
-    .unwrap()
-});
+declare_metric! {
+/// how long it takes to obtain a dkim key
+static SIGNER_KEY_FETCH: Histogram("dkim_signer_key_fetch");
+}
 
-static KEY_CACHE_HIT: LazyLock<Counter> = LazyLock::new(|| {
-    prometheus::register_counter!(
-        "dkim_signer_key_cache_hit",
-        "how many cache dkim signer requests hit key cache"
-    )
-    .unwrap()
-});
-static KEY_CACHE_MISS: LazyLock<Counter> = LazyLock::new(|| {
-    prometheus::register_counter!(
-        "dkim_signer_key_cache_miss",
-        "how many cache dkim signer requests miss key cache"
-    )
-    .unwrap()
-});
-static KEY_CACHE_LOOKUP: LazyLock<Counter> = LazyLock::new(|| {
-    prometheus::register_counter!(
-        "dkim_signer_key_cache_lookup_count",
-        "how many cache dkim key requests occurred"
-    )
-    .unwrap()
-});
+declare_metric! {
+/// how long it takes to create a signer on a cache miss
+static SIGNER_CREATE: Histogram("dkim_signer_creation");
+}
+
+declare_metric! {
+/// how long it takes to dkim sign parsed messages
+static SIGNER_SIGN: Histogram("dkim_signer_sign");
+}
+
+declare_metric! {
+/// how long it takes to parse messages as prep for signing
+static SIGNER_PARSE: Histogram("dkim_signer_message_parse");
+}
+
+declare_metric! {
+/// how many cache dkim signer requests hit cache
+static SIGNER_CACHE_HIT: IntCounter("dkim_signer_cache_hit");
+}
+
+declare_metric! {
+/// how many cache dkim signer requests miss cache
+static SIGNER_CACHE_MISS: IntCounter("dkim_signer_cache_miss");
+}
+
+declare_metric! {
+/// how many cache dkim signer requests occurred
+static SIGNER_CACHE_LOOKUP: IntCounter("dkim_signer_cache_lookup_count");
+}
+
+declare_metric! {
+/// how many cache dkim signer requests hit key cache
+static KEY_CACHE_HIT: IntCounter("dkim_signer_key_cache_hit");
+}
+
+declare_metric! {
+/// how many cache dkim signer requests miss key cache
+static KEY_CACHE_MISS: IntCounter("dkim_signer_key_cache_miss");
+}
+
+declare_metric! {
+/// how many cache dkim key requests occurred
+static KEY_CACHE_LOOKUP: IntCounter("dkim_signer_key_cache_lookup_count");
+}
 
 #[derive(Deserialize, Hash, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Canon {

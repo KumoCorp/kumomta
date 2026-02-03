@@ -1,12 +1,12 @@
 use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{any_err, from_lua_value, get_or_create_module, serialize_options};
 use dashmap::DashMap;
+use kumo_prometheus::declare_metric;
 use lruttl::LruCacheWithTtl;
 use mlua::{
     FromLua, Function, IntoLua, Lua, LuaSerdeExt, MetaMethod, MultiValue, UserData,
     UserDataMethods, UserDataRef,
 };
-use prometheus::CounterVec;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
@@ -330,38 +330,33 @@ fn get_cache_by_name(
     })
 }
 
-static CACHE_LOOKUP: LazyLock<CounterVec> = LazyLock::new(|| {
-    prometheus::register_counter_vec!(
+declare_metric! {
+/// how many times a memoize cache lookup was initiated for a given cache
+static CACHE_LOOKUP: CounterVec(
         "memoize_cache_lookup_count",
-        "how many times a memoize cache lookup was initiated for a given cache",
-        &["cache_name"]
-    )
-    .unwrap()
-});
-static CACHE_HIT: LazyLock<CounterVec> = LazyLock::new(|| {
-    prometheus::register_counter_vec!(
+        &["cache_name"]);
+}
+
+declare_metric! {
+/// how many times a memoize cache lookup was a hit for a given cache
+static CACHE_HIT: CounterVec(
         "memoize_cache_hit_count",
-        "how many times a memoize cache lookup was a hit for a given cache",
-        &["cache_name"]
-    )
-    .unwrap()
-});
-static CACHE_MISS: LazyLock<CounterVec> = LazyLock::new(|| {
-    prometheus::register_counter_vec!(
+        &["cache_name"]);
+}
+
+declare_metric! {
+/// how many times a memoize cache lookup was a miss for a given cache
+static CACHE_MISS: CounterVec(
         "memoize_cache_miss_count",
-        "how many times a memoize cache lookup was a miss for a given cache",
-        &["cache_name"]
-    )
-    .unwrap()
-});
-static CACHE_POPULATED: LazyLock<CounterVec> = LazyLock::new(|| {
-    prometheus::register_counter_vec!(
+        &["cache_name"]);
+}
+
+declare_metric! {
+/// how many times a memoize cache lookup resulted in performing the work to populate the entry
+static CACHE_POPULATED: CounterVec(
         "memoize_cache_populated_count",
-        "how many times a memoize cache lookup resulted in performing the work to populate the entry",
-        &["cache_name"]
-    )
-    .unwrap()
-});
+        &["cache_name"]);
+}
 
 fn multi_value_to_json_value(lua: &Lua, multi: MultiValue) -> mlua::Result<serde_json::Value> {
     let mut values = multi.into_vec();

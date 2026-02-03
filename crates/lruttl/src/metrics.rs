@@ -1,91 +1,78 @@
-use prometheus::{IntCounterVec, IntGaugeVec};
-use std::sync::LazyLock;
+use kumo_prometheus::declare_metric;
 
-pub(crate) static CACHE_LOOKUP: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    prometheus::register_int_counter_vec!(
+declare_metric! {
+/// how many times a lruttl cache lookup was initiated for a given cache
+pub(crate) static CACHE_LOOKUP: IntCounterVec(
         "lruttl_lookup_count",
-        "how many times a lruttl cache lookup was initiated for a given cache",
-        &["cache_name"]
-    )
-    .unwrap()
-});
-pub(crate) static CACHE_EVICT: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    prometheus::register_int_counter_vec!(
+        &["cache_name"]);
+}
+
+declare_metric! {
+/// how many times a lruttl cache evicted an item due to capacity constraints
+pub(crate) static CACHE_EVICT: IntCounterVec(
         "lruttl_evict_count",
-        "how many times a lruttl cache evicted an item due to capacity constraints",
-        &["cache_name"]
-    )
-    .unwrap()
-});
-pub(crate) static CACHE_EXPIRE: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    prometheus::register_int_counter_vec!(
+        &["cache_name"]);
+}
+
+declare_metric! {
+/// how many times a lruttl cache removed an item due to ttl expiration
+pub(crate) static CACHE_EXPIRE: IntCounterVec(
         "lruttl_expire_count",
-        "how many times a lruttl cache removed an item due to ttl expiration",
-        &["cache_name"]
-    )
-    .unwrap()
-});
-pub(crate) static CACHE_HIT: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    prometheus::register_int_counter_vec!(
+        &["cache_name"]);
+}
+
+declare_metric! {
+/// how many times a lruttl cache lookup was a hit for a given cache
+pub(crate) static CACHE_HIT: IntCounterVec(
         "lruttl_hit_count",
-        "how many times a lruttl cache lookup was a hit for a given cache",
-        &["cache_name"]
-    )
-    .unwrap()
-});
-pub(crate) static CACHE_MISS: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    prometheus::register_int_counter_vec!(
+        &["cache_name"]);
+}
+
+declare_metric! {
+/// how many times a lruttl cache lookup was a miss for a given cache
+pub(crate) static CACHE_MISS: IntCounterVec(
         "lruttl_miss_count",
-        "how many times a lruttl cache lookup was a miss for a given cache",
-        &["cache_name"]
-    )
-    .unwrap()
-});
-pub(crate) static CACHE_INSERT: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    prometheus::register_int_counter_vec!(
+        &["cache_name"]);
+}
+
+declare_metric! {
+/// how many times a lruttl cache was populated via unconditional insert
+pub(crate) static CACHE_INSERT: IntCounterVec(
         "lruttl_insert_count",
-        "how many times a lruttl cache was populated via unconditional insert",
-        &["cache_name"]
-    )
-    .unwrap()
-});
-pub(crate) static CACHE_POPULATED: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    prometheus::register_int_counter_vec!(
+        &["cache_name"]);
+}
+
+declare_metric! {
+/// how many times a lruttl cache lookup resulted in performing the work to populate the entry
+pub(crate) static CACHE_POPULATED: IntCounterVec(
         "lruttl_populated_count",
-        "how many times a lruttl cache lookup resulted in performing the work to populate the entry",
-        &["cache_name"]
-    )
-    .unwrap()
-});
-pub(crate) static CACHE_ERROR: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    prometheus::register_int_counter_vec!(
+        &["cache_name"]);
+}
+
+declare_metric! {
+/// how many times a lruttl cache population resulted in an error
+pub(crate) static CACHE_ERROR: IntCounterVec(
         "lruttl_error_count",
-        "how many times a lruttl cache population resulted in an error",
-        &["cache_name"]
-    )
-    .unwrap()
-});
-pub(crate) static CACHE_STALE: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    prometheus::register_int_counter_vec!(
+        &["cache_name"]);
+}
+
+declare_metric! {
+/// how many times a lruttl cache population was satisfied by a stale value
+pub(crate) static CACHE_STALE: IntCounterVec(
         "lruttl_stale_count",
-        "how many times a lruttl cache population was satisfied by a stale value",
-        &["cache_name"]
-    )
-    .unwrap()
-});
-pub(crate) static CACHE_WAIT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    prometheus::register_int_gauge_vec!(
+        &["cache_name"]);
+}
+
+declare_metric! {
+        /// how many tasks are currently waiting for a cache entry to populate
+pub(crate) static CACHE_WAIT: IntGaugeVec(
         "lruttl_waiting_populate",
-        "how many tasks are currently waiting for a cache entry to populate",
-        &["cache_name"]
-    )
-    .unwrap()
-});
-pub(crate) static CACHE_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    prometheus::register_int_gauge_vec!(
+        &["cache_name"]);
+}
+
+declare_metric! {
+/// number of items contained in an lruttl cache
+pub(crate) static CACHE_SIZE: IntGaugeVec(
         "lruttl_cache_size",
-        "number of items contained in an lruttl cache",
-        &["cache_name"]
-    )
-    .unwrap()
-});
+        &["cache_name"]);
+}

@@ -1,8 +1,8 @@
 use crate::metrics::*;
 use dashmap::DashMap;
+use kumo_prometheus::prometheus::{IntCounter, IntGauge};
 use kumo_server_memory::subscribe_to_memory_status_changes_async;
 use parking_lot::Mutex;
-use prometheus::{IntCounter, IntGauge};
 use scopeguard::defer;
 use std::borrow::Borrow;
 use std::collections::HashMap;
@@ -353,6 +353,9 @@ pub static LRUTTL_VIVIFY: [fn() -> CacheDefinition];
 macro_rules! optional_doc {
     ($doc:expr) => {
         Some($doc.trim())
+    };
+    ($($doc:expr)+) => {
+        Some(concat!($($doc,)+).trim())
     };
     () => {
         None

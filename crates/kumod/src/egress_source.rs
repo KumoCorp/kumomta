@@ -7,19 +7,19 @@ use config::{CallbackSignature, LuaConfig};
 use data_loader::KeySource;
 use gcd::Gcd;
 use kumo_log_types::MaybeProxiedSourceAddress;
+use kumo_prometheus::declare_metric;
 use kumo_server_common::config_handle::ConfigHandle;
 use lruttl::declare_cache;
 use message::Message;
 use mlua::prelude::LuaUserData;
 use parking_lot::FairMutex as Mutex;
-use prometheus::IntCounter;
 use serde::{Deserialize, Serialize};
 use socksv5::v5::{
     SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5RequestStatus, SocksV5Response,
 };
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
@@ -201,13 +201,12 @@ impl EgressSource {
                     "bind {source:?} for source:{source_name} failed: {err:#} \
                     while attempting to connect to {connect_context}"
                 );
-                static FAILED_BIND: LazyLock<IntCounter> = LazyLock::new(|| {
-                    prometheus::register_int_counter!(
-                        "bind_failures",
-                        "how many times that directly binding a source address has failed"
-                    )
-                    .unwrap()
-                });
+
+                declare_metric! {
+                    /// how many times that directly binding a source address has failed
+                    static FAILED_BIND: IntCounter("bind_failures");
+                }
+
                 FAILED_BIND.inc();
                 anyhow::bail!("{error}");
             }
@@ -255,13 +254,10 @@ fn inc_failed_proxy_connection_attempts(is_proxy: bool) {
         return;
     }
 
-    static FAILED: LazyLock<IntCounter> = LazyLock::new(|| {
-        prometheus::register_int_counter!(
-            "proxy_connection_failures",
-            "how many times a connection attempt to a proxy server has failed"
-        )
-        .unwrap()
-    });
+    declare_metric! {
+        /// how many times a connection attempt to a proxy server has failed
+        static FAILED: IntCounter("proxy_connection_failures");
+    }
     FAILED.inc();
 }
 

@@ -8,9 +8,9 @@ use crate::spool::SpoolManager;
 use ::config::{declare_event, load_config};
 use config::SerdeWrappedValue;
 use dashmap::DashMap;
+use kumo_prometheus::declare_metric;
 use message::Message;
 use mod_time::TimeDelta;
-use prometheus::{Histogram, IntGauge};
 use rfc5321::Response;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
@@ -18,27 +18,22 @@ use tokio::sync::Semaphore;
 use tracing::instrument;
 
 pub static MANAGER: LazyLock<QueueManager> = LazyLock::new(|| QueueManager::new());
-static RESOLVE_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "queue_resolve_latency",
-        "latency of QueueManager::resolve operations",
-    )
-    .unwrap()
-});
-static INSERT_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "queue_insert_latency",
-        "latency of QueueManager::insert operations",
-    )
-    .unwrap()
-});
-pub static SCHEDULED_QUEUE_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
-    prometheus::register_int_gauge!(
-        "scheduled_queue_count",
-        "how many scheduled queues are tracked by the QueueManager"
-    )
-    .unwrap()
-});
+
+declare_metric! {
+/// latency of QueueManager::resolve operations
+static RESOLVE_LATENCY: Histogram("queue_resolve_latency");
+}
+
+declare_metric! {
+/// latency of QueueManager::insert operations
+static INSERT_LATENCY: Histogram("queue_insert_latency");
+}
+
+declare_metric! {
+/// how many scheduled queues are tracked by the QueueManager
+pub static SCHEDULED_QUEUE_COUNT: IntGauge("scheduled_queue_count");
+}
+
 declare_event! {
 pub static REQUEUE_MESSAGE_SIG: Multiple(
     "requeue_message",

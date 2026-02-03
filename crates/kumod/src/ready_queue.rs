@@ -28,6 +28,7 @@ use dns_resolver::MailExchanger;
 use kumo_api_types::egress_path::{
     ConfigRefreshStrategy, EgressPathConfig, MemoryReductionPolicy, WakeupStrategy,
 };
+use kumo_prometheus::declare_metric;
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_memory::{
@@ -37,7 +38,6 @@ use kumo_server_runtime::{get_named_runtime, spawn, Runtime};
 use message::message::{MessageList, QueueNameComponents};
 use message::Message;
 use parking_lot::FairMutex;
-use prometheus::Histogram;
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::Serialize;
 use std::fmt::Debug;
@@ -72,13 +72,10 @@ pub static GET_EGRESS_PATH_CONFIG_SIG: Single(
 ) -> EgressPathConfig;
 }
 
-static INSERT_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "ready_queue_insert_latency",
-        "latency of ReadyQueue::insert operations",
-    )
-    .unwrap()
-});
+declare_metric! {
+/// latency of ReadyQueue::insert operations
+static INSERT_LATENCY: Histogram("ready_queue_insert_latency");
+}
 
 const ONE_MINUTE: Duration = Duration::from_secs(60);
 const AGE_OUT_INTERVAL: Duration = Duration::from_secs(10 * 60);

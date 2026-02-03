@@ -1,6 +1,6 @@
 use anyhow::Context;
+use kumo_prometheus::declare_metric;
 use parking_lot::Mutex;
-use prometheus::IntGaugeVec;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -10,22 +10,20 @@ use tokio::task::JoinHandle;
 
 pub static RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("localset", |cpus| cpus / 4, &LOCALSET_THREADS).unwrap());
-static PARKED_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    prometheus::register_int_gauge_vec!(
+
+declare_metric! {
+/// number of parked(idle) threads in a thread pool
+static PARKED_THREADS: IntGaugeVec(
         "thread_pool_parked",
-        "number of parked(idle) threads in a thread pool",
-        &["pool"]
-    )
-    .unwrap()
-});
-static NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    prometheus::register_int_gauge_vec!(
+        &["pool"]);
+}
+
+declare_metric! {
+/// number of threads in a thread pool
+static NUM_THREADS: IntGaugeVec(
         "thread_pool_size",
-        "number of threads in a thread pool",
-        &["pool"]
-    )
-    .unwrap()
-});
+        &["pool"]);
+}
 
 static RUNTIMES: LazyLock<Mutex<HashMap<String, Runtime>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));

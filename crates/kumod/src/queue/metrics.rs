@@ -2,10 +2,9 @@ use crate::metrics_helper::{
     BorrowedProviderAndPoolKey, BorrowedProviderKey, ProviderAndPoolKeyTrait, ProviderKeyTrait,
     QUEUED_COUNT_GAUGE_BY_PROVIDER, QUEUED_COUNT_GAUGE_BY_PROVIDER_AND_POOL,
 };
-use kumo_prometheus::{counter_bundle, label_key, AtomicCounter, PruningCounterRegistry};
+use kumo_prometheus::{counter_bundle, declare_metric, label_key, AtomicCounter};
 use message::queue_name::QueueNameComponents;
-use prometheus::IntGauge;
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 label_key! {
     pub struct QueueKey {
@@ -29,64 +28,48 @@ label_key! {
     }
 }
 
-static DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER: LazyLock<PruningCounterRegistry<QueueKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register(
-            "delayed_due_to_ready_queue_full",
-            "number of times a message was delayed due to the corresponding ready queue being full",
-        )
-    });
+declare_metric! {
+/// number of times a message was delayed due to the corresponding ready queue being full
+static DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER: PruningCounterRegistry<QueueKey>(
+            "delayed_due_to_ready_queue_full");
+}
 
-static DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER: LazyLock<PruningCounterRegistry<QueueKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register(
-            "delayed_due_to_message_rate_throttle",
-            "number of times a message was delayed due to max_message_rate",
-        )
-    });
-static DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER: LazyLock<PruningCounterRegistry<QueueKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register(
-            "delayed_due_to_throttle_insert_ready",
-            "number of times a message was delayed due throttle_insert_ready_queue event",
-        )
-    });
+declare_metric! {
+/// number of times a message was delayed due to max_message_rate
+static DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER: PruningCounterRegistry<QueueKey>(
+            "delayed_due_to_message_rate_throttle");
+}
 
-static TOTAL_DELAY_GAUGE: LazyLock<IntGauge> = LazyLock::new(|| {
-    prometheus::register_int_gauge!(
-        "scheduled_count_total",
-        "total number of messages across all scheduled queues",
-    )
-    .unwrap()
-});
+declare_metric! {
+/// number of times a message was delayed due throttle_insert_ready_queue event
+static DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER: PruningCounterRegistry<QueueKey>(
+            "delayed_due_to_throttle_insert_ready");
+}
 
-static DELAY_GAUGE: LazyLock<PruningCounterRegistry<QueueKey>> = LazyLock::new(|| {
-    PruningCounterRegistry::register_gauge(
-        "scheduled_count",
-        "number of messages in the scheduled queue",
-    )
-});
+declare_metric! {
+/// total number of messages across all scheduled queues
+static TOTAL_DELAY_GAUGE: IntGauge("scheduled_count_total");
+}
 
-static DOMAIN_GAUGE: LazyLock<PruningCounterRegistry<DomainKey>> = LazyLock::new(|| {
-    PruningCounterRegistry::register_gauge(
-        "scheduled_by_domain",
-        "number of messages in the scheduled queue for a specific domain",
-    )
-});
-static TENANT_GAUGE: LazyLock<PruningCounterRegistry<TenantKey>> = LazyLock::new(|| {
-    PruningCounterRegistry::register_gauge(
-        "scheduled_by_tenant",
-        "number of messages in the scheduled queue for a specific tenant",
-    )
-});
+declare_metric! {
+/// number of messages in the scheduled queue
+static DELAY_GAUGE: PruningGaugeRegistry<QueueKey>("scheduled_count");
+}
 
-static TENANT_CAMPAIGN_GAUGE: LazyLock<PruningCounterRegistry<TenantCampaignKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register_gauge(
-        "scheduled_by_tenant_campaign",
-        "number of messages in the scheduled queue for a specific tenant and campaign combination",
-    )
-    });
+declare_metric! {
+/// number of messages in the scheduled queue for a specific domain
+static DOMAIN_GAUGE: PruningGaugeRegistry<DomainKey>("scheduled_by_domain");
+}
+
+declare_metric! {
+/// number of messages in the scheduled queue for a specific tenant
+static TENANT_GAUGE: PruningGaugeRegistry<TenantKey>("scheduled_by_tenant");
+}
+
+declare_metric! {
+/// number of messages in the scheduled queue for a specific tenant and campaign combination
+static TENANT_CAMPAIGN_GAUGE: PruningGaugeRegistry<TenantCampaignKey>("scheduled_by_tenant_campaign");
+}
 
 counter_bundle! {
     pub struct ScheduledCountBundle {

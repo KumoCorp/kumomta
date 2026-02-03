@@ -2,14 +2,14 @@ use crate::{Spool, SpoolEntry, SpoolId};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use flume::Sender;
-use prometheus::IntGaugeVec;
+use kumo_prometheus::declare_metric;
 use rocksdb::perf::get_memory_usage_stats;
 use rocksdb::{
     DBCompressionType, ErrorKind, IteratorMode, LogLevel, Options, WriteBatch, WriteOptions, DB,
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::{Arc, LazyLock, Weak};
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 use tokio::runtime::Handle;
 use tokio::sync::Semaphore;
@@ -544,38 +544,37 @@ impl From<rocksdb::perf::MemoryUsageStats> for Stats {
     }
 }
 
-static MEM_TABLE_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    prometheus::register_int_gauge_vec!(
+declare_metric! {
+/// Approximate memory usage of all the mem-tables
+static MEM_TABLE_TOTAL: IntGaugeVec(
         "rocks_spool_mem_table_total",
-        "Approximate memory usage of all the mem-tables",
         &["path"]
-    )
-    .unwrap()
-});
-static MEM_TABLE_UNFLUSHED: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    prometheus::register_int_gauge_vec!(
+    );
+}
+
+declare_metric! {
+/// Approximate memory usage of un-flushed mem-tables
+static MEM_TABLE_UNFLUSHED: IntGaugeVec(
         "rocks_spool_mem_table_unflushed",
-        "Approximate memory usage of un-flushed mem-tables",
         &["path"]
-    )
-    .unwrap()
-});
-static MEM_TABLE_READERS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    prometheus::register_int_gauge_vec!(
+    );
+}
+
+declare_metric! {
+/// Approximate memory usage of all the table readers
+static MEM_TABLE_READERS_TOTAL: IntGaugeVec(
         "rocks_spool_mem_table_readers_total",
-        "Approximate memory usage of all the table readers",
         &["path"]
-    )
-    .unwrap()
-});
-static CACHE_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    prometheus::register_int_gauge_vec!(
+    );
+}
+
+declare_metric! {
+/// Approximate memory usage by cache
+static CACHE_TOTAL: IntGaugeVec(
         "rocks_spool_cache_total",
-        "Approximate memory usage by cache",
         &["path"]
-    )
-    .unwrap()
-});
+    );
+}
 
 async fn metrics_monitor(db: Weak<DB>, path: String) {
     let mem_table_total = MEM_TABLE_TOTAL

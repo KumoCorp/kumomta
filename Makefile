@@ -37,6 +37,12 @@ test-adhoc: build
 test-kumod:
 	cargo nextest run --no-fail-fast -p kumod
 
+expand-kumod:
+	cargo expand -p kumod metrics_helper
+
+macro-kumod:
+	RUSTFLAGS="-Z macro-backtrace --cfg tokio_unstable" cargo +nightly check -p kumod
+
 clippy:
 	cargo clippy -- \
 		-A clippy::assertions_on_constants \

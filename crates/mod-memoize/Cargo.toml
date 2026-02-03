@@ -8,10 +8,11 @@ anyhow = {workspace=true}
 config = {path="../config"}
 dashmap.workspace = true
 duration-serde = {path="../duration-serde"}
+kumo-prometheus = {path="../kumo-prometheus"}
+linkme.workspace = true
 lruttl = {path="../lruttl"}
 tokio = {workspace=true, features=["sync"]}
 tracing.workspace = true
-prometheus = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "macros", "send", "serialize"]}
 serde = {workspace=true}
 serde_json = {workspace=true}

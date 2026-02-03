@@ -5,13 +5,13 @@ use anyhow::Context;
 use config::{declare_event, load_config};
 use flume::Receiver;
 pub use kumo_log_types::*;
+use kumo_prometheus::declare_metric;
 use kumo_template::{Template, TemplateEngine};
 use message::{EnvelopeAddress, Message};
-use prometheus::CounterVec;
 use serde::Deserialize;
 use spool::SpoolId;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use tokio::sync::{Semaphore, TryAcquireError};
 
 declare_event! {
@@ -22,14 +22,13 @@ pub static SHOULD_ENQ_LOG_RECORD_SIG: Multiple(
 ) -> bool;
 }
 
-static HOOK_BACKLOG_COUNT: LazyLock<CounterVec> = LazyLock::new(|| {
-    prometheus::register_counter_vec!(
-        "log_hook_backlog_count",
-        "how many times processing of a log event hit the back_pressure in a hook",
-        &["logger"]
-    )
-    .unwrap()
-});
+declare_metric! {
+/// how many times processing of a log event hit the back_pressure in a hook
+static HOOK_BACKLOG_COUNT: CounterVec(
+    "log_hook_backlog_count",
+    &["logger"]
+);
+}
 
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]

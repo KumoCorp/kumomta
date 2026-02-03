@@ -19,7 +19,8 @@ use data_encoding::BASE64;
 use data_loader::KeySource;
 use derive_where::derive_where;
 use kumo_log_types::ResolvedAddress;
-use kumo_prometheus::AtomicCounter;
+use kumo_prometheus::prometheus::HistogramTimer;
+use kumo_prometheus::{declare_metric, AtomicCounter};
 use kumo_server_common::acct::{log_authn, AuthnAuditRecord};
 use kumo_server_common::authn_authz::{AuthInfo, Identity, IdentityContext};
 use kumo_server_common::http_server::auth::AuthKindResult;
@@ -34,7 +35,6 @@ use mlua::{FromLuaMulti, IntoLuaMulti, LuaSerdeExt, UserData, UserDataMethods};
 use openssl::x509::X509;
 use parking_lot::FairMutex as Mutex;
 use ppp::{HeaderResult, PartialResult};
-use prometheus::{Histogram, HistogramTimer};
 use rfc5321::{
     subject_name, AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response, TlsInformation,
     XClientParameter,
@@ -118,27 +118,21 @@ static SMTP_SERVER_AUTH_PLAIN: Single(
 }
 
 static CRLF: LazyLock<Finder> = LazyLock::new(|| Finder::new("\r\n"));
-static TXN_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "smtpsrv_transaction_duration",
-        "how long an incoming SMTP transaction takes",
-    )
-    .unwrap()
-});
-static READ_DATA_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "smtpsrv_read_data_duration",
-        "how long it takes to receive the DATA portion",
-    )
-    .unwrap()
-});
-static PROCESS_DATA_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "smtpsrv_process_data_duration",
-        "how long it takes to process the DATA portion and enqueue",
-    )
-    .unwrap()
-});
+
+declare_metric! {
+/// how long an incoming SMTP transaction takes
+static TXN_LATENCY: Histogram("smtpsrv_transaction_duration");
+}
+
+declare_metric! {
+/// how long it takes to receive the DATA portion
+static READ_DATA_LATENCY: Histogram("smtpsrv_read_data_duration");
+}
+
+declare_metric! {
+/// how long it takes to process the DATA portion and enqueue
+static PROCESS_DATA_LATENCY: Histogram("smtpsrv_process_data_duration");
+}
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 struct DomainAndListener {

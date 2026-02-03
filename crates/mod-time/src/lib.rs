@@ -2,21 +2,20 @@ use chrono::format::StrftimeItems;
 use chrono::{DateTime, Datelike, LocalResult, TimeZone, Timelike, Utc};
 use config::{any_err, get_or_create_module, get_or_create_sub_module};
 use humantime::format_duration;
+use kumo_prometheus::declare_metric;
+use kumo_prometheus::prometheus::HistogramTimer;
 use mlua::{
     FromLua, IntoLua, Lua, MetaMethod, UserData, UserDataFields, UserDataMethods, UserDataRef,
 };
-use prometheus::{HistogramTimer, HistogramVec};
-use std::sync::LazyLock;
 use tokio::time::Duration;
 
-static LATENCY_HIST: LazyLock<HistogramVec> = LazyLock::new(|| {
-    prometheus::register_histogram_vec!(
-        "user_lua_latency",
-        "how long something user-defined took to run in your lua policy",
-        &["label"]
-    )
-    .unwrap()
-});
+declare_metric! {
+/// How long something user-defined took to run in your lua policy
+static LATENCY_HIST: HistogramVec(
+    "user_lua_latency",
+    &["label"]
+);
+}
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let kumo_mod = get_or_create_module(lua, "kumo")?;

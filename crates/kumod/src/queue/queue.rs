@@ -27,6 +27,7 @@ use humantime::format_duration;
 use kumo_api_types::egress_path::{ConfigRefreshStrategy, MemoryReductionPolicy};
 use kumo_api_types::xfer::XferProtocol;
 use kumo_chrono_helper::DateTime;
+use kumo_prometheus::declare_metric;
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on};
@@ -34,11 +35,10 @@ use kumo_template::TemplateEngine;
 use message::queue_name::QueueNameComponents;
 use message::Message;
 use parking_lot::FairMutex;
-use prometheus::IntGauge;
 use rfc5321::{EnhancedStatusCode, Response};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use throttle::ThrottleResult;
 use timeq::TimerEntryWithDelay;
@@ -1767,13 +1767,10 @@ pub static GET_Q_CONFIG_SIG: Multiple(
     ) -> QueueConfig;
 }
 
-static QMAINT_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
-    prometheus::register_int_gauge!(
-        "scheduled_queue_maintainer_count",
-        "how many scheduled queues have active maintainer tasks"
-    )
-    .unwrap()
-});
+declare_metric! {
+/// how many scheduled queues have active maintainer tasks
+static QMAINT_COUNT: IntGauge("scheduled_queue_maintainer_count");
+}
 
 declare_event! {
 pub static THROTTLE_INSERT_READY_SIG: Multiple(
