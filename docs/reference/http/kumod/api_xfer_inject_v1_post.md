@@ -19,7 +19,7 @@ Performs a message transfer.
     used by external consumers.  It is intentionally under-specified
     in these auto-generated docs.
 
-You probably want to look at the [inject](api_admin_xfer_v1_post.md)
+You probably want to look at the [/api/admin/xfer/v1](api_admin_xfer_v1_post.md)
 endpoint which is used to request that a specific queue should
 be re-routed via this XFER endpoint on the target node.
 
