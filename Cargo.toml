@@ -64,7 +64,7 @@ axum-streams = {version="0.23", features=["text"]}
 backtrace = "0.3"
 bitflags = "2.3"
 bitstring = "0.2"
-bytes = "1.0"
+bytes = "1.11"
 camino = "1.1"
 caps = "0.5"
 cgroups-rs = "0.3"
