@@ -493,7 +493,7 @@ fn action_hash(m: &Rule, action: &Action) -> String {
     hasher.get()
 }
 
-#[utoipa::path(post, path="/publish_log_v1", request_body=())]
+#[utoipa::path(post, path="/publish_log_v1", request_body=Object)]
 async fn publish_log_v1(
     // Note: Json<> must be last in the param list
     Json(record): Json<JsonLogRecord>,
