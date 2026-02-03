@@ -6,19 +6,15 @@ tags:
 # kumo.get_memory_hard_limit
 
 ```lua
-kumo.get_memory_hard_limit(LIMIT)
+local limit = kumo.get_memory_hard_limit()
 ```
 
 {{since('dev')}}
 
-!!!note
-    Unless explicitly set via kumo.set_memory_hard_limit or process is running on an Linux system, this function would return nil
+Returns the hard memory limit, or `nil` if none has been configured.
 
-Get the memory_hard_limit configured.
+If your policy doesn't explicitly configure a limit via [kumo.set_memory_hard_limit](set_memory_hard_limit.md), whether there is a hard limit depends on the environment into which the process was spawned.
 
 See [Memory Management](../memory.md) for a discussion on how kumomta manages
 memory usage.
 
-```lua
-  kumo.get_memory_hard_limit()
-```
