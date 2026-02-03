@@ -3,22 +3,20 @@ tags:
  - memory
 ---
 
-# kumo.get_memory_soft_limit
+# kumo.get_memory_low_thresh
 
 ```lua
-kumo.get_memory_low_limit(LIMIT)
+local thresh = kumo.get_memory_low_thresh()
 ```
 
 {{since('dev')}}
 
-!!!note
-    Unless explicitly set via kumo.set_memory_low_limit or kumo.get_memory_hard_limit is set or process is running on an Linux system, this function would return nil
+Returns the low memory threshold, or `nil` if none has been configured.
 
-Get the memory_low_limit configured, if not defined by kumo.set_memory_low_limit, this value would default to 80% of memory_soft_limit.
+If your policy doesn't explicitly configure hard/soft limits, the default value depends on the environment into which the process was spawned.
+
+See [kumo.set_memory_low_thresh](set_memory_low_thresh.md) for more details on this specific setting.
 
 See [Memory Management](../memory.md) for a discussion on how kumomta manages
 memory usage.
 
-```lua
-  kumo.get_memory_low_limit()
-```
