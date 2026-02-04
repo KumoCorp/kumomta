@@ -262,13 +262,15 @@ impl SmtpDispatcher {
             dispatcher
                 .bulk_ready_queue_operation(
                     Response {
-                        code: 550,
+                        code: 451,
                         enhanced_code: Some(EnhancedStatusCode {
-                            class: 5,
+                            class: 4,
                             subject: 4,
                             detail: 4,
                         }),
-                        content: "MX consisted solely of hosts on the skip_hosts list".to_string(),
+                        content:
+                            "KumoMTA internal: MX consisted solely of hosts on the skip_hosts list"
+                                .to_string(),
                         command: None,
                     },
                     InsertReason::MxWasSkipped.into(),

@@ -5,6 +5,15 @@
    If you have a policy that tunes this cache via
    [kumo.set_lruttl_cache_capacity](../reference/kumo/set_lruttl_cache_capacity.md),
    you will need to update the cache name.
+ * The effect of the [skip_hosts](../reference/kumo/make_egress_path/skip_hosts.md)
+   configuration has been downgraded from a `550` to a `451` to make it more inline
+   with the effect of resolving a domain to an empty list of MX hosts.  The rationale
+   for this is that users primarily employ `skip_hosts` to prevent the use of IPv6.
+   That, coupled with a few recent issues with Microsoft hosted domains where their
+   DNS would only transiently return IPv6 addresses (no IPv4) addresses meant that
+   some mail could be inadvertently permanently failed.  The reason field now
+   also has `KumoMTA internal:` prefixed to it, to make it clearer that it was
+   synthesized by us, rather than returned from a remote host.
 
 ## Other Changes and Enhancements
  * Enhanced [Access Control](../reference/access_control.md) subsystem,
