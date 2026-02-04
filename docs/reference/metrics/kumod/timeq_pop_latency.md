@@ -4,7 +4,11 @@
 Type: Histogram
 Buckets: 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0
 ```
-The amount of time that passes between calls to a singleon timerwheel pop.
+The number of seconds that passes between calls to a singleon timerwheel pop.
+
+
+This gives an indication of how heavily loaded the timerwheel buckets might be, but is not
+generally useful to chart.
 
 
 ## Histogram

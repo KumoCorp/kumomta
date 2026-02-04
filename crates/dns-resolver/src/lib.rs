@@ -63,28 +63,38 @@ static MX_TIMEOUT_MS: AtomicUsize = AtomicUsize::new(5000);
 static MX_NEGATIVE_TTL: AtomicUsize = AtomicUsize::new(300 * 1000);
 
 declare_metric! {
-/// number of MailExchanger::resolve calls currently in progress
+/// number of `MailExchanger::resolve` calls currently in progress.
 static MX_IN_PROGRESS: IntGauge("dns_mx_resolve_in_progress");
 }
 
 declare_metric! {
-/// total number of successful MailExchanger::resolve calls
+/// Total number of successful `MailExchanger::resolve` calls
 static MX_SUCCESS: IntCounter(
         "dns_mx_resolve_status_ok");
 }
 
 declare_metric! {
-/// total number of failed MailExchanger::resolve calls
+/// Total number of failed `MailExchanger::resolve` calls.
+///
+/// Spikes may indicate an issue with your DNS configuration
+/// or infrastructure, or may simply indicate that the traffic
+/// is destined for bogus addresses.
 static MX_FAIL: IntCounter("dns_mx_resolve_status_fail");
 }
 
 declare_metric! {
-/// total number of MailExchanger::resolve calls satisfied by level 1 cache
+/// Total number of MailExchanger::resolve calls satisfied by level 1 cache.
+///
+/// Redundant with the newer [lruttl_hit_count{cache_name="dns_resolver_mx"}](lruttl_hit_count.md)
+/// metric.
 static MX_CACHED: IntCounter("dns_mx_resolve_cache_hit");
 }
 
 declare_metric! {
-/// total number of MailExchanger::resolve calls that resulted in an MX DNS request to the next level of cache
+/// Total number of MailExchanger::resolve calls that resulted in an MX DNS request to the next level of cache
+///
+/// Redundant with the newer [lruttl_miss_count{cache_name="dns_resolver_mx"}](lruttl_miss_count.md)
+/// metric.
 static MX_QUERIES: IntCounter("dns_mx_resolve_cache_miss");
 }
 

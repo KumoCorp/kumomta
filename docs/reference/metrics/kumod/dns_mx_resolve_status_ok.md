@@ -3,5 +3,5 @@
 ```
 Type: Counter
 ```
-total number of successful MailExchanger::resolve calls.
+Total number of successful `MailExchanger::resolve` calls.
 

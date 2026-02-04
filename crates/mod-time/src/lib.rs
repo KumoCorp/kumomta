@@ -10,7 +10,14 @@ use mlua::{
 use tokio::time::Duration;
 
 declare_metric! {
-/// How long something user-defined took to run in your lua policy
+/// How many seconds something user-defined took to run in your lua policy.
+///
+/// This histogram is updated by policy scripts that employ the
+/// [kumo.time.start_timer](../../kumo.time/start_timer.md) function
+/// to record a duration in the policy.
+///
+/// The `label` is whatever you specified as the label(s) to the various
+/// `kumo.time.start_timer` calls in the policy.
 static LATENCY_HIST: HistogramVec(
     "user_lua_latency",
     &["label"]

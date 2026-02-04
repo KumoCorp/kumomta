@@ -12,7 +12,7 @@ pub static RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("localset", |cpus| cpus / 4, &LOCALSET_THREADS).unwrap());
 
 declare_metric! {
-/// number of parked(idle) threads in a thread pool
+/// number of parked (idle) threads in a thread pool
 static PARKED_THREADS: IntGaugeVec(
         "thread_pool_parked",
         &["pool"]);

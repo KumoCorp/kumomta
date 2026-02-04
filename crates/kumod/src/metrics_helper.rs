@@ -136,12 +136,16 @@ pub static TOTAL_MSGS_RECVD: CounterRegistry<ServiceKey>("total_messages_receive
 }
 
 declare_metric! {
-/// number of times a message could not fit in the ready queue
+/// number of times a message could not fit in the ready queue.
+///
+/// See [delayed_due_to_ready_queue_full](delayed_due_to_ready_queue_full.md)
+/// for the equivalent metric tracked by scheduled queue name, as well as
+/// a discussion on what this event means.
 pub static READY_FULL_COUNTER: PruningCounterRegistry<ServiceKey>("ready_full");
 }
 
 declare_metric! {
-/// how long a deliver_message call takes for a given protocol
+/// how many seconds a deliver_message call takes for a given protocol
 pub static DELIVER_MESSAGE_LATENCY_ROLLUP: HistogramVec(
         "deliver_message_latency_rollup",
         &["service"]

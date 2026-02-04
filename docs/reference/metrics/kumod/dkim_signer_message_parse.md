@@ -4,7 +4,11 @@
 Type: Histogram
 Buckets: 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0
 ```
-how long it takes to parse messages as prep for signing.
+How many seconds it takes to parse messages as prep for signing.
+
+
+Long durations may simply indicate that you have very large
+messages passing through the system.
 
 
 ## Histogram

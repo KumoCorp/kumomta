@@ -7,6 +7,13 @@ Buckets: 0.25, 0.5, 1.0, 2.5, 3.0, 5.0, 10.0, 15.0, 30.0, 45.0, 60.0, 90.0, 180.
 The time difference between the due and current time for a singleon timerwheel reinsertion.
 
 
+This gives an indication of whether the scheduled queue
+maintainer is keeping up with the load.  It is generally
+acceptable for this value to be a few seconds "late" due
+to a combination of time wheel bucket granularity and
+overall scheduling priority.
+
+
 ## Histogram
 This metric is a histogram which means that it is exported as three underlying metrics:
 

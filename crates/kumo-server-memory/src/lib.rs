@@ -30,9 +30,8 @@ pub use tracking::{set_tracking_callstacks, tracking_stats};
 static GLOBAL: TrackingAllocator<Jemalloc> = TrackingAllocator::new(Jemalloc);
 
 declare_metric! {
-/// how many times the low memory threshold was exceeded
-static LOW_COUNT: IntCounter(
-        "memory_low_count");
+/// How many times the low memory threshold was exceeded.
+static LOW_COUNT: IntCounter("memory_low_count");
 }
 
 declare_metric! {

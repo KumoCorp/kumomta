@@ -3,5 +3,5 @@
 ```
 Type: Gauge
 ```
-number of MailExchanger::resolve calls currently in progress.
+number of `MailExchanger::resolve` calls currently in progress.
 

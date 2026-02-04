@@ -203,7 +203,11 @@ impl EgressSource {
                 );
 
                 declare_metric! {
-                    /// how many times that directly binding a source address has failed
+                    /// How many times that directly binding a source address has failed.
+                    ///
+                    /// This generally indicates a configuration error where a source
+                    /// is trying to assign an IP address that is not plumbing on
+                    /// the system on which kumod is running.
                     static FAILED_BIND: IntCounter("bind_failures");
                 }
 
@@ -255,7 +259,11 @@ fn inc_failed_proxy_connection_attempts(is_proxy: bool) {
     }
 
     declare_metric! {
-        /// how many times a connection attempt to a proxy server has failed
+        /// How many times a connection attempt to a proxy server has failed.
+        ///
+        /// This might indicate either a configuration error (eg: an
+        /// incorrect proxy server has been configured) or a
+        /// service interruption with that proxy server.
         static FAILED: IntCounter("proxy_connection_failures");
     }
     FAILED.inc();

@@ -331,28 +331,36 @@ fn get_cache_by_name(
 }
 
 declare_metric! {
-/// how many times a memoize cache lookup was initiated for a given cache
+/// How many times a memoize cache lookup was initiated for a given cache.
+///
+/// Redundant with the newer [lruttl_lookup_count](lruttl_lookup_count.md) metric.
 static CACHE_LOOKUP: CounterVec(
         "memoize_cache_lookup_count",
         &["cache_name"]);
 }
 
 declare_metric! {
-/// how many times a memoize cache lookup was a hit for a given cache
+/// How many times a memoize cache lookup was a hit for a given cache.
+///
+/// Redundant with the newer [lruttl_hit_count](lruttl_hit_count.md) metric.
 static CACHE_HIT: CounterVec(
         "memoize_cache_hit_count",
         &["cache_name"]);
 }
 
 declare_metric! {
-/// how many times a memoize cache lookup was a miss for a given cache
+/// How many times a memoize cache lookup was a miss for a given cache
+///
+/// Redundant with the newer [lruttl_miss_count](lruttl_miss_count.md) metric.
 static CACHE_MISS: CounterVec(
         "memoize_cache_miss_count",
         &["cache_name"]);
 }
 
 declare_metric! {
-/// how many times a memoize cache lookup resulted in performing the work to populate the entry
+/// How many times a memoize cache lookup resulted in performing the work to populate the entry
+///
+/// Redundant with the newer [lruttl_populated_count](lruttl_populated_count.md) metric.
 static CACHE_POPULATED: CounterVec(
         "memoize_cache_populated_count",
         &["cache_name"]);

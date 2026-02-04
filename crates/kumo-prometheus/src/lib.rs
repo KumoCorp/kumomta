@@ -304,13 +304,19 @@ macro_rules! mandatory_doc {
 /// they denote the break between the short first-logical-line
 /// and a longer descriptive exposition.  Returns that first
 /// logical line and the optional exposition.
-pub fn split_help(help: &str) -> (String, Option<&str>) {
+pub fn split_help(help: &str) -> (String, Option<String>) {
+
+    // The input will be a series of lines each with a space
+    // at the start because "/// something" -> " something".
+    // Normalize those away.
+    let normalized = help.trim().replace("\n ", "\n");
+
     fn one_line(s: &str) -> String {
         s.replace("\n", " ").trim().to_string()
     }
 
-    match help.split_once("\n\n") {
-        Some((a, b)) => (one_line(a), Some(b)),
+    match normalized.split_once("\n\n") {
+        Some((a, b)) => (one_line(a), Some(b.to_string())),
         None => (one_line(help), None),
     }
 }
@@ -358,8 +364,8 @@ macro_rules! __register_metric {
                 let labels : &[&str] = $labels;
                 $crate::CounterDescription {
                     name: $name.to_string(),
-                    help: help.to_string(),
-                    doc: doc.map(|s| s.to_string()),
+                    help,
+                    doc,
                     metric_type: $metric,
                     label_names: labels.iter().map(|s| s.to_string()).collect(),
                     buckets: $buckets,

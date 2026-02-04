@@ -4,8 +4,7 @@
 Type: Gauge
 Labels: service
 ```
-The number of active outgoing connections in the system,
- keyed by the service name.
+The number of active outgoing connections in the system,  keyed by the service name.
 
 
 !!! note

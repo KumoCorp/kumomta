@@ -4,7 +4,11 @@
 Type: Histogram
 Buckets: 3.0, 4.0, 5.0, 8.0, 10.0, 12.0, 15.0, 20.0, 25.0, 30.0
 ```
-The amount of time that passes between calls to TimeQ::pop.
+The amount of time that passes between calls to `TimeQ::pop`.
+
+
+This metric is not generally interesting and does not typically
+need to be charted in a dashboard.
 
 
 ## Histogram

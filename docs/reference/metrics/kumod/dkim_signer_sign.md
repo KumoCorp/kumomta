@@ -4,7 +4,13 @@
 Type: Histogram
 Buckets: 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0
 ```
-how long it takes to dkim sign parsed messages.
+How many seconds it takes to dkim sign parsed messages.
+
+
+Long durations may indicate that the system is over-provisioned
+and has insufficient CPU.  You should check whether and how you
+might have configured
+[kumo.dkim.set_signing_threads](../../kumo.dkim/set_signing_threads.md).
 
 
 ## Histogram

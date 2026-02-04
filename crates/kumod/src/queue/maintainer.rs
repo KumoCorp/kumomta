@@ -34,7 +34,12 @@ pub fn set_qmaint_threads(n: usize) {
 }
 
 declare_metric! {
-/// total number of times a scheduled queue maintainer was run
+/// Total number of times a scheduled queue maintainer was run.
+///
+/// This metric is not generally useful to chart.
+/// It gives an indication that schedule queue maintainers are
+/// ticking over, but it is difficult to reason much beyond that
+/// that is happening.
 pub static TOTAL_QMAINT_RUNS: IntCounter("total_qmaint_runs");
 }
 
@@ -334,12 +339,21 @@ async fn process_batch_v2(messages: Vec<Message>, total_scheduled: usize) {
 }
 
 declare_metric! {
-/// The amount of time that passes between calls to a singleon timerwheel pop
+/// The number of seconds that passes between calls to a singleon timerwheel pop.
+///
+/// This gives an indication of how heavily loaded the timerwheel buckets might be, but is not
+/// generally useful to chart.
 static POP_LATENCY: Histogram("timeq_pop_latency");
 }
 
 declare_metric! {
-/// The time difference between the due and current time for a singleon timerwheel pop
+/// The time difference between the due and current time for a singleon timerwheel pop.
+///
+/// This gives an indication of whether the scheduled queue
+/// maintainer is keeping up with the load.  It is generally
+/// acceptable for this value to be a few seconds "late" due
+/// to a combination of time wheel bucket granularity and
+/// overall scheduling priority.
 static POP_TARDY: Histogram(
         "timeq_pop_tardiness",
         vec![0.25, 0.5, 1.0, 2.5, 3.0, 5.0, 10.0, 15.0]
@@ -347,7 +361,13 @@ static POP_TARDY: Histogram(
 }
 
 declare_metric! {
-/// The time difference between the due and current time for a singleon timerwheel reinsertion
+/// The time difference between the due and current time for a singleon timerwheel reinsertion.
+///
+/// This gives an indication of whether the scheduled queue
+/// maintainer is keeping up with the load.  It is generally
+/// acceptable for this value to be a few seconds "late" due
+/// to a combination of time wheel bucket granularity and
+/// overall scheduling priority.
 static REINSERT_TARDY: Histogram(
         "timeq_reinsert_tardiness",
         vec![0.25, 0.5, 1.0, 2.5, 3.0, 5.0, 10.0, 15.0, 30.0,

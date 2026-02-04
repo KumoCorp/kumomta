@@ -21,52 +21,87 @@ static KEY_CACHE: LruCacheWithTtl<KeySource, Arc<DkimPrivateKey>>::new("dkim_key
 }
 
 declare_metric! {
-/// how long it takes to obtain a dkim key
+/// How long it takes to obtain a dkim key.
+///
+/// This measures that time that it takes to load dkim
+/// private keys from whatever storage medium is configured.
 static SIGNER_KEY_FETCH: Histogram("dkim_signer_key_fetch");
 }
 
 declare_metric! {
-/// how long it takes to create a signer on a cache miss
+/// How many seconds it takes to create a signer on a cache miss.
 static SIGNER_CREATE: Histogram("dkim_signer_creation");
 }
 
 declare_metric! {
-/// how long it takes to dkim sign parsed messages
+/// How many seconds it takes to dkim sign parsed messages.
+///
+/// Long durations may indicate that the system is over-provisioned
+/// and has insufficient CPU.  You should check whether and how you
+/// might have configured
+/// [kumo.dkim.set_signing_threads](../../kumo.dkim/set_signing_threads.md).
 static SIGNER_SIGN: Histogram("dkim_signer_sign");
 }
 
 declare_metric! {
-/// how long it takes to parse messages as prep for signing
+/// How many seconds it takes to parse messages as prep for signing.
+///
+/// Long durations may simply indicate that you have very large
+/// messages passing through the system.
 static SIGNER_PARSE: Histogram("dkim_signer_message_parse");
 }
 
 declare_metric! {
-/// how many cache dkim signer requests hit cache
+/// How many dkim signer requests hit cache.
+///
+/// This is redundant with the newer
+/// [lruttl_hit_count{cache_name="dkim_signer_cache"}](lruttl_hit_count.md)
+/// counter.
 static SIGNER_CACHE_HIT: IntCounter("dkim_signer_cache_hit");
 }
 
 declare_metric! {
-/// how many cache dkim signer requests miss cache
+/// How many dkim signer requests miss cache.
+///
+/// This is redundant with the newer
+/// [lruttl_miss_count{cache_name="dkim_signer_cache"}](lruttl_miss_count.md)
+/// counter.
 static SIGNER_CACHE_MISS: IntCounter("dkim_signer_cache_miss");
 }
 
 declare_metric! {
-/// how many cache dkim signer requests occurred
+/// How many cache dkim signer requests occurred.
+///
+/// This is redundant with the newer
+/// [lruttl_lookup_count{cache_name="dkim_signer_cache"}](lruttl_lookup_count.md)
+/// counter.
 static SIGNER_CACHE_LOOKUP: IntCounter("dkim_signer_cache_lookup_count");
 }
 
 declare_metric! {
-/// how many cache dkim signer requests hit key cache
+/// How many cache dkim signer requests hit key cache.
+///
+/// This is redundant with the newer
+/// [lruttl_hit_count{cache_name="dkim_key_cache"}](lruttl_hit_count.md)
+/// counter.
 static KEY_CACHE_HIT: IntCounter("dkim_signer_key_cache_hit");
 }
 
 declare_metric! {
-/// how many cache dkim signer requests miss key cache
+/// How many cache dkim signer requests miss key cache.
+///
+/// This is redundant with the newer
+/// [lruttl_miss_count{cache_name="dkim_key_cache"}](lruttl_miss_count.md)
+/// counter.
 static KEY_CACHE_MISS: IntCounter("dkim_signer_key_cache_miss");
 }
 
 declare_metric! {
-/// how many cache dkim key requests occurred
+/// How many cache dkim key requests occurred.
+///
+/// This is redundant with the newer
+/// [lruttl_lookup_count{cache_name="dkim_key_cache"}](lruttl_lookup_count.md)
+/// counter.
 static KEY_CACHE_LOOKUP: IntCounter("dkim_signer_key_cache_lookup_count");
 }
 

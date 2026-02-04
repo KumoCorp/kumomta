@@ -1768,7 +1768,7 @@ pub static GET_Q_CONFIG_SIG: Multiple(
 }
 
 declare_metric! {
-/// how many scheduled queues have active maintainer tasks
+/// How many scheduled queues have active maintainer tasks.
 static QMAINT_COUNT: IntGauge("scheduled_queue_maintainer_count");
 }
 

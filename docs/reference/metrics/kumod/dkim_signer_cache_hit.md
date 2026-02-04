@@ -3,5 +3,10 @@
 ```
 Type: Counter
 ```
-how many cache dkim signer requests hit cache.
+How many dkim signer requests hit cache.
+
+
+This is redundant with the newer
+[lruttl_hit_count{cache_name="dkim_signer_cache"}](lruttl_hit_count.md)
+counter.
 

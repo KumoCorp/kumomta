@@ -3,5 +3,5 @@
 ```
 Type: Gauge
 ```
-how many scheduled queues have active maintainer tasks.
+How many scheduled queues have active maintainer tasks.
 

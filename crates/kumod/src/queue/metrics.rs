@@ -29,30 +29,86 @@ label_key! {
 }
 
 declare_metric! {
-/// number of times a message was delayed due to the corresponding ready queue being full
+/// Number of times a message was delayed due to the corresponding ready queue being full.
+///
+/// Delayed in this context means that we moved the message back to its corresponding
+/// scheduled queue with a short retry time, as well as logging a `Delayed` log
+/// record.
+///
+/// Transient spikes in this value indicate normal operation and that the system
+/// is keeping things within your memory budget.
+///
+/// However, sustained increases in this value may indicate that the
+/// [max_ready](../../kumo/make_egress_path/max_ready.md)
+/// configuration for the associated egress path is under-sized for your workload,
+/// and that you should carefully consider the information in
+/// [Budgeting/Tuning Memory](../../memory.md#budgetingtuning-memory)
+/// to decide whether increasing `max_ready` is appropriate, otherwise you risk
+/// potentially over-provisioning the system.
+///
+/// The metric is tracked per `queue` label.  The `queue` is the scheduled
+/// queue name as described in [Queues](../../queues.md).
+///
+/// See [ready_full](ready_full.md) for the equivalent metric tracked
+/// by the ready queue name, which can be helpful to understand which
+/// egress path configuration you might want to examine.
 static DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER: PruningCounterRegistry<QueueKey>(
             "delayed_due_to_ready_queue_full");
 }
 
 declare_metric! {
-/// number of times a message was delayed due to max_message_rate
+/// Number of times a message was delayed due to max_message_rate
+///
+/// Delayed in this context means that we moved the message back to its corresponding
+/// scheduled queue with a short retry time, as well as logging a `Delayed` log
+/// record.
+///
+/// Sustained increases in this value may indicate that the configured
+/// throttles are too severe for your workload, but it is difficult to make
+/// a definitive and generalized statement in these docs without understanding your
+/// workload, policy and the purpose of those throttles.
+///
+/// The metric is tracked per `queue` label.  The `queue` is the scheduled
+/// queue name as described in [Queues](../../queues.md).
 static DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER: PruningCounterRegistry<QueueKey>(
             "delayed_due_to_message_rate_throttle");
 }
 
 declare_metric! {
-/// number of times a message was delayed due throttle_insert_ready_queue event
+/// number of times a message was delayed due to the throttle_insert_ready_queue event
+///
+/// Delayed in this context means that we moved the message back to its corresponding
+/// scheduled queue with a short retry time, as well as logging a `Delayed` log
+/// record.
+///
+/// The [throttle_insert_ready_queue](../../events/throttle_insert_ready_queue.md)
+/// event is implemented either directly in your policy, or indirectly via policy
+/// helpers, such as the queues helper when configured to throttle campaigns
+/// or tenants.
+///
+/// Sustained increases in this value may indicate that the configured
+/// throttles are too severe for your workload, but it is difficult to make
+/// a definitive and generalized statement in these docs without understanding your
+/// workload, policy and the purpose of those throttles.
+///
+/// The metric is tracked per `queue` label.  The `queue` is the scheduled
+/// queue name as described in [Queues](../../queues.md).
 static DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER: PruningCounterRegistry<QueueKey>(
             "delayed_due_to_throttle_insert_ready");
 }
 
 declare_metric! {
-/// total number of messages across all scheduled queues
+/// total number of messages across all scheduled queues.
+///
+/// This counter sums up the number of messages currently sitting in all scheduled queues.
 static TOTAL_DELAY_GAUGE: IntGauge("scheduled_count_total");
 }
 
 declare_metric! {
-/// number of messages in the scheduled queue
+/// number of messages in the scheduled queue.
+///
+/// The metric is tracked per `queue` label.  The `queue` is the scheduled
+/// queue name as described in [Queues](../../queues.md).
 static DELAY_GAUGE: PruningGaugeRegistry<QueueKey>("scheduled_count");
 }
 

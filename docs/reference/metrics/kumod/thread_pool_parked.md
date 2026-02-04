@@ -4,7 +4,7 @@
 Type: Gauge
 Labels: pool
 ```
-number of parked(idle) threads in a thread pool.
+number of parked (idle) threads in a thread pool.
 
 
 !!! info

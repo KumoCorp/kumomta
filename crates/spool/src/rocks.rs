@@ -545,7 +545,10 @@ impl From<rocksdb::perf::MemoryUsageStats> for Stats {
 }
 
 declare_metric! {
-/// Approximate memory usage of all the mem-tables
+/// Approximate memory usage (bytes) of all the mem-tables.
+///
+/// This may be useful when understanding the memory usage of
+/// the system.
 static MEM_TABLE_TOTAL: IntGaugeVec(
         "rocks_spool_mem_table_total",
         &["path"]
@@ -553,7 +556,10 @@ static MEM_TABLE_TOTAL: IntGaugeVec(
 }
 
 declare_metric! {
-/// Approximate memory usage of un-flushed mem-tables
+/// Approximate memory usage (bytes) of un-flushed mem-tables.
+///
+/// This may be useful when understanding the memory usage of
+/// the system.
 static MEM_TABLE_UNFLUSHED: IntGaugeVec(
         "rocks_spool_mem_table_unflushed",
         &["path"]
@@ -561,7 +567,10 @@ static MEM_TABLE_UNFLUSHED: IntGaugeVec(
 }
 
 declare_metric! {
-/// Approximate memory usage of all the table readers
+/// Approximate memory usage (bytes) of all the table readers.
+///
+/// This may be useful when understanding the memory usage of
+/// the system.
 static MEM_TABLE_READERS_TOTAL: IntGaugeVec(
         "rocks_spool_mem_table_readers_total",
         &["path"]
@@ -569,7 +578,10 @@ static MEM_TABLE_READERS_TOTAL: IntGaugeVec(
 }
 
 declare_metric! {
-/// Approximate memory usage by cache
+/// Approximate memory (bytes) usage by cache.
+///
+/// This may be useful when understanding the memory usage of
+/// the system.
 static CACHE_TOTAL: IntGaugeVec(
         "rocks_spool_cache_total",
         &["path"]

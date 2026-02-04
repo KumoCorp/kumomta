@@ -5,11 +5,19 @@ Type: Histogram
 Labels: label
 Buckets: 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0
 ```
-How long something user-defined took to run in your lua policy.
+How many seconds something user-defined took to run in your lua policy.
 
 
 !!! info
     This metric has labels which means that the system will track the metric for each combination of the possible labels that are active.  Certain labels, especially those that correlate with source or destination addresses or domains, can have high cardinality.  High cardinality metrics may require some care and attention when provisioning a downstream metrics server.
+
+This histogram is updated by policy scripts that employ the
+[kumo.time.start_timer](../../kumo.time/start_timer.md) function
+to record a duration in the policy.
+
+The `label` is whatever you specified as the label(s) to the various
+`kumo.time.start_timer` calls in the policy.
+
 
 ## Histogram
 This metric is a histogram which means that it is exported as three underlying metrics:

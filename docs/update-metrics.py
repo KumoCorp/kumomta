@@ -49,7 +49,7 @@ def metrics(service):
                 )
 
             if doc:
-                output.write(f"{doc}\n\n")
+                output.write(f"\n{doc}\n\n")
 
             if len(buckets) > 0:
                 output.write("\n## Histogram\n")

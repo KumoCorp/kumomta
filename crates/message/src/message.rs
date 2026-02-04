@@ -52,34 +52,73 @@ bitflags::bitflags! {
 }
 
 declare_metric! {
-/// total number of Message objects
+/// Total number of Message objects.
+///
+/// This encompasses all Message objects in various states, whether
+/// they are in a queue, moving between queues, being built as part
+/// of an injection, pending logging, message metadata and/or data
+/// may be either resident or offloaded to spool.
 static MESSAGE_COUNT: IntGauge("message_count");
 }
 
 declare_metric! {
-/// total number of Message objects with metadata loaded
+/// Total number of Message objects with metadata loaded.
+///
+/// Tracks how many messages have their `meta` data resident
+/// in memory.  This may be because they have not yet saved
+/// it, or because the message is being processed and the
+/// metadata is required for that processing.
 static META_COUNT: IntGauge("message_meta_resident_count");
 }
 
 declare_metric! {
-/// total number of Message objects with body data loaded
+/// Total number of Message objects with body data loaded.
+///
+/// Tracks how many messages have their `data` resident
+/// in memory.  This may be because they have not yet saved
+/// it, or because the message is being processed and the
+/// data is either required to be in memory in order to
+/// deliver the message, or because logging or other
+/// post-injection policy is configured to operate on
+/// the message.
 static DATA_COUNT: IntGauge("message_data_resident_count");
 }
 
 static NO_DATA: LazyLock<Arc<Box<[u8]>>> = LazyLock::new(|| Arc::new(vec![].into_boxed_slice()));
 
 declare_metric! {
-/// how long it takes to save a message to spool
+/// How many seconds it takes to save a message to spool.
+///
+/// This metric encompasses the elapsed time to saved
+/// either or both the `meta` and `data` portions of a
+/// message to spool.
+///
+/// High values indicate IO pressure which may be
+/// alleviated by tuning other constraints and/or
+/// [RocksDB Parameters](../../kumo/define_spool/rocks_params.md)
 static SAVE_HIST: Histogram("message_save_latency");
 }
 
 declare_metric! {
-/// how long it takes to load message data from spool
+/// How many seconds it takes to load message data from spool.
+///
+/// High values indicate IO pressure which may be caused
+/// by policy that operates on the message body post-reception.
+/// We recommend *avoiding* logging header values as that is
+/// the most common cause of this metric spiking and has
+/// the biggest impact in resolving it.
+///
+/// IO pressure may also be alleviated by tuning other constraints and/or
+/// [RocksDB Parameters](../../kumo/define_spool/rocks_params.md)
 static LOAD_DATA_HIST: Histogram("message_data_load_latency");
 }
 
 declare_metric! {
-/// how long it takes to load message metadata from spool
+/// How long it takes to load message metadata from spool
+///
+/// High values indicate IO pressure which may be
+/// alleviated by tuning other constraints and/or
+/// [RocksDB Parameters](../../kumo/define_spool/rocks_params.md)
 static LOAD_META_HIST: Histogram("message_meta_load_latency");
 }
 

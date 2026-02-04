@@ -3,5 +3,5 @@
 ```
 Type: Counter
 ```
-how many times the low memory threshold was exceeded.
+How many times the low memory threshold was exceeded.
 

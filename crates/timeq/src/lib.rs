@@ -19,7 +19,10 @@ pub struct TimeQ<EntryType: TimerEntryWithDelay> {
 }
 
 declare_metric! {
-/// The amount of time that passes between calls to TimeQ::pop
+/// The amount of time that passes between calls to `TimeQ::pop`.
+///
+/// This metric is not generally interesting and does not typically
+/// need to be charted in a dashboard.
 static POP_INTERVAL: Histogram(
         "timeq_pop_interval",
         // Since we generally start at 3s, let's use a custom set
