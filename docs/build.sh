@@ -34,6 +34,7 @@ fi
 if test -x ${CARGO_TARGET_DIR}/debug/kumod ; then
   ./docs/update-openapi.sh
   ${CARGO_TARGET_DIR}/debug/kumod --dump-lruttl-caches > docs/reference/lruttl-caches.json
+  ${CARGO_TARGET_DIR}/debug/kumod --dump-metric-metadata > docs/reference/kumod-metrics.json
 fi
 if test -x ${CARGO_TARGET_DIR}/debug/kcli ; then
   ${CARGO_TARGET_DIR}/debug/kcli markdown-help
@@ -52,6 +53,7 @@ if [ "$CI" == true ] ; then
   ln -sf ${CARGO_TARGET_DIR}/doc docs/rustapi
 fi
 
+python3 docs/update-metrics.py || exit 1
 python3 docs/generate-toc.py || exit 1
 
 # Adjust path to pick up pip-installed binaries
