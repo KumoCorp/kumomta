@@ -45,6 +45,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         mod_memoize::register,
         mod_mimepart::register,
         mod_mpsc::register,
+        mod_nats::register,
         mod_uuid::register,
         kumo_api_types::shaping::register,
         regex_set_map::register,
