@@ -12,6 +12,8 @@ Learn more in our [FAQ](https://docs.kumomta.com/faq/) and at [https://kumomta.c
 
 You can learn more about KumoMTA from the [Documentation](https://docs.kumomta.com/).
 
+You can also explore additional community-driven explanations and technical details on DeepWiki! [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/KumoCorp/kumomta)
+
 ## Community
 
 Real-time discussion is available on [Our Discord](https://kumomta.com/discord).
