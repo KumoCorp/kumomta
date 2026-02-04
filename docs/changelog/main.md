@@ -46,6 +46,8 @@
  * The [requeue_message](../reference/events/requeue_message.md) event now
    exposes additional context about the event leading to the the requeue,
    allowing for more nuanced/advanced requeue logic.
+ * Each metric exported by kumod now has a documentation page. You can find an
+   index at [kumod metrics](../reference/metrics/kumod/index.md).
 
 ## Fixes
 

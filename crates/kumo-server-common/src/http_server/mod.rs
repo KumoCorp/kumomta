@@ -502,6 +502,10 @@ struct PrometheusMetricsParams {
 ///
 /// See also [metrics.json](metrics.json_get.md).
 ///
+/// ## Metric Documentation
+///
+/// * [Metrics exported by kumod](../../metrics/kumod/index.md)
+///
 /// ## Example Data
 ///
 /// Here's an example of the shape of the data.  The precise set of
@@ -547,6 +551,10 @@ async fn report_metrics(Query(params): Query<PrometheusMetricsParams>) -> impl I
 /// for more information on adjusting ACLs.
 ///
 /// See also [metrics](metrics_get.md).
+///
+/// ## Metric Documentation
+///
+/// * [Metrics exported by kumod](../../metrics/kumod/index.md)
 ///
 /// ## Example Data
 ///

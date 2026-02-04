@@ -30,6 +30,10 @@ for more information on adjusting ACLs.
 
 See also [metrics.json](metrics.json_get.md).
 
+## Metric Documentation
+
+* [Metrics exported by kumod](../../metrics/kumod/index.md)
+
 ## Example Data
 
 Here's an example of the shape of the data.  The precise set of
