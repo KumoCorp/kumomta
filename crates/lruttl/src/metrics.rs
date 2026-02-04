@@ -1,6 +1,5 @@
 use kumo_prometheus::declare_metric;
 
-
 macro_rules! extra {
     () => {
         " The `cache_name` label identifies which cache.  See [kumo.set_lruttl_cache_capacity](../../kumo/set_lruttl_cache_capacity.md) for a list of caches."

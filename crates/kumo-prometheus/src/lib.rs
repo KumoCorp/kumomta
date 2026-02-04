@@ -305,7 +305,6 @@ macro_rules! mandatory_doc {
 /// and a longer descriptive exposition.  Returns that first
 /// logical line and the optional exposition.
 pub fn split_help(help: &str) -> (String, Option<String>) {
-
     // The input will be a series of lines each with a space
     // at the start because "/// something" -> " something".
     // Normalize those away.
