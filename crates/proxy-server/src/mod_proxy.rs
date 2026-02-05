@@ -17,7 +17,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
-use utoipa::OpenApi;
 
 /// Parameters for starting a proxy listener
 #[derive(Deserialize, Clone, Debug)]
