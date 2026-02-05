@@ -9,6 +9,7 @@ members = [
   "crates/kumo-address",
   "crates/kumo-api-client",
   "crates/kumo-chrono-helper",
+  "crates/kumo-counter-series",
   "crates/kumo-dmarc",
   "crates/kumo-machine-info",
   "crates/kumo-prometheus",
