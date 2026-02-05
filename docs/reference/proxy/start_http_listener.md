@@ -64,8 +64,8 @@ The metrics include:
 - `proxy_connections_failed_total` - Connections that failed during handshake or proxying
 - `proxy_connections_completed_total` - Proxy sessions that completed successfully
 - `proxy_active_connections` - Current number of active proxy connections
-- `proxy_bytes_received_total` - Total bytes received from clients
-- `proxy_bytes_sent_total` - Total bytes sent to clients
+- `proxy_bytes_client_to_dest_total` - Total bytes transferred from client to destination
+- `proxy_bytes_dest_to_client_total` - Total bytes transferred from destination to client
 - `proxy_outbound_connections_total` - Outbound connections made to destinations
 - `proxy_tls_handshake_failures_total` - TLS handshake failures
 

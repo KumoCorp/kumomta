@@ -74,22 +74,22 @@ pub static ACTIVE_CONNECTIONS: PruningGaugeRegistry<ListenerKey>(
 }
 
 declare_metric! {
-/// Total bytes received from clients.
+/// Total bytes transferred from client to destination.
 ///
-/// This counter tracks the total number of bytes received from proxy clients
-/// (i.e., data flowing from client to destination).
-pub static BYTES_RECEIVED: CounterRegistry<ListenerKey>(
-    "proxy_bytes_received_total"
+/// This counter tracks the total number of bytes flowing from proxy clients
+/// to their intended destinations (upstream direction).
+pub static BYTES_CLIENT_TO_DEST: CounterRegistry<ListenerKey>(
+    "proxy_bytes_client_to_dest_total"
 );
 }
 
 declare_metric! {
-/// Total bytes sent to clients.
+/// Total bytes transferred from destination to client.
 ///
-/// This counter tracks the total number of bytes sent to proxy clients
-/// (i.e., data flowing from destination to client).
-pub static BYTES_SENT: CounterRegistry<ListenerKey>(
-    "proxy_bytes_sent_total"
+/// This counter tracks the total number of bytes flowing from destinations
+/// back to proxy clients (downstream direction).
+pub static BYTES_DEST_TO_CLIENT: CounterRegistry<ListenerKey>(
+    "proxy_bytes_dest_to_client_total"
 );
 }
 
@@ -115,52 +115,12 @@ pub fn connections_accepted_for_listener(listener: SocketAddr) -> AtomicCounter 
     TOTAL_CONNECTIONS_ACCEPTED.get_or_create(&key as &dyn ListenerKeyTrait)
 }
 
-pub fn connections_failed_for_listener(listener: SocketAddr) -> AtomicCounter {
-    let listener_str = listener.to_string();
-    let key = BorrowedListenerKey {
-        listener: &listener_str,
-    };
-    TOTAL_CONNECTIONS_FAILED.get_or_create(&key as &dyn ListenerKeyTrait)
-}
-
 pub fn tls_handshake_failures_for_listener(listener: SocketAddr) -> AtomicCounter {
     let listener_str = listener.to_string();
     let key = BorrowedListenerKey {
         listener: &listener_str,
     };
     TOTAL_TLS_HANDSHAKE_FAILURES.get_or_create(&key as &dyn ListenerKeyTrait)
-}
-
-pub fn connections_completed_for_listener(listener: SocketAddr) -> AtomicCounter {
-    let listener_str = listener.to_string();
-    let key = BorrowedListenerKey {
-        listener: &listener_str,
-    };
-    TOTAL_CONNECTIONS_COMPLETED.get_or_create(&key as &dyn ListenerKeyTrait)
-}
-
-pub fn active_connections_for_listener(listener: SocketAddr) -> AtomicCounter {
-    let listener_str = listener.to_string();
-    let key = BorrowedListenerKey {
-        listener: &listener_str,
-    };
-    ACTIVE_CONNECTIONS.get_or_create(&key as &dyn ListenerKeyTrait)
-}
-
-pub fn bytes_received_for_listener(listener: SocketAddr) -> AtomicCounter {
-    let listener_str = listener.to_string();
-    let key = BorrowedListenerKey {
-        listener: &listener_str,
-    };
-    BYTES_RECEIVED.get_or_create(&key as &dyn ListenerKeyTrait)
-}
-
-pub fn bytes_sent_for_listener(listener: SocketAddr) -> AtomicCounter {
-    let listener_str = listener.to_string();
-    let key = BorrowedListenerKey {
-        listener: &listener_str,
-    };
-    BYTES_SENT.get_or_create(&key as &dyn ListenerKeyTrait)
 }
 
 pub fn outbound_connections_for(listener: SocketAddr, destination: SocketAddr) -> AtomicCounter {
@@ -180,27 +140,35 @@ pub struct ProxySessionMetrics {
     active_connections: AtomicCounter,
     connections_completed: AtomicCounter,
     connections_failed: AtomicCounter,
-    bytes_received: AtomicCounter,
-    bytes_sent: AtomicCounter,
+    bytes_client_to_dest: AtomicCounter,
+    bytes_dest_to_client: AtomicCounter,
 }
 
 impl ProxySessionMetrics {
     pub fn new(listener: SocketAddr) -> Self {
-        let active = active_connections_for_listener(listener);
+        // Create a single BorrowedListenerKey and reuse it for all metric lookups
+        // to avoid multiple to_string() calls
+        let listener_str = listener.to_string();
+        let key = BorrowedListenerKey {
+            listener: &listener_str,
+        };
+        let key_trait = &key as &dyn ListenerKeyTrait;
+
+        let active = ACTIVE_CONNECTIONS.get_or_create(key_trait);
         active.inc();
 
         Self {
             active_connections: active,
-            connections_completed: connections_completed_for_listener(listener),
-            connections_failed: connections_failed_for_listener(listener),
-            bytes_received: bytes_received_for_listener(listener),
-            bytes_sent: bytes_sent_for_listener(listener),
+            connections_completed: TOTAL_CONNECTIONS_COMPLETED.get_or_create(key_trait),
+            connections_failed: TOTAL_CONNECTIONS_FAILED.get_or_create(key_trait),
+            bytes_client_to_dest: BYTES_CLIENT_TO_DEST.get_or_create(key_trait),
+            bytes_dest_to_client: BYTES_DEST_TO_CLIENT.get_or_create(key_trait),
         }
     }
 
     pub fn record_bytes(&self, bytes_to_remote: u64, bytes_to_client: u64) {
-        self.bytes_received.inc_by(bytes_to_remote as usize);
-        self.bytes_sent.inc_by(bytes_to_client as usize);
+        self.bytes_client_to_dest.inc_by(bytes_to_remote as usize);
+        self.bytes_dest_to_client.inc_by(bytes_to_client as usize);
     }
 
     pub fn mark_completed(&self) {

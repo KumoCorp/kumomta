@@ -2,12 +2,11 @@ use crate::metrics::{
     connections_accepted_for_listener, tls_handshake_failures_for_listener, ProxySessionMetrics,
 };
 use anyhow::Context;
-use axum::routing::get;
-use axum::Router;
 use config::{any_err, declare_event, from_lua_value, get_or_create_module, SerdeWrappedValue};
 use data_loader::KeySource;
 use kumo_server_common::http_server::auth::AuthKindResult;
 use kumo_server_common::http_server::{HttpListenerParams, RouterAndDocs};
+use kumo_server_common::router_with_docs;
 use kumo_server_runtime::spawn;
 use kumo_tls_helper::AsyncReadAndWrite;
 use mlua::{IntoLua, Lua, LuaSerdeExt, Value};
@@ -17,6 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
+use utoipa::OpenApi;
 
 /// Parameters for starting a proxy listener
 #[derive(Deserialize, Clone, Debug)]
