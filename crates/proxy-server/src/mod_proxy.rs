@@ -185,21 +185,20 @@ impl ProxyListenerParams {
         .await;
 
         // Update metrics based on result
-        match &result {
+        match result {
             Ok(session_result) => {
                 session_metrics.record_bytes(
                     session_result.bytes_to_remote,
                     session_result.bytes_to_client,
                 );
                 session_metrics.mark_completed();
+                Ok(())
             }
-            Err(_) => {
+            Err(err) => {
                 session_metrics.mark_failed();
+                Err(err)
             }
         }
-
-        // Convert the result, discarding the byte counts (already recorded)
-        result.map(|_| ())
     }
 }
 
