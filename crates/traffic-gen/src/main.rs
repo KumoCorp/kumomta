@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use chrono::Utc;
 use clap::builder::ValueParser;
 use clap::Parser;
@@ -20,7 +20,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use throttle::ThrottleSpec;
-use tokio::net::TcpStream;
 use uuid::Uuid;
 
 const DOMAINS: &[&str] = &["aol.com", "gmail.com", "hotmail.com", "yahoo.com"];
@@ -54,9 +53,20 @@ struct Opt {
     #[arg(long)]
     message_count: Option<usize>,
 
-    /// Whether to use STARTTLS for submission
+    /// Whether to use STARTTLS for submission. Often required when
+    /// authenticating to SMTP targets.
     #[arg(long)]
     starttls: bool,
+
+    /// Username to authenticate with when using SMTP AUTH or HTTP basic auth.
+    /// When targeting SMTP, `--starttls` must also be supplied.
+    #[arg(long, requires = "auth-password")]
+    auth_username: Option<String>,
+
+    /// Password to authenticate with when using SMTP AUTH or HTTP basic auth.
+    /// When targeting SMTP, `--starttls` must also be supplied.
+    #[arg(long, requires = "auth-username")]
+    auth_password: Option<String>,
 
     /// Take the message contents from the specified file
     #[arg(long)]
@@ -152,6 +162,7 @@ struct InjectClient {
     defer_spool: bool,
     defer_generation: bool,
     batch_size: usize,
+    auth: Option<(String, String)>,
 }
 
 impl InjectClient {
@@ -182,7 +193,7 @@ impl InjectClient {
             });
         }
 
-        let response = self
+        let mut request = self
             .client
             .request(reqwest::Method::POST, self.url.clone())
             .json(&InjectRequest {
@@ -191,9 +202,13 @@ impl InjectClient {
                 recipients,
                 deferred_spool: self.defer_spool,
                 deferred_generation: self.defer_generation,
-            })
-            .send()
-            .await?;
+            });
+
+        if let Some((username, password)) = &self.auth {
+            request = request.basic_auth(username, Some(password));
+        }
+
+        let response = request.send().await?;
         let status = response.status();
         let body_bytes = response.bytes().await.with_context(|| {
             format!(
@@ -309,6 +324,16 @@ impl Opt {
         self.domain_weights
             .replace(Arc::new(WeightedIndex::new(&weights).unwrap()));
         self.domain = adjusted_domains;
+    }
+
+    fn auth_credentials(&self) -> Option<(String, String)> {
+        self.auth_username.as_ref().map(|user| {
+            let pass = self
+                .auth_password
+                .as_ref()
+                .expect("clap guarantees --auth-password when --auth-username is set");
+            (user.clone(), pass.clone())
+        })
     }
 
     fn pick_a_domain(&self) -> String {
@@ -442,39 +467,77 @@ impl Opt {
             defer_spool: self.http_defer_spool,
             defer_generation: self.http_defer_generation,
             batch_size: self.http_batch_size,
+            auth: self.auth_credentials(),
         })
     }
 
     async fn make_smtp_client(&self) -> anyhow::Result<SmtpClient> {
         let timeouts = SmtpClientTimeouts::default();
+        let connect_timeout = timeouts.connect_timeout;
 
-        let stream =
-            tokio::time::timeout(timeouts.connect_timeout, TcpStream::connect(&self.target))
+        let mut client =
+            tokio::time::timeout(connect_timeout, SmtpClient::new(&self.target, timeouts))
                 .await
-                .with_context(|| format!("timed out connecting to {}", self.target))?
+                .map_err(|_| anyhow!("timed out connecting to {}", self.target))?
                 .with_context(|| format!("failed to connect to {}", self.target))?;
-        let mut client = SmtpClient::with_stream(stream, &self.target, timeouts);
 
         // Read banner
         let banner_timeout = client.timeouts().banner_timeout;
         let banner = client.read_response(None, banner_timeout).await?;
         anyhow::ensure!(banner.code == 220, "unexpected banner: {banner:#?}");
 
-        // Say EHLO
-        let caps = client.ehlo(&self.pick_a_domain()).await?;
+        let helo_domain = self.pick_a_domain();
+        // EHLO pre-TLS
+        let mut caps = client.ehlo(&helo_domain).await?;
 
-        if self.starttls && caps.contains_key("STARTTLS") {
-            client
-                .starttls(TlsOptions {
-                    insecure: true,
-                    prefer_openssl: false,
-                    alt_name: None,
-                    dane_tlsa: vec![],
-                    ..Default::default()
-                })
-                .await?;
+        if self.starttls {
+            let has_starttls = caps.contains_key("STARTTLS");
+            if has_starttls {
+                client
+                    .starttls(TlsOptions {
+                        insecure: true,
+                        prefer_openssl: false,
+                        alt_name: None,
+                        dane_tlsa: vec![],
+                        ..Default::default()
+                    })
+                    .await?;
+                // re-EHLO post TLS
+                caps = client.ehlo(&helo_domain).await?;
+            } else {
+                eprintln!("warning: server doesn't advertise STARTTLS; continuing without TLS");
+                // no bail: allow AUTH later even without TLS
+            }
         }
 
+        // AUTH (only if explicitly requested)
+        // Extract the list of AUTH mechanisms advertised by the server (e.g. "PLAIN LOGIN CRAM-MD5")
+        let mechs: Vec<&str> = caps
+            .get("AUTH")
+            .and_then(|cap| cap.param.as_deref())
+            .map(|s| s.split_ascii_whitespace().collect())
+            .unwrap_or_default();
+
+        // If credentials were provided via --auth-username/--auth-password
+        if let Some((username, password)) = self.auth_credentials() {
+            let u = username.as_str();
+            let p = password.as_str();
+
+            // Check if the server supports AUTH PLAIN
+            let has_plain = mechs.iter().any(|m| m.eq_ignore_ascii_case("PLAIN"));
+
+            if has_plain {
+                // Attempt AUTH PLAIN and bubble up any error to the central handler
+                client
+                    .auth_plain(u, Some(p))
+                    .await
+                    .context("failed to authenticate with AUTH PLAIN")?;
+            } else {
+                eprintln!(
+                    "warning: AUTH PLAIN not advertised by target; continuing without authentication"
+                );
+            }
+        }
         Ok(client)
     }
 
