@@ -225,18 +225,13 @@ declare_event! {
     ) -> SerdeWrappedValue<AuthKindResult>;
 }
 
-#[derive(OpenApi)]
-#[openapi(
-    info(title = "KumoProxy", license(name = "Apache-2.0")),
-    paths(proxy_status)
-)]
-struct ApiDoc;
-
 /// Create the router for the proxy HTTP endpoint
 pub fn make_router() -> RouterAndDocs {
-    RouterAndDocs {
-        router: Router::new().route("/proxy/status", get(proxy_status)),
-        docs: ApiDoc::openapi(),
+    router_with_docs! {
+       title = "proxy-server",
+       handlers = [
+          proxy_status
+       ]
     }
 }
 
