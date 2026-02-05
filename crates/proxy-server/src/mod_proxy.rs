@@ -1,3 +1,6 @@
+use crate::metrics::{
+    connections_accepted_for_listener, tls_handshake_failures_for_listener, ProxySessionMetrics,
+};
 use anyhow::Context;
 use axum::routing::get;
 use axum::Router;
@@ -128,11 +131,8 @@ impl ProxyListenerParams {
                         let tls_stream = match acceptor.accept(socket).await {
                             Ok(stream) => stream,
                             Err(err) => {
-                                // Track TLS handshake failure - convert to string only in error case
-                                crate::metrics::tls_handshake_failures_for_listener(
-                                    &local_address.to_string(),
-                                )
-                                .inc();
+                                // Track TLS handshake failure
+                                tls_handshake_failures_for_listener(local_address).inc();
                                 return Err(err).with_context(|| {
                                     format!("failed TLS handshake from {peer_address:?}")
                                 });
@@ -152,6 +152,12 @@ impl ProxyListenerParams {
         }
     }
 
+    /// Handle a single client connection with centralized metrics tracking.
+    ///
+    /// This function is responsible for:
+    /// - Tracking connection acceptance
+    /// - Managing the ProxySessionMetrics lifecycle (RAII for active connections)
+    /// - Recording success/failure and bytes transferred
     async fn handle_client<S>(
         stream: S,
         peer_address: SocketAddr,
@@ -161,7 +167,14 @@ impl ProxyListenerParams {
     where
         S: AsyncReadAndWrite + Unpin + Send + 'static,
     {
-        crate::proxy_handler::handle_proxy_client(
+        // Track connection acceptance
+        connections_accepted_for_listener(local_address).inc();
+
+        // Create session metrics (increments active connections gauge via RAII)
+        let session_metrics = ProxySessionMetrics::new(local_address);
+
+        // Perform the actual proxy work
+        let result = crate::proxy_handler::handle_proxy_client(
             stream,
             peer_address,
             local_address,
@@ -169,7 +182,24 @@ impl ProxyListenerParams {
             params.use_splice,
             params.require_auth,
         )
-        .await
+        .await;
+
+        // Update metrics based on result
+        match &result {
+            Ok(session_result) => {
+                session_metrics.record_bytes(
+                    session_result.bytes_to_remote,
+                    session_result.bytes_to_client,
+                );
+                session_metrics.mark_completed();
+            }
+            Err(_) => {
+                session_metrics.mark_failed();
+            }
+        }
+
+        // Convert the result, discarding the byte counts (already recorded)
+        result.map(|_| ())
     }
 }
 

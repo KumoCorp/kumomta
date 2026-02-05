@@ -3,8 +3,8 @@
 //! This module provides connection tracking and metrics for the proxy server,
 //! exposed via a Prometheus-compatible HTTP endpoint.
 
-use kumo_prometheus::{label_key, AtomicCounter, CounterRegistry, PruningCounterRegistry};
-use std::sync::LazyLock;
+use kumo_prometheus::{declare_metric, label_key, AtomicCounter};
+use std::net::SocketAddr;
 
 // Label key for metrics by listener address
 label_key! {
@@ -21,115 +21,154 @@ label_key! {
     }
 }
 
-/// Total number of incoming connections accepted (counter)
-pub static TOTAL_CONNECTIONS_ACCEPTED: LazyLock<CounterRegistry<ListenerKey>> =
-    LazyLock::new(|| {
-        CounterRegistry::register(
-            "proxy_connections_accepted_total",
-            "total number of incoming connections accepted by the proxy".to_string(),
-        )
-    });
+declare_metric! {
+/// Total number of incoming connections accepted by the proxy.
+///
+/// This counter increments each time a new client connection is accepted
+/// by a proxy listener, before any SOCKS5 handshake begins.
+pub static TOTAL_CONNECTIONS_ACCEPTED: CounterRegistry<ListenerKey>(
+    "proxy_connections_accepted_total"
+);
+}
 
-/// Total number of connections that failed during handshake or setup (counter)
-pub static TOTAL_CONNECTIONS_FAILED: LazyLock<CounterRegistry<ListenerKey>> = LazyLock::new(|| {
-    CounterRegistry::register(
-        "proxy_connections_failed_total",
-        "total number of connections that failed during handshake or proxying".to_string(),
-    )
-});
+declare_metric! {
+/// Total number of connections that failed during handshake or proxying.
+///
+/// This counter increments when a connection fails due to handshake errors,
+/// authentication failures, timeouts, or I/O errors during proxying.
+pub static TOTAL_CONNECTIONS_FAILED: CounterRegistry<ListenerKey>(
+    "proxy_connections_failed_total"
+);
+}
 
-/// Total number of TLS handshake failures (counter)
-pub static TOTAL_TLS_HANDSHAKE_FAILURES: LazyLock<CounterRegistry<ListenerKey>> =
-    LazyLock::new(|| {
-        CounterRegistry::register(
-            "proxy_tls_handshake_failures_total",
-            "total number of TLS handshake failures".to_string(),
-        )
-    });
+declare_metric! {
+/// Total number of TLS handshake failures.
+///
+/// This counter increments when TLS is enabled on a listener and
+/// the TLS handshake with a client fails.
+pub static TOTAL_TLS_HANDSHAKE_FAILURES: CounterRegistry<ListenerKey>(
+    "proxy_tls_handshake_failures_total"
+);
+}
 
-/// Total number of successful proxy sessions completed (counter)
-pub static TOTAL_CONNECTIONS_COMPLETED: LazyLock<CounterRegistry<ListenerKey>> =
-    LazyLock::new(|| {
-        CounterRegistry::register(
-            "proxy_connections_completed_total",
-            "total number of proxy sessions that completed successfully".to_string(),
-        )
-    });
+declare_metric! {
+/// Total number of proxy sessions that completed successfully.
+///
+/// This counter increments when a proxy session completes without error,
+/// meaning the client connected, was proxied to the destination, and
+/// both sides closed cleanly.
+pub static TOTAL_CONNECTIONS_COMPLETED: CounterRegistry<ListenerKey>(
+    "proxy_connections_completed_total"
+);
+}
 
-/// Current number of active connections (gauge)
-pub static ACTIVE_CONNECTIONS: LazyLock<PruningCounterRegistry<ListenerKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register_gauge(
-            "proxy_active_connections",
-            "current number of active proxy connections".to_string(),
-        )
-    });
+declare_metric! {
+/// Current number of active proxy connections.
+///
+/// This gauge shows the number of connections currently being proxied.
+/// It increments when a connection is accepted and decrements when
+/// the connection closes (successfully or with error).
+pub static ACTIVE_CONNECTIONS: PruningGaugeRegistry<ListenerKey>(
+    "proxy_active_connections"
+);
+}
 
-/// Total bytes received from clients (counter)
-pub static BYTES_RECEIVED: LazyLock<CounterRegistry<ListenerKey>> = LazyLock::new(|| {
-    CounterRegistry::register(
-        "proxy_bytes_received_total",
-        "total bytes received from clients".to_string(),
-    )
-});
+declare_metric! {
+/// Total bytes received from clients.
+///
+/// This counter tracks the total number of bytes received from proxy clients
+/// (i.e., data flowing from client to destination).
+pub static BYTES_RECEIVED: CounterRegistry<ListenerKey>(
+    "proxy_bytes_received_total"
+);
+}
 
-/// Total bytes sent to clients (counter)
-pub static BYTES_SENT: LazyLock<CounterRegistry<ListenerKey>> = LazyLock::new(|| {
-    CounterRegistry::register(
-        "proxy_bytes_sent_total",
-        "total bytes sent to clients".to_string(),
-    )
-});
+declare_metric! {
+/// Total bytes sent to clients.
+///
+/// This counter tracks the total number of bytes sent to proxy clients
+/// (i.e., data flowing from destination to client).
+pub static BYTES_SENT: CounterRegistry<ListenerKey>(
+    "proxy_bytes_sent_total"
+);
+}
 
-/// Total outbound connections made to destinations (counter)
-pub static OUTBOUND_CONNECTIONS_TOTAL: LazyLock<PruningCounterRegistry<ConnectionKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register(
-            "proxy_outbound_connections_total",
-            "total number of outbound connections made to destinations".to_string(),
-        )
-    });
+declare_metric! {
+/// Total number of outbound connections made to destinations.
+///
+/// This counter tracks connections by destination IP address.
+/// Note: This can create high cardinality if your proxy connects to many
+/// unique destinations. The metric uses a pruning counter registry to
+/// mitigate memory impact.
+pub static OUTBOUND_CONNECTIONS_TOTAL: PruningCounterRegistry<ConnectionKey>(
+    "proxy_outbound_connections_total"
+);
+}
 
-/// Helper to get or create a counter for a given listener
-pub fn connections_accepted_for_listener(listener: &str) -> AtomicCounter {
-    let key = BorrowedListenerKey { listener };
+/// Helper to get or create a counter for a given listener.
+/// Accepts SocketAddr and formats on-demand to minimize string lifetime.
+pub fn connections_accepted_for_listener(listener: SocketAddr) -> AtomicCounter {
+    let listener_str = listener.to_string();
+    let key = BorrowedListenerKey {
+        listener: &listener_str,
+    };
     TOTAL_CONNECTIONS_ACCEPTED.get_or_create(&key as &dyn ListenerKeyTrait)
 }
 
-pub fn connections_failed_for_listener(listener: &str) -> AtomicCounter {
-    let key = BorrowedListenerKey { listener };
+pub fn connections_failed_for_listener(listener: SocketAddr) -> AtomicCounter {
+    let listener_str = listener.to_string();
+    let key = BorrowedListenerKey {
+        listener: &listener_str,
+    };
     TOTAL_CONNECTIONS_FAILED.get_or_create(&key as &dyn ListenerKeyTrait)
 }
 
-pub fn tls_handshake_failures_for_listener(listener: &str) -> AtomicCounter {
-    let key = BorrowedListenerKey { listener };
+pub fn tls_handshake_failures_for_listener(listener: SocketAddr) -> AtomicCounter {
+    let listener_str = listener.to_string();
+    let key = BorrowedListenerKey {
+        listener: &listener_str,
+    };
     TOTAL_TLS_HANDSHAKE_FAILURES.get_or_create(&key as &dyn ListenerKeyTrait)
 }
 
-pub fn connections_completed_for_listener(listener: &str) -> AtomicCounter {
-    let key = BorrowedListenerKey { listener };
+pub fn connections_completed_for_listener(listener: SocketAddr) -> AtomicCounter {
+    let listener_str = listener.to_string();
+    let key = BorrowedListenerKey {
+        listener: &listener_str,
+    };
     TOTAL_CONNECTIONS_COMPLETED.get_or_create(&key as &dyn ListenerKeyTrait)
 }
 
-pub fn active_connections_for_listener(listener: &str) -> AtomicCounter {
-    let key = BorrowedListenerKey { listener };
+pub fn active_connections_for_listener(listener: SocketAddr) -> AtomicCounter {
+    let listener_str = listener.to_string();
+    let key = BorrowedListenerKey {
+        listener: &listener_str,
+    };
     ACTIVE_CONNECTIONS.get_or_create(&key as &dyn ListenerKeyTrait)
 }
 
-pub fn bytes_received_for_listener(listener: &str) -> AtomicCounter {
-    let key = BorrowedListenerKey { listener };
+pub fn bytes_received_for_listener(listener: SocketAddr) -> AtomicCounter {
+    let listener_str = listener.to_string();
+    let key = BorrowedListenerKey {
+        listener: &listener_str,
+    };
     BYTES_RECEIVED.get_or_create(&key as &dyn ListenerKeyTrait)
 }
 
-pub fn bytes_sent_for_listener(listener: &str) -> AtomicCounter {
-    let key = BorrowedListenerKey { listener };
+pub fn bytes_sent_for_listener(listener: SocketAddr) -> AtomicCounter {
+    let listener_str = listener.to_string();
+    let key = BorrowedListenerKey {
+        listener: &listener_str,
+    };
     BYTES_SENT.get_or_create(&key as &dyn ListenerKeyTrait)
 }
 
-pub fn outbound_connections_for(listener: &str, destination: &str) -> AtomicCounter {
+pub fn outbound_connections_for(listener: SocketAddr, destination: SocketAddr) -> AtomicCounter {
+    let listener_str = listener.to_string();
+    let destination_str = destination.to_string();
     let key = BorrowedConnectionKey {
-        listener,
-        destination,
+        listener: &listener_str,
+        destination: &destination_str,
     };
     OUTBOUND_CONNECTIONS_TOTAL.get_or_create(&key as &dyn ConnectionKeyTrait)
 }
@@ -137,7 +176,6 @@ pub fn outbound_connections_for(listener: &str, destination: &str) -> AtomicCoun
 /// Metrics bundle for a single proxy session.
 /// Uses RAII pattern: active_connections is incremented on creation
 /// and decremented on drop.
-#[derive(Clone)]
 pub struct ProxySessionMetrics {
     active_connections: AtomicCounter,
     connections_completed: AtomicCounter,
@@ -147,7 +185,7 @@ pub struct ProxySessionMetrics {
 }
 
 impl ProxySessionMetrics {
-    pub fn new(listener: &str) -> Self {
+    pub fn new(listener: SocketAddr) -> Self {
         let active = active_connections_for_listener(listener);
         active.inc();
 
@@ -160,12 +198,9 @@ impl ProxySessionMetrics {
         }
     }
 
-    pub fn record_bytes_received(&self, bytes: usize) {
-        self.bytes_received.inc_by(bytes);
-    }
-
-    pub fn record_bytes_sent(&self, bytes: usize) {
-        self.bytes_sent.inc_by(bytes);
+    pub fn record_bytes(&self, bytes_to_remote: u64, bytes_to_client: u64) {
+        self.bytes_received.inc_by(bytes_to_remote as usize);
+        self.bytes_sent.inc_by(bytes_to_client as usize);
     }
 
     pub fn mark_completed(&self) {

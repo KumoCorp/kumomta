@@ -41,6 +41,37 @@ end)
 `PARAMS` accepts the same keys as
 [kumo.start_http_listener](../kumo/start_http_listener/index.md).
 
+## Available Endpoints
+
+The HTTP listener exposes the following endpoints:
+
+| Endpoint | Description |
+|----------|-------------|
+| `/metrics` | Prometheus-compatible metrics in text format |
+| `/metrics.json` | Metrics in JSON format |
+| `/proxy/status` | Simple health check endpoint |
+| `/api/admin/set_diagnostic_log_filter/v1` | Runtime log filter adjustment |
+| `/rapidoc` | Interactive API documentation |
+| `/api-docs/openapi.json` | OpenAPI specification |
+
+## Metrics
+
+The proxy server exposes Prometheus-compatible metrics for monitoring.
+All metrics are automatically documented via the `declare_metric!` macro.
+
+The metrics include:
+- `proxy_connections_accepted_total` - Total incoming connections accepted by the proxy
+- `proxy_connections_failed_total` - Connections that failed during handshake or proxying
+- `proxy_connections_completed_total` - Proxy sessions that completed successfully
+- `proxy_active_connections` - Current number of active proxy connections
+- `proxy_bytes_received_total` - Total bytes received from clients
+- `proxy_bytes_sent_total` - Total bytes sent to clients
+- `proxy_outbound_connections_total` - Outbound connections made to destinations
+- `proxy_tls_handshake_failures_total` - TLS handshake failures
+
+Access these metrics via the `/metrics` endpoint in Prometheus text format or
+`/metrics.json` for JSON format.
+
 ## API Documentation
 
 The HTTP listener automatically provides an OpenAPI specification at

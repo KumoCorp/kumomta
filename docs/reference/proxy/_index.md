@@ -12,6 +12,4 @@ local proxy = require 'proxy'
 These functions should be called from inside your
 [proxy_init](../events/proxy_init.md) event handler.
 
-## See Also
-
-- [kumo.start_proxy_listener](../kumo/start_proxy_listener/index.md) - Start a SOCKS5 proxy listener
+## Available Functions { data-search-exclude }
