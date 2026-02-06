@@ -105,16 +105,6 @@ pub static OUTBOUND_CONNECTIONS_TOTAL: PruningCounterRegistry<ConnectionKey>(
 );
 }
 
-/// Helper to get or create a counter for a given listener.
-/// Accepts SocketAddr and formats on-demand to minimize string lifetime.
-pub fn connections_accepted_for_listener(listener: SocketAddr) -> AtomicCounter {
-    let listener_str = listener.to_string();
-    let key = BorrowedListenerKey {
-        listener: &listener_str,
-    };
-    TOTAL_CONNECTIONS_ACCEPTED.get_or_create(&key as &dyn ListenerKeyTrait)
-}
-
 pub fn tls_handshake_failures_for_listener(listener: SocketAddr) -> AtomicCounter {
     let listener_str = listener.to_string();
     let key = BorrowedListenerKey {
@@ -153,6 +143,8 @@ impl ProxySessionMetrics {
             listener: &listener_str,
         };
         let key_trait = &key as &dyn ListenerKeyTrait;
+
+        TOTAL_CONNECTIONS_ACCEPTED.get_or_create(key_trait).inc();
 
         let active = ACTIVE_CONNECTIONS.get_or_create(key_trait);
         active.inc();

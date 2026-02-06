@@ -1,6 +1,4 @@
-use crate::metrics::{
-    connections_accepted_for_listener, tls_handshake_failures_for_listener, ProxySessionMetrics,
-};
+use crate::metrics::{tls_handshake_failures_for_listener, ProxySessionMetrics};
 use anyhow::Context;
 use config::{any_err, declare_event, from_lua_value, get_or_create_module, SerdeWrappedValue};
 use data_loader::KeySource;
@@ -166,9 +164,6 @@ impl ProxyListenerParams {
     where
         S: AsyncReadAndWrite + Unpin + Send + 'static,
     {
-        // Track connection acceptance
-        connections_accepted_for_listener(local_address).inc();
-
         // Create session metrics (increments active connections gauge via RAII)
         let session_metrics = ProxySessionMetrics::new(local_address);
 
