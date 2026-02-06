@@ -29,13 +29,13 @@
 #### BEGIN COMMUNITY CONTRIBUTED SHAPING RULES
 
 #===== GMAIL
-[["gmail.com".automation]]
+[[provider."gmail".automation]]
 regex = "Our system has detected that this message"
 trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "1 hour"
 
-[["gmail.com".automation]]
+[[provider."gmail".automation]]
 regex = "Our system has detected an unusual rate"
 trigger = {Threshold="2/hr"}
 action = {SetConfig={name="max_message_rate", value="10/minute"}}
@@ -43,7 +43,7 @@ duration = "30m"
 
 #===== YAHOO
 # 421 4.7.0 [TS01] Messages from x.x.x.x temporarily deferred due to user complaints
-[["yahoo.com".automation]]
+[[provider."yahoo".automation]]
 regex = "\\[TS01\\]"
 trigger = {Threshold="3/hr"}
 action = {SetConfig={name="max_message_rate", value="1/minute"}}
@@ -51,56 +51,56 @@ duration = "30m"
 
 # We're seeing unusual traffic patterns from your server.
 # Submit your sending IPs for review.
-[["yahoo.com".automation]]
+[[provider."yahoo".automation]]
 regex = "\\[TS02\\]"
 trigger = {Threshold="3/hr"}
 action = {SetConfig={name="max_message_rate", value="1/minute"}}
 duration = "30m"
 
 # We're seeing unusual traffic patterns from your server
-[["yahoo.com".automation]]
+[[provider."yahoo".automation]]
 regex = "\\[TS03\\]"
 trigger = {Threshold="3/hr"}
 action = {SetConfig={name="max_message_rate", value="10/minute"}}
 duration = "30m"
 
 # 421 4.7.0 [TSS04] Messages from a.b.c.d temporarily deferred due to user complaints
-[["yahoo.com".automation]]
+[[provider."yahoo".automation]]
 regex = "421 4\\.7\\.0 \\[TSS04\\]"
 trigger = {Threshold="2/hr"}
 action = "Suspend"
 duration = "2 hours"
 
 # 421 4.7.0 [TSS05] Messages from a.b.c.d temporarily deferred due to user complaints
-[["yahoo.com".automation]]
+[[provider."yahoo".automation]]
 regex = "421 4\\.7\\.0 \\[TSS05\\]"
 trigger = {Threshold="2/hr"}
 action = "Suspend"
 duration = "4 hours"
 
 # 421 [IPTS04] Messages from a.b.c.d temporarily deferred due to user complaints
-[["yahoo.com".automation]]
+[[provider."yahoo".automation]]
 regex = "421 \\[IPTS04\\]"
 trigger = {Threshold="2/hr"}
 action = "Suspend"
 duration = "2 hours"
 
 # 421 [IPTS05] Messages from a.b.c.d temporarily deferred due to user complaints
-[["yahoo.com".automation]]
+[[provider."yahoo".automation]]
 regex = "421 \\[IPTS05\\]"
 trigger = {Threshold="2/hr"}
 action = "Suspend"
 duration = "4 hours"
 
 # The sending IP is listed on a Spamhaus blacklist
-[["yahoo.com".automation]]
+[[provider."yahoo".automation]]
 regex = "553 5\\.7\\.1 \\[BL"
 trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "2 hours"
 
 # 421 Max message per connection reached, closing transmission channel
-[["yahoo.com".automation]]
+[[provider."yahoo".automation]]
 regex = "Max message per connection reached, closing transmission channel"
 trigger = {Threshold="3/hr"}
 action = {SetConfig={name="max_message_rate", value="10/minute"}}
@@ -137,56 +137,56 @@ trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "2 hours"
 
-#===== outlook.com
-[["outlook.com".automation]]
+#===== outlook
+[[provider."outlook".automation]]
 regex = "Unfortunately.*part of their network is on our block list"
 trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "2 hours"
 
-[["outlook.com".automation]]
+[[provider."outlook".automation]]
 regex = "Access denied, please try again later"
 trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "1 hour"
 
-[["outlook.com".automation]]
+[[provider."outlook".automation]]
 regex = "Server busy. Please try again later"
 trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "30m"
 
-[["outlook.com".automation]]
+[[provider."outlook".automation]]
 regex = "The mail server.*has been temporarily rate limited"
 trigger = {Threshold="3/hr"}
 action = "Suspend"
 duration = "30m"
 
-[["outlook.com".automation]]
+[[provider."outlook".automation]]
 regex = "Server busy. Please try again later"
 trigger = {Threshold="3/hr"}
 action = {SetConfig={name="max_message_rate", value="1/minute"}}
 duration = "15m"
 
-[["outlook.com".automation]]
+[[provider."outlook".automation]]
 regex = "The mail server.*has exceeded the maximum number of connections"
 trigger = {Threshold="2/hr"}
 action = {SetConfig={name="connection_limit", value=1}}
 duration = "1 hour"
 
-[["outlook.com".automation]]
+[[provider."outlook".automation]]
 regex = "The mail server.*has exceeded maximum number of messages per connection"
 trigger = {Threshold="2/hr"}
 action = {SetConfig={name="max_deliveries_per_connection", value=2}}
 duration = "1 hour"
 
-[["outlook.com".automation]]
+[[provider."outlook".automation]]
 regex = "Connection refused from.*due to exceed max concurrent connections. IB007"
 trigger = {Threshold="2/hr"}
 action = {SetConfig={name="connection_limit", value=1}}
 duration = "1 hour"
 
-[["outlook.com".automation]]
+[[provider."outlook".automation]]
 regex = "Temporary server error. Please try again later"
 trigger = {Threshold="5/hr"}
 action = "Suspend"
