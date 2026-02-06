@@ -192,31 +192,26 @@ trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "1 hour"
 
-#===== orange.fr
-["orange.fr"]
-max_deliveries_per_connection = 75
-connection_limit = 2
-enable_tls = "Required"
-
-[["orange.fr".automation]]
+#===== orange
+[[provider."orange".automation]]
 regex = "Trop de connexions"
 trigger = {Threshold="2/hr"}
 action = {SetConfig={name="connection_limit", value=1}}
 duration = "1 hour"
 
-[["orange.fr".automation]]
+[[provider."orange".automation]]
 regex = "Service refuse"
 trigger = {Threshold="2/hr"}
 action = "Suspend"
 duration = "1 hour"
 
-[["orange.fr".automation]]
+[[provider."orange".automation]]
 regex = "Client host blocked for spamming issues.*http://csi.cloudmark.com/reset-request/"
 trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "2 hour"
 
-[["orange.fr".automation]]
+[[provider."orange".automation]]
 regex = "Client host blocked for spamming issues.*spamhaus"
 trigger = {Threshold="5/hr"}
 action = "Suspend"
