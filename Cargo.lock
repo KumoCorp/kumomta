@@ -5967,6 +5967,7 @@ dependencies = [
  "parking_lot",
  "rustls",
  "serde",
+ "serde_json",
  "socksv5",
  "tempfile",
  "tokio",

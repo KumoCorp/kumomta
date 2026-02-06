@@ -576,6 +576,16 @@ TOC = [
             ),
             Gen("kumod HTTP API", "reference/http/kumod", extract_title=True),
             Gen("kumod Metrics", "reference/metrics/kumod", extract_title=True),
+            Gen(
+                "proxy-server HTTP API",
+                "reference/http/proxy-server",
+                extract_title=True,
+            ),
+            Gen(
+                "proxy-server Metrics",
+                "reference/metrics/proxy-server",
+                extract_title=True,
+            ),
             RustDoc(
                 "Internal Rust API",
                 "rustapi",

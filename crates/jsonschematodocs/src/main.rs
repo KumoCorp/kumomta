@@ -835,7 +835,10 @@ The following types are defined for the {service} service:
 }
 
 fn main() -> anyhow::Result<()> {
-    for path in &["docs/reference/kumod.openapi.json"] {
+    for path in &[
+        "docs/reference/kumod.openapi.json",
+        "docs/reference/proxy-server.openapi.json",
+    ] {
         let data = std::fs::read_to_string(path)?;
         let api: OpenApi = serde_json::from_str(&data)?;
         generate(&api)?;

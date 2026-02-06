@@ -35,4 +35,5 @@ if hash jq 2>/dev/null ; then
   CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-${PWD}/target}
   update_if_different ${CARGO_TARGET_DIR}/debug/kumod docs/reference/kumod.openapi.json
   update_if_different ${CARGO_TARGET_DIR}/debug/tsa-daemon docs/reference/tsa-daemon.openapi.json
+  update_if_different ${CARGO_TARGET_DIR}/debug/proxy-server docs/reference/proxy-server.openapi.json
 fi

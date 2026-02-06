@@ -40,6 +40,11 @@ struct Opt {
     #[arg(long)]
     dump_openapi_spec: bool,
 
+    /// Instead of running the daemon, output the list of metric metadata
+    /// to stdout.
+    #[arg(long)]
+    dump_metric_metadata: bool,
+
     // Legacy CLI options for backwards compatibility
     // These are mutually exclusive with --proxy-config
     /// [Legacy] Address(es) to listen on (e.g., "0.0.0.0:5000").
@@ -89,6 +94,12 @@ fn main() -> anyhow::Result<()> {
     if opts.dump_openapi_spec {
         let router_and_docs = crate::mod_proxy::make_router();
         println!("{}", router_and_docs.docs.to_pretty_json()?);
+        return Ok(());
+    }
+
+    if opts.dump_metric_metadata {
+        let data = kumo_prometheus::export_metadata();
+        println!("{}", serde_json::to_string_pretty(&data)?);
         return Ok(());
     }
 

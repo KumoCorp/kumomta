@@ -75,3 +75,4 @@ def metrics(service):
 
 
 metrics("kumod")
+metrics("proxy-server")

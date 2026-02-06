@@ -36,6 +36,9 @@ if test -x ${CARGO_TARGET_DIR}/debug/kumod ; then
   ${CARGO_TARGET_DIR}/debug/kumod --dump-lruttl-caches > docs/reference/lruttl-caches.json
   ${CARGO_TARGET_DIR}/debug/kumod --dump-metric-metadata > docs/reference/kumod-metrics.json
 fi
+if test -x ${CARGO_TARGET_DIR}/debug/proxy-server ; then
+  ${CARGO_TARGET_DIR}/debug/proxy-server --dump-metric-metadata > docs/reference/proxy-server-metrics.json
+fi
 if test -x ${CARGO_TARGET_DIR}/debug/kcli ; then
   ${CARGO_TARGET_DIR}/debug/kcli markdown-help
 fi

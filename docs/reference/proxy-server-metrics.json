@@ -1,0 +1,505 @@
+[
+  {
+    "name": "disk_free_bytes",
+    "help": "number of available bytes in a monitored location",
+    "doc": null,
+    "metric_type": "Gauge",
+    "label_names": [
+      "name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "disk_free_inodes",
+    "help": "number of available inodes in a monitored location",
+    "doc": null,
+    "metric_type": "Gauge",
+    "label_names": [
+      "name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "disk_free_inodes_percent",
+    "help": "percentage of available inodes in a monitored location",
+    "doc": null,
+    "metric_type": "Gauge",
+    "label_names": [
+      "name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "disk_free_percent",
+    "help": "percentage of available bytes in a monitored location",
+    "doc": null,
+    "metric_type": "Gauge",
+    "label_names": [
+      "name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "dns_mx_resolve_cache_hit",
+    "help": "Total number of MailExchanger::resolve calls satisfied by level 1 cache.",
+    "doc": "Redundant with the newer [lruttl_hit_count{cache_name=\"dns_resolver_mx\"}](lruttl_hit_count.md)\nmetric.",
+    "metric_type": "Counter",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "dns_mx_resolve_cache_miss",
+    "help": "Total number of MailExchanger::resolve calls that resulted in an MX DNS request to the next level of cache",
+    "doc": "Redundant with the newer [lruttl_miss_count{cache_name=\"dns_resolver_mx\"}](lruttl_miss_count.md)\nmetric.",
+    "metric_type": "Counter",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "dns_mx_resolve_in_progress",
+    "help": "number of `MailExchanger::resolve` calls currently in progress.",
+    "doc": null,
+    "metric_type": "Gauge",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "dns_mx_resolve_status_fail",
+    "help": "Total number of failed `MailExchanger::resolve` calls.",
+    "doc": "Spikes may indicate an issue with your DNS configuration\nor infrastructure, or may simply indicate that the traffic\nis destined for bogus addresses.",
+    "metric_type": "Counter",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "dns_mx_resolve_status_ok",
+    "help": "Total number of successful `MailExchanger::resolve` calls",
+    "doc": null,
+    "metric_type": "Counter",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lruttl_cache_size",
+    "help": "The number of items currently contained in an lruttl cache.",
+    "doc": "The `cache_name` label identifies which cache.  See [kumo.set_lruttl_cache_capacity](../../kumo/set_lruttl_cache_capacity.md) for a list of caches.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lruttl_error_count",
+    "help": "how many times a lruttl cache population resulted in an error",
+    "doc": "The `cache_name` label identifies which cache.  See [kumo.set_lruttl_cache_capacity](../../kumo/set_lruttl_cache_capacity.md) for a list of caches.",
+    "metric_type": "Counter",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lruttl_evict_count",
+    "help": "how many times a lruttl cache evicted an item due to capacity constraints",
+    "doc": "The `cache_name` label identifies which cache.  See [kumo.set_lruttl_cache_capacity](../../kumo/set_lruttl_cache_capacity.md) for a list of caches.",
+    "metric_type": "Counter",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lruttl_expire_count",
+    "help": "how many times a lruttl cache removed an item due to ttl expiration",
+    "doc": "The `cache_name` label identifies which cache.  See [kumo.set_lruttl_cache_capacity](../../kumo/set_lruttl_cache_capacity.md) for a list of caches.",
+    "metric_type": "Counter",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lruttl_hit_count",
+    "help": "how many times a lruttl cache lookup was a hit for a given cache",
+    "doc": "The `cache_name` label identifies which cache.  See [kumo.set_lruttl_cache_capacity](../../kumo/set_lruttl_cache_capacity.md) for a list of caches.",
+    "metric_type": "Counter",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lruttl_insert_count",
+    "help": "how many times a lruttl cache was populated via unconditional insert",
+    "doc": "The `cache_name` label identifies which cache.  See [kumo.set_lruttl_cache_capacity](../../kumo/set_lruttl_cache_capacity.md) for a list of caches.",
+    "metric_type": "Counter",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lruttl_lookup_count",
+    "help": "How many times a lruttl cache lookup was initiated for a given cache.",
+    "doc": "The `cache_name` label identifies which cache.  See [kumo.set_lruttl_cache_capacity](../../kumo/set_lruttl_cache_capacity.md) for a list of caches.",
+    "metric_type": "Counter",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lruttl_miss_count",
+    "help": "how many times a lruttl cache lookup was a miss for a given cache",
+    "doc": "The `cache_name` label identifies which cache.  See [kumo.set_lruttl_cache_capacity](../../kumo/set_lruttl_cache_capacity.md) for a list of caches.",
+    "metric_type": "Counter",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lruttl_populated_count",
+    "help": "how many times a lruttl cache lookup resulted in performing the work to populate the entry",
+    "doc": "The `cache_name` label identifies which cache.  See [kumo.set_lruttl_cache_capacity](../../kumo/set_lruttl_cache_capacity.md) for a list of caches.",
+    "metric_type": "Counter",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lruttl_stale_count",
+    "help": "how many times a lruttl cache population was satisfied by a stale value",
+    "doc": "The `cache_name` label identifies which cache.  See [kumo.set_lruttl_cache_capacity](../../kumo/set_lruttl_cache_capacity.md) for a list of caches.",
+    "metric_type": "Counter",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lruttl_waiting_populate",
+    "help": "how many tasks are currently waiting for a cache entry to populate",
+    "doc": "The `cache_name` label identifies which cache.  See [kumo.set_lruttl_cache_capacity](../../kumo/set_lruttl_cache_capacity.md) for a list of caches.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lua_count",
+    "help": "the number of lua contexts currently alive",
+    "doc": null,
+    "metric_type": "Gauge",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lua_event_latency",
+    "help": "how long a given lua event callback took",
+    "doc": null,
+    "metric_type": "Histogram",
+    "label_names": [
+      "event"
+    ],
+    "buckets": [
+      0.005,
+      0.01,
+      0.025,
+      0.05,
+      0.1,
+      0.25,
+      0.5,
+      1.0,
+      2.5,
+      5.0,
+      10.0
+    ],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lua_event_started",
+    "help": "Incremented each time we start to call a lua event callback. Use lua_event_latency_count to track completed events",
+    "doc": null,
+    "metric_type": "Counter",
+    "label_names": [
+      "event"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lua_load_count",
+    "help": "how many times the policy lua script has been loaded into a new context",
+    "doc": null,
+    "metric_type": "Counter",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lua_spare_count",
+    "help": "the number of lua contexts available for reuse in the pool",
+    "doc": null,
+    "metric_type": "Gauge",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "memoize_cache_hit_count",
+    "help": "How many times a memoize cache lookup was a hit for a given cache.",
+    "doc": "Redundant with the newer [lruttl_hit_count](lruttl_hit_count.md) metric.",
+    "metric_type": "Counter",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "memoize_cache_lookup_count",
+    "help": "How many times a memoize cache lookup was initiated for a given cache.",
+    "doc": "Redundant with the newer [lruttl_lookup_count](lruttl_lookup_count.md) metric.",
+    "metric_type": "Counter",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "memoize_cache_miss_count",
+    "help": "How many times a memoize cache lookup was a miss for a given cache",
+    "doc": "Redundant with the newer [lruttl_miss_count](lruttl_miss_count.md) metric.",
+    "metric_type": "Counter",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "memoize_cache_populated_count",
+    "help": "How many times a memoize cache lookup resulted in performing the work to populate the entry",
+    "doc": "Redundant with the newer [lruttl_populated_count](lruttl_populated_count.md) metric.",
+    "metric_type": "Counter",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "memory_limit",
+    "help": "soft memory limit measured in bytes",
+    "doc": null,
+    "metric_type": "Gauge",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "memory_low_count",
+    "help": "How many times the low memory threshold was exceeded.",
+    "doc": null,
+    "metric_type": "Counter",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "memory_low_thresh",
+    "help": "low memory threshold measured in bytes",
+    "doc": null,
+    "metric_type": "Gauge",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "memory_over_limit_count",
+    "help": "how many times the soft memory limit was exceeded",
+    "doc": null,
+    "metric_type": "Counter",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "memory_usage",
+    "help": "number of bytes of used memory (Resident Set Size)",
+    "doc": null,
+    "metric_type": "Gauge",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "memory_usage_rust",
+    "help": "number of bytes of used memory (allocated by Rust)",
+    "doc": null,
+    "metric_type": "Gauge",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "proxy_active_connections",
+    "help": "Current number of active proxy connections.",
+    "doc": "This gauge shows the number of connections currently being proxied.\nIt increments when a connection is accepted and decrements when\nthe connection closes (successfully or with error).",
+    "metric_type": "Gauge",
+    "label_names": [
+      "listener"
+    ],
+    "buckets": [],
+    "pruning": "Pruning"
+  },
+  {
+    "name": "proxy_bytes_client_to_dest_total",
+    "help": "Total bytes transferred from client to destination.",
+    "doc": "This counter tracks the total number of bytes flowing from proxy clients\nto their intended destinations (upstream direction).",
+    "metric_type": "Counter",
+    "label_names": [
+      "listener"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "proxy_bytes_dest_to_client_total",
+    "help": "Total bytes transferred from destination to client.",
+    "doc": "This counter tracks the total number of bytes flowing from destinations\nback to proxy clients (downstream direction).",
+    "metric_type": "Counter",
+    "label_names": [
+      "listener"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "proxy_connections_accepted_total",
+    "help": "Total number of incoming connections accepted by the proxy.",
+    "doc": "This counter increments each time a new client connection is accepted\nby a proxy listener, before any SOCKS5 handshake begins.",
+    "metric_type": "Counter",
+    "label_names": [
+      "listener"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "proxy_connections_completed_total",
+    "help": "Total number of proxy sessions that completed successfully.",
+    "doc": "This counter increments when a proxy session completes without error,\nmeaning the client connected, was proxied to the destination, and\nboth sides closed cleanly.",
+    "metric_type": "Counter",
+    "label_names": [
+      "listener"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "proxy_connections_failed_total",
+    "help": "Total number of connections that failed during handshake or proxying.",
+    "doc": "This counter increments when a connection fails due to handshake errors,\nauthentication failures, timeouts, or I/O errors during proxying.",
+    "metric_type": "Counter",
+    "label_names": [
+      "listener"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "proxy_outbound_connections_total",
+    "help": "Total number of outbound connections made to destinations.",
+    "doc": "This counter tracks connections by destination IP address.\nNote: This can create high cardinality if your proxy connects to many\nunique destinations. The metric uses a pruning counter registry to\nmitigate memory impact.",
+    "metric_type": "Counter",
+    "label_names": [
+      "listener",
+      "destination"
+    ],
+    "buckets": [],
+    "pruning": "Pruning"
+  },
+  {
+    "name": "proxy_tls_handshake_failures_total",
+    "help": "Total number of TLS handshake failures.",
+    "doc": "This counter increments when TLS is enabled on a listener and\nthe TLS handshake with a client fails.",
+    "metric_type": "Counter",
+    "label_names": [
+      "listener"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "thread_pool_parked",
+    "help": "number of parked (idle) threads in a thread pool",
+    "doc": null,
+    "metric_type": "Gauge",
+    "label_names": [
+      "pool"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "thread_pool_size",
+    "help": "number of threads in a thread pool",
+    "doc": null,
+    "metric_type": "Gauge",
+    "label_names": [
+      "pool"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "user_lua_latency",
+    "help": "How many seconds something user-defined took to run in your lua policy.",
+    "doc": "This histogram is updated by policy scripts that employ the\n[kumo.time.start_timer](../../kumo.time/start_timer.md) function\nto record a duration in the policy.\n\nThe `label` is whatever you specified as the label(s) to the various\n`kumo.time.start_timer` calls in the policy.",
+    "metric_type": "Histogram",
+    "label_names": [
+      "label"
+    ],
+    "buckets": [
+      0.005,
+      0.01,
+      0.025,
+      0.05,
+      0.1,
+      0.25,
+      0.5,
+      1.0,
+      2.5,
+      5.0,
+      10.0
+    ],
+    "pruning": "NonPruning"
+  }
+]
