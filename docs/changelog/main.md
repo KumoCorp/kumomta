@@ -44,6 +44,9 @@
      * Use [proxy.start_proxy_listener](../reference/proxy/start_proxy_listener/index.md)
        function to configure a SOCKS5 proxy server
      * Many thanks to @vietcgi! #459
+     * Exposes [proxy-specific metrics](../reference/metrics/proxy-server/index.md)
+       via its new [proxy.start_http_listener](../reference/proxy/start_http_listener.md).
+       Thanks to @AdityaAudi! #472
  * New [kumo.xfer.xfer](../reference/kumo.xfer/xfer.md) and
    [kumo.xfer.xfer_in_requeue](../reference/kumo.xfer/xfer_in_requeue.md)
    functions to enable per-message transfer between nodes, which is useful in
