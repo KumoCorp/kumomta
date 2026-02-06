@@ -15,7 +15,7 @@ authentication.
 !!! note
     This event is only available to the `proxy-server` executable.
 
-This event is triggered when [require_auth](../kumo/start_proxy_listener/require_auth.md)
+This event is triggered when [require_auth](../proxy/start_proxy_listener/require_auth.md)
 is enabled on the proxy listener, or when a client offers username/password
 authentication even if not required.
 

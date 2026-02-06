@@ -9,7 +9,7 @@ will be closed.
 The default is 60 seconds.
 
 ```lua
-kumo.start_proxy_listener {
+proxy.start_proxy_listener {
   listen = '0.0.0.0:1080',
   timeout = '30 seconds',
 }

@@ -24,7 +24,7 @@ local proxy = require 'proxy'
 
 kumo.on('proxy_init', function()
   -- Start the SOCKS5 proxy
-  kumo.start_proxy_listener {
+  proxy.start_proxy_listener {
     listen = '0.0.0.0:1080',
   }
 

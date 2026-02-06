@@ -8,7 +8,7 @@ Specify the path to a TLS private key file to use for the server identity when
 The default, if unspecified, is to dynamically allocate a self-signed certificate.
 
 ```lua
-kumo.start_proxy_listener {
+proxy.start_proxy_listener {
   listen = '0.0.0.0:1080',
   use_tls = true,
   tls_private_key = '/path/to/key.pem',
@@ -18,7 +18,7 @@ kumo.start_proxy_listener {
 You may specify that the key be loaded from a [HashiCorp Vault](https://www.hashicorp.com/products/vault):
 
 ```lua
-kumo.start_proxy_listener {
+proxy.start_proxy_listener {
   listen = '0.0.0.0:1080',
   use_tls = true,
   tls_private_key = {

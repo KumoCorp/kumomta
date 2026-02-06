@@ -10,7 +10,7 @@ and [tls_private_key](tls_private_key.md). If not specified, a self-signed
 certificate will be generated automatically.
 
 ```lua
-kumo.start_proxy_listener {
+proxy.start_proxy_listener {
   listen = '0.0.0.0:1080',
   use_tls = true,
 }

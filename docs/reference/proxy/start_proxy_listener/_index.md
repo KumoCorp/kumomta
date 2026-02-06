@@ -1,9 +1,9 @@
-# kumo.start_proxy_listener
+# proxy.start_proxy_listener
 
 {{since('dev')}}
 
 ```lua
-kumo.start_proxy_listener { PARAMS }
+proxy.start_proxy_listener { PARAMS }
 ```
 
 Configure and start a SOCKS5 proxy server.
@@ -21,7 +21,7 @@ traffic through specific network paths.
 
 ```lua
 kumo.on('proxy_init', function()
-  kumo.start_proxy_listener {
+  proxy.start_proxy_listener {
     listen = '0.0.0.0:1080',
   }
 end)
@@ -31,7 +31,7 @@ To enable TLS and authentication:
 
 ```lua
 kumo.on('proxy_init', function()
-  kumo.start_proxy_listener {
+  proxy.start_proxy_listener {
     listen = '0.0.0.0:1080',
     use_tls = true,
     tls_certificate = '/path/to/cert.pem',

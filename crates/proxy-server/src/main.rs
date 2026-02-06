@@ -68,11 +68,12 @@ impl Opt {
             .context("failed to create temporary config file")?;
 
         writeln!(file, "local kumo = require 'kumo'")?;
+        writeln!(file, "local proxy = require 'proxy'")?;
         writeln!(file)?;
         writeln!(file, "kumo.on('proxy_init', function()")?;
 
         for listen_addr in &self.listen {
-            writeln!(file, "  kumo.start_proxy_listener {{")?;
+            writeln!(file, "  proxy.start_proxy_listener {{")?;
             writeln!(file, "    listen = '{}',", listen_addr)?;
             writeln!(file, "    timeout = '{} seconds',", self.timeout_seconds)?;
             if self.no_splice {

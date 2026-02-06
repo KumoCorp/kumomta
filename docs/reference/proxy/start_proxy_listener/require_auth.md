@@ -12,7 +12,7 @@ to validate credentials.
 The default is `false` which allows clients to *optionally* authenticate.
 
 ```lua
-kumo.start_proxy_listener {
+proxy.start_proxy_listener {
   listen = '0.0.0.0:1080',
   require_auth = true,
 }

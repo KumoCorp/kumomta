@@ -16,7 +16,7 @@ local proxy = require 'proxy'
 
 kumo.on('proxy_init', function()
   -- Start SOCKS5 proxy listener
-  kumo.start_proxy_listener {
+  proxy.start_proxy_listener {
     listen = '0.0.0.0:1080',
     timeout = '60 seconds',
   }
@@ -29,11 +29,3 @@ kumo.on('proxy_init', function()
 end)
 ```
 
-## Available Functions
-
-The following functions are available during the `proxy_init` event:
-
-| Function | Description |
-|----------|-------------|
-| [kumo.start_proxy_listener](../kumo/start_proxy_listener/index.md) | Start a SOCKS5 proxy listener |
-| [proxy.start_http_listener](../proxy/start_http_listener.md) | Start an HTTP listener for metrics |

@@ -1,13 +1,13 @@
 use crate::metrics::{tls_handshake_failures_for_listener, ProxySessionMetrics};
 use anyhow::Context;
-use config::{any_err, declare_event, from_lua_value, get_or_create_module, SerdeWrappedValue};
+use config::{any_err, declare_event, get_or_create_module, SerdeWrappedValue};
 use data_loader::KeySource;
 use kumo_server_common::http_server::auth::AuthKindResult;
 use kumo_server_common::http_server::{HttpListenerParams, RouterAndDocs};
 use kumo_server_common::router_with_docs;
 use kumo_server_runtime::spawn;
 use kumo_tls_helper::AsyncReadAndWrite;
-use mlua::{IntoLua, Lua, LuaSerdeExt, Value};
+use mlua::{IntoLua, Lua, LuaSerdeExt};
 use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -243,32 +243,42 @@ async fn proxy_status() -> &'static str {
 }
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
-    // Register start_proxy_listener in kumo namespace (existing API)
+    let proxy_mod = get_or_create_module(lua, "proxy")?;
     let kumo_mod = get_or_create_module(lua, "kumo")?;
 
+    async fn start_proxy_listener(
+        _lua: Lua,
+        params: SerdeWrappedValue<ProxyListenerParams>,
+    ) -> mlua::Result<()> {
+        if !config::is_validating() {
+            params.0.start().await.map_err(any_err)?;
+        }
+        Ok(())
+    }
+
+    // Briefly was available in the kumo namespace, we're doing
+    // a little backwards compat here in case folks were running
+    // this somewhere important from dev builds.
     kumo_mod.set(
         "start_proxy_listener",
-        lua.create_async_function(|lua, params: Value| async move {
-            let params: ProxyListenerParams = from_lua_value(&lua, params)?;
-            if !config::is_validating() {
-                params.start().await.map_err(any_err)?;
-            }
-            Ok(())
-        })?,
+        lua.create_async_function(start_proxy_listener)?,
     )?;
 
-    // Register start_http_listener in proxy namespace (new in this PR)
-    let proxy_mod = get_or_create_module(lua, "proxy")?;
+    proxy_mod.set(
+        "start_proxy_listener",
+        lua.create_async_function(start_proxy_listener)?,
+    )?;
 
     proxy_mod.set(
         "start_http_listener",
-        lua.create_async_function(|lua, params: Value| async move {
-            let params: HttpListenerParams = from_lua_value(&lua, params)?;
-            if !config::is_validating() {
-                params.start(make_router(), None).await.map_err(any_err)?;
-            }
-            Ok(())
-        })?,
+        lua.create_async_function(
+            |_lua, params: SerdeWrappedValue<HttpListenerParams>| async move {
+                if !config::is_validating() {
+                    params.0.start(make_router(), None).await.map_err(any_err)?;
+                }
+                Ok(())
+            },
+        )?,
     )?;
 
     Ok(())

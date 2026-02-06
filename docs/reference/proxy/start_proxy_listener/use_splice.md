@@ -17,7 +17,7 @@ always use regular copying because the data must be decrypted/encrypted
 in userspace.
 
 ```lua
-kumo.start_proxy_listener {
+proxy.start_proxy_listener {
   listen = '0.0.0.0:1080',
   use_splice = false,
 }

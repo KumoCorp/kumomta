@@ -41,7 +41,7 @@
      * Optional support for TLS and mutual TLS when using a proxy policy script,
        however, kumod itself doesn't currently support using TLS for SOCKS5.
      * Optional support for RFC 1929 authentication
-     * Use [kumo.start_proxy_listener](../reference/kumo/start_proxy_listener/index.md)
+     * Use [proxy.start_proxy_listener](../reference/proxy/start_proxy_listener/index.md)
        function to configure a SOCKS5 proxy server
      * Many thanks to @vietcgi! #459
  * New [kumo.xfer.xfer](../reference/kumo.xfer/xfer.md) and
