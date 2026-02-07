@@ -8,6 +8,7 @@ members = [
   "crates/kcli",
   "crates/kumo-address",
   "crates/kumo-chrono-helper",
+  "crates/kumo-counter-series",
   "crates/kumo-dmarc",
   "crates/kumo-prometheus",
   "crates/kumo-spf",
