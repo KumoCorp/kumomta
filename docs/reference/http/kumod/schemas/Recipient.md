@@ -21,8 +21,14 @@ This is an object value, with the following properties:
   * `substitutions` - optional `object`. When using templating, this is the map of placeholder
     name to replacement value that should be used by the
     templating engine when processing just this recipient.
-    Note that `name` is implicitly set from the `name`
-    field, so you do not need to duplicate it here.
+    
+    The following substitutions are pre-defined:
+    
+    |Name|Value|Version|
+    |----|-----|-------|
+    |email|Populated from the recipient `email` field|Always|
+    |name|Populated from the recipient `name` field|Always|
+    |to_header|A suitable value for use in a `To:` header, constructed from the recipient `email` and `name` fields. eg: `"John Smith" <john.smith@mailbox-example.com>`|{{since('dev', inline=True)}}|
 
 ### Examples
 ```json

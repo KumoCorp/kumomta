@@ -80,7 +80,9 @@
    response. #495
  * smtp server: uncommon quoted local parts containing the `@` sign are now
    accepted by the envelope address parser. #495
- * smtp client: when using client certificates with rustls, we did not load
-   or propagate intermediate certificates from the supplied certificate data,
-   which could lead to the peer failing to verify the client certificate.
-   Thanks to @kayozaki! #496
+ * HTTP injection API: a `to_header` template substitution is now
+   pre-defined with the default `To` header value that would be generated
+   for the recipient. You can use `{{ to_header }}` in your `To` header
+   template and optionally override `to_header` in the per-recipient
+   substitutions for recipients where you want a different value.
+   Thanks to @Harshjha3006! #501
