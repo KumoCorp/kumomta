@@ -199,7 +199,14 @@ impl RouterAndDocs {
 macro_rules! router_with_docs {
     (title=$title:literal, handlers=[
      $($handler:path $(,)?  )*
-    ]) => {
+    ]
+    $(, layers=[
+        $(
+            $layer:expr $(,)?
+        )*
+    ])?
+
+    ) => {
         {
             // Allow adding deprecated routes without
             // triggering a warning; the deprecation
@@ -230,6 +237,12 @@ macro_rules! router_with_docs {
                     router.register(O::openapi(), $handler);
                 }
             )*
+
+            $(
+                $(
+                    router.router = router.router.layer($layer);
+                )*
+            )?
 
             router
         }
