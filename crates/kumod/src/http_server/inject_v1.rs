@@ -1184,6 +1184,12 @@ pub async fn inject_v1(
             "disk is too full",
         ));
     }
+    if !SpoolManager::get().spool_started() {
+        return Err(AppError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "waiting for spool startup",
+        ));
+    }
 
     let limit = LIMIT.load();
     if let Some(limit) = limit.as_ref() {

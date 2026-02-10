@@ -78,3 +78,7 @@
    `To` header, and one for the specified `content.headers["To"]` value.  This
    has been fixed; the behavior now is to use the `content.headers["To"]`
    header and not to emit a per-recipient `To` header in this situation.
+ * HTTP Injection didn't gate on the spool being started which meant that
+   there was a race condition on startup where an injection request could
+   begin processing prior to starting spool enumeration, which could then
+   cause a `set_meta_spool has not been called` panic.
