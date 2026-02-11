@@ -1,6 +1,5 @@
 use anyhow::Context;
 use clap::{Parser, ValueEnum};
-use futures::Stream;
 use reqwest::Url;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -199,114 +198,6 @@ pub async fn json_body<T: serde::de::DeserializeOwned>(
         format!(
             "parsing response as json: {}",
             String::from_utf8_lossy(&data)
-        )
-    })
-}
-
-pub async fn request_with_text_response<T: reqwest::IntoUrl, B: serde::Serialize>(
-    method: reqwest::Method,
-    url: T,
-    body: &B,
-) -> anyhow::Result<String> {
-    let response = reqwest::Client::builder()
-        .timeout(TIMEOUT)
-        .build()?
-        .request(method, url)
-        .json(body)
-        .send()
-        .await?;
-
-    let status = response.status();
-    let body_bytes = response.bytes().await.with_context(|| {
-        format!(
-            "request status {}: {}, and failed to read response body",
-            status.as_u16(),
-            status.canonical_reason().unwrap_or("")
-        )
-    })?;
-    let body_text = String::from_utf8_lossy(&body_bytes);
-    if !status.is_success() {
-        anyhow::bail!(
-            "request status {}: {}. Response body: {body_text}",
-            status.as_u16(),
-            status.canonical_reason().unwrap_or(""),
-        );
-    }
-
-    Ok(body_text.to_string())
-}
-
-pub async fn request_with_streaming_text_response<T: reqwest::IntoUrl, B: serde::Serialize>(
-    method: reqwest::Method,
-    url: T,
-    body: &B,
-) -> anyhow::Result<impl Stream<Item = reqwest::Result<bytes::Bytes>>> {
-    let response = reqwest::Client::builder()
-        .timeout(TIMEOUT)
-        .build()?
-        .request(method, url)
-        .json(body)
-        .send()
-        .await?;
-
-    let status = response.status();
-    if !status.is_success() {
-        let body_bytes = response.bytes().await.with_context(|| {
-            format!(
-                "request status {}: {}, and failed to read response body",
-                status.as_u16(),
-                status.canonical_reason().unwrap_or("")
-            )
-        })?;
-        let body_text = String::from_utf8_lossy(&body_bytes);
-        anyhow::bail!(
-            "request status {}: {}. Response body: {body_text}",
-            status.as_u16(),
-            status.canonical_reason().unwrap_or(""),
-        );
-    }
-
-    Ok(response.bytes_stream())
-}
-
-pub async fn request_with_json_response<
-    T: reqwest::IntoUrl,
-    B: serde::Serialize,
-    R: serde::de::DeserializeOwned,
->(
-    method: reqwest::Method,
-    url: T,
-    body: &B,
-) -> anyhow::Result<R> {
-    let response = reqwest::Client::builder()
-        .timeout(TIMEOUT)
-        .build()?
-        .request(method, url)
-        .json(body)
-        .send()
-        .await?;
-
-    let status = response.status();
-    if !status.is_success() {
-        let body_bytes = response.bytes().await.with_context(|| {
-            format!(
-                "request status {}: {}, and failed to read response body",
-                status.as_u16(),
-                status.canonical_reason().unwrap_or("")
-            )
-        })?;
-        anyhow::bail!(
-            "request status {}: {}. Response body: {}",
-            status.as_u16(),
-            status.canonical_reason().unwrap_or(""),
-            String::from_utf8_lossy(&body_bytes)
-        );
-    }
-    json_body(response).await.with_context(|| {
-        format!(
-            "request status {}: {}",
-            status.as_u16(),
-            status.canonical_reason().unwrap_or("")
         )
     })
 }

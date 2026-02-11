@@ -344,8 +344,12 @@ pub struct InspectMessageV1Request {
     pub want_body: bool,
 }
 
-impl InspectMessageV1Request {
-    pub fn apply_to_url(&self, url: &mut Url) {
+pub trait ApplyToUrl {
+    fn apply_to_url(&self, url: &mut Url);
+}
+
+impl ApplyToUrl for InspectMessageV1Request {
+    fn apply_to_url(&self, url: &mut Url) {
         let mut query = url.query_pairs_mut();
         query.append_pair("id", &self.id.to_string());
         if self.want_body {
@@ -381,8 +385,8 @@ pub struct InspectQueueV1Request {
     pub limit: Option<usize>,
 }
 
-impl InspectQueueV1Request {
-    pub fn apply_to_url(&self, url: &mut Url) {
+impl ApplyToUrl for InspectQueueV1Request {
+    fn apply_to_url(&self, url: &mut Url) {
         let mut query = url.query_pairs_mut();
         query.append_pair("queue_name", &self.queue_name.to_string());
         if self.want_body {
@@ -607,6 +611,15 @@ pub struct ReadyQueueStateRequest {
     pub queues: Vec<String>,
 }
 
+impl ApplyToUrl for ReadyQueueStateRequest {
+    fn apply_to_url(&self, url: &mut Url) {
+        let mut query = url.query_pairs_mut();
+        if !self.queues.is_empty() {
+            query.append_pair("queues", &self.queues.join(","));
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
 pub struct QueueState {
     #[schema(example = "TooManyLeases for queue")]
@@ -619,7 +632,7 @@ pub struct ReadyQueueStateResponse {
     pub states_by_ready_queue: HashMap<String, HashMap<String, QueueState>>,
 }
 
-#[derive(Serialize, Clone, Deserialize, Debug)]
+#[derive(Serialize, Clone, Deserialize, Debug, PartialEq)]
 pub struct MachineInfoV1 {
     pub node_id: String,
     pub hostname: String,

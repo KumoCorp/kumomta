@@ -1,5 +1,6 @@
 use clap::{ArgGroup, Parser};
-use kumo_api_types::{BounceV1Request, BounceV1Response};
+use kumo_api_client::KumoApiClient;
+use kumo_api_types::BounceV1Request;
 use reqwest::Url;
 use std::time::Duration;
 
@@ -88,10 +89,9 @@ impl BounceCommand {
             );
         }
 
-        let result: BounceV1Response = crate::request_with_json_response(
-            reqwest::Method::POST,
-            endpoint.join("/api/admin/bounce/v1")?,
-            &BounceV1Request {
+        let client = KumoApiClient::new(endpoint.clone());
+        let result = client
+            .admin_bounce_v1(&BounceV1Request {
                 campaign: self.campaign.clone(),
                 domain: self.domain.clone(),
                 routing_domain: self.routing_domain.clone(),
@@ -101,9 +101,8 @@ impl BounceCommand {
                 expires: None,
                 suppress_logging: self.suppress_logging,
                 queue_names: self.queue.clone(),
-            },
-        )
-        .await?;
+            })
+            .await?;
 
         eprintln!(
             "NOTE: the bounce is running async. Use the bounce-list command to review ongoing status!"

@@ -1,4 +1,5 @@
 use clap::Parser;
+use kumo_api_client::KumoApiClient;
 use kumo_api_types::SuspendV1CancelRequest;
 use reqwest::Url;
 use uuid::Uuid;
@@ -16,12 +17,10 @@ pub struct SuspendReadyQCancelCommand {
 
 impl SuspendReadyQCancelCommand {
     pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
-        let response = crate::request_with_text_response(
-            reqwest::Method::DELETE,
-            endpoint.join("/api/admin/suspend-ready-q/v1")?,
-            &SuspendV1CancelRequest { id: self.id },
-        )
-        .await?;
+        let client = KumoApiClient::new(endpoint.clone());
+        let response = client
+            .admin_suspend_ready_q_cancel_v1(&SuspendV1CancelRequest { id: self.id })
+            .await?;
 
         if !response.is_empty() {
             println!("{response}");

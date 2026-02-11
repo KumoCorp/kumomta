@@ -24,6 +24,7 @@ num-format = {workspace=true}
 nucleo-matcher.workspace = true
 ordermap = {workspace=true}
 kumo-api-types = {path="../kumo-api-types", default-features=false}
+kumo-api-client = {path="../kumo-api-client"}
 kumo-prometheus = {path="../kumo-prometheus"}
 ratatui = {workspace=true}
 reqwest = {workspace=true, default-features=false, features=["json", "rustls-tls", "stream"]}

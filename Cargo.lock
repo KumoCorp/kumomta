@@ -3618,6 +3618,7 @@ dependencies = [
  "humantime",
  "indoc",
  "itertools 0.14.0",
+ "kumo-api-client",
  "kumo-api-types",
  "kumo-prometheus",
  "lexicmp",
@@ -3664,6 +3665,20 @@ dependencies = [
  "serde",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "kumo-api-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "futures",
+ "kumo-api-types",
+ "kumo-prometheus",
+ "reqwest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
