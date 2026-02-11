@@ -1,10 +1,19 @@
 use crate::diagnostic_logging::LoggingConfig;
+use crate::nodeid::NodeId;
 use anyhow::Context;
+use chrono::{DateTime, Utc};
 use config::RegisterFunc;
+use kumo_machine_info::MachineInfo;
 use kumo_server_lifecycle::LifeCycle;
 use kumo_server_runtime::rt_spawn;
+use parking_lot::Mutex;
 use std::future::Future;
 use std::path::Path;
+use std::sync::LazyLock;
+
+pub static ONLINE_SINCE: LazyLock<DateTime<Utc>> = LazyLock::new(Utc::now);
+pub static MACHINE_INFO: LazyLock<Mutex<Option<MachineInfo>>> = LazyLock::new(|| Mutex::new(None));
+
 pub struct StartConfig<'a> {
     pub logging: LoggingConfig<'a>,
     pub lua_funcs: &'a [RegisterFunc],
@@ -21,6 +30,7 @@ impl StartConfig<'_> {
         INIT: Future<Output = anyhow::Result<()>> + Send + 'static,
         FINI: Future<Output = ()> + Send + 'static,
     {
+        LazyLock::force(&ONLINE_SINCE);
         self.logging.init()?;
 
         rustls::crypto::aws_lc_rs::default_provider()
@@ -41,6 +51,13 @@ impl StartConfig<'_> {
         config::set_policy_path(self.policy.to_path_buf())
             .await
             .with_context(|| format!("Error evaluating policy file {:?}", self.policy))?;
+
+        tokio::spawn(async move {
+            let mut info = MachineInfo::new();
+            info.node_id.replace(NodeId::get().uuid.to_string());
+            info.query_cloud_provider().await;
+            *MACHINE_INFO.lock() = Some(info);
+        });
 
         let mut life_cycle = LifeCycle::new();
 

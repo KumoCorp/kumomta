@@ -23,6 +23,7 @@ duration-serde = {path="../duration-serde"}
 gethostname = {workspace=true}
 human_bytes = {workspace=true}
 kumo-api-types = {path="../kumo-api-types"}
+kumo-machine-info = {path="../kumo-machine-info"}
 kumo-prometheus = {path="../kumo-prometheus"}
 kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
 kumo-server-memory = {path="../kumo-server-memory"}
@@ -58,6 +59,7 @@ mod-time = {path="../mod-time"}
 mod-uuid = {path="../mod-uuid"}
 nix = {workspace=true, features=["fs", "signal"]}
 num-format = {workspace=true}
+parking_lot.workspace = true
 prometheus = {workspace=true}
 rcgen = {workspace=true}
 regex-set-map = {path="../regex-set-map"}

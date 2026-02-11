@@ -618,3 +618,22 @@ pub struct QueueState {
 pub struct ReadyQueueStateResponse {
     pub states_by_ready_queue: HashMap<String, HashMap<String, QueueState>>,
 }
+
+#[derive(Serialize, Clone, Deserialize, Debug)]
+pub struct MachineInfoV1 {
+    pub node_id: String,
+    pub hostname: String,
+    pub mac_address: String,
+    pub num_cores: usize,
+    pub kernel_version: Option<String>,
+    pub platform: String,
+    pub distribution: String,
+    pub os_version: String,
+    pub total_memory_bytes: u64,
+    pub container_runtime: Option<String>,
+    pub cpu_brand: String,
+    pub fingerprint: String,
+    pub online_since: DateTime<Utc>,
+    pub process_kind: String,
+    pub version: String,
+}

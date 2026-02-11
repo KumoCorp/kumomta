@@ -50,6 +50,12 @@ allow = true
 privileges = ["GET", "DELETE", "POST"]
 identity.Group = "kumomta:http-listener-trusted-ip"
 
+# Retrieving system info is a trust admin/machine function
+[[acl."http_listener/*/api/machine-info"]]
+allow = true
+privileges = ["GET"]
+identity.Group = "kumomta:http-listener-trusted-ip"
+
 # Metrics are a read-only admin function
 [[acl."http_listener/*/metrics"]]
 allow = true

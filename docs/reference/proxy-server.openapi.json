@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.02.04-4f636a0f"
+    "version": "2026.02.11-6193331a"
   },
   "paths": {
     "/api/admin/bump-config-epoch": {
@@ -60,6 +60,16 @@
             "description": "Diagnostic level set successfully"
           }
         }
+      }
+    },
+    "/api/machine-info": {
+      "get": {
+        "tags": [
+          "debugging"
+        ],
+        "summary": "Returns information identifying this instance",
+        "operationId": "machine_info",
+        "responses": {}
       }
     },
     "/metrics": {
