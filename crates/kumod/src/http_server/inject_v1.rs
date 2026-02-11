@@ -15,6 +15,7 @@ use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::AtomicCounter;
 use kumo_server_common::authn_authz::AuthInfo;
 use kumo_server_common::http_server::{AppError, AppState};
+use kumo_server_lifecycle::Activity;
 use kumo_server_runtime::{Runtime, RUNTIME};
 use kumo_template::{CompiledTemplates, TemplateDialect, TemplateEngine, TemplateList};
 use mailparsing::{AddrSpec, Address, EncodeHeaderValue, Mailbox, MessageBuilder, MimePart};
@@ -1075,6 +1076,43 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Grab an Activity handle for an HTTP injection task.
+/// It will generate 503 errors if the service hasn't fully started,
+/// is shutting down, memory is low, or the disk is too full.
+pub fn activity_for_peer(
+    label: &str,
+    peer_address: impl std::fmt::Debug,
+) -> Result<Activity, AppError> {
+    let Some(activity) = Activity::get_opt(format!("{label} for {peer_address:?}")) else {
+        return Err(AppError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "shutting down",
+        ));
+    };
+
+    if kumo_server_memory::get_headroom() == 0 {
+        // Using too much memory
+        return Err(AppError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "load shedding",
+        ));
+    }
+    if kumo_server_common::disk_space::is_over_limit() {
+        return Err(AppError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "disk is too full",
+        ));
+    }
+    if !SpoolManager::get().spool_started() {
+        return Err(AppError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "waiting for spool startup",
+        ));
+    }
+
+    Ok(activity)
+}
+
 /// Inject a message using a given message body, with template expansion,
 /// to a list of recipients.
 /// Both message assembly and templating are supported, and multiple recipients
@@ -1171,25 +1209,7 @@ pub async fn inject_v1(
     // Note: Json<> must be last in the param list
     Json(request): Json<InjectV1Request>,
 ) -> Result<Json<InjectV1Response>, AppError> {
-    if kumo_server_memory::get_headroom() == 0 {
-        // Using too much memory
-        return Err(AppError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "load shedding",
-        ));
-    }
-    if kumo_server_common::disk_space::is_over_limit() {
-        return Err(AppError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "disk is too full",
-        ));
-    }
-    if !SpoolManager::get().spool_started() {
-        return Err(AppError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "waiting for spool startup",
-        ));
-    }
+    let activity = activity_for_peer("inject_v1", peer_address)?;
 
     let limit = LIMIT.load();
     if let Some(limit) = limit.as_ref() {
@@ -1222,7 +1242,10 @@ pub async fn inject_v1(
     let hostname = Some(app_state.params().hostname.to_string());
 
     pool.spawn(format!("http inject_v1 for {peer_address:?}"), async move {
-        inject_v1_impl(auth, sender, peer_address, request, via_address, hostname).await
+        let result =
+            inject_v1_impl(auth, sender, peer_address, request, via_address, hostname).await;
+        drop(activity);
+        result
     })?
     .await?
 }

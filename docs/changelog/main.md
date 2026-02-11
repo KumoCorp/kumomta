@@ -82,3 +82,7 @@
    there was a race condition on startup where an injection request could
    begin processing prior to starting spool enumeration, which could then
    cause a `set_meta_spool has not been called` panic.
+ * HTTP Injection and XFER Injections didn't grab an Activity handle which
+   meant that there was a potential race condition when shutting down the
+   system which could result in loss of accountability of the message(s)
+   that were part of that request.

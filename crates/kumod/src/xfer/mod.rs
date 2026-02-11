@@ -1,3 +1,4 @@
+use crate::http_server::inject_v1::activity_for_peer;
 use crate::logging::disposition::{log_disposition, LogDisposition};
 use crate::queue::{DeliveryProto, QueueConfig, QueueManager};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
@@ -284,19 +285,7 @@ pub async fn inject_xfer_v1(
     State(app_state): State<AppState>,
     body: Bytes,
 ) -> Result<Json<XferResponseV1>, AppError> {
-    if kumo_server_memory::get_headroom() == 0 {
-        // Using too much memory
-        return Err(AppError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "load shedding",
-        ));
-    }
-    if kumo_server_common::disk_space::is_over_limit() {
-        return Err(AppError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "disk is too full",
-        ));
-    }
+    let _activity = activity_for_peer("inject_xfer_v1", peer_address)?;
 
     let msg = Message::deserialize_from_xfer(&body)?;
 
