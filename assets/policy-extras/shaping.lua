@@ -476,6 +476,9 @@ function mod:setup_with_automation(options)
           Rejection = {
             enable = false,
           },
+          Delayed = {
+            enable = false,
+          },
         },
         back_pressure = options.back_pressure,
       }
