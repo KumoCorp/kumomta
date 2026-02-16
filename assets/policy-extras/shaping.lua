@@ -463,23 +463,25 @@ function mod:setup_with_automation(options)
 
   local function setup_publish()
     for _, params in pairs(publish) do
+      local per_record = {}
+
+      if options.tsa_log_per_record then
+        for k, v in pairs(options.tsa_log_per_record) do
+          per_record[k] = v
+        end
+      end
+
+      per_record.Reception = {
+        enable = false,
+      }
+
+      per_record.Rejection = {
+        enable = false,
+      }
+
       kumo.configure_log_hook {
         name = params.hook_name,
-        per_record = {
-          -- Don't feed reception data to the daemon; we're
-          -- only interested in data that flows back to us
-          -- from after the point of reception
-          Reception = {
-            enable = false,
-          },
-          -- Likewise, rejections don't make sense to pass to TSA
-          Rejection = {
-            enable = false,
-          },
-          Delayed = {
-            enable = false,
-          },
-        },
+        per_record = per_record,
         back_pressure = options.back_pressure,
       }
     end
