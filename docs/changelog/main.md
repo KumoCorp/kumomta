@@ -86,3 +86,5 @@
    meant that there was a potential race condition when shutting down the
    system which could result in loss of accountability of the message(s)
    that were part of that request.
+ * Fixed possible integer overflow when computing a very long delay.
+   Thanks to @edgarsendernet! #480
