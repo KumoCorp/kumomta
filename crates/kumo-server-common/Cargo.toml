@@ -66,6 +66,7 @@ regex-set-map = {path="../regex-set-map"}
 rustls = {workspace=true}
 serde = {workspace=true}
 serde_json = {workspace=true}
+sysinfo.workspace = true
 throttle = {path="../throttle"}
 tokio = {workspace=true, features=["full", "tracing"]}
 tokio-metrics = {workspace=true}

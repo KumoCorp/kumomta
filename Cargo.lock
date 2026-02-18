@@ -3893,6 +3893,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "sysinfo",
  "throttle",
  "tokio",
  "tokio-metrics",

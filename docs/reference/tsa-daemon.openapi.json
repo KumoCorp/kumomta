@@ -62,6 +62,16 @@
         }
       }
     },
+    "/api/machine-info": {
+      "get": {
+        "tags": [
+          "debugging"
+        ],
+        "summary": "Returns information identifying this instance",
+        "operationId": "machine_info",
+        "responses": {}
+      }
+    },
     "/get_bounce_v1/bounced.json": {
       "get": {
         "tags": [],

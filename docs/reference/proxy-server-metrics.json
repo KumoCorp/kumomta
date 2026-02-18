@@ -369,6 +369,24 @@
     "pruning": "NonPruning"
   },
   {
+    "name": "process_cpu_usage_normalized",
+    "help": "The sum of the process CPU usage for each CPU in the system, divided by the number of CPUs.",
+    "doc": "100% in this metric indicates that all CPU cores are 100% busy.\n\nThis metric is scoped to the service process, reflecting the CPU used only\nby the process and not the system as a whole.",
+    "metric_type": "Gauge",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "process_cpu_usage_sum",
+    "help": "The sum of the process CPU usage for each CPU in the system, can add up to more than 100%.",
+    "doc": "Each CPU has a value from 0-100% busy; a value of 100% in this metric\nindicates that the load is equivalent to one fully utilized CPU.\n\nA multi-CPU system can report more than 100% in this metric; a dual-CPU\nsystem reporting 200% indicates that both CPUs are fully utilized.\n\nSee process_cpu_usage_normalized for a version of this metric that scales from\n0% (totally idle) to 100% (totally saturated).\n\nThis metric is scoped to the service process, reflecting the CPU used only\nby the process and not the system as a whole.",
+    "metric_type": "Gauge",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
     "name": "proxy_active_connections",
     "help": "Current number of active proxy connections.",
     "doc": "This gauge shows the number of connections currently being proxied.\nIt increments when a connection is accepted and decrements when\nthe connection closes (successfully or with error).",
@@ -480,6 +498,24 @@
       5.0,
       10.0
     ],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "system_cpu_usage_normalized",
+    "help": "The sum of the system-wide CPU usage for each CPU in the system, divided by the number of CPUs.",
+    "doc": "100% in this metric indicates that all CPU cores are 100% busy.\n\nThis metric is scoped to the system, reflecting the total load on the\nsystem, not just from the kumo related process(es).",
+    "metric_type": "Gauge",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "system_cpu_usage_sum",
+    "help": "The sum of the system-wide CPU usage for each CPU in the system, can add up to more than 100%.",
+    "doc": "Each CPU has a value from 0-100% busy; a value of 100% in this metric\nindicates that the load is equivalent to one fully utilized CPU.\n\nA multi-CPU system can report more than 100% in this metric; a dual-CPU\nsystem reporting 200% indicates that both CPUs are fully utilized.\n\nSee system_cpu_usage_normalized for a version of this metric that scales from\n0% (totally idle) to 100% (totally saturated).\n\nThis metric is scoped to the system, reflecting the total load on the\nsystem, not just from the kumo related process(es).",
+    "metric_type": "Gauge",
+    "label_names": [],
+    "buckets": [],
     "pruning": "NonPruning"
   },
   {

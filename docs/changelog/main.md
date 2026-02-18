@@ -65,6 +65,13 @@
  * New
    [redis_operation_latency](../reference/metrics/kumod/redis_operation_latency.md)
    histogram metric which tracks operation type, status and latency.
+ * New system- and process-specific CPU usage metrics. We export both the
+   total overall percentage across all cores, which results in values ranging
+   from `0%` through to `num_cpus * 100%` for a fully saturated system,
+   as well as normalized values that use `100%` to indicate a fully saturated
+   system.  The process-specific variants account only for the individual service
+   process (eg: `kumod` only), whereas the system-specific variants indicate
+   the total load on the entire system. #186
 
 ## Fixes
 
