@@ -88,3 +88,4 @@
    that were part of that request.
  * Fixed possible integer overflow when computing a very long delay.
    Thanks to @edgarsendernet! #480
+ * Filter out not-relevant-to-TSA records earlier in the logging pipeline. #478
