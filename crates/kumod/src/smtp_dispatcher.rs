@@ -295,9 +295,16 @@ impl SmtpDispatcher {
     }
 
     async fn attempt_connection_impl(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
-        if let Some(client) = &self.client {
+        if let Some(client) = &mut self.client {
             if client.is_connected() {
-                return Ok(());
+                if client.check_connection_still_alive() {
+                    return Ok(());
+                }
+                tracing::debug!(
+                    "connection to {} was closed by remote while idle, reconnecting",
+                    dispatcher.name
+                );
+                self.client.take();
             }
         }
 

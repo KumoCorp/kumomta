@@ -10,6 +10,7 @@ use openssl::x509::{X509Ref, X509};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
@@ -279,6 +280,40 @@ impl SmtpClient {
 
     pub fn is_connected(&self) -> bool {
         self.socket.is_some()
+    }
+
+    /// Non-blocking check to see if the remote end has closed the connection.
+    /// Returns true if the connection appears to still be alive.
+    /// Returns false if we detect EOF or an error, indicating the
+    /// remote has closed the connection.
+    pub fn check_connection_still_alive(&mut self) -> bool {
+        use std::task::{Context, Poll};
+        use tokio::io::{AsyncRead, ReadBuf};
+
+        let socket = match self.socket.as_mut() {
+            Some(s) => s,
+            None => return false,
+        };
+
+        let mut buf = [0u8; 1];
+        let mut read_buf = ReadBuf::new(&mut buf);
+
+        let waker = std::task::Waker::noop();
+        let mut cx = Context::from_waker(&waker);
+
+        match Pin::new(socket).poll_read(&mut cx, &mut read_buf) {
+            Poll::Pending => true,
+            Poll::Ready(Ok(())) => {
+                if read_buf.filled().is_empty() {
+                    // EOF: remote closed the connection
+                    false
+                } else {
+                    // Unexpected data from server — treat as alive
+                    true
+                }
+            }
+            Poll::Ready(Err(_)) => false,
+        }
     }
 
     pub fn set_enable_rset(&mut self, enable: bool) {
@@ -1324,6 +1359,43 @@ mod test {
         assert_eq!(extract_hostname("[foo.]:25"), "foo");
         assert_eq!(extract_hostname("[::1]:25"), "::1");
         assert_eq!(extract_hostname("::1:25"), "::1");
+    }
+
+    #[tokio::test]
+    async fn check_connection_still_alive_returns_true_when_open() {
+        let (stream, _remote) = tokio::net::UnixStream::pair().unwrap();
+        let mut client =
+            SmtpClient::with_stream(stream, "localhost", SmtpClientTimeouts::default());
+        assert!(client.is_connected());
+        assert!(client.check_connection_still_alive());
+    }
+
+    #[tokio::test]
+    async fn check_connection_still_alive_returns_false_after_remote_close() {
+        let (stream, remote) = tokio::net::UnixStream::pair().unwrap();
+        let mut client =
+            SmtpClient::with_stream(stream, "localhost", SmtpClientTimeouts::default());
+        drop(remote);
+        // Give tokio a chance to propagate the close
+        tokio::task::yield_now().await;
+        assert!(!client.check_connection_still_alive());
+    }
+
+    #[test]
+    fn check_connection_still_alive_returns_false_when_no_socket() {
+        let mut client = SmtpClient {
+            socket: None,
+            hostname: "localhost".to_string(),
+            capabilities: HashMap::new(),
+            read_buffer: Vec::new(),
+            timeouts: SmtpClientTimeouts::default(),
+            tracer: None,
+            use_rset: false,
+            enable_rset: false,
+            enable_pipelining: false,
+            ignore_8bit_checks: false,
+        };
+        assert!(!client.check_connection_still_alive());
     }
 
     #[test]
