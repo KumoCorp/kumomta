@@ -468,7 +468,7 @@ function mod:setup_with_automation(options)
     local per_record = {}
     for record_type, _true in pairs(UNINTERESTING_LOG_RECORD_TYPES) do
       per_record[record_type] = {
-        enable = false
+        enable = false,
       }
     end
     for _, params in pairs(publish) do
