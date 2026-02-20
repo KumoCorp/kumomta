@@ -44,12 +44,13 @@ pub fn make_router() -> RouterAndDocs {
     router_with_docs!(
         title = "tsa-daemon",
         handlers = [
-            publish_log_v1,
+            get_bounce_v1,
             get_config_v1,
             get_suspension_v1,
-            subscribe_suspension_v1,
-            get_bounce_v1,
+            publish_log_v1,
             subscribe_event_v1,
+            subscribe_suspension_v1,
+            tsa_status,
         ]
     )
 }
@@ -866,4 +867,18 @@ async fn process_event_subscription(socket: WebSocket) {
 #[utoipa::path(get, path = "/subscribe_event_v1")]
 pub async fn subscribe_event_v1(ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(process_event_subscription)
+}
+
+/// Simple health check endpoint for the TSA Daemon.
+/// Returns basic status information.
+#[utoipa::path(
+    get,
+    tag = "status",
+    path = "/tsa/status",
+    responses(
+        (status = 200, description = "TSA is healthy", body = String)
+    ),
+)]
+async fn tsa_status() -> &'static str {
+    "TSA Daemon OK"
 }

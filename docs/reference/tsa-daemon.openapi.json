@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.02.04-2e2aabeb"
+    "version": "2026.02.16-3fe54b1e"
   },
   "paths": {
     "/api/admin/bump-config-epoch": {
@@ -146,6 +146,27 @@
         "operationId": "subscribe_suspension_v1",
         "responses": {},
         "deprecated": true
+      }
+    },
+    "/tsa/status": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "summary": "Simple health check endpoint for the TSA Daemon.\nReturns basic status information.",
+        "operationId": "tsa_status",
+        "responses": {
+          "200": {
+            "description": "TSA is healthy",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
       }
     }
   },

@@ -60,6 +60,8 @@
    allowing for more nuanced/advanced requeue logic.
  * Each metric exported by kumod now has a documentation page. You can find an
    index at [kumod metrics](../reference/metrics/kumod/index.md).
+ * New `/tsa/status` HTTP endpoint for the TSA daemon which can be used to determine
+   that its service is up.
 
 ## Fixes
 
