@@ -4792,8 +4792,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "config",
+ "crc32fast",
  "deadpool",
  "duration-serde",
+ "kumo-prometheus",
+ "linkme",
  "mlua",
  "redis",
  "serde",

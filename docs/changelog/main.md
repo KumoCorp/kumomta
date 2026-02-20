@@ -62,6 +62,9 @@
    index at [kumod metrics](../reference/metrics/kumod/index.md).
  * New `/tsa/status` HTTP endpoint for the TSA daemon which can be used to determine
    that its service is up.
+ * New
+   [redis_operation_latency](../reference/metrics/kumod/redis_operation_latency.md)
+   histogram metric which tracks operation type, status and latency.
 
 ## Fixes
 

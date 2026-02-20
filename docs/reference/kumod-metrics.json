@@ -879,6 +879,31 @@
     "pruning": "NonPruning"
   },
   {
+    "name": "redis_operation_latency",
+    "help": "The latency of an operation talking to Redis.",
+    "doc": "{{since('dev')}}\n\nThe `service` key represents the redis server/service. It is not\na direct match to a server name as it is really a hash of the\noverall redis configuration information used in the client.\nIt might look something like:\n`redis://127.0.0.1:24419,redis://127.0.0.1:7779,redis://127.0.0.1:29469-2ce79dd1`\nfor a cluster configuration, or `redis://127.0.0.1:16267-f4da6e64`\nfor a single node cluster configuration.\nYou should anticipate that the `-HEX` suffix can and will change\nin an unspecified way as you vary the redis connection parameters.\n\nThe `operation` key indicates the operation, which can be a `ping`,\na `query` or a `script`.\n\n`status` will be either `ok` or `error` to indicate whether this\nis tracking a successful or failed operation.\n\nSince histograms track a count of operations, you can track the\nrate of `redis_operation_latency_count` where `status=error`\nto have an indication of the failure rate of redis operations.",
+    "metric_type": "Histogram",
+    "label_names": [
+      "service",
+      "operation",
+      "status"
+    ],
+    "buckets": [
+      0.005,
+      0.01,
+      0.025,
+      0.05,
+      0.1,
+      0.25,
+      0.5,
+      1.0,
+      2.5,
+      5.0,
+      10.0
+    ],
+    "pruning": "NonPruning"
+  },
+  {
     "name": "rocks_spool_cache_total",
     "help": "Approximate memory (bytes) usage by cache.",
     "doc": "This may be useful when understanding the memory usage of\nthe system.",
