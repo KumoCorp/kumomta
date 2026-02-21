@@ -94,3 +94,7 @@
  * Fixed possible integer overflow when computing a very long delay.
    Thanks to @edgarsendernet! #480
  * Filter out not-relevant-to-TSA records earlier in the logging pipeline. #478
+ * Outbound SMTP connections that have been closed by the destination during
+   idle time are now detected more robustly in between message sends, reducing
+   the rate at which a message will get classified as an internal connection
+   failure. #482

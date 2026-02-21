@@ -295,9 +295,41 @@ impl SmtpDispatcher {
     }
 
     async fn attempt_connection_impl(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
-        if let Some(client) = &self.client {
+        if let Some(client) = &mut self.client {
             if client.is_connected() {
-                return Ok(());
+                // If we get a unilateral response here now it can either be:
+                // 1. a 421 advising us that the connection is being closed.
+                // 2. a protocol sync/deviation/conformance issue, and we must
+                //    therefore treat this as a closed connection.
+                // Errors that present here also indicate that the connection
+                // has closed.
+                //
+                // We want to surface these right now so that we can proceed with
+                // making a new connection, rather than returning this current
+                // connection that will immediately result in a transfail
+                // when we try sending a message through it.
+                match client.check_unilateral_response().await {
+                    Ok(None) => {
+                        // Still connected
+                        return Ok(());
+                    }
+                    Ok(Some(response)) => {
+                        tracing::debug!(
+                            "{} sent a unilateral response: \
+                            {response:?}, treating the connection as closed",
+                            dispatcher.name
+                        );
+                        let _ = self.close_connection(dispatcher).await;
+                    }
+                    Err(err) => {
+                        tracing::debug!(
+                            "{} had error: {err:#} \
+                            while checking for liveness, treating it as closed",
+                            dispatcher.name
+                        );
+                        self.client.take();
+                    }
+                };
             }
         }
 

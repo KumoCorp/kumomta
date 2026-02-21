@@ -10,7 +10,7 @@ async fn disconnect_in_data() -> anyhow::Result<()> {
 
     let response = MailGenParams {
         recip: Some("not-me@two-hosts.example.com"),
-        // Cause the sink to 451 disconnect us in mail from.
+        // Cause the sink to 451 disconnect us in DATA.
         // This is to verify that we handle this sort of error during
         // a pipeline send correctly.
         sender: Some("disconnect-in-data-no-421@example.com"),
@@ -46,9 +46,12 @@ async fn disconnect_in_data() -> anyhow::Result<()> {
 DeliverySummary {
     source_counts: {
         Reception: 2,
-        TransientFailure: 2,
+        Delivery: 1,
+        TransientFailure: 1,
     },
     sink_counts: {
+        Reception: 1,
+        Delivery: 1,
         Rejection: 1,
     },
 }

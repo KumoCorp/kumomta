@@ -354,13 +354,21 @@ impl SmtpClient {
                         });
                     }
                     Err(_) => {
-                        self.socket.take();
+                        // If we're using a zero timeout we're probing
+                        // for liveness, so we don't want to treat this
+                        // timeout as a fatal error that closes the
+                        // connection
+                        if timeout_duration != Duration::ZERO {
+                            self.socket.take();
+                        }
                         if let Some(tracer) = &self.tracer {
                             tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
                                 level: Level::ERROR,
                                 message: format!("Read Timeout after {timeout_duration:?}"),
                             });
-                            tracer.trace_event(SmtpClientTraceEvent::Closed);
+                            if self.socket.is_none() {
+                                tracer.trace_event(SmtpClientTraceEvent::Closed);
+                            }
                         }
                         return Err(ClientError::TimeOutResponse {
                             command: cmd.cloned(),
@@ -393,6 +401,24 @@ impl SmtpClient {
                 });
             }
             self.read_buffer.extend_from_slice(&data[0..size]);
+        }
+    }
+
+    /// Check to see if there is either a unilateral response
+    /// or an error condition immediately available on the socket.
+    ///
+    /// Intended to be used after the connection has idled to see if
+    /// the peer has opted to close the connection, either gracefully
+    /// by sending what should be a 421, or abruptly by simply snipping
+    /// the connection.
+    pub async fn check_unilateral_response(&mut self) -> Result<Option<Response>, ClientError> {
+        match self.read_response(None, Duration::ZERO).await {
+            // Unilateral response was received
+            Ok(response) => Ok(Some(response)),
+            // Nothing immediately available: this should hopefully be the common case
+            Err(ClientError::TimeOutResponse { .. }) => Ok(None),
+            // An actual error
+            Err(err) => Err(err),
         }
     }
 
