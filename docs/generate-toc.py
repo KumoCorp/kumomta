@@ -339,6 +339,10 @@ TOC = [
                         "Deploying KumoMTA on Kubernetes",
                         "userguide/clustering/kubernetes.md",
                     ),
+                    Page(
+                        "Node ID",
+                        "userguide/clustering/nodeid.md",
+                    ),
                 ],
             ),
             Page(
