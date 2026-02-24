@@ -65,7 +65,7 @@ axum-client-ip = "1.1"
 axum-server = "0.7"
 axum-streams = {version="0.23", features=["text"]}
 backtrace = "0.3"
-bitflags = "2.3"
+bitflags = "2.11"
 bitstring = "0.2"
 bytes = "1.0"
 camino = "1.1"
