@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.02.16-3fe54b1e"
+    "version": "2026.02.24-3bc3da88"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -606,7 +606,18 @@
         ],
         "summary": "Returns information identifying this instance",
         "operationId": "machine_info",
-        "responses": {}
+        "responses": {
+          "200": {
+            "description": "Machine information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineInfoV1"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/xfer/inject/v1": {
@@ -1196,6 +1207,109 @@
           "queue_name": {
             "type": "string",
             "example": "campaign_name:tenant_name@example.com"
+          }
+        }
+      },
+      "MachineInfoV1": {
+        "type": "object",
+        "required": [
+          "node_id",
+          "hostname",
+          "mac_address",
+          "num_cores",
+          "platform",
+          "distribution",
+          "os_version",
+          "total_memory_bytes",
+          "cpu_brand",
+          "fingerprint",
+          "online_since",
+          "process_kind",
+          "version"
+        ],
+        "properties": {
+          "container_runtime": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "If we detected that we're running in a container, the name\nof the container runtime"
+          },
+          "cpu_brand": {
+            "type": "string",
+            "description": "Identifies the CPU.  If you have a mixture of different CPUs,\nthis will be a comma separated list of the different CPUs",
+            "example": "Intel(R) Xeon(R) CPU E5-2686 v4 @ 2.30GHz"
+          },
+          "distribution": {
+            "type": "string",
+            "description": "The OS distribution",
+            "example": "ubuntu"
+          },
+          "fingerprint": {
+            "type": "string",
+            "description": "Additional metadata hash(es) that can identify the running machine.\nFor example, when running in AWS, the instance-id will be\nincluded.",
+            "example": "aws_instance_id=i-09aebefac97cf0000,machine_uid=ec22130d1de33cf52413457ac040000"
+          },
+          "hostname": {
+            "type": "string",
+            "description": "The hostname of the system, as reported by `gethostname(2)`",
+            "example": "mta1.example.com"
+          },
+          "kernel_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The kernel version",
+            "example": "6.8.0-1016-aws"
+          },
+          "mac_address": {
+            "type": "string",
+            "description": "The MAC address of the primary, non-loopback, network interface",
+            "example": "02:02:02:02:02:02"
+          },
+          "node_id": {
+            "type": "string",
+            "description": "The NodeID of the system",
+            "example": "9745bb48-14d7-48f2-a1fb-7df8d5844217"
+          },
+          "num_cores": {
+            "type": "integer",
+            "description": "The number of available CPUs as reported by\n<https://docs.rs/num_cpus/latest/num_cpus/fn.get.html>",
+            "example": 64,
+            "minimum": 0
+          },
+          "online_since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The date/time at which the process was last started"
+          },
+          "os_version": {
+            "type": "string",
+            "description": "The OS version (which often includes the distribution)",
+            "example": "Linux (Ubuntu 24.04)"
+          },
+          "platform": {
+            "type": "string",
+            "description": "Identifies the running platform",
+            "example": "linux/x86_64"
+          },
+          "process_kind": {
+            "type": "string",
+            "description": "Which process is running. eg: `kumod` vs `tsa-daemon` vs. `proxy-server`.",
+            "example": "kumod"
+          },
+          "total_memory_bytes": {
+            "type": "integer",
+            "format": "u-int64",
+            "description": "Total physical memory installed in the instance",
+            "example": 1003929600,
+            "minimum": 0
+          },
+          "version": {
+            "type": "string",
+            "description": "The version of KumoMTA that is running",
+            "example": "2026.02.24-2d1a3174"
           }
         }
       },

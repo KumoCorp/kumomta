@@ -632,21 +632,56 @@ pub struct ReadyQueueStateResponse {
     pub states_by_ready_queue: HashMap<String, HashMap<String, QueueState>>,
 }
 
-#[derive(Serialize, Clone, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Clone, Deserialize, Debug, PartialEq, ToSchema)]
 pub struct MachineInfoV1 {
+    /// The NodeID of the system
+    #[schema(example = "9745bb48-14d7-48f2-a1fb-7df8d5844217")]
     pub node_id: String,
+    /// The hostname of the system, as reported by `gethostname(2)`
+    #[schema(example = "mta1.example.com")]
     pub hostname: String,
+    /// The MAC address of the primary, non-loopback, network interface
+    #[schema(example = "02:02:02:02:02:02")]
     pub mac_address: String,
+    /// The number of available CPUs as reported by
+    /// <https://docs.rs/num_cpus/latest/num_cpus/fn.get.html>
+    #[schema(example = 64)]
     pub num_cores: usize,
+    /// The kernel version
+    #[schema(example = "6.8.0-1016-aws")]
     pub kernel_version: Option<String>,
+    /// Identifies the running platform
+    #[schema(example = "linux/x86_64")]
     pub platform: String,
+    /// The OS distribution
+    #[schema(example = "ubuntu")]
     pub distribution: String,
+    /// The OS version (which often includes the distribution)
+    #[schema(example = "Linux (Ubuntu 24.04)")]
     pub os_version: String,
+    /// Total physical memory installed in the instance
+    #[schema(example = 1003929600)]
     pub total_memory_bytes: u64,
+    /// If we detected that we're running in a container, the name
+    /// of the container runtime
     pub container_runtime: Option<String>,
+    /// Identifies the CPU.  If you have a mixture of different CPUs,
+    /// this will be a comma separated list of the different CPUs
+    #[schema(example = "Intel(R) Xeon(R) CPU E5-2686 v4 @ 2.30GHz")]
     pub cpu_brand: String,
+    /// Additional metadata hash(es) that can identify the running machine.
+    /// For example, when running in AWS, the instance-id will be
+    /// included.
+    #[schema(
+        example = "aws_instance_id=i-09aebefac97cf0000,machine_uid=ec22130d1de33cf52413457ac040000"
+    )]
     pub fingerprint: String,
+    /// The date/time at which the process was last started
     pub online_since: DateTime<Utc>,
+    /// Which process is running. eg: `kumod` vs `tsa-daemon` vs. `proxy-server`.
+    #[schema(example = "kumod")]
     pub process_kind: String,
+    /// The version of KumoMTA that is running
+    #[schema(example = "2026.02.24-2d1a3174")]
     pub version: String,
 }

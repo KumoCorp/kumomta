@@ -14,3 +14,70 @@ tags:
     from there and into these docs.
 
 Returns information identifying this instance
+
+## Responses
+### Status 200
+Machine information
+
+
+`Content-Type: application/json`
+
+
+This is an object value, with the following properties:
+
+
+  * `container_runtime` - optional nullable `string`. If we detected that we're running in a container, the name
+    of the container runtime
+
+  * `cpu_brand` - required `string`. Identifies the CPU.  If you have a mixture of different CPUs,
+    this will be a comma separated list of the different CPUs
+
+  * `distribution` - required `string`. The OS distribution
+
+  * `fingerprint` - required `string`. Additional metadata hash(es) that can identify the running machine.
+    For example, when running in AWS, the instance-id will be
+    included.
+
+  * `hostname` - required `string`. The hostname of the system, as reported by `gethostname(2)`
+
+  * `kernel_version` - optional nullable `string`. The kernel version
+
+  * `mac_address` - required `string`. The MAC address of the primary, non-loopback, network interface
+
+  * `node_id` - required `string`. The NodeID of the system
+
+  * `num_cores` - required `integer`. The number of available CPUs as reported by
+    <https://docs.rs/num_cpus/latest/num_cpus/fn.get.html>
+
+  * `online_since` - required `string` (`date-time`). The date/time at which the process was last started
+
+  * `os_version` - required `string`. The OS version (which often includes the distribution)
+
+  * `platform` - required `string`. Identifies the running platform
+
+  * `process_kind` - required `string`. Which process is running. eg: `kumod` vs `tsa-daemon` vs. `proxy-server`.
+
+  * `total_memory_bytes` - required `integer` (`u-int64`). Total physical memory installed in the instance
+
+  * `version` - required `string`. The version of KumoMTA that is running
+
+### Examples
+```json
+{
+  "container_runtime": "string",
+  "cpu_brand": "Intel(R) Xeon(R) CPU E5-2686 v4 @ 2.30GHz",
+  "distribution": "ubuntu",
+  "fingerprint": "aws_instance_id=i-09aebefac97cf0000,machine_uid=ec22130d1de33cf52413457ac040000",
+  "hostname": "mta1.example.com",
+  "kernel_version": "6.8.0-1016-aws",
+  "mac_address": "02:02:02:02:02:02",
+  "node_id": "9745bb48-14d7-48f2-a1fb-7df8d5844217",
+  "num_cores": 64,
+  "online_since": "1990-12-31T23:59:60Z",
+  "os_version": "Linux (Ubuntu 24.04)",
+  "platform": "linux/x86_64",
+  "process_kind": "kumod",
+  "total_memory_bytes": 1003929600,
+  "version": "2026.02.24-2d1a3174"
+}
+```

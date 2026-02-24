@@ -416,7 +416,11 @@ where
 }
 
 /// Returns information identifying this instance
-#[utoipa::path(get, tag = "debugging", path = "/api/machine-info")]
+#[utoipa::path(get, tag = "debugging", path = "/api/machine-info",
+    responses(
+        (status=200, description="Machine information", body=MachineInfoV1)
+    ),
+)]
 async fn machine_info(State(state): State<AppState>) -> Result<Json<MachineInfoV1>, AppError> {
     let online_since = ONLINE_SINCE.clone();
     match MACHINE_INFO.lock().as_ref() {
