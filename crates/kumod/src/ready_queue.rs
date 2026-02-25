@@ -1180,6 +1180,14 @@ impl Drop for ReadyQueue {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum AttemptConnectionDisposition {
+    ConnectedNew,
+    ReusedExisting,
+    PeerClosedConnectionNeedNewSession,
+    PeerClosedConnectionContinueSession,
+}
+
 #[async_trait]
 pub trait QueueDispatcher: Debug + Send {
     async fn deliver_message(
@@ -1188,7 +1196,10 @@ pub trait QueueDispatcher: Debug + Send {
         dispatcher: &mut Dispatcher,
     ) -> anyhow::Result<()>;
 
-    async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()>;
+    async fn attempt_connection(
+        &mut self,
+        dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<AttemptConnectionDisposition>;
     async fn have_more_connection_candidates(&mut self, dispatcher: &mut Dispatcher) -> bool;
 
     async fn close_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<bool>;
@@ -1431,78 +1442,109 @@ impl Dispatcher {
                 }
             };
 
-            if let Err(err) = result {
-                if OpportunisticInsecureTlsHandshakeError::is_match_anyhow(&err) {
-                    num_opportunistic_tls_failures += 1;
-                }
-                connection_failures.push(format!("{err:#}"));
-                if !queue_dispatcher
-                    .have_more_connection_candidates(&mut dispatcher)
-                    .await
-                {
-                    for msg in dispatcher.msgs.drain(..) {
-                        let summary = if num_opportunistic_tls_failures == connection_failures.len()
-                        {
-                            "All failures are related to OpportunisticInsecure STARTTLS. \
+            match result {
+                Err(err) => {
+                    if OpportunisticInsecureTlsHandshakeError::is_match_anyhow(&err) {
+                        num_opportunistic_tls_failures += 1;
+                    }
+                    connection_failures.push(format!("{err:#}"));
+                    if !queue_dispatcher
+                        .have_more_connection_candidates(&mut dispatcher)
+                        .await
+                    {
+                        for msg in dispatcher.msgs.drain(..) {
+                            let summary =
+                                if num_opportunistic_tls_failures == connection_failures.len() {
+                                    "All failures are related to OpportunisticInsecure STARTTLS. \
                              Consider setting enable_tls=Disabled for this site. "
-                        } else {
-                            ""
-                        };
+                                } else {
+                                    ""
+                                };
 
-                        let response = Response {
-                            code: 400,
-                            enhanced_code: None,
-                            content: format!(
-                                "KumoMTA internal: \
+                            let response = Response {
+                                code: 400,
+                                enhanced_code: None,
+                                content: format!(
+                                    "KumoMTA internal: \
                                      failed to connect to any candidate \
                                      hosts: {summary}{}",
-                                connection_failures.join(", ")
-                            ),
-                            command: None,
-                        };
+                                    connection_failures.join(", ")
+                                ),
+                                command: None,
+                            };
 
-                        log_disposition(LogDisposition {
-                            kind: RecordType::TransientFailure,
-                            msg: msg.clone(),
-                            site: &dispatcher.name,
-                            peer_address: None,
-                            response: response.clone(),
-                            egress_pool: Some(&dispatcher.egress_pool),
-                            egress_source: Some(&dispatcher.egress_source.name),
-                            relay_disposition: None,
-                            delivery_protocol: Some(&dispatcher.delivery_protocol),
-                            tls_info: None,
-                            source_address: None,
-                            provider: dispatcher.path_config.borrow().provider_name.as_deref(),
-                            session_id: Some(dispatcher.session_id),
-                            recipient_list: None,
-                        })
-                        .await;
-                        QueueManager::requeue_message(
-                            msg,
-                            IncrementAttempts::Yes,
-                            None,
-                            response,
-                            InsertReason::LoggedTransientFailure.into(),
-                        )
-                        .await?;
-                        dispatcher.metrics.inc_transfail();
-                    }
+                            log_disposition(LogDisposition {
+                                kind: RecordType::TransientFailure,
+                                msg: msg.clone(),
+                                site: &dispatcher.name,
+                                peer_address: None,
+                                response: response.clone(),
+                                egress_pool: Some(&dispatcher.egress_pool),
+                                egress_source: Some(&dispatcher.egress_source.name),
+                                relay_disposition: None,
+                                delivery_protocol: Some(&dispatcher.delivery_protocol),
+                                tls_info: None,
+                                source_address: None,
+                                provider: dispatcher.path_config.borrow().provider_name.as_deref(),
+                                session_id: Some(dispatcher.session_id),
+                                recipient_list: None,
+                            })
+                            .await;
+                            QueueManager::requeue_message(
+                                msg,
+                                IncrementAttempts::Yes,
+                                None,
+                                response,
+                                InsertReason::LoggedTransientFailure.into(),
+                            )
+                            .await?;
+                            dispatcher.metrics.inc_transfail();
+                        }
 
-                    if consecutive_connection_failures.fetch_add(1, Ordering::SeqCst)
-                        > dispatcher
-                            .path_config
-                            .borrow()
-                            .consecutive_connection_failures_before_delay
-                    {
-                        dispatcher.delay_ready_queue().await;
+                        if consecutive_connection_failures.fetch_add(1, Ordering::SeqCst)
+                            > dispatcher
+                                .path_config
+                                .borrow()
+                                .consecutive_connection_failures_before_delay
+                        {
+                            dispatcher.delay_ready_queue().await;
+                        }
+                        dispatcher.release_leases().await;
+                        return Err(err);
                     }
-                    dispatcher.release_leases().await;
-                    return Err(err);
+                    tracing::debug!("{err:#}");
+                    // Try the next candidate MX address
+                    continue;
                 }
-                tracing::debug!("{err:#}");
-                // Try the next candidate MX address
-                continue;
+                Ok(
+                    AttemptConnectionDisposition::ReusedExisting
+                    | AttemptConnectionDisposition::ConnectedNew,
+                ) => {
+                    // fall through to below logic to do the send
+                }
+                Ok(AttemptConnectionDisposition::PeerClosedConnectionNeedNewSession) => {
+                    tracing::debug!(
+                        "{} Peer closed the connection, will make new session",
+                        dispatcher.name
+                    );
+                    dispatcher.release_leases().await;
+                    queue_dispatcher.close_connection(&mut dispatcher).await?;
+                    // Push the message(s) batch into the ready queue so that they
+                    // can be immediately tried in another session
+                    dispatcher
+                        .reinsert_ready_queue(InsertReason::PeerClosedConnection.into())
+                        .await;
+                    return Ok(());
+                }
+                Ok(AttemptConnectionDisposition::PeerClosedConnectionContinueSession) => {
+                    tracing::debug!(
+                        "{} Peer closed the connection, continue with session",
+                        dispatcher.name
+                    );
+                    // We don't have a current connection, so continue around
+                    // the loop to try to open a new one
+                    continue;
+                }
             }
 
             connection_failures.clear();

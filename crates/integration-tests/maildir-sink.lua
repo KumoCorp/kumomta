@@ -17,6 +17,9 @@ kumo.on('init', function()
     relay_hosts = { '0.0.0.0/0' },
     batch_handling = 'BatchByDomain',
     max_recipients_per_message = 4,
+    -- This client_timeout value is coupled with assumptions
+    -- in disconnect_peer_idle_out!
+    client_timeout = '3s',
   }
   local client_ca = os.getenv 'KUMOD_CLIENT_REQUIRED_CA'
   if client_ca then

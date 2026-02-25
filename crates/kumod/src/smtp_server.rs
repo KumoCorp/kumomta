@@ -6,7 +6,7 @@ use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::logging::rejection::{log_rejection, LogRejection};
 use crate::metrics_helper::smtp_rejected_for_service;
 use crate::queue::{DeliveryProto, IncrementAttempts, InsertReason, QueueConfig, QueueManager};
-use crate::ready_queue::{Dispatcher, QueueDispatcher};
+use crate::ready_queue::{AttemptConnectionDisposition, Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
@@ -3432,12 +3432,17 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
         }
     }
 
-    async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+    async fn attempt_connection(
+        &mut self,
+        dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<AttemptConnectionDisposition> {
         if self.connection.is_none() {
             self.connection
                 .replace(dispatcher.metrics.wrap_connection(()));
+            Ok(AttemptConnectionDisposition::ConnectedNew)
+        } else {
+            Ok(AttemptConnectionDisposition::ReusedExisting)
         }
-        Ok(())
     }
 
     async fn have_more_connection_candidates(&mut self, _dispatcher: &mut Dispatcher) -> bool {

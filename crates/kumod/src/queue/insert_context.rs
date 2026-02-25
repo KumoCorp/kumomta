@@ -79,6 +79,9 @@ pub enum InsertReason {
     /// The safey net in Dispatcher::Drop re-queued the message.
     /// This shouldn't happen; if you see this in a log, please report it!
     DispatcherDrop,
+    /// The peer unilaterally closed the connection before we started
+    /// delivery, so we want to try a new connection plan
+    PeerClosedConnection,
 }
 
 #[cfg(test)]

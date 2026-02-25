@@ -4,7 +4,7 @@ use crate::http_server::admin_trace_smtp_client_v1::{
 };
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::{IncrementAttempts, InsertReason, QueueManager, QueueState};
-use crate::ready_queue::{Dispatcher, QueueDispatcher};
+use crate::ready_queue::{AttemptConnectionDisposition, Dispatcher, QueueDispatcher};
 use crate::smtp_server::ShuttingDownError;
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -294,7 +294,10 @@ impl SmtpDispatcher {
         }))
     }
 
-    async fn attempt_connection_impl(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+    async fn attempt_connection_impl(
+        &mut self,
+        dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<AttemptConnectionDisposition> {
         if let Some(client) = &mut self.client {
             if client.is_connected() {
                 // If we get a unilateral response here now it can either be:
@@ -311,23 +314,64 @@ impl SmtpDispatcher {
                 match client.check_unilateral_response().await {
                     Ok(None) => {
                         // Still connected
-                        return Ok(());
+                        return Ok(AttemptConnectionDisposition::ReusedExisting);
                     }
                     Ok(Some(response)) => {
+                        // We got an explicit signal that the connection is closing
+                        // out.  We don't consider this to be a transport error
+                        // so we'll close the current connection.
+                        // If we've managed to send messages so far in this session,
+                        // then we're consider it to be a successful plan so we should
+                        // not advance to the next candidate in the plan and make a
+                        // new session.
+                        // However, if we haven't managed to send anything so far,
+                        // closing and restarting the plan now would likely lead to
+                        // a persistent recurrence of this same state, so in that
+                        // situation we need to ensure that the reconnect_strategy
+                        // is applied to decide what to do.
                         tracing::debug!(
                             "{} sent a unilateral response: \
                             {response:?}, treating the connection as closed",
                             dispatcher.name
                         );
-                        let _ = self.close_connection(dispatcher).await;
+                        // Decide whether this is a successful plan
+                        self.update_state_for_reconnect(dispatcher);
+
+                        // if so, we can/should close the current session and start
+                        // a new one with a fresh plan
+                        if self.terminated_ok {
+                            let _ = self.close_connection(dispatcher).await;
+                            return Ok(
+                                AttemptConnectionDisposition::PeerClosedConnectionNeedNewSession,
+                            );
+                        }
+
+                        // otherwise, continue to next candidate host if that is what
+                        // the reconnect_strategy indicates.
+                        // While this is a return that leaves this function,
+                        // our caller will typically continue its loop and call
+                        // back in, but on the next call we won't show as connected
+                        // and will instead reach the logic below to make a new
+                        // connection in the current session, if that is what
+                        // the reconnect_strategy indicated.
+                        return Ok(
+                            AttemptConnectionDisposition::PeerClosedConnectionContinueSession,
+                        );
                     }
                     Err(err) => {
+                        // We got a transport error of some kind.
+                        // update_state_for_reconnect applies any reconnect_strategy
+                        // which will decide whether we continue with the connection
+                        // plan or whether we need to go to a new session.
                         tracing::debug!(
                             "{} had error: {err:#} \
                             while checking for liveness, treating it as closed",
                             dispatcher.name
                         );
-                        self.client.take();
+                        self.update_state_for_reconnect(dispatcher);
+                        return Ok(
+                            AttemptConnectionDisposition::PeerClosedConnectionContinueSession,
+                        );
                     }
                 };
             }
@@ -845,7 +889,7 @@ impl SmtpDispatcher {
             .replace(connection_wrapper.map_connection(client));
         self.client_address.replace(address);
         dispatcher.delivered_this_connection = 0;
-        Ok(())
+        Ok(AttemptConnectionDisposition::ConnectedNew)
     }
 
     async fn resolve_cached_client_cert(
@@ -971,7 +1015,10 @@ impl QueueDispatcher for SmtpDispatcher {
         self.terminated_ok
     }
 
-    async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+    async fn attempt_connection(
+        &mut self,
+        dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<AttemptConnectionDisposition> {
         self.attempt_connection_impl(dispatcher)
             .await
             .map_err(|err| {

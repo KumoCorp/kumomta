@@ -2,8 +2,10 @@
 mod arc;
 mod auth_deliver;
 mod auth_deliver_invalid_password;
+mod broken_first_choice_mx;
 mod disconnect_in_data;
 mod disconnect_in_mail_from;
+mod disconnect_peer_idle_out;
 mod disconnect_reconnect_same_host;
 mod disconnect_terminate_ok;
 mod eightbitmime;

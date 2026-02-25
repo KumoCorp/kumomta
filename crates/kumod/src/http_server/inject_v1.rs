@@ -1,7 +1,7 @@
 use crate::delivery_metrics::MetricsWrappedConnection;
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::{DeliveryProto, QueueConfig, QueueManager};
-use crate::ready_queue::{Dispatcher, QueueDispatcher};
+use crate::ready_queue::{AttemptConnectionDisposition, Dispatcher, QueueDispatcher};
 use crate::smtp_server::{default_hostname, TraceHeaders};
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -1324,12 +1324,17 @@ impl QueueDispatcher for HttpInjectionGeneratorDispatcher {
             None => Ok(false),
         }
     }
-    async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+    async fn attempt_connection(
+        &mut self,
+        dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<AttemptConnectionDisposition> {
         if self.connection.is_none() {
             self.connection
                 .replace(dispatcher.metrics.wrap_connection(()));
+            Ok(AttemptConnectionDisposition::ConnectedNew)
+        } else {
+            Ok(AttemptConnectionDisposition::ReusedExisting)
         }
-        Ok(())
     }
     async fn have_more_connection_candidates(&mut self, _dispatcher: &mut Dispatcher) -> bool {
         false
