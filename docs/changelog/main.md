@@ -72,6 +72,15 @@
    system.  The process-specific variants account only for the individual service
    process (eg: `kumod` only), whereas the system-specific variants indicate
    the total load on the entire system. #186
+ * The [HTTP Injection API](../reference/http/kumod/api_inject_v1_post.md) now
+   reports content/template syntax errors with HTTP status code 422
+   "Unprocessable Content".  Previously, these would be reported as a 500
+   status code.  The 422 code helps to specifically identify that there is a
+   problem with the content portion of the injection request as oppossed to
+   some other kind of error.  This check and status response also applies to
+   requests that have enabled `deferred_generation`.  Previously, content
+   syntax errors would be deferred as part of the overall injection request
+   deferral, making it awkward to surface this class of problem.
 
 ## Fixes
 

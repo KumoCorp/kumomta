@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.02.24-3bc3da88"
+    "version": "2026.02.24-b018f8f1"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -595,6 +595,9 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "One or more fields in the content section have syntax errors"
           }
         }
       }

@@ -19,6 +19,7 @@ mod http_auth;
 mod http_inject_compression;
 mod http_inject_deferred;
 mod http_inject_size_limit;
+mod http_inject_template_syntax_error;
 mod log_oob_arf;
 mod maildir_batch;
 mod maildir_batch_452;

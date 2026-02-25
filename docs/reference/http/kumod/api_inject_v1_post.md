@@ -360,3 +360,6 @@ This is an object value, with the following properties:
   "success_count": 42
 }
 ```
+### Status 422
+One or more fields in the content section have syntax errors
+

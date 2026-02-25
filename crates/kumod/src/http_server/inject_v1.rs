@@ -587,7 +587,8 @@ impl InjectV1Request {
                 if let Some(from) = from {
                     let mailbox = Address::Mailbox(Mailbox {
                         name: from.name.clone(),
-                        address: AddrSpec::parse(&from.email)?,
+                        address: AddrSpec::parse(&from.email)
+                            .context("failed parsing content.from")?,
                     });
 
                     headers.insert("From".to_string(), mailbox.encode_value().to_string());
@@ -595,7 +596,8 @@ impl InjectV1Request {
                 if let Some(reply_to) = reply_to {
                     let mailbox = Address::Mailbox(Mailbox {
                         name: reply_to.name.clone(),
-                        address: AddrSpec::parse(&reply_to.email)?,
+                        address: AddrSpec::parse(&reply_to.email)
+                            .context("failed parsing content.reply_to")?,
                     });
                     headers.insert("Reply-To".to_string(), mailbox.encode_value().to_string());
                 }
@@ -941,6 +943,15 @@ async fn queue_deferred(
     })
 }
 
+fn content_syntax_err(err: anyhow::Error) -> AppError {
+    // UNPROCESSABLE_ENTITY is the label assigned by reqwest for a 422
+    // error response, but the spec refers to it as Unprocessable Content:
+    // <https://datatracker.ietf.org/doc/html/rfc9110#section-15.5.21>
+    // The JSON in the request is well-formed, but the template
+    // content has syntax errors
+    AppError::new(StatusCode::UNPROCESSABLE_ENTITY, format!("{err:#}"))
+}
+
 async fn inject_v1_impl(
     auth: AuthInfo,
     sender: EnvelopeAddress,
@@ -949,7 +960,9 @@ async fn inject_v1_impl(
     via_address: Option<IpAddr>,
     hostname: Option<String>,
 ) -> Result<Json<InjectV1Response>, AppError> {
-    request.normalize()?;
+    request.normalize().map_err(content_syntax_err)?;
+
+    let compiled = request.compile().map_err(content_syntax_err)?;
 
     if request.deferred_generation {
         return Ok(Json(
@@ -957,7 +970,6 @@ async fn inject_v1_impl(
         ));
     }
 
-    let compiled = request.compile()?;
     let mut success_count = 0;
     let mut fail_count = 0;
     let mut errors = vec![];
@@ -1199,7 +1211,8 @@ pub fn activity_for_peer(
     path="/api/inject/v1",
     request_body=InjectV1Request,
     responses(
-        (status = 200, description = "Message(s) injected successfully", body=InjectV1Response)
+        (status = 200, description = "Message(s) injected successfully", body=InjectV1Response),
+        (status = 422, description = "One or more fields in the content section have syntax errors"),
     ),
 )]
 pub async fn inject_v1(
