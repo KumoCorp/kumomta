@@ -379,7 +379,7 @@ async fn evaluate_ip<'a>(
         "",
         &dkim_vec,
         &spf_result,
-        Some(&reporting_info),
+        None, // Some(&reporting_info),
     );
 
     dmarc_context.check(resolver).await
