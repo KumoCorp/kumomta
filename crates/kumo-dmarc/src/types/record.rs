@@ -105,13 +105,14 @@ impl Record {
         }
 
         if let Some(alignment_failure) = alignment_failure {
-            let _ = cx.report_error(
-                self,
-                dmarc_domain,
-                sender_domain_alignment,
-                &alignment_failure.context,
-            )
-            .await;
+            let _ = cx
+                .report_error(
+                    self,
+                    dmarc_domain,
+                    sender_domain_alignment,
+                    &alignment_failure.context,
+                )
+                .await;
             return DispositionWithContext {
                 result: alignment_failure.result,
                 context: alignment_failure.context,

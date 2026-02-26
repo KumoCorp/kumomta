@@ -111,8 +111,7 @@ class RustDoc(object):
         index_page = Page(self.title, index_filename, children=children)
         index_page.render(output, depth)
         with open(index_filename, "w") as idx:
-            idx.write(
-                """
+            idx.write("""
 This section contains automatically generated documentation from
 the internal Rust code.  It is included in here to aid those
 hacking on the internals.
@@ -122,8 +121,7 @@ without any regard for backward compatibility.
 
 The following crates are part of the KumoMTA workspace:
 
-"""
-            )
+""")
             for page in children:
                 idx.write(f"  - [{page.title}]({page.title}/index.html)\n")
 
