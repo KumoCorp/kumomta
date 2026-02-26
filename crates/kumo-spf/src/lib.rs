@@ -19,6 +19,7 @@ mod tests;
 
 #[derive(Debug, Clone, Copy, Eq, FromXml, PartialEq, ToXml, Serialize, Deserialize)]
 #[xml(scalar, rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
 pub enum SpfDisposition {
     /// A result of "none" means either (a) no syntactically valid DNS domain
     /// name was extracted from the SMTP session that could be used as the
@@ -82,12 +83,6 @@ impl From<String> for SpfDisposition {
         }
     }
 }
-
-// impl Serialize for SpfDisposition {
-//     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-//         serializer.serialize_str(self.as_str())
-//     }
-// }
 
 impl From<Qualifier> for SpfDisposition {
     fn from(qualifier: Qualifier) -> Self {
