@@ -1,9 +1,10 @@
 use crate::diagnostic_logging::set_diagnostic_log_filter;
+use crate::start::{MACHINE_INFO, ONLINE_SINCE};
 use anyhow::Context;
-use axum::extract::{DefaultBodyLimit, Json, Query};
+use axum::extract::{DefaultBodyLimit, Json, Query, State};
+use axum::handler::Handler;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
 use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
 use axum_streams::{HttpHeaderValue, StreamBodyAsOptions};
@@ -17,6 +18,7 @@ use tower_http::compression::CompressionLayer;
 use tower_http::decompression::RequestDecompressionLayer;
 use tower_http::trace::TraceLayer;
 use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
+use utoipa::openapi::PathItem;
 use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
 // Avoid referencing api types as crate::name in the utoipa macros,
@@ -28,21 +30,6 @@ use kumo_api_types::*;
 pub mod auth;
 
 use auth::*;
-
-#[derive(OpenApi)]
-#[openapi(
-    info(license(name = "Apache-2.0")),
-    paths(set_diagnostic_log_filter_v1, bump_config_epoch),
-    // Indicate that all paths can accept http basic auth.
-    // the "basic_auth" name corresponds with the scheme
-    // defined by the OptionalAuth addon defined below
-    security(
-        ("basic_auth" = [""])
-    ),
-    components(schemas(SetDiagnosticFilterRequest)),
-    modifiers(&OptionalAuth),
-)]
-struct ApiDoc;
 
 struct OptionalAuth;
 
@@ -84,29 +71,189 @@ pub struct HttpListenerParams {
     pub trusted_hosts: CidrSet,
 }
 
+/// Encapsulates both an axum router and a set of OpenApi docs.
+/// Use the router_with_docs! macro to create one of these.
 pub struct RouterAndDocs {
     pub router: Router<AppState>,
     pub docs: utoipa::openapi::OpenApi,
 }
 
 impl RouterAndDocs {
-    pub fn make_docs(&self) -> utoipa::openapi::OpenApi {
-        let mut api_docs = ApiDoc::openapi();
-        api_docs.info.title = self.docs.info.title.to_string();
-        api_docs.merge(self.docs.clone());
-        api_docs.info.version = version_info::kumo_version().to_string();
-        api_docs.info.license = Some(
-            utoipa::openapi::LicenseBuilder::new()
-                .name("Apache-2.0")
-                .build(),
-        );
+    /// Helper to figure out what kind of handler method should be
+    /// used to wrap the provided handler.
+    /// It will examine the provided PathItem to figure out which
+    /// operation was defined and use that.
+    fn add_route<T, H: Handler<T, AppState>>(&mut self, path: &str, item: &PathItem, handler: H)
+    where
+        T: 'static,
+        H: 'static,
+    {
+        let router = std::mem::take(&mut self.router);
+        if item.get.is_some() {
+            self.router = router.route(path, axum::routing::get(handler));
+        } else if item.put.is_some() {
+            self.router = router.route(path, axum::routing::put(handler));
+        } else if item.post.is_some() {
+            self.router = router.route(path, axum::routing::post(handler));
+        } else if item.delete.is_some() {
+            self.router = router.route(path, axum::routing::delete(handler));
+        } else {
+            panic!("unhandled path operation");
+        }
+    }
 
-        api_docs
+    /// Register a route based on the definition contained in the provided
+    /// OpenApi docs. This will extract the path and correct operation
+    /// type from the openapi docs and use that to register the handler,
+    /// allowing the path and operation for the handler to be centrally
+    /// defined in the `utoipa::path` macro annotation on the handler
+    /// itself.
+    ///
+    /// You will not call this directly: it will be called via the
+    /// `router_with_docs!` macro invocation.
+    ///
+    /// The OpenApi instance MUST have only a single path with
+    /// a single operation defined within it.  This is upheld
+    /// in the macro implementation.
+    pub fn register<T, H: Handler<T, AppState>>(
+        &mut self,
+        api: utoipa::openapi::OpenApi,
+        handler: H,
+    ) where
+        T: 'static,
+        H: 'static,
+    {
+        if let Some((path, item)) = api.paths.paths.iter().next() {
+            self.add_route(path, item, handler);
+        } else {
+            panic!("register didn't register any paths!");
+        }
+
+        self.docs.merge(api);
+    }
+
+    /// Create a new RouterAndDocs instance.
+    /// You should trigger this via the `router_with_docs!` macro
+    /// rather than using it directly.
+    pub fn new(title: &str) -> Self {
+        #[derive(OpenApi)]
+        #[openapi(
+                info(
+                    license(name="Apache-2.0"),
+                    version=version_info::kumo_version()
+                ),
+                // Indicate that all paths can accept http basic auth.
+                // the "basic_auth" name corresponds with the scheme
+                // defined by the OptionalAuth addon defined below
+                security(
+                    ("basic_auth" = [""])
+                ),
+                modifiers(&OptionalAuth),
+            )]
+        struct ApiDoc;
+        let mut router = Self {
+            docs: ApiDoc::openapi(),
+            router: Router::new(),
+        };
+
+        router.docs.info.title = title.to_string();
+
+        router.register_common_handlers();
+        router
+    }
+
+    /// Register the default/common handlers.
+    fn register_common_handlers(&mut self) {
+        macro_rules! add_handlers {
+            ($($handler:path $(,)?)*) => {
+                $(
+                {
+                    // See the `router_with_docs!` definition below
+                    // for an explanation of this `O` struct.
+                    #[derive(OpenApi)]
+                    #[openapi(paths($handler))]
+                    struct O;
+
+                    self.register(O::openapi(), $handler);
+                }
+                )*
+            }
+        }
+
+        add_handlers!(
+            bump_config_epoch,
+            memory_stats,
+            report_metrics,
+            report_metrics_json,
+            set_diagnostic_log_filter_v1,
+            machine_info,
+        );
+    }
+}
+
+/// Create a RouterAndDocs instance and register each
+/// of the handlers into it.
+///
+/// Each handler must be an axum compatible handler
+/// that has a `utoipa::path` annotation to define
+/// its method and path.
+#[macro_export]
+macro_rules! router_with_docs {
+    (title=$title:literal, handlers=[
+     $($handler:path $(,)?  )*
+    ]
+    $(, layers=[
+        $(
+            $layer:expr $(,)?
+        )*
+    ])?
+
+    ) => {
+        {
+            // Allow adding deprecated routes without
+            // triggering a warning; the deprecation
+            // status flows through to the docs
+            #![allow(deprecated)]
+
+            let mut router = RouterAndDocs::new($title);
+
+            $(
+                // Utoipa's path macro defines an auxilliary
+                // path configuration struct at `__path_{ident}`.
+                // We can't "know" that here as it is a funky
+                // implementation detail, and rust provides no
+                // way for us to magic up a reference to that
+                // identifier.
+                // Instead, we leverage the proc macro that
+                // derives an OpenApi impl; its `paths` parameter
+                // knows how to find the path configuration given
+                // the bare/normal handler reference.
+                // Armed with that OpenApi impl, we can then
+                // merge it into our router via our register
+                // method.
+                {
+                    #[derive(OpenApi)]
+                    #[openapi(paths($handler))]
+                    struct O;
+
+                    router.register(O::openapi(), $handler);
+                }
+            )*
+
+            $(
+                $(
+                    router.router = router.router.layer($layer);
+                )*
+            )?
+
+            router
+        }
     }
 }
 
 #[derive(Clone)]
 pub struct AppState {
+    process_kind: String,
     params: HttpListenerParams,
     local_addr: SocketAddr,
 }
@@ -152,8 +299,6 @@ impl HttpListenerParams {
         router_and_docs: RouterAndDocs,
         runtime: Option<tokio::runtime::Handle>,
     ) -> anyhow::Result<()> {
-        let api_docs = router_and_docs.make_docs();
-
         let compression_layer: CompressionLayer = CompressionLayer::new()
             .deflate(true)
             .gzip(true)
@@ -165,6 +310,7 @@ impl HttpListenerParams {
         let addr = socket.local_addr()?;
 
         let app_state = AppState {
+            process_kind: router_and_docs.docs.info.title.clone(),
             params: self.clone(),
             local_addr: addr.clone(),
         };
@@ -174,15 +320,10 @@ impl HttpListenerParams {
             .layer(DefaultBodyLimit::max(
                 self.request_body_limit.unwrap_or(2 * 1024 * 1024),
             ))
-            .merge(RapiDoc::with_openapi("/api-docs/openapi.json", api_docs).path("/rapidoc"))
-            .route(
-                "/api/admin/set_diagnostic_log_filter/v1",
-                post(set_diagnostic_log_filter_v1),
+            .merge(
+                RapiDoc::with_openapi("/api-docs/openapi.json", router_and_docs.docs)
+                    .path("/rapidoc"),
             )
-            .route("/api/admin/bump-config-epoch", post(bump_config_epoch))
-            .route("/api/admin/memory/stats", get(memory_stats))
-            .route("/metrics", get(report_metrics))
-            .route("/metrics.json", get(report_metrics_json))
             // Require that all requests be authenticated as either coming
             // from a trusted IP address, or with an authorization header
             .route_layer(axum::middleware::from_fn_with_state(
@@ -274,6 +415,41 @@ where
     }
 }
 
+/// Returns information identifying this instance
+#[utoipa::path(get, tag = "debugging", path = "/api/machine-info",
+    responses(
+        (status=200, description="Machine information", body=MachineInfoV1)
+    ),
+)]
+async fn machine_info(State(state): State<AppState>) -> Result<Json<MachineInfoV1>, AppError> {
+    let online_since = ONLINE_SINCE.clone();
+    match MACHINE_INFO.lock().as_ref() {
+        Some(info) => Ok(Json(MachineInfoV1 {
+            hostname: info.hostname.clone(),
+            mac_address: info.mac_address.clone(),
+            node_id: info.node_id.clone().unwrap_or_else(String::new),
+            num_cores: info.num_cores,
+            kernel_version: info.kernel_version.clone(),
+            platform: info.platform.clone(),
+            distribution: info.distribution.clone(),
+            os_version: info.os_version.clone(),
+            total_memory_bytes: info.total_memory_bytes.clone(),
+            container_runtime: info.container_runtime.clone(),
+            cpu_brand: info.cpu_brand.clone(),
+            fingerprint: info.fingerprint(),
+            online_since,
+            process_kind: state.process_kind.clone(),
+            version: version_info::kumo_version().to_string(),
+        })),
+        None => {
+            return Err(AppError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "machine info not yet available",
+            ));
+        }
+    }
+}
+
 /// Allows the system operator to trigger a configuration epoch bump,
 /// which causes various configs that are using the Epoch strategy to
 /// be re-evaluated by triggering the appropriate callbacks.
@@ -359,6 +535,46 @@ struct PrometheusMetricsParams {
     prefix: Option<String>,
 }
 
+/// Returns the current set of metrics in
+/// [Prometheus Text Exposition Format](https://prometheus.io/docs/instrumenting/exposition_formats/).
+///
+/// !!! note
+///     Metrics generally represent data at the current point in time,
+///     to be consumed by an external system (such as Prometheus) which
+///     then in turn can build time series data around those metrics.
+///
+///     In addition, in order to avoid unbounded RAM usage for systems
+///     with many queues, a number of queue- or service-specific metrics
+///     will be automatically pruned away when the corresponding queue
+///     idles out for a period of time.
+///
+/// In the default configuration, access to this endpoint requires *Trusted IP*
+/// authentication.  See the [Authorization](../../access_control.md) documentation
+/// for more information on adjusting ACLs.
+///
+/// See also [metrics.json](metrics.json_get.md).
+///
+/// ## Metric Documentation
+///
+/// * [Metrics exported by kumod](../../metrics/kumod/index.md)
+///
+/// ## Example Data
+///
+/// Here's an example of the shape of the data.  The precise set of
+/// counters will vary as we continue to enhance KumoMTA.
+///
+/// You can see the current list by querying the endpoint with no arguments:
+///
+/// ```console
+/// $ curl http://localhost:8000/metrics
+/// ```
+///
+/// ```txt
+/// {% include "reference/http/sample-metrics.txt" %}
+/// ```
+#[utoipa::path(get, path = "/metrics", responses(
+        (status = 200, content_type="text/plain")
+))]
 async fn report_metrics(Query(params): Query<PrometheusMetricsParams>) -> impl IntoResponse {
     StreamBodyAsOptions::new()
         .content_type(HttpHeaderValue::from_static("text/plain; charset=utf-8"))
@@ -367,6 +583,42 @@ async fn report_metrics(Query(params): Query<PrometheusMetricsParams>) -> impl I
         ))
 }
 
+/// Returns the current set of metrics in a json representation.
+/// This is easier to consume than the Prometheus Exposition format, but
+/// is more resource intensive to produce and parse when the number of
+/// metrics is large, such as for a busy server.
+///
+/// !!! note
+///     Metrics generally represent data at the current point in time,
+///     to be consumed by an external system (such as Prometheus) which
+///     then in turn can build time series data around those metrics.
+///
+///     In addition, in order to avoid unbounded RAM usage for systems
+///     with many queues, a number of queue- or service-specific metrics
+///     will be automatically pruned away when the corresponding queue
+///     idles out for a period of time.
+///
+/// In the default configuration, access to this endpoint requires *Trusted IP*
+/// authentication.  See the [Authorization](../../access_control.md) documentation
+/// for more information on adjusting ACLs.
+///
+/// See also [metrics](metrics_get.md).
+///
+/// ## Metric Documentation
+///
+/// * [Metrics exported by kumod](../../metrics/kumod/index.md)
+///
+/// ## Example Data
+///
+/// Here's an example of the shape of the data.  The precise set of
+/// counters will vary as we continue to enhance KumoMTA:
+///
+/// ```json
+/// {% include "reference/http/sample-metrics.json" %}
+/// ```
+#[utoipa::path(get, path = "/metrics.json", responses(
+    (status = 200, content_type="application/json")
+))]
 async fn report_metrics_json() -> impl IntoResponse {
     StreamBodyAsOptions::new()
         .content_type(HttpHeaderValue::from_static(
@@ -380,8 +632,9 @@ async fn report_metrics_json() -> impl IntoResponse {
 /// for more information on diagnostic log filters.
 #[utoipa::path(
     post,
-    tag="logging",
+    tags=["logging", "kcli:set-log-filter"],
     path="/api/admin/set_diagnostic_log_filter/v1",
+    request_body=SetDiagnosticFilterRequest,
     responses(
         (status = 200, description = "Diagnostic level set successfully")
     ),

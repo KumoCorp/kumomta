@@ -2,10 +2,9 @@ use crate::metrics_helper::{
     BorrowedProviderAndPoolKey, BorrowedProviderKey, ProviderAndPoolKeyTrait, ProviderKeyTrait,
     QUEUED_COUNT_GAUGE_BY_PROVIDER, QUEUED_COUNT_GAUGE_BY_PROVIDER_AND_POOL,
 };
-use kumo_prometheus::{counter_bundle, label_key, AtomicCounter, PruningCounterRegistry};
+use kumo_prometheus::{counter_bundle, declare_metric, label_key, AtomicCounter};
 use message::queue_name::QueueNameComponents;
-use prometheus::IntGauge;
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 label_key! {
     pub struct QueueKey {
@@ -29,64 +28,104 @@ label_key! {
     }
 }
 
-static DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER: LazyLock<PruningCounterRegistry<QueueKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register(
-            "delayed_due_to_ready_queue_full",
-            "number of times a message was delayed due to the corresponding ready queue being full",
-        )
-    });
+declare_metric! {
+/// Number of times a message was delayed due to the corresponding ready queue being full.
+///
+/// Delayed in this context means that we moved the message back to its corresponding
+/// scheduled queue with a short retry time, as well as logging a `Delayed` log
+/// record.
+///
+/// Transient spikes in this value indicate normal operation and that the system
+/// is keeping things within your memory budget.
+///
+/// However, sustained increases in this value may indicate that the
+/// [max_ready](../../kumo/make_egress_path/max_ready.md)
+/// configuration for the associated egress path is under-sized for your workload,
+/// and that you should carefully consider the information in
+/// [Budgeting/Tuning Memory](../../memory.md#budgetingtuning-memory)
+/// to decide whether increasing `max_ready` is appropriate, otherwise you risk
+/// potentially over-provisioning the system.
+///
+/// The metric is tracked per `queue` label.  The `queue` is the scheduled
+/// queue name as described in [Queues](../../queues.md).
+///
+/// See [ready_full](ready_full.md) for the equivalent metric tracked
+/// by the ready queue name, which can be helpful to understand which
+/// egress path configuration you might want to examine.
+static DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER: PruningCounterRegistry<QueueKey>(
+            "delayed_due_to_ready_queue_full");
+}
 
-static DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER: LazyLock<PruningCounterRegistry<QueueKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register(
-            "delayed_due_to_message_rate_throttle",
-            "number of times a message was delayed due to max_message_rate",
-        )
-    });
-static DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER: LazyLock<PruningCounterRegistry<QueueKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register(
-            "delayed_due_to_throttle_insert_ready",
-            "number of times a message was delayed due throttle_insert_ready_queue event",
-        )
-    });
+declare_metric! {
+/// Number of times a message was delayed due to max_message_rate
+///
+/// Delayed in this context means that we moved the message back to its corresponding
+/// scheduled queue with a short retry time, as well as logging a `Delayed` log
+/// record.
+///
+/// Sustained increases in this value may indicate that the configured
+/// throttles are too severe for your workload, but it is difficult to make
+/// a definitive and generalized statement in these docs without understanding your
+/// workload, policy and the purpose of those throttles.
+///
+/// The metric is tracked per `queue` label.  The `queue` is the scheduled
+/// queue name as described in [Queues](../../queues.md).
+static DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER: PruningCounterRegistry<QueueKey>(
+            "delayed_due_to_message_rate_throttle");
+}
 
-static TOTAL_DELAY_GAUGE: LazyLock<IntGauge> = LazyLock::new(|| {
-    prometheus::register_int_gauge!(
-        "scheduled_count_total",
-        "total number of messages across all scheduled queues",
-    )
-    .unwrap()
-});
+declare_metric! {
+/// number of times a message was delayed due to the throttle_insert_ready_queue event
+///
+/// Delayed in this context means that we moved the message back to its corresponding
+/// scheduled queue with a short retry time, as well as logging a `Delayed` log
+/// record.
+///
+/// The [throttle_insert_ready_queue](../../events/throttle_insert_ready_queue.md)
+/// event is implemented either directly in your policy, or indirectly via policy
+/// helpers, such as the queues helper when configured to throttle campaigns
+/// or tenants.
+///
+/// Sustained increases in this value may indicate that the configured
+/// throttles are too severe for your workload, but it is difficult to make
+/// a definitive and generalized statement in these docs without understanding your
+/// workload, policy and the purpose of those throttles.
+///
+/// The metric is tracked per `queue` label.  The `queue` is the scheduled
+/// queue name as described in [Queues](../../queues.md).
+static DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER: PruningCounterRegistry<QueueKey>(
+            "delayed_due_to_throttle_insert_ready");
+}
 
-static DELAY_GAUGE: LazyLock<PruningCounterRegistry<QueueKey>> = LazyLock::new(|| {
-    PruningCounterRegistry::register_gauge(
-        "scheduled_count",
-        "number of messages in the scheduled queue",
-    )
-});
+declare_metric! {
+/// total number of messages across all scheduled queues.
+///
+/// This counter sums up the number of messages currently sitting in all scheduled queues.
+static TOTAL_DELAY_GAUGE: IntGauge("scheduled_count_total");
+}
 
-static DOMAIN_GAUGE: LazyLock<PruningCounterRegistry<DomainKey>> = LazyLock::new(|| {
-    PruningCounterRegistry::register_gauge(
-        "scheduled_by_domain",
-        "number of messages in the scheduled queue for a specific domain",
-    )
-});
-static TENANT_GAUGE: LazyLock<PruningCounterRegistry<TenantKey>> = LazyLock::new(|| {
-    PruningCounterRegistry::register_gauge(
-        "scheduled_by_tenant",
-        "number of messages in the scheduled queue for a specific tenant",
-    )
-});
+declare_metric! {
+/// number of messages in the scheduled queue.
+///
+/// The metric is tracked per `queue` label.  The `queue` is the scheduled
+/// queue name as described in [Queues](../../queues.md).
+static DELAY_GAUGE: PruningGaugeRegistry<QueueKey>("scheduled_count");
+}
 
-static TENANT_CAMPAIGN_GAUGE: LazyLock<PruningCounterRegistry<TenantCampaignKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register_gauge(
-        "scheduled_by_tenant_campaign",
-        "number of messages in the scheduled queue for a specific tenant and campaign combination",
-    )
-    });
+declare_metric! {
+/// number of messages in the scheduled queue for a specific domain
+static DOMAIN_GAUGE: PruningGaugeRegistry<DomainKey>("scheduled_by_domain");
+}
+
+declare_metric! {
+/// number of messages in the scheduled queue for a specific tenant
+static TENANT_GAUGE: PruningGaugeRegistry<TenantKey>("scheduled_by_tenant");
+}
+
+declare_metric! {
+/// number of messages in the scheduled queue for a specific tenant and campaign combination
+static TENANT_CAMPAIGN_GAUGE: PruningGaugeRegistry<TenantCampaignKey>("scheduled_by_tenant_campaign");
+}
 
 counter_bundle! {
     pub struct ScheduledCountBundle {

@@ -1,3 +1,8 @@
+---
+tags:
+  - message
+  - debugging
+---
 # kcli inspect-message
 
 

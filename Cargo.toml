@@ -4,13 +4,17 @@ members = [
   "crates/cidr-map",
   "crates/domain-map",
   "crates/integration-tests",
+  "crates/jsonschematodocs",
   "crates/kcli",
   "crates/kumo-address",
+  "crates/kumo-api-client",
   "crates/kumo-chrono-helper",
   "crates/kumo-dmarc",
+  "crates/kumo-machine-info",
   "crates/kumo-prometheus",
   "crates/kumo-spf",
   "crates/kumo-template",
+  "crates/kumo-tls-helper",
   "crates/kumo-wrap",
   "crates/kumod",
   "crates/mailparsing",
@@ -52,6 +56,7 @@ ahash = "0.8.11"
 amqprs = {version="2.0", features=["tls", "traces"]}
 anyhow = "1.0"
 arc-swap = "1.6"
+async-nats = {version = "0.46", default-features = false, features = ["jetstream", "ring", "server_2_10", "server_2_11", "server_2_12"]}
 async-stream = "0.3"
 async-trait = "0.1"
 aws-lc-rs = "1.13.1"
@@ -60,7 +65,7 @@ axum-client-ip = "1.1"
 axum-server = "0.7"
 axum-streams = {version="0.23", features=["text"]}
 backtrace = "0.3"
-bitflags = "2.3"
+bitflags = "2.11"
 bitstring = "0.2"
 bytes = "1.0"
 camino = "1.1"
@@ -114,6 +119,7 @@ humanize-rs = "0.1"
 humantime = "2.1"
 humansize = "2.1"
 idna = "1.0.3"
+in-container = { version = "1.1.0", default-features = false }
 incr_stats = "1.0"
 indexmap = "2.2"
 indoc = "2.0.5"
@@ -132,6 +138,7 @@ lipsum = "0.9"
 log = "0.4"
 lru-cache = "0.1"
 mac_address = "1.1"
+machine-uid = "0.5.3"
 mail-builder = "0.2"
 mailparse = "0.14"
 maplit = "1.0"
@@ -143,11 +150,13 @@ metrics-tracing-context = "0.18"
 minijinja = {version="2.7.0",features=["loader", "builtins", "json", "loop_controls"]}
 minijinja-contrib = {version="2.7.0",features=["datetime", "pycompat", "rand", "textwrap", "unicode_wordwrap", "wordcount", "timezone"]}
 mlua = "0.11"
+mockito = "1.6.1"
 nix = "0.30"
 nom = "7.1.0"
 nom_locate = "4.1"
 notify = "8"
 nucleo-matcher = "0.3"
+num_cpus = "1.16.0"
 num-format = "0.4.4"
 openssl = { version="=0.10.72" } # pinned; see patch below
 openssl-sys = { version="0.9" }
@@ -186,10 +195,11 @@ serde_yaml = "0.9"
 sha-1 = { version = "0.10", features = ["oid"] }
 sha2 = "0.10"
 slog = "2.7"
-smallvec = "1.13"
+smallvec = {version="1.13", features=["serde"]}
 socksv5 = {version="0.3", default-features=false, features=["tokio"]}
 sqlite = "0.37"
 strum = { version = "0.27", features = ["derive"] }
+sysinfo = { version = "0.38", default-features = false, features = ["system"] }
 tabout = "0.3"
 tempfile = "3.10"
 test-log = {version="0.2", features = ["trace"]}
@@ -216,7 +226,7 @@ tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = {version="0.3", features=["env-filter", "std", "fmt", "json"]}
 tui-prompts = "0.5"
-utoipa = {version="5", features=["axum_extras", "time", "uuid", "url", "chrono"]}
+utoipa = {version="5.4", features=["axum_extras", "time", "uuid", "url", "chrono", "non_strict_integers"]}
 utoipa-rapidoc = { version="6.0", features = ["axum"] }
 url = {version="2.4", features = ["serde"]}
 uuid = "1.4"

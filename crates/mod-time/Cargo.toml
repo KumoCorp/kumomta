@@ -8,6 +8,7 @@ anyhow.workspace = true
 chrono.workspace = true
 config = {path="../config"}
 humantime.workspace = true
+linkme.workspace = true
+kumo-prometheus = { path = "../kumo-prometheus" }
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
-prometheus.workspace = true
 tokio.workspace = true

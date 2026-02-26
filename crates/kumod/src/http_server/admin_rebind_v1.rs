@@ -71,8 +71,9 @@ impl AdminRebindEntry {
 /// metadata as described in <https://docs.kumomta.com/reference/queues/>
 #[utoipa::path(
     post,
-    tag="rebind",
+    tags=["rebind", "kcli:rebind"],
     path="/api/admin/rebind/v1",
+    request_body=RebindV1Request,
     responses(
         (status = 200, description = "Rebind added successfully", body=RebindV1Response)
     ),

@@ -6,13 +6,14 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2025.12.19-0a112417"
+    "version": "2026.02.24-b018f8f1"
   },
   "paths": {
     "/api/admin/bounce/v1": {
       "get": {
         "tags": [
-          "bounce"
+          "bounce",
+          "kcli:bounce-list"
         ],
         "summary": "Allows the system operator to list all currently active administrative bounces that have been\nconfigured.",
         "operationId": "bounce_v1_list",
@@ -34,9 +35,11 @@
       },
       "post": {
         "tags": [
-          "bounce"
+          "bounce",
+          "kcli:bounce"
         ],
         "summary": "Allows the system operator to administratively bounce messages that match\ncertain criteria, or if no criteria are provided, ALL messages.",
+        "description": "!!! danger\n    There is no way to undo the actions carried out by this request!",
         "operationId": "bounce_v1",
         "requestBody": {
           "content": {
@@ -63,7 +66,8 @@
       },
       "delete": {
         "tags": [
-          "bounce"
+          "bounce",
+          "kcli:bounce-cancel"
         ],
         "summary": "Allows the system operator to delete an administrative bounce entry by its id.",
         "operationId": "bounce_v1_delete",
@@ -104,7 +108,8 @@
     "/api/admin/inspect-message/v1": {
       "get": {
         "tags": [
-          "inspect"
+          "inspect",
+          "kcli:inspect-message"
         ],
         "summary": "Retrieve information about a message given its spool id.",
         "operationId": "inspect_v1",
@@ -145,7 +150,8 @@
     "/api/admin/inspect-sched-q/v1": {
       "get": {
         "tags": [
-          "inspect"
+          "inspect",
+          "kcli:inspect-sched-q"
         ],
         "summary": "Retrieve information about messages in a scheduled queue.",
         "operationId": "inspect_v1",
@@ -196,10 +202,25 @@
         }
       }
     },
+    "/api/admin/memory/stats": {
+      "get": {
+        "tags": [
+          "memory"
+        ],
+        "summary": "Returns information about the system memory usage in an unstructured\nhuman readable format.  The output is not machine parseable and may\nchange without notice between versions of kumomta.",
+        "operationId": "memory_stats",
+        "responses": {
+          "200": {
+            "description": "stats were returned"
+          }
+        }
+      }
+    },
     "/api/admin/ready-q-states/v1": {
       "get": {
         "tags": [
-          "inspect"
+          "inspect",
+          "kcli:queue-summary"
         ],
         "summary": "Retrieve information about the states that apply to a set of\nready queues, or all queues if no specific queues were named\nin the request.",
         "operationId": "readyq_states",
@@ -234,7 +255,8 @@
     "/api/admin/rebind/v1": {
       "post": {
         "tags": [
-          "rebind"
+          "rebind",
+          "kcli:rebind"
         ],
         "summary": "Allows the system operator to administratively rebind messages.\nRebinding can target queues that match\ncertain criteria, or if no criteria are provided, ALL queues.\nRebinding is moving a message from one scheduled queue into another.\nQueue selection is based upon the envelope recipient and message\nmetadata as described in <https://docs.kumomta.com/reference/queues/>",
         "operationId": "rebind_v1",
@@ -265,7 +287,8 @@
     "/api/admin/set_diagnostic_log_filter/v1": {
       "post": {
         "tags": [
-          "logging"
+          "logging",
+          "kcli:set-log-filter"
         ],
         "summary": "Changes the diagnostic log filter dynamically.\nSee <https://docs.kumomta.com/reference/kumo/set_diagnostic_log_filter/>\nfor more information on diagnostic log filters.",
         "operationId": "set_diagnostic_log_filter_v1",
@@ -289,7 +312,8 @@
     "/api/admin/suspend-ready-q/v1": {
       "get": {
         "tags": [
-          "suspend"
+          "suspend",
+          "kcli:suspend-ready-q-list"
         ],
         "summary": "List the active ready-queue suspensions",
         "operationId": "list",
@@ -308,7 +332,8 @@
       },
       "post": {
         "tags": [
-          "suspend"
+          "suspend",
+          "kcli:suspend-ready-q"
         ],
         "summary": "Define a suspension for a ready queue",
         "operationId": "suspend",
@@ -337,7 +362,8 @@
       },
       "delete": {
         "tags": [
-          "suspend"
+          "suspend",
+          "kcli:suspend-ready-q-cancel"
         ],
         "summary": "Remove a ready-queue suspension",
         "operationId": "delete",
@@ -364,7 +390,8 @@
     "/api/admin/suspend/v1": {
       "get": {
         "tags": [
-          "suspend"
+          "suspend",
+          "kcli:suspend-list"
         ],
         "summary": "List the active scheduled-queue suspensions",
         "operationId": "list",
@@ -383,7 +410,8 @@
       },
       "post": {
         "tags": [
-          "suspend"
+          "suspend",
+          "kcli:suspend"
         ],
         "summary": "Define a suspension for a scheduled queue",
         "operationId": "suspend",
@@ -412,7 +440,8 @@
       },
       "delete": {
         "tags": [
-          "suspend"
+          "suspend",
+          "kcli:suspend-cancel"
         ],
         "summary": "Remove a scheduled-queue suspension",
         "operationId": "delete",
@@ -434,6 +463,28 @@
             "description": "Suspension either expired or was never valid"
           }
         }
+      }
+    },
+    "/api/admin/trace-smtp-client/v1": {
+      "get": {
+        "tags": [
+          "debugging",
+          "kcli:trace-smtp-client"
+        ],
+        "summary": "This is a websocket endpoint that provides outbound SMTP tracing.\nIt cannot be described via auto-generated docs extracted from the JSON Schema.",
+        "operationId": "trace",
+        "responses": {}
+      }
+    },
+    "/api/admin/trace-smtp-server/v1": {
+      "get": {
+        "tags": [
+          "debugging",
+          "kcli:trace-smtp-server"
+        ],
+        "summary": "This is a websocket endpoint that provides inbound SMTP tracing.\nIt cannot be described via auto-generated docs extracted from the JSON Schema.",
+        "operationId": "trace",
+        "responses": {}
       }
     },
     "/api/admin/xfer/cancel/v1": {
@@ -521,7 +572,8 @@
         "tags": [
           "inject"
         ],
-        "summary": "Inject a message using a given message body, with template expansion,\nto a list of recipients.",
+        "summary": "Inject a message using a given message body, with template expansion,\nto a list of recipients.\nBoth message assembly and templating are supported, and multiple recipients\nand template substitutions can be passed in a single request.",
+        "description": "The body of the post request must be a JSON object; here's a very basic\nexample:\n\n```json\n{\n    \"envelope_sender\": \"noreply@example.com\",\n    \"content\": \"Subject: hello\\n\\nHello there\",\n    \"recipients\": [\n        {\n            \"email\": \"recipient@example.com\",\n        }\n    ]\n}\n```\n\nThe response will look something like:\n\n```json\n{\n    \"success_count\": 1,\n    \"fail_count\": 0,\n    \"failed_recipients\": [],\n    \"errors\": []\n}\n```\n\n!!! note\n    The `success_count` will always be reported as `0` when using `deferred_generation: true`.\n\n## Template Substitution\n\nThe injection API embeds the Mini Jinja templating engine, with\nsome supplemental extensions.  The syntax and extensions are\n[documented here](../../template/index.md).  You may use the\n`template_dialect` field to specify an alternative templating\nengine, or disable templating by setting the dialect to `\"Static\"`.\n\nFor each recipient, the set of variables pre-defined in the template are:\n\n* The set of global substitutions defined by `request.substitutions`\n\n* The set of per-recipient substitutions, if any are defined in\n  `request.recipients[].substitutions`, are overlaid and take precedence over\n  any global substitutions\n\n* The recipient `name` and `email` fields are assigned to the `\"name\"` and\n  `\"email\"` variables respectively.\n\n!!! note\n    Both sets of *substitutions* can use any JSON value for the values of\n    the variables; they don't have to be strings.\n\nA very basic example of using templating:\n\n```json\n{\n    \"envelope_sender\": \"noreply@example.com\",\n    \"content\": \"To: \\\"{{ name }}\\\" <{{ email }}>\\nSubject: hello\\n\\nHello {{ name }}!\",\n    \"recipients\": [\n        {\n            \"email\": \"recipient@example.com\",\n            \"name\": \"John Smith\"\n        }\n    ]\n}\n```\n\nwould result in a message with the following content:\n\n```\nTo: \"John Smith\" <recipient@example.com>\nSubject: hello\n\nHello John Smith!\n```",
         "operationId": "inject_v1",
         "requestBody": {
           "content": {
@@ -543,6 +595,30 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "One or more fields in the content section have syntax errors"
+          }
+        }
+      }
+    },
+    "/api/machine-info": {
+      "get": {
+        "tags": [
+          "debugging"
+        ],
+        "summary": "Returns information identifying this instance",
+        "operationId": "machine_info",
+        "responses": {
+          "200": {
+            "description": "Machine information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineInfoV1"
+                }
+              }
+            }
           }
         }
       }
@@ -552,7 +628,8 @@
         "tags": [
           "xfer"
         ],
-        "summary": "Performs a message transfer.\nThis is considered to be an internal API and should not be\ntargeted by external consumers.",
+        "summary": "Performs a message transfer.",
+        "description": "!!! warning\n    This is considered to be an internal API and should not be\n    used by external consumers.  It is intentionally under-specified\n    in these auto-generated docs.\n\nYou probably want to look at the [/api/admin/xfer/v1](api_admin_xfer_v1_post.md)\nendpoint which is used to request that a specific queue should\nbe re-routed via this XFER endpoint on the target node.",
         "operationId": "inject_xfer_v1",
         "requestBody": {
           "content": {
@@ -577,6 +654,38 @@
           }
         }
       }
+    },
+    "/metrics": {
+      "get": {
+        "tags": [],
+        "summary": "Returns the current set of metrics in\n[Prometheus Text Exposition Format](https://prometheus.io/docs/instrumenting/exposition_formats/).",
+        "description": "!!! note\n    Metrics generally represent data at the current point in time,\n    to be consumed by an external system (such as Prometheus) which\n    then in turn can build time series data around those metrics.\n\n    In addition, in order to avoid unbounded RAM usage for systems\n    with many queues, a number of queue- or service-specific metrics\n    will be automatically pruned away when the corresponding queue\n    idles out for a period of time.\n\nIn the default configuration, access to this endpoint requires *Trusted IP*\nauthentication.  See the [Authorization](../../access_control.md) documentation\nfor more information on adjusting ACLs.\n\nSee also [metrics.json](metrics.json_get.md).\n\n## Metric Documentation\n\n* [Metrics exported by kumod](../../metrics/kumod/index.md)\n\n## Example Data\n\nHere's an example of the shape of the data.  The precise set of\ncounters will vary as we continue to enhance KumoMTA.\n\nYou can see the current list by querying the endpoint with no arguments:\n\n```console\n$ curl http://localhost:8000/metrics\n```\n\n```txt\n{% include \"reference/http/sample-metrics.txt\" %}\n```",
+        "operationId": "report_metrics",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {}
+            }
+          }
+        }
+      }
+    },
+    "/metrics.json": {
+      "get": {
+        "tags": [],
+        "summary": "Returns the current set of metrics in a json representation.\nThis is easier to consume than the Prometheus Exposition format, but\nis more resource intensive to produce and parse when the number of\nmetrics is large, such as for a busy server.",
+        "description": "!!! note\n    Metrics generally represent data at the current point in time,\n    to be consumed by an external system (such as Prometheus) which\n    then in turn can build time series data around those metrics.\n\n    In addition, in order to avoid unbounded RAM usage for systems\n    with many queues, a number of queue- or service-specific metrics\n    will be automatically pruned away when the corresponding queue\n    idles out for a period of time.\n\nIn the default configuration, access to this endpoint requires *Trusted IP*\nauthentication.  See the [Authorization](../../access_control.md) documentation\nfor more information on adjusting ACLs.\n\nSee also [metrics](metrics_get.md).\n\n## Metric Documentation\n\n* [Metrics exported by kumod](../../metrics/kumod/index.md)\n\n## Example Data\n\nHere's an example of the shape of the data.  The precise set of\ncounters will vary as we continue to enhance KumoMTA:\n\n```json\n{% include \"reference/http/sample-metrics.json\" %}\n```",
+        "operationId": "report_metrics_json",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {}
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -597,7 +706,7 @@
               "string",
               "null"
             ],
-            "description": "Set the `Content-ID` header for this attachment.\nThis is used in multipart/related messages to\nembed inline images in text/html parts."
+            "description": "Optional `Content-ID` header for this attachment.\nIf specified, this attachment will be added as an\ninline attachment and a multipart/related MIME\ncontainer will be generated in the message to hold\nit and the textual content."
           },
           "content_type": {
             "type": "string",
@@ -615,7 +724,16 @@
             "description": "The the preferred filename for the attachment"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "examples": [
+          {
+            "base64": true,
+            "content_id": "my-image",
+            "content_type": "image/gif",
+            "data": "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+            "file_name": "pixel.gif"
+          }
+        ]
       },
       "BounceV1CancelRequest": {
         "type": "object",
@@ -659,14 +777,16 @@
               "string",
               "null"
             ],
-            "description": "The campaign field of the original request, if any."
+            "description": "The campaign field of the original request, if any.",
+            "example": "campaign_name"
           },
           "domain": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The domain field of the original request, if any."
+            "description": "The domain field of the original request, if any.",
+            "example": "example.com"
           },
           "duration": {
             "type": "string",
@@ -680,21 +800,24 @@
           },
           "reason": {
             "type": "string",
-            "description": "The reason field of the original request"
+            "description": "The reason field of the original request",
+            "example": "cleaning up a bad send"
           },
           "routing_domain": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The routing_domain field of the original request, if any."
+            "description": "The routing_domain field of the original request, if any.",
+            "example": "routing_domain.com"
           },
           "tenant": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The tenant field of the original request, if any."
+            "description": "The tenant field of the original request, if any.",
+            "example": "tenant_name"
           },
           "total_bounced": {
             "type": "integer",
@@ -705,7 +828,7 @@
       },
       "BounceV1Request": {
         "type": "object",
-        "description": "Describes which messages should be bounced.\nThe criteria apply to the scheduled queue associated\nwith a given message.",
+        "description": "Describes which messages should be bounced.\nThe criteria apply to the scheduled queue associated\nwith a given message.\n\n!!! danger\n    If you specify none of `domain`, `campaign`, `tenant`,\n    `routing_domain` or `queue`, then **ALL** queues will\n    be bounced.\n\n    With great power comes great responsibility!\n",
         "required": [
           "reason"
         ],
@@ -715,7 +838,8 @@
               "string",
               "null"
             ],
-            "description": "The campaign name to match. If omitted, any campaign will match."
+            "description": "The campaign name to match. If omitted, any campaign will match.",
+            "example": "campaign_name"
           },
           "domain": {
             "type": [
@@ -746,7 +870,10 @@
             "items": {
               "type": "string"
             },
-            "description": "If present, queue_names takes precedence over `campaign`,\n`tenant`, and `domain` and specifies the exact set of\nscheduled queue names to which the bounce applies."
+            "description": "If present, queue_names takes precedence over `campaign`,\n`tenant`, and `domain` and specifies the exact set of\nscheduled queue names to which the bounce applies.",
+            "example": [
+              "campaign_name:tenant_name@example.com"
+            ]
           },
           "reason": {
             "type": "string",
@@ -758,18 +885,21 @@
               "string",
               "null"
             ],
-            "description": "The routing_domain name to match. If omitted, any routing_domain will match."
+            "description": "The routing_domain name to match. If omitted, any routing_domain will match.\n{{since('2023.08.22-4d895015', inline=True)}}",
+            "example": "routing_domain.com"
           },
           "suppress_logging": {
             "type": "boolean",
-            "description": "If true, do not generate AdminBounce delivery logs for matching\nmessages."
+            "description": "If true, do not generate AdminBounce delivery logs for matching\nmessages.",
+            "default": false
           },
           "tenant": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The tenant to match. If omitted, any tenant will match."
+            "description": "The tenant to match. If omitted, any tenant will match.",
+            "example": "tenant_name"
           }
         },
         "additionalProperties": false
@@ -817,7 +947,8 @@
         "oneOf": [
           {
             "type": "string",
-            "description": "A complete MIME message string"
+            "description": "A complete MIME message string",
+            "example": "From: user@example.com\nSubject: Hello\n\nHello there"
           },
           {
             "type": "object",
@@ -828,14 +959,15 @@
                   "string",
                   "null"
                 ],
-                "description": "If set, will be used to create a text/x-amp-html part"
+                "description": "If set, will be used to create a text/x-amp-html part.\nThis is available {{since('dev', inline=True)}}",
+                "example": "<!doctype html><html amp4email>...</html>"
               },
               "attachments": {
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/Attachment"
                 },
-                "description": "Optional list of attachments"
+                "description": "Optional list of attachments."
               },
               "from": {
                 "oneOf": [
@@ -866,7 +998,8 @@
                   "string",
                   "null"
                 ],
-                "description": "If set, will be used to create a text/html part"
+                "description": "If set, will be used to create a text/html part",
+                "example": "<p>This is the <b>HTML</b> part</p>"
               },
               "reply_to": {
                 "oneOf": [
@@ -891,7 +1024,8 @@
                   "string",
                   "null"
                 ],
-                "description": "If set, will be used to create a text/plain part"
+                "description": "If set, will be used to create a text/plain part",
+                "example": "This is the plain text part"
               }
             }
           }
@@ -906,6 +1040,7 @@
         "properties": {
           "email": {
             "type": "string",
+            "format": "email",
             "description": "The email address of the sender",
             "example": "sales@sender-example.com"
           },
@@ -920,22 +1055,6 @@
         },
         "additionalProperties": false
       },
-      "Header": {
-        "oneOf": [
-          {
-            "type": "string"
-          },
-          {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "maxItems": 2,
-            "minItems": 2
-          }
-        ],
-        "description": "An email header."
-      },
       "HttpTraceHeaders": {
         "$ref": "#/components/schemas/TraceHeaders"
       },
@@ -949,18 +1068,21 @@
         "properties": {
           "content": {
             "$ref": "#/components/schemas/Content",
-            "description": "The content of the message"
+            "description": "Specifies the message content. It can either be a string value or\na JSON object describing how to build a the message.\n\nIf a simple string is provided, it must be an RFC822 compliant\nmessage.  If template substitutions are used in the request, then\nthe entire RFC822 message string is used as-is for the template;\nno message parsing or decoding is performed as part of template\nexpansion.\n\nAlternatively the content can be specified as a JSON object as\ndemonstrated in the docs for the `Content` type.\n\nWhen building a message, template substitutions are\napplied to the `text_body`, `html_body`,\n`amp_html_body` and `headers` fields.\n\nAttachments are not subject to template substitution."
           },
           "deferred_generation": {
             "type": "boolean",
-            "description": "When set to true, the injection request will be queued\nand the actual generation and substitution will happen\nasynchronously with respect to the injection request."
+            "description": "{{since('2024.11.08-d383b033', inline=True)}}\n\nWhen set to true, the injection request will be queued\nand the actual generation and substitution will happen\nasynchronously with respect to the injection request.\nThe default mode of operation is to respond to the injection request only\nonce every message in the request has been enqueued to the internal queue\nsystem. This provides *back pressure* to the injection system and prevents\nthe service from being overwhelmed if the rate of ingress exceeds the\nmaximum rate of egress.\n\nThe result of this back pressure is that the latency of the injection request\ndepends on the load of the system.\n\nSetting `deferred_generation: true` in the request alters the processing flow:\ninstead of immediately expanding the request into the desired number of\nmessages and queueing them up, the injection request is itself queued up and\nprocessed asynchronously with respect to the incoming request.\n\nThis `deferred_generation` submission is typically several orders of magnitude\nfaster than the immediate generation mode, so it is possible to very very quickly\nqueue up large batches of messages this way.\n\nThe deferred generation requests are queued internally to a special queue\nnamed `generator.kumomta.internal` that will process them by spawning each\nrequest into the `httpinject` thread pool.\n\nYou will likely want and need to configure shaping to accomodate this queue\nfor best performance:\n\n```lua\n-- Locate this before any other helpers or modules that define\n-- `get_egress_path_config` event handlers in order for it to take effect\nkumo.on(\n  'get_egress_path_config',\n  function(routing_domain, egress_source, site_name)\n    if routing_domain == 'generator.kumomta.internal' then\n      return kumo.make_egress_path {\n        -- This is a good place to start, but you may want to\n        -- experiment with 1/2, 3/4, or 1.5 times this to find\n        -- what works best in your environment\n        connection_limit = kumo.available_parallelism(),\n        refresh_strategy = 'Epoch',\n        max_ready = 80000,\n      }\n    end\n  end\n)\n```\n\n!!! note\n    It is possible to very quickly generate millions of queued messages when\n    using `deferred_generation: true`. You may wish to look into configuring\n    a rate limit to constrain the system appropriately for your environment.\n    <https://docs.kumomta.com/reference/kumo/set_httpinject_recipient_rate_limit/>\n    can be used for this purpose.",
+            "default": false
           },
           "deferred_spool": {
             "type": "boolean",
-            "description": "When set to true, the message will not be written to\nthe spool until it encounters its first transient failure.\nThis can improve injection rate but introduces the risk\nof loss of accountability for the message if the system\nwere to crash before the message is delivered or written\nto spool, so use with caution!"
+            "description": "{{since('2024.11.08-d383b033', inline=True)}}\n\n!!! danger\n    Enabling deferred spooling may result in loss\n    of accountability for messages.  You should satisfy\n    yourself that your system is able to recognize and\n    deal with that scenario if/when it arises.\n\nWhen set to `true`, the generated message(s) will\nnot be written to the spool until it encounters its\nfirst transient failure.  This can improve injection\nrate but introduces the risk of loss of\naccountability for the message if the system were to\ncrash before the message is delivered or written to\nspool, so use with caution!\n\nWhen used in conjunction with `deferred_generation`,\nboth the queued generation request and the messages\nwhich it produces are subject to deferred spooling.",
+            "default": false
           },
           "envelope_sender": {
             "type": "string",
+            "format": "email",
             "description": "Specify the envelope sender that will be sent in the\nMAIL FROM portion of SMTP.",
             "example": "some.id@bounces.sender-example.com"
           },
@@ -969,15 +1091,12 @@
             "items": {
               "$ref": "#/components/schemas/Recipient"
             },
-            "description": "The list of recipients"
+            "description": "Specifies the list of recipients to which message(s) will be sent.\nWhen generating the message for the recipient, a suitable `To` header will be\nconstructed using the provided fields.\n\nIf you also set a `To` header using the `headers` field, then the behavior\ndepends on the version of kumomta:\n\n|Behavior|Version|\n|--------|-------|\n|The per-recipient `To` header will not be generated|{{since('dev', inline=True)}}|\n|Two `To` headers will be generated|All previous versions|"
           },
           "substitutions": {
             "type": "object",
             "description": "When using templating, this is the map of placeholder\nname to replacement value that should be used by\nthe templating engine.  This map applies to all\nrecipients, with the per-recipient substitutions\ntaking precedence.",
-            "additionalProperties": {},
-            "propertyNames": {
-              "type": "string"
-            },
+            "additionalProperties": true,
             "example": {
               "campaign_title": "Fall Campaign"
             }
@@ -986,14 +1105,14 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/TemplateDialectWithSchema",
-                "description": "Specify the template dialect to be used"
+                "description": "{{since('2025.12.02-67ee9e96', inline=True)}}\n\nIt is now possible to specify which template engine will be\nused for template expansion via the `template_dialect` field.\nIt can have one of the following values:\n\n * `Jinja` - this is the implied default.  The Mini Jinja\n   template dialect will be parsed and evaluated.\n * `Static` - The content is treated as a static string and\n   no template expansion will be performed\n * `Handlebars` - The content will be evaluated by a handlebars\n   compatible template engine."
               }
             ],
             "default": "Jinja"
           },
           "trace_headers": {
             "$ref": "#/components/schemas/HttpTraceHeaders",
-            "description": "Controls which trace headers will be added to the message."
+            "description": "{{since('2024.11.08-d383b033', inline=True)}}\n\nControls the addition of tracing headers to received messages.\n\nKumoMTA can add two different headers to aid in later tracing:\n\n* The standard `\"Received\"` header which captures SMTP relay\n  hops on their path to the inbox\n\n* A supplemental header which can be used to match feedback\n  reports back to the originating mailing\n\nPrior to triggering the\n<https://docs.kumomta.com/reference/events/http_message_generated/>\nevent the standard `\"Received\"` header will be added to the\nmessage.  Then, once the event completes and your policy has had the\nopportunity to alter the meta data associated with the message, the\nsupplemental header will be added.\n\n```json\n{\n  \"trace_headers\": {\n    // this is the default: do NOT add the Received: header\n    \"received_header\": false,\n\n    // this is the default: add the supplemental header\n    \"supplemental_header\": true,\n\n    // this is the default: the name of the supplemental header\n    \"header_name\": \"X-KumoRef\",\n\n    // names of additional meta data fields\n    // to include in the header. TAKE CARE! The header will be\n    // base64 encoded to prevent casual introspection, but the\n    // header is NOT encrypted and the values of the meta data\n    // fields included here should be considered to be public.\n    // The default is not to add any meta data fields, but you\n    // might consider setting something like:\n    // \"include_meta_names\": { \"tenant\", \"campaign\" },\n    \"include_meta_names\": {},\n  },\n}\n```\n\nHere's an example of a supplemental header from a message:\n\n```\nX-KumoRef: eyJfQF8iOiJcXF8vIiwicmVjaXBpZW50IjoidGVzdEBleGFtcGxlLmNvbSJ9\n```\n\nthe decoded payload contains a magic marker key as well as the recipient of the\noriginal message:\n\n```json\n{\"_@_\":\"\\\\_/\",\"recipient\":\"test@example.com\"}\n```\n\nAny meta data fields that were listed in `include_meta_names`, if the corresponding\nmeta data was set in the message, would also be captured in the decoded payload.\n\nKumoMTA will automatically extract this supplemental trace header information\nfrom any `X-` header that is successfully parsed and has the magic marker key\nwhen processing the original message payload of an incoming ARF report."
           }
         },
         "additionalProperties": false
@@ -1022,7 +1141,8 @@
           "failed_recipients": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "format": "email"
             },
             "description": "The list of failed recipients"
           },
@@ -1084,9 +1204,115 @@
             "type": "integer",
             "minimum": 0
           },
-          "queue_config": {},
+          "queue_config": {
+            "type": "object"
+          },
           "queue_name": {
-            "type": "string"
+            "type": "string",
+            "example": "campaign_name:tenant_name@example.com"
+          }
+        }
+      },
+      "MachineInfoV1": {
+        "type": "object",
+        "required": [
+          "node_id",
+          "hostname",
+          "mac_address",
+          "num_cores",
+          "platform",
+          "distribution",
+          "os_version",
+          "total_memory_bytes",
+          "cpu_brand",
+          "fingerprint",
+          "online_since",
+          "process_kind",
+          "version"
+        ],
+        "properties": {
+          "container_runtime": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "If we detected that we're running in a container, the name\nof the container runtime"
+          },
+          "cpu_brand": {
+            "type": "string",
+            "description": "Identifies the CPU.  If you have a mixture of different CPUs,\nthis will be a comma separated list of the different CPUs",
+            "example": "Intel(R) Xeon(R) CPU E5-2686 v4 @ 2.30GHz"
+          },
+          "distribution": {
+            "type": "string",
+            "description": "The OS distribution",
+            "example": "ubuntu"
+          },
+          "fingerprint": {
+            "type": "string",
+            "description": "Additional metadata hash(es) that can identify the running machine.\nFor example, when running in AWS, the instance-id will be\nincluded.",
+            "example": "aws_instance_id=i-09aebefac97cf0000,machine_uid=ec22130d1de33cf52413457ac040000"
+          },
+          "hostname": {
+            "type": "string",
+            "description": "The hostname of the system, as reported by `gethostname(2)`",
+            "example": "mta1.example.com"
+          },
+          "kernel_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The kernel version",
+            "example": "6.8.0-1016-aws"
+          },
+          "mac_address": {
+            "type": "string",
+            "description": "The MAC address of the primary, non-loopback, network interface",
+            "example": "02:02:02:02:02:02"
+          },
+          "node_id": {
+            "type": "string",
+            "description": "The NodeID of the system",
+            "example": "9745bb48-14d7-48f2-a1fb-7df8d5844217"
+          },
+          "num_cores": {
+            "type": "integer",
+            "description": "The number of available CPUs as reported by\n<https://docs.rs/num_cpus/latest/num_cpus/fn.get.html>",
+            "example": 64,
+            "minimum": 0
+          },
+          "online_since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The date/time at which the process was last started"
+          },
+          "os_version": {
+            "type": "string",
+            "description": "The OS version (which often includes the distribution)",
+            "example": "Linux (Ubuntu 24.04)"
+          },
+          "platform": {
+            "type": "string",
+            "description": "Identifies the running platform",
+            "example": "linux/x86_64"
+          },
+          "process_kind": {
+            "type": "string",
+            "description": "Which process is running. eg: `kumod` vs `tsa-daemon` vs. `proxy-server`.",
+            "example": "kumod"
+          },
+          "total_memory_bytes": {
+            "type": "integer",
+            "format": "u-int64",
+            "description": "Total physical memory installed in the instance",
+            "example": 1003929600,
+            "minimum": 0
+          },
+          "version": {
+            "type": "string",
+            "description": "The version of KumoMTA that is running",
+            "example": "2026.02.24-2d1a3174"
           }
         }
       },
@@ -1103,7 +1329,8 @@
               "string",
               "null"
             ],
-            "description": "If `want_body` was set in the original request,\nholds the message body"
+            "description": "If `want_body` was set in the original request,\nholds the message body",
+            "example": "From: user@example.com\nSubject: Hello\n\nHello there"
           },
           "due": {
             "type": [
@@ -1113,6 +1340,7 @@
             "format": "date-time"
           },
           "meta": {
+            "type": "object",
             "description": "The message metadata"
           },
           "num_attempts": {
@@ -1120,18 +1348,21 @@
               "integer",
               "null"
             ],
-            "format": "int32",
+            "format": "u-int16",
             "minimum": 0
           },
           "recipient": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "format": "email"
             },
-            "description": "The envelope-to address",
+            "description": "The envelope-to address.\nMay be either an individual string or an array of strings\nfor multi-recipient messages.",
             "example": "recipient@example.com"
           },
-          "scheduling": {},
+          "scheduling": {
+            "type": "object"
+          },
           "sender": {
             "type": "string",
             "description": "The envelope sender",
@@ -1147,23 +1378,12 @@
         ],
         "properties": {
           "context": {
-            "type": "string"
+            "type": "string",
+            "example": "TooManyLeases for queue"
           },
           "since": {
             "type": "string",
             "format": "date-time"
-          }
-        }
-      },
-      "ReadyQueueStateRequest": {
-        "type": "object",
-        "properties": {
-          "queues": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Which queues to request. If empty, request all queue states."
           }
         }
       },
@@ -1267,6 +1487,7 @@
         "properties": {
           "email": {
             "type": "string",
+            "format": "email",
             "description": "The email address of the recipient",
             "example": "john.smith@mailbox-example.com"
           },
@@ -1275,16 +1496,13 @@
               "string",
               "null"
             ],
-            "description": "The displayable name of the recipient",
+            "description": "The optional displayable name of the recipient.\nThis field will be set as the `name` field when\nprocessing template expansion.",
             "example": "John Smith"
           },
           "substitutions": {
             "type": "object",
             "description": "When using templating, this is the map of placeholder\nname to replacement value that should be used by the\ntemplating engine when processing just this recipient.\nNote that `name` is implicitly set from the `name`\nfield, so you do not need to duplicate it here.",
-            "additionalProperties": {},
-            "propertyNames": {
-              "type": "string"
-            },
+            "additionalProperties": true,
             "example": {
               "age": 42,
               "gender": "male"
@@ -1337,7 +1555,8 @@
           },
           "name": {
             "type": "string",
-            "description": "The name of the ready queue that is suspended"
+            "description": "The name of the ready queue that is suspended",
+            "example": "source_name->(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com@smtp_client"
           },
           "reason": {
             "type": "string",
@@ -1369,7 +1588,8 @@
           },
           "name": {
             "type": "string",
-            "description": "The name of the ready queue that should be suspended"
+            "description": "The name of the ready queue that should be suspended",
+            "example": "source_name->(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com@smtp_client"
           },
           "reason": {
             "type": "string",
@@ -1404,14 +1624,16 @@
               "string",
               "null"
             ],
-            "description": "The campaign name to match. If omitted, any campaign will match."
+            "description": "The campaign name to match. If omitted, any campaign will match.",
+            "example": "campaign_name"
           },
           "domain": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The domain name to match. If omitted, any domain will match."
+            "description": "The domain name to match. If omitted, any domain will match.",
+            "example": "example.com"
           },
           "duration": {
             "type": "string",
@@ -1432,7 +1654,8 @@
               "string",
               "null"
             ],
-            "description": "The tenant name to match. If omitted, any tenant will match."
+            "description": "The tenant name to match. If omitted, any tenant will match.",
+            "example": "tenant_name"
           }
         }
       },
@@ -1447,14 +1670,16 @@
               "string",
               "null"
             ],
-            "description": "The campaign name to match. If omitted, any campaign will match."
+            "description": "The campaign name to match. If omitted, any campaign will match.",
+            "example": "campaign_name"
           },
           "domain": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The domain name to match. If omitted, any domain will match."
+            "description": "The domain name to match. If omitted, any domain will match.",
+            "example": "example.com"
           },
           "duration": {
             "type": [
@@ -1476,7 +1701,10 @@
             "items": {
               "type": "string"
             },
-            "description": "If present, queue_names takes precedence over `campaign`,\n`tenant`, and `domain` and specifies the exact set of\nscheduled queue names to which the suspension applies."
+            "description": "If present, queue_names takes precedence over `campaign`,\n`tenant`, and `domain` and specifies the exact set of\nscheduled queue names to which the suspension applies.",
+            "example": [
+              "campaign_name:tenant_name@example.com"
+            ]
           },
           "reason": {
             "type": "string",
@@ -1488,7 +1716,8 @@
               "string",
               "null"
             ],
-            "description": "The tenant name to match. If omitted, any tenant will match."
+            "description": "The tenant name to match. If omitted, any tenant will match.",
+            "example": "tenant_name"
           }
         }
       },
@@ -1568,7 +1797,11 @@
           "target": {
             "type": "string",
             "format": "uri",
-            "description": "Expected to be an HTTP url prefix like:\n`https://host.name:8008`\n`http://127.0.0.1:8000`"
+            "description": "Expected to be an HTTP url prefix like:\n`https://host.name:8008`\n`http://127.0.0.1:8000`",
+            "examples": [
+              "http://127.0.0.1:8000",
+              "https://host.name:8008"
+            ]
           }
         }
       },
@@ -1642,217 +1875,6 @@
       },
       "XferV1Response": {
         "type": "object"
-      }
-    },
-    "responses": {
-      "BounceV1Response": {
-        "description": "",
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "id",
-                "bounced",
-                "total_bounced"
-              ],
-              "properties": {
-                "bounced": {
-                  "type": "object",
-                  "description": "Deprecated: this field is no longer populated, as bounces\nare now always asynchronous. In earlier versions the following\napplies:\n\nA map of queue name to number of bounced messages that\nwere processed as part of the initial sweep.\nAdditional bounces may be generated if/when other messages\nthat match the rule are discovered, but those obviously\ncannot be reported in the context of the initial request.",
-                  "additionalProperties": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "propertyNames": {
-                    "type": "string"
-                  },
-                  "deprecated": true,
-                  "example": {
-                    "gmail.com": 200,
-                    "yahoo.com": 100
-                  }
-                },
-                "id": {
-                  "type": "string",
-                  "format": "uuid",
-                  "description": "The id of the bounce rule that was registered.\nThis can be used later to delete the rule if desired.",
-                  "example": "552016f1-08e7-4e90-9da3-fd5c25acd069"
-                },
-                "total_bounced": {
-                  "type": "integer",
-                  "description": "Deprecated: this field is no longer populated, as bounces are\nnow always asynchronous. In earlier versions the following applies:\n\nThe sum of the number of bounced messages reported by\nthe `bounced` field.",
-                  "deprecated": true,
-                  "example": 300,
-                  "minimum": 0
-                }
-              }
-            }
-          }
-        }
-      },
-      "InjectV1Response": {
-        "description": "",
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "success_count",
-                "fail_count",
-                "failed_recipients",
-                "errors"
-              ],
-              "properties": {
-                "errors": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "description": "The list of error messages"
-                },
-                "fail_count": {
-                  "type": "integer",
-                  "description": "The number of messages that failed to inject",
-                  "minimum": 0
-                },
-                "failed_recipients": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "description": "The list of failed recipients"
-                },
-                "success_count": {
-                  "type": "integer",
-                  "description": "The number of messages that were injected successfully",
-                  "minimum": 0
-                }
-              }
-            }
-          }
-        }
-      },
-      "InspectMessageV1Response": {
-        "description": "",
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "id",
-                "message"
-              ],
-              "properties": {
-                "id": {
-                  "$ref": "#/components/schemas/SpoolId",
-                  "description": "The spool identifier of the message"
-                },
-                "message": {
-                  "$ref": "#/components/schemas/MessageInformation",
-                  "description": "The message information"
-                }
-              }
-            }
-          }
-        }
-      },
-      "InspectQueueV1Response": {
-        "description": "",
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "queue_name",
-                "messages",
-                "num_scheduled",
-                "queue_config",
-                "delayed_metric",
-                "now",
-                "last_changed"
-              ],
-              "properties": {
-                "delayed_metric": {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                "last_changed": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "messages": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/InspectMessageV1Response"
-                  }
-                },
-                "now": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "num_scheduled": {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                "queue_config": {},
-                "queue_name": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      },
-      "ReadyQueueStateResponse": {
-        "description": "",
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "states_by_ready_queue"
-              ],
-              "properties": {
-                "states_by_ready_queue": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "$ref": "#/components/schemas/QueueState"
-                    },
-                    "propertyNames": {
-                      "type": "string"
-                    }
-                  },
-                  "propertyNames": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "XferCancelV1Response": {
-        "description": "",
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object"
-            }
-          }
-        }
-      },
-      "XferV1Response": {
-        "description": "",
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object"
-            }
-          }
-        }
       }
     },
     "securitySchemes": {

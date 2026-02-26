@@ -3,11 +3,12 @@
 Occasionally, you will have a bad send or for some reason need to cancel a send
 quickly. OOPS! It happens.  KumoMTA offers an API specifically for
 administratively canceling messages with surgical precision. The [Admin
-Bounce](../..//reference/http/api_admin_bounce_v1.md) API can
+Bounce](../../reference/http/kumod/api_admin_bounce_v1_post.md) API can
 target a specific Campaign, Queue, or entire Tenant for cancellation.
 
-You easiest way to invoke this API is via the `kcli` utility, but you can
-also use `curl` directly.
+You easiest way to invoke this API is via the [kcli
+bounce](../../reference/kcli/bounce.md) utility, but you can also use `curl`
+directly.
 
 !!! warning
     There is no way to undo the actions carried out by this request!

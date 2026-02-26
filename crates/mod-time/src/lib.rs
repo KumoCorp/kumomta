@@ -2,21 +2,27 @@ use chrono::format::StrftimeItems;
 use chrono::{DateTime, Datelike, LocalResult, TimeZone, Timelike, Utc};
 use config::{any_err, get_or_create_module, get_or_create_sub_module};
 use humantime::format_duration;
+use kumo_prometheus::declare_metric;
+use kumo_prometheus::prometheus::HistogramTimer;
 use mlua::{
     FromLua, IntoLua, Lua, MetaMethod, UserData, UserDataFields, UserDataMethods, UserDataRef,
 };
-use prometheus::{HistogramTimer, HistogramVec};
-use std::sync::LazyLock;
 use tokio::time::Duration;
 
-static LATENCY_HIST: LazyLock<HistogramVec> = LazyLock::new(|| {
-    prometheus::register_histogram_vec!(
-        "user_lua_latency",
-        "how long something user-defined took to run in your lua policy",
-        &["label"]
-    )
-    .unwrap()
-});
+declare_metric! {
+/// How many seconds something user-defined took to run in your lua policy.
+///
+/// This histogram is updated by policy scripts that employ the
+/// [kumo.time.start_timer](../../kumo.time/start_timer.md) function
+/// to record a duration in the policy.
+///
+/// The `label` is whatever you specified as the label(s) to the various
+/// `kumo.time.start_timer` calls in the policy.
+static LATENCY_HIST: HistogramVec(
+    "user_lua_latency",
+    &["label"]
+);
+}
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let kumo_mod = get_or_create_module(lua, "kumo")?;
@@ -89,11 +95,30 @@ async fn sleep(_lua: Lua, seconds: f64) -> mlua::Result<()> {
     Ok(())
 }
 
-struct Time {
+pub struct Time {
     t: DateTime<Utc>,
 }
 
-struct TimeDelta(chrono::TimeDelta);
+impl From<DateTime<Utc>> for Time {
+    fn from(t: DateTime<Utc>) -> Self {
+        Self { t }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct TimeDelta(chrono::TimeDelta);
+
+impl From<chrono::TimeDelta> for TimeDelta {
+    fn from(delta: chrono::TimeDelta) -> Self {
+        Self(delta)
+    }
+}
+
+impl From<TimeDelta> for chrono::TimeDelta {
+    fn from(delta: TimeDelta) -> Self {
+        delta.0
+    }
+}
 
 impl Time {
     fn now(_lua: &Lua, _: ()) -> mlua::Result<Self> {

@@ -8,7 +8,8 @@ ahash.workspace = true
 anyhow = {workspace=true}
 backtrace.workspace = true
 humansize = {workspace=true}
-metrics = {workspace=true}
+kumo-prometheus = {path="../kumo-prometheus"}
+linkme.workspace = true
 nix = {workspace=true, features=["resource", "feature"]}
 num-format.workspace = true
 parking_lot.workspace = true

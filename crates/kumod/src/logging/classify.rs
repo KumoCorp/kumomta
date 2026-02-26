@@ -4,22 +4,20 @@ use bounce_classify::{
 };
 use config::epoch::{get_current_epoch, ConfigEpoch};
 use kumo_log_types::JsonLogRecord;
+use kumo_prometheus::declare_metric;
 use kumo_server_runtime::available_parallelism;
 use lru_cache::LruCache;
 use parking_lot::Mutex;
-use prometheus::Histogram;
 use rfc5321::Response;
 use serde::Deserialize;
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, OnceLock};
 use tokio::sync::oneshot;
 
-static CLASSIFY_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "bounce_classify_latency",
-        "latency of bounce classification",
-    )
-    .unwrap()
-});
+declare_metric! {
+/// latency of bounce classification
+static CLASSIFY_LATENCY: Histogram("bounce_classify_latency");
+}
+
 static CLASSIFY: OnceLock<ClassifierWrapper> = OnceLock::new();
 
 #[derive(Deserialize, Clone, Debug)]

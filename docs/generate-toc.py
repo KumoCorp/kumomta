@@ -60,7 +60,14 @@ class Gen(object):
 
             if self.extract_title:
                 with open(filename, "r") as f:
-                    title = f.readline().strip("#").strip()
+                    # Find the title; it is usually the first line,
+                    # but we may have front-matter containing tags
+                    # that we need to skip, so we look for a line
+                    # starting with # to identify the title
+                    for line in f:
+                        if line.startswith("#"):
+                            title = line.strip("#").strip()
+                            break
 
             children.append(Page(title, filename))
 
@@ -291,6 +298,7 @@ TOC = [
                     ),
                     Page("Routing Messages via AMQP", "userguide/policy/amqp.md"),
                     Page("Routing Messages via Kafka", "userguide/policy/kafka.md"),
+                    Page("Routing Messages via NATS", "userguide/policy/nats.md"),
                     Page(
                         "Storing Secrets in Hashicorp Vault",
                         "userguide/policy/hashicorp_vault.md",
@@ -328,6 +336,10 @@ TOC = [
                     Page(
                         "Deploying KumoMTA on Kubernetes",
                         "userguide/clustering/kubernetes.md",
+                    ),
+                    Page(
+                        "Node ID",
+                        "userguide/clustering/nodeid.md",
                     ),
                 ],
             ),
@@ -458,6 +470,10 @@ TOC = [
                 "reference/kumo.kafka",
             ),
             Gen(
+                "module: kumo.nats",
+                "reference/kumo.nats",
+            ),
+            Gen(
                 "module: kumo.mimepart",
                 "reference/kumo.mimepart",
             ),
@@ -510,8 +526,16 @@ TOC = [
                 "reference/kumo.time",
             ),
             Gen(
+                "module: kumo.xfer",
+                "reference/kumo.xfer",
+            ),
+            Gen(
                 "module: policy-extras.mail_auth",
                 "reference/policy-extras.mail_auth",
+            ),
+            Gen(
+                "module: proxy",
+                "reference/proxy",
             ),
             Gen(
                 "module: tsa",
@@ -557,8 +581,18 @@ TOC = [
                 "events",
                 "reference/events",
             ),
-            Page("HTTP API Explorer", "reference/rapidoc.md"),
-            Gen("HTTP API", "reference/http", extract_title=True),
+            Gen("kumod HTTP API", "reference/http/kumod", extract_title=True),
+            Gen("kumod Metrics", "reference/metrics/kumod", extract_title=True),
+            Gen(
+                "proxy-server HTTP API",
+                "reference/http/proxy-server",
+                extract_title=True,
+            ),
+            Gen(
+                "proxy-server Metrics",
+                "reference/metrics/proxy-server",
+                extract_title=True,
+            ),
             RustDoc(
                 "Internal Rust API",
                 "rustapi",

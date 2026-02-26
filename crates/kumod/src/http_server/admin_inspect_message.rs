@@ -6,7 +6,7 @@ use message::Message;
 /// Retrieve information about a message given its spool id.
 #[utoipa::path(
     get,
-    tag="inspect",
+    tags=["inspect", "kcli:inspect-message"],
     path="/api/admin/inspect-message/v1",
     params(InspectMessageV1Request),
     responses(

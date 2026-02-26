@@ -1,7 +1,7 @@
 use crate::delivery_metrics::MetricsWrappedConnection;
 use crate::logging::disposition::{log_disposition, LogDisposition};
 use crate::queue::{IncrementAttempts, InsertReason, QueueManager};
-use crate::ready_queue::{Dispatcher, QueueDispatcher};
+use crate::ready_queue::{AttemptConnectionDisposition, Dispatcher, QueueDispatcher};
 use crate::smtp_server::RejectError;
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -133,9 +133,14 @@ impl QueueDispatcher for LuaQueueDispatcher {
         self.proto_config.max_batch_latency
     }
 
-    async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+    async fn attempt_connection(
+        &mut self,
+        dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<AttemptConnectionDisposition> {
         match &self.connection {
-            ConnectionState::Connected(_) => return Ok(()),
+            ConnectionState::Connected(_) => {
+                return Ok(AttemptConnectionDisposition::ReusedExisting)
+            }
             ConnectionState::Disconnected => {
                 anyhow::bail!("only one connection attempt per session");
             }
@@ -162,7 +167,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
 
         self.connection = ConnectionState::Connected(connection_wrapper.map_connection(connection));
         dispatcher.delivered_this_connection = 0;
-        Ok(())
+        Ok(AttemptConnectionDisposition::ConnectedNew)
     }
 
     async fn have_more_connection_candidates(&mut self, _dispatcher: &mut Dispatcher) -> bool {

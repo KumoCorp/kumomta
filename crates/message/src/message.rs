@@ -17,6 +17,7 @@ use kumo_chrono_helper::*;
 use kumo_dkim::arc::ARC;
 use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
+use kumo_prometheus::declare_metric;
 #[cfg(feature = "impl")]
 use mailparsing::{AuthenticationResult, AuthenticationResults, EncodeHeaderValue};
 use mailparsing::{
@@ -27,7 +28,6 @@ use mlua::{IntoLua, LuaSerdeExt, UserData, UserDataMethods};
 #[cfg(feature = "impl")]
 use mod_dns_resolver::get_resolver_instance;
 use parking_lot::Mutex;
-use prometheus::{Histogram, IntGauge};
 use serde::{Deserialize, Serialize};
 use serde_with::formats::PreferOne;
 use serde_with::{serde_as, OneOrMany};
@@ -51,45 +51,76 @@ bitflags::bitflags! {
     }
 }
 
-static MESSAGE_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
-    prometheus::register_int_gauge!("message_count", "total number of Message objects").unwrap()
-});
-static META_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
-    prometheus::register_int_gauge!(
-        "message_meta_resident_count",
-        "total number of Message objects with metadata loaded"
-    )
-    .unwrap()
-});
-static DATA_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
-    prometheus::register_int_gauge!(
-        "message_data_resident_count",
-        "total number of Message objects with body data loaded"
-    )
-    .unwrap()
-});
+declare_metric! {
+/// Total number of Message objects.
+///
+/// This encompasses all Message objects in various states, whether
+/// they are in a queue, moving between queues, being built as part
+/// of an injection, pending logging, message metadata and/or data
+/// may be either resident or offloaded to spool.
+static MESSAGE_COUNT: IntGauge("message_count");
+}
+
+declare_metric! {
+/// Total number of Message objects with metadata loaded.
+///
+/// Tracks how many messages have their `meta` data resident
+/// in memory.  This may be because they have not yet saved
+/// it, or because the message is being processed and the
+/// metadata is required for that processing.
+static META_COUNT: IntGauge("message_meta_resident_count");
+}
+
+declare_metric! {
+/// Total number of Message objects with body data loaded.
+///
+/// Tracks how many messages have their `data` resident
+/// in memory.  This may be because they have not yet saved
+/// it, or because the message is being processed and the
+/// data is either required to be in memory in order to
+/// deliver the message, or because logging or other
+/// post-injection policy is configured to operate on
+/// the message.
+static DATA_COUNT: IntGauge("message_data_resident_count");
+}
+
 static NO_DATA: LazyLock<Arc<Box<[u8]>>> = LazyLock::new(|| Arc::new(vec![].into_boxed_slice()));
-static SAVE_HIST: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "message_save_latency",
-        "how long it takes to save a message to spool"
-    )
-    .unwrap()
-});
-static LOAD_DATA_HIST: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "message_data_load_latency",
-        "how long it takes to load message data from spool"
-    )
-    .unwrap()
-});
-static LOAD_META_HIST: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "message_meta_load_latency",
-        "how long it takes to load message metadata from spool"
-    )
-    .unwrap()
-});
+
+declare_metric! {
+/// How many seconds it takes to save a message to spool.
+///
+/// This metric encompasses the elapsed time to saved
+/// either or both the `meta` and `data` portions of a
+/// message to spool.
+///
+/// High values indicate IO pressure which may be
+/// alleviated by tuning other constraints and/or
+/// [RocksDB Parameters](../../kumo/define_spool/rocks_params.md)
+static SAVE_HIST: Histogram("message_save_latency");
+}
+
+declare_metric! {
+/// How many seconds it takes to load message data from spool.
+///
+/// High values indicate IO pressure which may be caused
+/// by policy that operates on the message body post-reception.
+/// We recommend *avoiding* logging header values as that is
+/// the most common cause of this metric spiking and has
+/// the biggest impact in resolving it.
+///
+/// IO pressure may also be alleviated by tuning other constraints and/or
+/// [RocksDB Parameters](../../kumo/define_spool/rocks_params.md)
+static LOAD_DATA_HIST: Histogram("message_data_load_latency");
+}
+
+declare_metric! {
+/// How long it takes to load message metadata from spool
+///
+/// High values indicate IO pressure which may be
+/// alleviated by tuning other constraints and/or
+/// [RocksDB Parameters](../../kumo/define_spool/rocks_params.md)
+static LOAD_META_HIST: Histogram("message_meta_load_latency");
+}
 
 #[derive(Debug)]
 struct MessageInner {
@@ -1407,6 +1438,9 @@ impl UserData for Message {
 
         methods.add_method("num_attempts", move |_, this, _: ()| {
             Ok(this.get_num_attempts())
+        });
+        methods.add_method("increment_num_attempts", move |_, this, _: ()| {
+            Ok(this.increment_num_attempts())
         });
 
         methods.add_async_method("queue_name", move |_, this, _: ()| async move {

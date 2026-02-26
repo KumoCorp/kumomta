@@ -1,6 +1,5 @@
-use kumo_prometheus::{label_key, AtomicCounter, CounterRegistry, PruningCounterRegistry};
-use prometheus::{Histogram, HistogramVec, IntCounter};
-use std::sync::LazyLock;
+use kumo_prometheus::prometheus::Histogram;
+use kumo_prometheus::{declare_metric, label_key, AtomicCounter};
 
 label_key! {
     pub struct ServiceKey {
@@ -26,158 +25,137 @@ label_key! {
     }
 }
 
-pub static CONN_GAUGE: LazyLock<PruningCounterRegistry<ServiceKey>> = LazyLock::new(|| {
-    PruningCounterRegistry::register_gauge("connection_count", "number of active connections")
-});
-pub static CONN_GAUGE_BY_PROVIDER: LazyLock<PruningCounterRegistry<ProviderKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register_gauge(
-            "connection_count_by_provider",
-            "number of active connections",
-        )
-    });
-pub static CONN_GAUGE_BY_PROVIDER_AND_POOL: LazyLock<PruningCounterRegistry<ProviderAndPoolKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register_gauge(
-            "connection_count_by_provider_and_pool",
-            "number of active connections",
-        )
-    });
-pub static SMTP_SERVER_REJECTIONS: LazyLock<CounterRegistry<ServiceKey>> = LazyLock::new(|| {
-    CounterRegistry::register(
-        "smtp_server_rejections",
-        "number of Rejection records logged by the smtp server",
-    )
-});
-pub static CONN_DENIED: LazyLock<PruningCounterRegistry<ServiceKey>> = LazyLock::new(|| {
-    PruningCounterRegistry::register(
-        "total_connections_denied",
-        "total number of connections rejected due to load shedding or concurrency limits",
-    )
-});
+declare_metric! {
+/// The number of active outgoing connections in the system,
+/// keyed by the service name.
+pub static CONN_GAUGE: PruningGaugeRegistry<ServiceKey>("connection_count");
+}
 
-pub static TOTAL_CONN: LazyLock<PruningCounterRegistry<ServiceKey>> = LazyLock::new(|| {
-    PruningCounterRegistry::register(
-        "total_connection_count",
-        "total number of active connections ever made",
-    )
-});
+declare_metric! {
+/// number of active connections
+pub static CONN_GAUGE_BY_PROVIDER: PruningGaugeRegistry<ProviderKey>(
+    "connection_count_by_provider");
+}
 
-pub static TOTAL_MSGS_DELIVERED: LazyLock<PruningCounterRegistry<ServiceKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register(
-            "total_messages_delivered",
-            "total number of messages ever delivered",
-        )
-    });
-pub static TOTAL_MSGS_TRANSFAIL: LazyLock<PruningCounterRegistry<ServiceKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register(
-            "total_messages_transfail",
-            "total number of message delivery attempts that transiently failed",
-        )
-    });
-pub static TOTAL_MSGS_FAIL: LazyLock<PruningCounterRegistry<ServiceKey>> = LazyLock::new(|| {
-    PruningCounterRegistry::register(
-        "total_messages_fail",
-        "total number of message delivery attempts that permanently failed",
-    )
-});
+declare_metric! {
+/// number of active connections
+pub static CONN_GAUGE_BY_PROVIDER_AND_POOL:
+    PruningGaugeRegistry<ProviderAndPoolKey>("connection_count_by_provider_and_pool");
+}
 
-pub static TOTAL_MSGS_DELIVERED_BY_PROVIDER: LazyLock<PruningCounterRegistry<ProviderKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register(
-            "total_messages_delivered_by_provider",
-            "total number of messages ever delivered",
-        )
-    });
-pub static TOTAL_MSGS_TRANSFAIL_BY_PROVIDER: LazyLock<PruningCounterRegistry<ProviderKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register(
-            "total_messages_transfail_by_provider",
-            "total number of message delivery attempts that transiently failed",
-        )
-    });
-pub static TOTAL_MSGS_FAIL_BY_PROVIDER: LazyLock<PruningCounterRegistry<ProviderKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register(
-            "total_messages_fail_by_provider",
-            "total number of message delivery attempts that permanently failed",
-        )
-    });
+declare_metric! {
+/// number of Rejection records logged by the smtp server
+pub static SMTP_SERVER_REJECTIONS: CounterRegistry<ServiceKey>("smtp_server_rejections");
+}
 
-pub static TOTAL_MSGS_DELIVERED_BY_PROVIDER_AND_SOURCE: LazyLock<
-    PruningCounterRegistry<ProviderAndSourceKey>,
-> = LazyLock::new(|| {
-    PruningCounterRegistry::register(
-        "total_messages_delivered_by_provider_and_source",
-        "total number of messages ever delivered",
-    )
-});
-pub static TOTAL_MSGS_TRANSFAIL_BY_PROVIDER_AND_SOURCE: LazyLock<
-    PruningCounterRegistry<ProviderAndSourceKey>,
-> = LazyLock::new(|| {
-    PruningCounterRegistry::register(
-        "total_messages_transfail_by_provider_and_source",
-        "total number of message delivery attempts that transiently failed",
-    )
-});
-pub static TOTAL_MSGS_FAIL_BY_PROVIDER_AND_SOURCE: LazyLock<
-    PruningCounterRegistry<ProviderAndSourceKey>,
-> = LazyLock::new(|| {
-    PruningCounterRegistry::register(
-        "total_messages_fail_by_provider_and_source",
-        "total number of message delivery attempts that permanently failed",
-    )
-});
+declare_metric! {
+/// total number of connections rejected due to load shedding or concurrency limits
+pub static CONN_DENIED: PruningCounterRegistry<ServiceKey>("total_connections_denied");
+}
 
-pub static READY_COUNT_GAUGE: LazyLock<PruningCounterRegistry<ServiceKey>> = LazyLock::new(|| {
-    PruningCounterRegistry::register_gauge("ready_count", "number of messages in the ready queue")
-});
+declare_metric! {
+/// total number of active connections ever made
+pub static TOTAL_CONN: PruningCounterRegistry<ServiceKey>("total_connection_count");
+}
 
-pub static QUEUED_COUNT_GAUGE_BY_PROVIDER: LazyLock<PruningCounterRegistry<ProviderKey>> =
-    LazyLock::new(|| {
-        PruningCounterRegistry::register_gauge(
-            "queued_count_by_provider",
-            "number of messages in the scheduled and ready queue",
-        )
-    });
-pub static QUEUED_COUNT_GAUGE_BY_PROVIDER_AND_POOL: LazyLock<
-    PruningCounterRegistry<ProviderAndPoolKey>,
-> = LazyLock::new(|| {
-    PruningCounterRegistry::register_gauge(
-        "queued_count_by_provider_and_pool",
-        "number of messages in the scheduled and ready queue",
-    )
-});
+declare_metric! {
+/// total number of messages ever delivered
+pub static TOTAL_MSGS_DELIVERED: PruningCounterRegistry<ServiceKey>("total_messages_delivered");
+}
 
-pub static TOTAL_MSGS_RECVD: LazyLock<CounterRegistry<ServiceKey>> = LazyLock::new(|| {
-    CounterRegistry::register(
-        "total_messages_received",
-        "total number of messages ever received",
-    )
-});
-pub static READY_FULL_COUNTER: LazyLock<PruningCounterRegistry<ServiceKey>> = LazyLock::new(|| {
-    PruningCounterRegistry::register(
-        "ready_full",
-        "number of times a message could not fit in the ready queue",
-    )
-});
-pub static DELIVER_MESSAGE_LATENCY_ROLLUP: LazyLock<HistogramVec> = LazyLock::new(|| {
-    prometheus::register_histogram_vec!(
+declare_metric! {
+/// total number of message delivery attempts that transiently failed
+pub static TOTAL_MSGS_TRANSFAIL: PruningCounterRegistry<ServiceKey>("total_messages_transfail");
+}
+
+declare_metric! {
+/// total number of message delivery attempts that permanently failed
+pub static TOTAL_MSGS_FAIL: PruningCounterRegistry<ServiceKey>("total_messages_fail");
+}
+
+declare_metric! {
+/// total number of messages ever delivered
+pub static TOTAL_MSGS_DELIVERED_BY_PROVIDER: PruningCounterRegistry<ProviderKey>(
+        "total_messages_delivered_by_provider");
+}
+
+declare_metric! {
+/// total number of message delivery attempts that transiently failed
+pub static TOTAL_MSGS_TRANSFAIL_BY_PROVIDER: PruningCounterRegistry<ProviderKey>(
+        "total_messages_transfail_by_provider");
+}
+
+declare_metric! {
+/// total number of message delivery attempts that permanently failed
+pub static TOTAL_MSGS_FAIL_BY_PROVIDER: PruningCounterRegistry<ProviderKey>(
+        "total_messages_fail_by_provider");
+}
+
+declare_metric! {
+/// total number of messages ever delivered
+pub static TOTAL_MSGS_DELIVERED_BY_PROVIDER_AND_SOURCE:
+    PruningCounterRegistry<ProviderAndSourceKey>(
+        "total_messages_delivered_by_provider_and_source");
+}
+
+declare_metric! {
+/// total number of message delivery attempts that transiently failed
+pub static TOTAL_MSGS_TRANSFAIL_BY_PROVIDER_AND_SOURCE:
+    PruningCounterRegistry<ProviderAndSourceKey>(
+        "total_messages_transfail_by_provider_and_source");
+}
+
+declare_metric! {
+/// total number of message delivery attempts that permanently failed
+pub static TOTAL_MSGS_FAIL_BY_PROVIDER_AND_SOURCE:
+    PruningCounterRegistry<ProviderAndSourceKey>(
+        "total_messages_fail_by_provider_and_source");
+}
+
+declare_metric! {
+/// number of messages in the ready queue
+pub static READY_COUNT_GAUGE: PruningGaugeRegistry<ServiceKey>(
+    "ready_count");
+}
+
+declare_metric! {
+/// number of messages in the scheduled and ready queue
+pub static QUEUED_COUNT_GAUGE_BY_PROVIDER: PruningGaugeRegistry<ProviderKey>(
+            "queued_count_by_provider");
+}
+
+declare_metric! {
+/// number of messages in the scheduled and ready queue
+pub static QUEUED_COUNT_GAUGE_BY_PROVIDER_AND_POOL:
+    PruningGaugeRegistry<ProviderAndPoolKey>("queued_count_by_provider_and_pool");
+}
+
+declare_metric! {
+/// total number of messages ever received
+pub static TOTAL_MSGS_RECVD: CounterRegistry<ServiceKey>("total_messages_received");
+}
+
+declare_metric! {
+/// number of times a message could not fit in the ready queue.
+///
+/// See [delayed_due_to_ready_queue_full](delayed_due_to_ready_queue_full.md)
+/// for the equivalent metric tracked by scheduled queue name, as well as
+/// a discussion on what this event means.
+pub static READY_FULL_COUNTER: PruningCounterRegistry<ServiceKey>("ready_full");
+}
+
+declare_metric! {
+/// how many seconds a deliver_message call takes for a given protocol
+pub static DELIVER_MESSAGE_LATENCY_ROLLUP: HistogramVec(
         "deliver_message_latency_rollup",
-        "how long a deliver_message call takes for a given protocol",
         &["service"]
-    )
-    .unwrap()
-});
-pub static TOTAL_READYQ_RUNS: LazyLock<IntCounter> = LazyLock::new(|| {
-    prometheus::register_int_counter!(
-        "total_readyq_runs",
-        "total number of times a readyq maintainer was run"
-    )
-    .unwrap()
-});
+    );
+}
+
+declare_metric! {
+/// total number of times a readyq maintainer was run
+pub static TOTAL_READYQ_RUNS: IntCounter("total_readyq_runs");
+}
 
 pub fn deliver_message_rollup_for_service(service: &str) -> Histogram {
     DELIVER_MESSAGE_LATENCY_ROLLUP

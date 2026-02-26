@@ -9,7 +9,7 @@ use std::collections::HashMap;
 /// in the request.
 #[utoipa::path(
     get,
-    tag="inspect",
+    tags=["inspect", "kcli:queue-summary"],
     path="/api/admin/ready-q-states/v1",
     params(ReadyQueueStateRequest),
     responses(

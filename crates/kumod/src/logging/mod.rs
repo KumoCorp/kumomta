@@ -6,13 +6,14 @@ use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
 use flume::{bounded, Sender, TrySendError};
 pub use kumo_log_types::*;
+use kumo_prometheus::declare_metric;
+use kumo_prometheus::prometheus::Histogram;
 use kumo_server_common::disk_space::MonitoredPath;
 use kumo_server_runtime::Runtime;
 use kumo_template::TemplateEngine;
 use message::Message;
 use mlua::{Lua, Value as LuaValue};
 use parking_lot::FairMutex as Mutex;
-use prometheus::{CounterVec, Histogram, HistogramVec};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -29,22 +30,21 @@ pub(crate) mod files;
 pub(crate) mod hooks;
 pub(crate) mod rejection;
 
-static SUBMIT_FULL: LazyLock<CounterVec> = LazyLock::new(|| {
-    prometheus::register_counter_vec!(
+declare_metric! {
+/// how many times submission of a log event hit the back_pressure
+static SUBMIT_FULL: CounterVec(
         "log_submit_full",
-        "how many times submission of a log event hit the back_pressure",
         &["logger"]
-    )
-    .unwrap()
-});
-static SUBMIT_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
-    prometheus::register_histogram_vec!(
+    );
+}
+declare_metric! {
+/// latency of log event submission operations
+static SUBMIT_LATENCY: HistogramVec(
         "log_submit_latency",
-        "latency of log event submission operations",
         &["logger"]
-    )
-    .unwrap()
-});
+    );
+}
+
 static LOGGER: LazyLock<Mutex<Vec<Arc<Logger>>>> = LazyLock::new(Mutex::default);
 
 static LOGGING_THREADS: AtomicUsize = AtomicUsize::new(0);

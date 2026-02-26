@@ -1,6 +1,7 @@
 use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_module};
 use deadpool::managed::{Manager, Metrics, Pool, RecycleError, RecycleResult};
+use kumo_prometheus::declare_metric;
 use mlua::{Lua, MultiValue, UserData, UserDataMethods, Value};
 use redis::aio::{ConnectionLike, ConnectionManager, ConnectionManagerConfig};
 use redis::cluster::ClusterClient;
@@ -14,8 +15,9 @@ use redis::{
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::{Arc, LazyLock, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub mod test;
 
@@ -44,29 +46,91 @@ impl Manager for ClientManager {
     }
 }
 
+declare_metric! {
+/// The latency of an operation talking to Redis.
+///
+/// {{since('dev')}}
+///
+/// The `service` key represents the redis server/service. It is not
+/// a direct match to a server name as it is really a hash of the
+/// overall redis configuration information used in the client.
+/// It might look something like:
+/// `redis://127.0.0.1:24419,redis://127.0.0.1:7779,redis://127.0.0.1:29469-2ce79dd1`
+/// for a cluster configuration, or `redis://127.0.0.1:16267-f4da6e64`
+/// for a single node cluster configuration.
+/// You should anticipate that the `-HEX` suffix can and will change
+/// in an unspecified way as you vary the redis connection parameters.
+///
+/// The `operation` key indicates the operation, which can be a `ping`,
+/// a `query` or a `script`.
+///
+/// `status` will be either `ok` or `error` to indicate whether this
+/// is tracking a successful or failed operation.
+///
+/// Since histograms track a count of operations, you can track the
+/// rate of `redis_operation_latency_count` where `status=error`
+/// to have an indication of the failure rate of redis operations.
+static REDIS_LATENCY:  HistogramVec("redis_operation_latency",
+    &["service", "operation", "status"]);
+}
+
+#[derive(Debug)]
+struct KeyAndLabel {
+    key: RedisConnKey,
+    label: String,
+}
+
 #[derive(Clone, Debug)]
-pub struct RedisConnection(Arc<RedisConnKey>);
+pub struct RedisConnection(Arc<KeyAndLabel>);
 
 impl RedisConnection {
+    async fn sample_latency<T, E>(
+        &self,
+        operation: &str,
+        fut: impl Future<Output = Result<T, E>>,
+    ) -> Result<T, E> {
+        let now = Instant::now();
+        let result = (fut).await;
+        let elapsed = now.elapsed().as_secs_f64();
+        let status = if result.is_ok() { "ok" } else { "error" };
+
+        if let Ok(hist) =
+            REDIS_LATENCY.get_metric_with_label_values(&[self.0.label.as_str(), operation, status])
+        {
+            hist.observe(elapsed);
+        }
+
+        result
+    }
+
     pub async fn ping(&self) -> anyhow::Result<()> {
-        let pool = self.0.get_pool()?;
-        let mut conn = pool.get().await.map_err(|err| anyhow::anyhow!("{err:#}"))?;
-        conn.ping().await
+        self.sample_latency("ping", async {
+            let pool = self.0.key.get_pool()?;
+            let mut conn = pool.get().await.map_err(|err| anyhow::anyhow!("{err:#}"))?;
+            conn.ping().await
+        })
+        .await
     }
 
     pub async fn query(&self, cmd: Cmd) -> anyhow::Result<RedisValue> {
-        let pool = self.0.get_pool()?;
-        let mut conn = pool.get().await.map_err(|err| anyhow::anyhow!("{err:#}"))?;
-        Ok(cmd.query_async(&mut *conn).await?)
+        self.sample_latency("query", async {
+            let pool = self.0.key.get_pool()?;
+            let mut conn = pool.get().await.map_err(|err| anyhow::anyhow!("{err:#}"))?;
+            Ok(cmd.query_async(&mut *conn).await?)
+        })
+        .await
     }
 
     pub async fn invoke_script(
         &self,
         script: ScriptInvocation<'static>,
     ) -> anyhow::Result<RedisValue> {
-        let pool = self.0.get_pool()?;
-        let mut conn = pool.get().await.map_err(|err| anyhow::anyhow!("{err:#}"))?;
-        Ok(script.invoke_async(&mut *conn).await?)
+        self.sample_latency("script", async {
+            let pool = self.0.key.get_pool()?;
+            let mut conn = pool.get().await.map_err(|err| anyhow::anyhow!("{err:#}"))?;
+            Ok(script.invoke_async(&mut *conn).await?)
+        })
+        .await
     }
 }
 
@@ -380,7 +444,57 @@ impl RedisConnKey {
 
     pub fn open(&self) -> anyhow::Result<RedisConnection> {
         self.build_client()?;
-        Ok(RedisConnection(Arc::new(self.clone())))
+        Ok(RedisConnection(Arc::new(KeyAndLabel {
+            key: self.clone(),
+            label: self.hash_label(),
+        })))
+    }
+
+    /// Produces a human readable label string that is representitive
+    /// of this RedisConnKey.  We pull out the node and username to
+    /// include in the label.
+    /// Now, since the entire RedisConnKey is the actual key, that
+    /// readable subset is not sufficient to uniquely identify the
+    /// entry in the pool, although in reality it is probably OK,
+    /// there exists the possibility that eg: on a config update,
+    /// multiple entries have the same list of nodes but different
+    /// auth or other parameters.
+    /// To smooth over such a transition, we'll include a basic
+    /// crc32 of the entire RedisConnKey in the label that is
+    /// returned.  This will probably be sufficient to avoid
+    /// an obvious collision between such names, but it will not
+    /// guarantee it.
+    /// This is a best effort really; I doubt that this will cause
+    /// any meaningful issues in practice, as the intended use case
+    /// for this label string is to sample metrics rather than to
+    /// guarantee isolation.
+    pub fn hash_label(&self) -> String {
+        use crc32fast::Hasher;
+        use std::hash::Hash;
+        let mut hasher = Hasher::new();
+        self.hash(&mut hasher);
+        let crc = hasher.finalize();
+
+        let mut label = String::new();
+        if let Some(user) = &self.username {
+            label.push_str(user);
+            label.push('@');
+        }
+        match &self.node {
+            NodeSpec::Single(node) => {
+                label.push_str(node);
+            }
+            NodeSpec::Cluster(nodes) => {
+                for (idx, node) in nodes.iter().enumerate() {
+                    if idx > 0 {
+                        label.push(',');
+                    }
+                    label.push_str(node);
+                }
+            }
+        }
+        label.push_str(&format!("-{crc:08x}"));
+        label
     }
 }
 

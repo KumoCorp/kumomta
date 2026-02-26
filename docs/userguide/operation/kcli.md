@@ -67,8 +67,9 @@ The scheduled queue data is presented in two columns; the queue name and the num
 
 ### Bouncing Messages
 
-The `kcli` client can be used to administratively bounce messages currently
-queued in the server with the following format:
+The [kcli bounce](../../reference/kcli/bounce.md) command can be used to
+administratively bounce messages currently queued in the server with the
+following format:
 
 ```console
 $ kcli --endpoint http://127.0.0.1:8000 bounce --everything --reason purge
@@ -114,12 +115,13 @@ Specifies how long this bounce directive remains active.
 While active, newly injected messages that match the
 bounce criteria will also be bounced.
 
-See the [Bounce API](../../reference/http/api_admin_bounce_v1.md) page of the
-Reference Manual for more information.
+See the [Bounce API](../../reference/http/kumod/api_admin_bounce_v1_post.md)
+page of the Reference Manual for more information.
 
 ### Listing Current Bounces
 
-You can list the currently active bounce commands with the following command:
+You can list the currently active bounce commands with the [kcli
+bounce-list](../../reference/kcli/bounce-list.md) command:
 
 ```console
 $ kcli --endpoint http://127.0.0.1:8000 bounce-list
@@ -140,7 +142,7 @@ $ kcli --endpoint http://127.0.0.1:8000 bounce-list
 ```
 
 See the [Admin Bounce List
-API](../../reference/http/api_admin_bounce_list_v1.md) page of the Reference
+API](../../reference/http/kumod/api_admin_bounce_v1_get.md) page of the Reference
 Manual for more information.
 
 ### Removing a Bounce
@@ -153,14 +155,16 @@ have been injected at the time the command was issued.
 Sometimes after a bounce has been issued there is a need to cancel the bounce
 before the time window has expired. Once a bounce command's ID is determined
 with the `bounce-list` command, the bounce can be canceled with the
-`bounce-cancel` command:
+[kcli bounce-cancel](../../reference/kcli/bounce-cancel.md) command:
 
 ```console
 $ kcli --endpoint http://127.0.0.1:8000 bounce-cancel --id 169c3dc0-6518-41ef-bfbb-1f0ae426cb32
 removed 0234c7c9-afd3-49f9-9a4c-a1cc37fcc53b
 ```
 
-See the [Bounce Cancel API](../../reference/http/api_admin_bounce_cancel_v1.md) page of the Reference Manual for more information.
+See the [Bounce Cancel
+API](../../reference/http/kumod/api_admin_bounce_v1_delete.md) page of the
+Reference Manual for more information.
 
 ## Managing Suspensions
 
@@ -168,7 +172,8 @@ See the [Bounce Cancel API](../../reference/http/api_admin_bounce_cancel_v1.md) 
 ## Setting The Diagnostic Log Level
 
 While the log level is typically set in your configuration, it can also be set
-on an ad-hoc basis using the set-log-filter command in `kcli`:
+on an ad-hoc basis using the [kcli
+set-log-filter](../../reference/kcli/set-log-filter.md) command:
 
 ```console
 $ kcli --endpoint http://127.0.0.1:8000 set-log-filter 'kumod=trace'
@@ -187,7 +192,9 @@ When debugging, it is often helpful to monitor the full SMTP handshaking process
 $ kcli trace-smtp-server
 ```
 
-Additional information on monitoring inbound connections is available on the [trace-smtp-server](../../reference/kcli/trace-smtp-server.md) page of the reference manual.
+Additional information on monitoring inbound connections is available on the
+[kcli trace-smtp-server](../../reference/kcli/trace-smtp-server.md) page of the
+reference manual.
 
 ## Monitoring Outbound SMTP Connections
 
@@ -199,4 +206,6 @@ In those situations it helps to be able to monitor the oubound connections in qu
 $ kcli trace-smtp-client
 ```
 
-Additional information on monitoring outbound connections is available on the [trace-smtp-client](../../reference/kcli/trace-smtp-client.md) page of the reference manual.
+Additional information on monitoring outbound connections is available on the
+[kcli trace-smtp-client](../../reference/kcli/trace-smtp-client.md) page of the
+reference manual.

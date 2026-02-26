@@ -2121,7 +2121,7 @@ fn quote_string(s: &str) -> String {
         let mut result = String::with_capacity(s.len() + 4);
         result.push('"');
         for c in s.chars() {
-            if c != ' ' && !is_qtext(c) && !is_atext(c) {
+            if !c.is_ascii_whitespace() && !is_qtext(c) && !is_atext(c) {
                 result.push('\\');
             }
             result.push(c);
@@ -2148,6 +2148,7 @@ fn test_quote_string() {
         quote_string("hello c:\\backslash"),
         r#""hello c:\\\\backslash""#
     );
+    k9::assert_equal!(quote_string("hello\n there"), "\"hello\n there\"");
 }
 
 impl EncodeHeaderValue for Mailbox {

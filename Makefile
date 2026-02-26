@@ -32,10 +32,16 @@ test: build test-lua
 	RUST_BACKTRACE=1 cargo nextest run --no-fail-fast
 
 test-adhoc: build
-	cargo nextest run --no-fail-fast --no-capture -p integration-tests -- disconnect_in_data_try_next
+	cargo nextest run --no-fail-fast --no-capture -p integration-tests -- xfer_requeue
 
 test-kumod:
 	cargo nextest run --no-fail-fast -p kumod
+
+expand-kumod:
+	cargo expand -p kumod metrics_helper
+
+macro-kumod:
+	RUSTFLAGS="-Z macro-backtrace --cfg tokio_unstable" cargo +nightly check -p kumod
 
 clippy:
 	cargo clippy -- \
@@ -79,18 +85,18 @@ fmt:
 	cargo +nightly fmt
 	cd crates/mod-smtp-response-normalize/codegen && cargo +nightly fmt
 	stylua --config-path stylua.toml .
-	black docs/generate-toc.py assets/ci/build-builder-images.py assets/ci/emit-builder-dockerfile.py assets/bt assets/log-filter.py
+	black docs/generate-toc.py docs/update-metrics.py assets/ci/build-builder-images.py assets/ci/emit-builder-dockerfile.py assets/bt assets/log-filter.py
 
 sink: unsink
 	sudo iptables -t nat -A OUTPUT -p tcp \! -d 192.168.1.0/24 --dport 25 -j DNAT --to-destination 127.0.0.1:2026
 	sudo iptables -t nat -L -n
-	./target/release/kumod --user `id -un` --policy sink.lua
+	KUMO_NODE_ID=906fd326-34e6-4405-a086-971017bf0f10 ./target/release/kumod --user `id -un` --policy sink.lua
 	#smtp-sink 127.0.0.1:2026 2000 || exit 0
 
 smartsink: unsink
 	sudo iptables -t nat -A OUTPUT -p tcp \! -d 192.168.1.0/24 --dport 25 -j DNAT --to-destination 127.0.0.1:2026
 	sudo iptables -t nat -L -n
-	SINK_PORT=2026 SINK_HTTP=8002 SINK_SPOOL=/tmp/kumo-sink SINK_DATA=`pwd`/examples/smart-sink-docker/policy/responses.toml ./target/release/kumod --user `id -un` --policy `pwd`/examples/smart-sink-docker/policy/init.lua
+	KUMO_NODE_ID=053227a3-8663-4f4e-97f4-a91e9bcd022b SINK_PORT=2026 SINK_HTTP=8002 SINK_SPOOL=/tmp/kumo-sink SINK_DATA=`pwd`/examples/smart-sink-docker/policy/responses.toml ./target/release/kumod --user `id -un` --policy `pwd`/examples/smart-sink-docker/policy/init.lua
 
 hugesink: unsink
 	sudo iptables -t nat -A OUTPUT -p tcp \! -d 192.168.1.0/24 --dport 25 -j DNAT --to-destination 192.168.1.54:2026

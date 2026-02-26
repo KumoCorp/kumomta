@@ -1,5 +1,6 @@
 use clap::Parser;
-use kumo_api_types::{InspectQueueV1Request, InspectQueueV1Response};
+use kumo_api_client::KumoApiClient;
+use kumo_api_types::InspectQueueV1Request;
 use reqwest::Url;
 
 #[derive(Debug, Parser)]
@@ -38,20 +39,18 @@ pub struct InspectQueueCommand {
 
 impl InspectQueueCommand {
     pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
-        let mut url = endpoint.join("/api/admin/inspect-sched-q/v1")?;
-        let request = InspectQueueV1Request {
-            queue_name: self.queue_name.clone(),
-            want_body: self.want_body,
-            limit: if self.no_limit {
-                None
-            } else {
-                Some(self.limit)
-            },
-        };
-        request.apply_to_url(&mut url);
-
-        let result: InspectQueueV1Response =
-            crate::request_with_json_response(reqwest::Method::GET, url, &()).await?;
+        let client = KumoApiClient::new(endpoint.clone());
+        let result = client
+            .admin_inspect_sched_q_v1(&InspectQueueV1Request {
+                queue_name: self.queue_name.clone(),
+                want_body: self.want_body,
+                limit: if self.no_limit {
+                    None
+                } else {
+                    Some(self.limit)
+                },
+            })
+            .await?;
 
         println!("{}", serde_json::to_string_pretty(&result)?);
 

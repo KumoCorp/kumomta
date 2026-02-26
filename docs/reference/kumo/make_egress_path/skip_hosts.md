@@ -6,7 +6,13 @@ when resolving the MX for the destination domain.
 This can be used for example to skip a host that is experiencing issues.
 
 If all of the hosts returned for an MX are filtered out by `skip_hosts` then
-the ready queue will be immediately failed with a `550 5.4.4` status.
+the complete contents of the ready queue will be immediately processed.  The
+behavior depends on the version of kumod:
+
+|Behavior|Since|
+|--------|-----|
+|Transiently Failed with a `451 4.4.4 KumoMTA internal: MX consisted solely of hosts on the skip_hosts list` status|{{since('dev', inline=True)}}|
+|Permanently Failed with a `550 5.4.4 MX consisted solely of hosts on the skip_hosts list` status|All earlier versions|
 
 ## Skipping IPv6 Addresses
 

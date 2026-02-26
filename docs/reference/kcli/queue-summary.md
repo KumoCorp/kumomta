@@ -1,3 +1,7 @@
+---
+tags:
+  - ops
+---
 # kcli queue-summary
 
 
