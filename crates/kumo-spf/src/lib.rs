@@ -4,7 +4,7 @@ use dns_resolver::{DnsError, Resolver};
 use hickory_resolver::proto::rr::RecordType;
 use hickory_resolver::Name;
 use instant_xml::{FromXml, ToXml};
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -17,7 +17,7 @@ use record::Qualifier;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Clone, Copy, Eq, FromXml, PartialEq, ToXml)]
+#[derive(Debug, Clone, Copy, Eq, FromXml, PartialEq, ToXml, Serialize, Deserialize)]
 #[xml(scalar, rename_all = "lowercase")]
 pub enum SpfDisposition {
     /// A result of "none" means either (a) no syntactically valid DNS domain
@@ -83,11 +83,11 @@ impl From<String> for SpfDisposition {
     }
 }
 
-impl Serialize for SpfDisposition {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.as_str())
-    }
-}
+// impl Serialize for SpfDisposition {
+//     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+//         serializer.serialize_str(self.as_str())
+//     }
+// }
 
 impl From<Qualifier> for SpfDisposition {
     fn from(qualifier: Qualifier) -> Self {

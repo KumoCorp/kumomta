@@ -1,8 +1,9 @@
 use instant_xml::ToXml;
+use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 use std::str::FromStr;
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ReportFailure {
     all_pass: bool,
     any_pass: bool,

@@ -4,18 +4,18 @@ use crate::types::policy_override::PolicyOverrideReason;
 use instant_xml::{FromXml, ToXml};
 use kumo_spf::SpfDisposition;
 use mailparsing::AuthenticationResult;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::net::IpAddr;
 
-#[derive(Debug, Eq, FromXml, PartialEq, ToXml)]
+#[derive(Debug, Eq, FromXml, PartialEq, ToXml, Serialize, Deserialize, Clone, Copy)]
 #[xml(scalar, rename_all = "lowercase")]
 pub enum SpfScope {
     Helo,
     Mfrom,
 }
 
-#[derive(Debug, Eq, FromXml, PartialEq, ToXml)]
+#[derive(Debug, Eq, FromXml, PartialEq, ToXml, Serialize, Deserialize, Clone)]
 #[xml(rename = "spf")]
 pub struct SpfAuthResult {
     domain: String,
@@ -35,7 +35,7 @@ impl From<AuthenticationResult> for SpfAuthResult {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, ToXml)]
+#[derive(Debug, Eq, PartialEq, ToXml, Serialize, Deserialize, Clone)]
 #[xml(rename = "auth_results")]
 pub struct AuthResults {
     pub(crate) dkim: Vec<DkimAuthResult>,
@@ -50,7 +50,7 @@ pub struct Results {
     pub(crate) auth_results: AuthResults,
 }
 
-#[derive(Debug, Eq, PartialEq, ToXml)]
+#[derive(Debug, Eq, PartialEq, ToXml, Serialize, Deserialize, Clone, Copy)]
 #[xml(scalar, rename_all = "lowercase")]
 pub enum DkimResult {
     None,
@@ -77,7 +77,7 @@ impl From<String> for DkimResult {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, ToXml)]
+#[derive(Debug, Eq, PartialEq, ToXml, Serialize, Deserialize, Clone)]
 pub struct DkimAuthResult {
     domain: String,
     selector: Option<String>,
@@ -98,7 +98,7 @@ impl From<AuthenticationResult> for DkimAuthResult {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Copy, ToXml, Serialize)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy, ToXml, Serialize, Deserialize)]
 #[xml(scalar, rename_all = "lowercase")]
 pub enum DmarcResult {
     Pass,
@@ -163,7 +163,7 @@ pub struct DispositionWithContext {
     pub context: String,
 }
 
-#[derive(Debug, Eq, PartialEq, ToXml)]
+#[derive(Debug, Eq, PartialEq, ToXml, Serialize, Deserialize, Clone)]
 #[xml(rename = "policy_evaluated")]
 pub struct PolicyEvaluated {
     pub(crate) disposition: Policy,

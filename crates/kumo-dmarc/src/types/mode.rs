@@ -1,7 +1,8 @@
 use instant_xml::ToXml;
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ToXml)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ToXml, Serialize, Deserialize)]
 #[xml(scalar)]
 pub(crate) enum Mode {
     Relaxed,

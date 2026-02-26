@@ -4,12 +4,12 @@ use instant_xml::ToXml;
 #[derive(Debug, Eq, PartialEq, ToXml)]
 #[xml(rename = "report_metadata")]
 pub struct ReportMetadata {
-    org_name: String,
-    email: String,
-    extra_contact_info: Option<String>,
-    report_id: String,
-    date_range: DateRange,
-    error: Vec<String>,
+    pub(crate) org_name: String,
+    pub(crate) email: String,
+    pub(crate) extra_contact_info: Option<String>,
+    pub(crate) report_id: String,
+    pub(crate) date_range: DateRange,
+    pub(crate) error: Vec<String>,
 }
 
 impl ReportMetadata {

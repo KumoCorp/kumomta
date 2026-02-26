@@ -105,7 +105,7 @@ impl Record {
         }
 
         if let Some(alignment_failure) = alignment_failure {
-            cx.report_error(
+            let _ = cx.report_error(
                 self,
                 dmarc_domain,
                 sender_domain_alignment,

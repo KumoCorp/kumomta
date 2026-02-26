@@ -366,6 +366,12 @@ async fn evaluate_ip<'a>(
         }
     }
 
+    let reporting_info = crate::ReportingInfo {
+        org_name: "org".into(),
+        email: "test@test.org".into(),
+        extra_contact_info: None,
+    };
+
     let mut dmarc_context = DmarcContext::new(
         from_domain,
         Some(mail_from_domain),
@@ -373,7 +379,7 @@ async fn evaluate_ip<'a>(
         "",
         &dkim_vec,
         &spf_result,
-        None,
+        Some(&reporting_info),
     );
 
     dmarc_context.check(resolver).await
