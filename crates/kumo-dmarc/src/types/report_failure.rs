@@ -1,13 +1,25 @@
 use instant_xml::ToXml;
+use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 use std::str::FromStr;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ReportFailure {
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ReportFailure {
     all_pass: bool,
     any_pass: bool,
     dkim: bool,
     spf: bool,
+}
+
+impl ReportFailure {
+    pub fn new(all_pass: bool, any_pass: bool, dkim: bool, spf: bool) -> Self {
+        Self {
+            all_pass,
+            any_pass,
+            dkim,
+            spf,
+        }
+    }
 }
 
 impl ToXml for ReportFailure {
@@ -64,16 +76,5 @@ impl FromStr for ReportFailure {
         }
 
         Ok(new)
-    }
-}
-
-impl Default for ReportFailure {
-    fn default() -> Self {
-        Self {
-            all_pass: true,
-            any_pass: false,
-            dkim: false,
-            spf: false,
-        }
     }
 }
