@@ -114,3 +114,7 @@
    idle time are now detected more robustly in between message sends, reducing
    the rate at which a message will get classified as an internal connection
    failure. #482
+ * Certain very specific combinations of long lengths of fields captured in the
+   DKIM-Signature header during signing could lead to conflicting wrapping of
+   that field in the second pass of signing, and result in a signature that
+   some MBPs (specifically, AWS SES) would not validate. #483

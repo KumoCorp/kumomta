@@ -4,7 +4,6 @@ use dns_resolver::{Name, Resolver};
 use indexmap::map::IndexMap;
 use mailparsing::Header;
 use std::str::FromStr;
-use textwrap::core::Word;
 
 pub(crate) const DKIM_SIGNATURE_HEADER_NAME: &str = "DKIM-Signature";
 const SIGN_EXPIRATION_DRIFT_MINS: i64 = 15;
@@ -95,79 +94,79 @@ impl TaggedHeader {
 
     /// Generate the DKIM-Signature header from the tags
     fn serialize(&self) -> String {
-        let mut out = String::new();
+        let mut lines = vec![];
+        let mut line = String::new();
+
+        const WIDTH: usize = 75;
 
         for (key, tag) in &self.tags {
-            let mut value = &tag.value;
-            let value_storage;
+            let value = &tag.value;
 
-            if !out.is_empty() {
-                if key == "b" {
-                    // Always emit b on a separate line for the sake of
-                    // consistency of the hash, which is generated in two
-                    // passes; the first with an empty b value and the second
-                    // with it populated.
-                    // If we don't push it to the next line, the two passes
-                    // may produce inconsistent results as a result of the
-                    // textwrap::fill operation and the signature will be invalid
-                    out.push_str("\r\n");
-                } else if key == "h" {
-                    // header lists can be rather long, and we want to control
-                    // how they wrap with a bit more nuance. We'll put these
-                    // on a line of their own, and explicitly wrap the value
-                    out.push_str("\r\n");
-                    value_storage = textwrap::fill(
-                        value,
-                        textwrap::Options::new(75)
-                            .initial_indent("")
-                            .line_ending(textwrap::LineEnding::CRLF)
-                            .word_separator(textwrap::WordSeparator::Custom(|line| {
-                                let mut start = 0;
-                                let mut prev_was_colon = false;
-                                let mut char_indices = line.char_indices();
+            // Always emit b on a separate line for the sake of
+            // consistency of the hash, which is generated in two
+            // passes; the first with an empty b value and the second
+            // with it populated.
+            // If we don't push it to the next line, the two passes
+            // may produce inconsistent results as a result of the
+            // text wrapping and the signature will be invalid.
+            //
+            // Similarly, header lists can be rather long and we
+            // want to control how they wrap with a bit more nuance.
+            let always_new_line = key == "b" || key == "h";
 
-                                Box::new(std::iter::from_fn(move || {
-                                    for (idx, ch) in char_indices.by_ref() {
-                                        if ch == ':' {
-                                            prev_was_colon = true;
-                                        } else if prev_was_colon {
-                                            prev_was_colon = false;
-                                            let word = Word::from(&line[start..idx]);
-                                            start = idx;
-
-                                            return Some(word);
-                                        }
-                                    }
-                                    if start < line.len() {
-                                        let word = Word::from(&line[start..]);
-                                        start = line.len();
-                                        return Some(word);
-                                    }
-                                    None
-                                }))
-                            }))
-                            .word_splitter(textwrap::WordSplitter::NoHyphenation)
-                            .subsequent_indent("\t"),
-                    );
-                    value = &value_storage;
-                } else {
-                    out.push(' ');
+            if always_new_line || (line.len() + key.len() + 2 + value.len() >= WIDTH) {
+                if !line.is_empty() {
+                    lines.push(line.clone());
+                    line.clear();
                 }
             }
-            out.push_str(key);
-            out.push('=');
-            out.push_str(value);
-            out.push(';');
+
+            if !line.is_empty() {
+                line.push(' ');
+            }
+            line.push_str(key);
+            line.push('=');
+
+            if line.len() + value.len() < WIDTH {
+                line.push_str(value);
+            } else if key == "h" {
+                for (idx, name) in value.split(':').enumerate() {
+                    if idx > 0 {
+                        line.push(':');
+                    }
+                    if line.len() + name.len() < WIDTH {
+                        line.push_str(name);
+                        continue;
+                    }
+
+                    // Need new line
+                    lines.push(line);
+                    line = format!("\t{name}");
+                }
+            } else {
+                if value.len() >= WIDTH {
+                    // Value will never fit even on a fresh line,
+                    // so we force it to break
+                    for c in value.chars() {
+                        line.push(c);
+                        if line.len() >= WIDTH {
+                            lines.push(line.clone());
+                            line.clear();
+                        }
+                    }
+                } else {
+                    lines.push(line);
+                    line = format!("\t{value}");
+                }
+            }
+            line.push(';');
         }
-        textwrap::fill(
-            &out,
-            textwrap::Options::new(75)
-                .initial_indent("")
-                .line_ending(textwrap::LineEnding::CRLF)
-                .word_separator(textwrap::WordSeparator::AsciiSpace)
-                .word_splitter(textwrap::WordSplitter::NoHyphenation)
-                .subsequent_indent("\t"),
-        )
+
+        if !line.is_empty() {
+            lines.push(line);
+        }
+
+        lines.join("\r\n\t")
     }
 
     /// Check things common to DKIM-Signature and ARC-Message-Signature
@@ -529,5 +528,167 @@ v=2;\r
     v3ewYQvD2jZzl2W+O73A08dQ/oeODDPqt6Fpv3XK572cTYPHhzmSbsxh9Lp7Z9MV
     x2TACmO51Adnp3C1CcEw8K9ajAgyjNMW4ELA==";
         ARCSealHeader::parse(seal).unwrap();
+    }
+
+    /// Check that the parsed values in each tag are the same.
+    /// We don't compare the Tags directly as the raw values may
+    /// have whitespace that differs
+    fn check_tagged_header_equality(a: &TaggedHeader, b: &TaggedHeader) {
+        use std::collections::HashMap;
+        let a: HashMap<String, String> = a
+            .tags
+            .values()
+            .map(|t| (t.name.clone(), t.value.clone()))
+            .collect();
+        let b: HashMap<String, String> = b
+            .tags
+            .values()
+            .map(|t| (t.name.clone(), t.value.clone()))
+            .collect();
+        k9::assert_equal!(a, b);
+    }
+
+    fn make_tagged_header(domain: impl Into<String>) -> TaggedHeader {
+        let headers = vec![
+            "from",
+            "to",
+            "message-id",
+            "date",
+            "subject",
+            "content-type",
+            "mime-version",
+            "list-unsubscribe",
+            "list-unsubscribe-post",
+        ];
+
+        let domain = domain.into();
+
+        TaggedHeaderBuilder::new()
+            .add_tag("v", "1")
+            .add_tag("a", "rsa-sha256")
+            .add_tag("d", &domain)
+            .add_tag("s", "stage")
+            .add_tag("c", "relaxed/relaxed")
+            .set_signed_headers(&signed_header_list(&headers))
+            .add_tag("bh", "ecGWgWCJeWxJFeM0urOVWP+KOlqqvsQYKOpYUP8nk7I=")
+            .add_tag("b", "abc123def456xyz789==")
+            .build()
+    }
+
+    /// This is a regression test for a wrapping issue where our
+    /// own header-list aware wrapping was in conflict with a second-pass
+    /// generic textwrap::fill operation that could break our carefully
+    /// wrapped header.
+    /// The code that triggered that condition literally no longer exists
+    /// in the code, but was triggered by this very specific combination
+    /// of tag values so we're keeping it as a regression test.
+    /// <https://github.com/KumoCorp/kumomta/pull/483> is a link to
+    /// a PR describing the issue in more detail.
+    #[test]
+    fn test_long_header_list_with_wrapping() {
+        let header = make_tagged_header("adobe-campaign.com");
+
+        let raw = &header.raw_bytes;
+        k9::snapshot!(
+            &raw,
+            r#"
+v=1; a=rsa-sha256; d=adobe-campaign.com; s=stage; c=relaxed/relaxed;\r
+\th=from:to:message-id:date:subject:content-type:mime-version:\r
+\t\tlist-unsubscribe:list-unsubscribe-post;\r
+\tbh=ecGWgWCJeWxJFeM0urOVWP+KOlqqvsQYKOpYUP8nk7I=;\r
+\tb=abc123def456xyz789==;
+"#
+        );
+
+        let round_trip = TaggedHeader::parse(raw).unwrap();
+        check_tagged_header_equality(&header, &round_trip);
+    }
+
+    #[test]
+    fn test_wrapping_2() {
+        let header = make_tagged_header(format!("{}.com", "a".repeat(76)));
+
+        let raw = &header.raw_bytes;
+        k9::snapshot!(
+            &raw,
+            r#"
+v=1; a=rsa-sha256;\r
+\td=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r
+\taaa.com; s=stage; c=relaxed/relaxed;\r
+\th=from:to:message-id:date:subject:content-type:mime-version:\r
+\t\tlist-unsubscribe:list-unsubscribe-post;\r
+\tbh=ecGWgWCJeWxJFeM0urOVWP+KOlqqvsQYKOpYUP8nk7I=;\r
+\tb=abc123def456xyz789==;
+"#
+        );
+
+        let round_trip = TaggedHeader::parse(raw).unwrap();
+        check_tagged_header_equality(&header, &round_trip);
+    }
+
+    #[test]
+    fn test_wrapping_3() {
+        let header = make_tagged_header(format!("{}.com", "a".repeat(50)));
+
+        let raw = &header.raw_bytes;
+        k9::snapshot!(
+            &raw,
+            r#"
+v=1; a=rsa-sha256;\r
+\td=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com; s=stage;\r
+\tc=relaxed/relaxed;\r
+\th=from:to:message-id:date:subject:content-type:mime-version:\r
+\t\tlist-unsubscribe:list-unsubscribe-post;\r
+\tbh=ecGWgWCJeWxJFeM0urOVWP+KOlqqvsQYKOpYUP8nk7I=;\r
+\tb=abc123def456xyz789==;
+"#
+        );
+
+        let round_trip = TaggedHeader::parse(raw).unwrap();
+        check_tagged_header_equality(&header, &round_trip);
+    }
+
+    #[test]
+    fn test_wrapping_4() {
+        let header = make_tagged_header(format!("{}.com", "a".repeat(49)));
+
+        let raw = &header.raw_bytes;
+        k9::snapshot!(
+            &raw,
+            r#"
+v=1; a=rsa-sha256; d=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com;\r
+\ts=stage; c=relaxed/relaxed;\r
+\th=from:to:message-id:date:subject:content-type:mime-version:\r
+\t\tlist-unsubscribe:list-unsubscribe-post;\r
+\tbh=ecGWgWCJeWxJFeM0urOVWP+KOlqqvsQYKOpYUP8nk7I=;\r
+\tb=abc123def456xyz789==;
+"#
+        );
+
+        let round_trip = TaggedHeader::parse(raw).unwrap();
+        check_tagged_header_equality(&header, &round_trip);
+    }
+
+    #[test]
+    fn test_wrapping_5() {
+        let header = make_tagged_header(format!("{}.com", "a".repeat(70)));
+
+        let raw = &header.raw_bytes;
+        k9::snapshot!(
+            &raw,
+            r#"
+v=1; a=rsa-sha256;\r
+\td=\r
+\t\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com;\r
+\ts=stage; c=relaxed/relaxed;\r
+\th=from:to:message-id:date:subject:content-type:mime-version:\r
+\t\tlist-unsubscribe:list-unsubscribe-post;\r
+\tbh=ecGWgWCJeWxJFeM0urOVWP+KOlqqvsQYKOpYUP8nk7I=;\r
+\tb=abc123def456xyz789==;
+"#
+        );
+
+        let round_trip = TaggedHeader::parse(raw).unwrap();
+        check_tagged_header_equality(&header, &round_trip);
     }
 }

@@ -3756,7 +3756,6 @@ dependencies = [
  "openssl-sys",
  "sha-1",
  "sha2",
- "textwrap",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
