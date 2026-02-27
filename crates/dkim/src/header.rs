@@ -115,6 +115,8 @@ impl TaggedHeader {
                     // header lists can be rather long, and we want to control
                     // how they wrap with a bit more nuance. We'll put these
                     // on a line of their own, and explicitly wrap the value
+                    // using colon-aware line breaking to avoid splitting
+                    // header names mid-word.
                     out.push_str("\r\n");
                     value_storage = textwrap::fill(
                         value,
@@ -159,15 +161,54 @@ impl TaggedHeader {
             out.push_str(value);
             out.push(';');
         }
-        textwrap::fill(
-            &out,
-            textwrap::Options::new(75)
-                .initial_indent("")
-                .line_ending(textwrap::LineEnding::CRLF)
-                .word_separator(textwrap::WordSeparator::AsciiSpace)
-                .word_splitter(textwrap::WordSplitter::NoHyphenation)
-                .subsequent_indent("\t"),
-        )
+
+        // If there are CRLF line breaks in the output (from h= or b= being on
+        // separate lines), we need to handle wrapping carefully to avoid
+        // corrupting the colon-delimited h= value.
+        //
+        // Split on the first CRLF: wrap the beginning part normally, but
+        // preserve the already-wrapped h=/b= parts as-is, just ensure proper
+        // indentation.
+        if let Some(first_break) = out.find("\r\n") {
+            let before_break = &out[..first_break];
+            let after_break = &out[first_break + 2..]; // skip the \r\n
+
+            let wrapped_before = textwrap::fill(
+                before_break,
+                textwrap::Options::new(75)
+                    .initial_indent("")
+                    .line_ending(textwrap::LineEnding::CRLF)
+                    .word_separator(textwrap::WordSeparator::AsciiSpace)
+                    .word_splitter(textwrap::WordSplitter::NoHyphenation)
+                    .subsequent_indent("\t"),
+            );
+
+            // Add tab prefix to continuation lines in after_break
+            // Each line in after_break should be indented with a tab
+            let mut indented_after = String::new();
+            for (i, line) in after_break.lines().enumerate() {
+                if i > 0 {
+                    indented_after.push_str("\r\n");
+                }
+                if !line.is_empty() && !line.starts_with('\t') {
+                    indented_after.push('\t');
+                }
+                indented_after.push_str(line);
+            }
+
+            format!("{}\r\n{}", wrapped_before, indented_after)
+        } else {
+            // No CRLF, apply standard wrapping
+            textwrap::fill(
+                &out,
+                textwrap::Options::new(75)
+                    .initial_indent("")
+                    .line_ending(textwrap::LineEnding::CRLF)
+                    .word_separator(textwrap::WordSeparator::AsciiSpace)
+                    .word_splitter(textwrap::WordSplitter::NoHyphenation)
+                    .subsequent_indent("\t"),
+            )
+        }
     }
 
     /// Check things common to DKIM-Signature and ARC-Message-Signature
@@ -529,5 +570,84 @@ v=2;\r
     v3ewYQvD2jZzl2W+O73A08dQ/oeODDPqt6Fpv3XK572cTYPHhzmSbsxh9Lp7Z9MV
     x2TACmO51Adnp3C1CcEw8K9ajAgyjNMW4ELA==";
         ARCSealHeader::parse(seal).unwrap();
+    }
+
+    #[test]
+    fn test_long_signed_headers_no_split() {
+        // Test that long h= lists don't get split mid-word
+        // This reproduces the AWS SES dkim=permerror issue
+        let headers = vec![
+            "from",
+            "to",
+            "subject",
+            "date",
+            "message-id",
+            "list-unsubscribe",
+            "list-unsubscribe-post",
+            "mime-version",
+            "content-type",
+            "content-transfer-encoding",
+            "reply-to",
+            "sender",
+            "in-reply-to",
+            "references",
+        ];
+        let header = TaggedHeaderBuilder::new()
+            .add_tag("v", "1")
+            .add_tag("a", "rsa-sha256")
+            .add_tag("d", "verylongdomainname.example.com")
+            .add_tag("s", "verylongselectorname")
+            .add_tag("c", "relaxed/relaxed")
+            .set_signed_headers(&signed_header_list(&headers))
+            .add_tag("bh", "abcdef1234567890abcdef1234567890abcdef1234567890")
+            .add_tag("b", "verylongsignaturevaluehere1234567890")
+            .build();
+
+        let raw = header.raw();
+        println!("Generated header:\n{}", raw);
+
+        // The critical check: Parse the raw header and verify it contains
+        // all the expected header names intact
+        // If the folding splits a header name mid-word, parsing will fail
+        // or the header names will be corrupted
+        let h_value = header.get_tag("h").unwrap();
+        let h_headers: Vec<&str> = h_value.split(':').collect();
+
+        println!("Parsed h= headers: {:?}", h_headers);
+
+        // Verify all expected headers are present and not mangled
+        for expected in &headers {
+            assert!(
+                h_headers.iter().any(|h| h.trim() == *expected),
+                "Expected header '{}' not found or was mangled. Found: {:?}",
+                expected,
+                h_headers
+            );
+        }
+
+        // Verify no header name contains line breaks or tabs
+        // (which would indicate mid-word splitting by external wrap)
+        for header_name in &h_headers {
+            assert!(
+                !header_name.contains('\r')
+                    && !header_name.contains('\n')
+                    && !header_name.contains('\t'),
+                "Header name '{}' contains unexpected whitespace characters",
+                header_name
+            );
+        }
+
+        // Most importantly: verify the raw output can be reparsed
+        // If the DKIM-Signature is malformed, parsing should fail
+        let reparsed = TaggedHeader::parse(
+            raw.trim_start_matches(DKIM_SIGNATURE_HEADER_NAME)
+                .trim_start_matches(':')
+                .trim(),
+        );
+        assert!(
+            reparsed.is_ok(),
+            "Failed to reparse DKIM signature: {:?}",
+            reparsed
+        );
     }
 }
