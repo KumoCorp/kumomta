@@ -1,0 +1,105 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="This macro aids in declaring metrics.  Usage looks like:"><title>declare_metric in kumo_prometheus - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-ca0dd0c4.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="kumo_prometheus" data-themes="" data-resource-suffix="" data-rustdoc-version="1.92.0 (ded5c06cf 2025-12-08)" data-channel="1.92.0" data-search-js="search-d69d8955.js" data-stringdex-js="stringdex-c3e638e9.js" data-settings-js="settings-c38705f0.js" ><script src="../static.files/storage-e2aeef58.js"></script><script defer src="sidebar-items.js"></script><script defer src="../static.files/main-ce535bd0.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-263c88ec.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc macro"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">declare_metric</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../kumo_prometheus/index.html">kumo_<wbr>prometheus</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><div id="rustdoc-modnav"></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="index.html">kumo_prometheus</a></div><h1>Macro <span class="macro">declare_<wbr>metric</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/kumo_prometheus/lib.rs.html#402-666">Source</a> </span></div><pre class="rust item-decl"><code>macro_rules! declare_metric {
+    (
+        $(#[doc = $doc:expr])*
+        $vis:vis
+        static $sym:ident:
+        CounterRegistry&lt;$key:ty&gt;(
+            $name:expr $(,)?
+        );
+    ) =&gt; { ... };
+    (
+        $(#[doc = $doc:expr])*
+        $vis:vis
+        static $sym:ident:
+        PruningCounterRegistry&lt;$key:ty&gt;(
+            $name:expr $(,)?
+        );
+    ) =&gt; { ... };
+    (
+        $(#[doc = $doc:expr])*
+        $vis:vis
+        static $sym:ident:
+        PruningGaugeRegistry&lt;$key:ty&gt;(
+            $name:expr $(,)?
+        );
+    ) =&gt; { ... };
+    (
+        $(#[doc = $doc:expr])*
+        $vis:vis
+        static $sym:ident:
+        IntGaugeVec(
+            $name:expr,
+            $labels:expr $(,)*
+        );
+    ) =&gt; { ... };
+    (
+        $(#[doc = $doc:expr])*
+        $vis:vis
+        static $sym:ident:
+        IntCounterVec(
+            $name:expr,
+            $labels:expr $(,)*
+        );
+    ) =&gt; { ... };
+    (
+        $(#[doc = $doc:expr])*
+        $vis:vis
+        static $sym:ident:
+        CounterVec(
+            $name:expr,
+            $labels:expr $(,)*
+        );
+    ) =&gt; { ... };
+    (
+        $(#[doc = $doc:expr])*
+        $vis:vis
+        static $sym:ident:
+        HistogramVec(
+            $name:expr,
+            $labels:expr
+            $(, $buckets:expr)?
+            $(,)*
+        );
+    ) =&gt; { ... };
+    (
+        $(#[doc = $doc:expr])*
+        $vis:vis
+        static $sym:ident:
+        Histogram($name:expr $(, $buckets:expr)?);
+    ) =&gt; { ... };
+    (
+        $(#[doc = $doc:expr])*
+        $vis:vis
+        static $sym:ident:
+        IntCounter($name:expr);
+    ) =&gt; { ... };
+    (
+        $(#[doc = $doc:expr])*
+        $vis:vis
+        static $sym:ident:
+        IntGauge($name:expr);
+    ) =&gt; { ... };
+    (
+        $(#[doc = $doc:expr])*
+        $vis:vis
+        static $sym:ident:
+        Gauge($name:expr);
+    ) =&gt; { ... };
+}</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>This macro aids in declaring metrics.  Usage looks like:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="macro">declare_metric!</span> {
+<span class="doccomment">/// The number of active outgoing connections in the system,
+/// keyed by the service name.
+</span><span class="kw">pub static </span>CONN_GAUGE: PruningGaugeRegistry&lt;ServiceKey&gt;(<span class="string">"connection_count"</span>);
+}</code></pre></div>
+<p>This will wrap the declaration of the global into a LazyLock as
+well as capture metadata about the metric in a way that allows
+it to be retrieved via the <code>export_metadata()</code> function.</p>
+<p>Doc comments are required for every metric declared by this
+macro.</p>
+<p>Different types of metric collector are supported, not just
+the <code>PruningGaugeRegistry</code> shown above.</p>
+<p><code>PruningGaugeRegistry</code> is not actually a real type, it is
+some sugar allowed here to enable setting up a Gauge
+rather than a Counter.</p>
+</div></details></section></div></main></body></html>

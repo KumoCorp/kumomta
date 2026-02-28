@@ -1,0 +1,620 @@
+#!/usr/bin/env python3
+import base64
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+
+
+class Page(object):
+    """A page in the TOC, and its optional children"""
+
+    def __init__(self, title, filename, children=None):
+        self.title = title
+        self.filename = filename
+        self.children = children or []
+
+    def render(self, output, depth=0):
+        indent = "  " * depth
+        bullet = "- " if depth > 0 else ""
+        if depth > 0:
+            if len(self.children) == 0:
+                output.write(f'{indent}{bullet}"{self.title}": {self.filename}\n')
+            else:
+                output.write(f'{indent}{bullet}"{self.title}":\n')
+                if self.filename:
+                    output.write(f'{indent}  {bullet}"{self.title}": {self.filename}\n')
+        for kid in self.children:
+            kid.render(output, depth + 1)
+
+
+class Gen(object):
+    """autogenerate an index page from the contents of a directory"""
+
+    def __init__(self, title, dirname, index=None, extract_title=False, reverse=False):
+        self.title = title
+        self.dirname = dirname
+        self.index = index
+        self.extract_title = extract_title
+        self.reverse = reverse
+
+    def render(self, output, depth=0):
+        names = sorted(
+            glob.glob(f"{self.dirname}/*.md")
+            + glob.glob(f"{self.dirname}/*/_index.md"),
+            reverse=self.reverse,
+        )
+        children = []
+        for filename in names:
+            # Check for nested implicit Gen pages
+            if os.path.dirname(filename) != self.dirname:
+                title = os.path.basename(os.path.dirname(filename))
+                children.append(Gen(title, os.path.dirname(filename)))
+                continue
+
+            title = os.path.basename(filename).rsplit(".", 1)[0]
+            if title == "index" or title == "_index":
+                continue
+
+            if self.extract_title:
+                with open(filename, "r") as f:
+                    # Find the title; it is usually the first line,
+                    # but we may have front-matter containing tags
+                    # that we need to skip, so we look for a line
+                    # starting with # to identify the title
+                    for line in f:
+                        if line.startswith("#"):
+                            title = line.strip("#").strip()
+                            break
+
+            children.append(Page(title, filename))
+
+        index_filename = f"{self.dirname}/index.md"
+        index_page = Page(self.title, index_filename, children=children)
+        index_page.render(output, depth)
+        with open(index_filename, "w") as idx:
+            if self.index:
+                idx.write(self.index)
+                idx.write("\n\n")
+            else:
+                try:
+                    with open(f"{self.dirname}/_index.md", "r") as f:
+                        idx.write(f.read())
+                        idx.write("\n\n")
+                except FileNotFoundError:
+                    pass
+            for page in children:
+                if type(page) is Page:
+                    idx.write(
+                        f"  - [{page.title}]({os.path.basename(page.filename)})\n"
+                    )
+                elif type(page) is Gen:
+                    idx.write(
+                        f"  - [{page.title}]({os.path.basename(page.dirname)}/index.md)\n"
+                    )
+                else:
+                    print("WAT", page)
+
+
+class RustDoc(object):
+    """autogenerate an index page from the contents of a directory"""
+
+    def __init__(self, title, dirname):
+        self.title = title
+        self.dirname = dirname
+
+    def render(self, output, depth=0):
+        names = sorted(glob.glob(f"{self.dirname}/*/index.html"))
+        children = []
+        for filename in names:
+            crate_name = os.path.dirname(filename)
+            title = os.path.basename(crate_name)
+
+            children.append(Page(title, filename))
+
+        index_filename = f"{self.dirname}/index.md"
+        index_page = Page(self.title, index_filename, children=children)
+        index_page.render(output, depth)
+        with open(index_filename, "w") as idx:
+            idx.write(
+                """
+This section contains automatically generated documentation from
+the internal Rust code.  It is included in here to aid those
+hacking on the internals.
+
+There are no stability guarantees with this API: it may change
+without any regard for backward compatibility.
+
+The following crates are part of the KumoMTA workspace:
+
+"""
+            )
+            for page in children:
+                idx.write(f"  - [{page.title}]({page.title}/index.html)\n")
+
+
+TOC = [
+    Page(
+        "Tutorial",
+        None,
+        children=[
+            Page("Quickstart Tutorial", "tutorial/quickstart.md"),
+            Page("Server Environment", "tutorial/server_environment.md"),
+            Page("System Preparation", "tutorial/system_preparation.md"),
+            Page("Installing KumoMTA", "tutorial/installing_kumomta.md"),
+            Page("Configuring KumoMTA", "tutorial/configuring_kumomta.md"),
+            Page("Starting KumoMTA", "tutorial/starting_kumomta.md"),
+            Page("Testing KumoMTA", "tutorial/testing_kumomta.md"),
+            Page("Checking Logs", "tutorial/checking_logs.md"),
+            Page("Next Steps", "tutorial/next_steps.md"),
+        ],
+    ),
+    Page(
+        "User Guide",
+        "userguide/index.md",
+        children=[
+            Page(
+                "General",
+                None,
+                children=[
+                    Page("Preface and Legal Notices", "userguide/general/preface.md"),
+                    Page("About This Manual", "userguide/general/about.md"),
+                    Page("How to Report Bugs", "userguide/general/report.md"),
+                    Page("How to Get Help", "userguide/general/get_help.md"),
+                    Page("Credits", "userguide/general/credits.md"),
+                    Page("History", "userguide/general/history.md"),
+                    Page("Architecture", "userguide/general/architecture.md"),
+                    Page("Lua Fundamentals", "userguide/general/lua.md"),
+                ],
+            ),
+            Page(
+                "Installation",
+                None,
+                children=[
+                    Page(
+                        "Installation Overview",
+                        "userguide/installation/overview.md",
+                    ),
+                    Page("Server Environment", "userguide/installation/environment.md"),
+                    Page("Server Hardware", "userguide/installation/hardware.md"),
+                    Page(
+                        "Operating System", "userguide/installation/operatingsystem.md"
+                    ),
+                    Page("System Preparation", "userguide/installation/system_prep.md"),
+                    Page(
+                        "Security Considerations", "userguide/installation/security.md"
+                    ),
+                    Page("Installing on Linux", "userguide/installation/linux.md"),
+                    Page("Upgrading", "userguide/installation/upgrading.md"),
+                    Page("Installing on Docker", "userguide/installation/docker.md"),
+                    Page("Building from Source", "userguide/installation/source.md"),
+                ],
+            ),
+            Page(
+                "Configuration",
+                None,
+                children=[
+                    Page(
+                        "Configuration Concepts", "userguide/configuration/concepts.md"
+                    ),
+                    Page(
+                        "Lua Policy Helpers",
+                        "userguide/configuration/policy_helpers.md",
+                    ),
+                    Page("Example Server Policy", "userguide/configuration/example.md"),
+                    Page("Configuring Spooling", "userguide/configuration/spool.md"),
+                    Page("Configuring Logging", "userguide/configuration/logging.md"),
+                    Page(
+                        "Configuring SMTP Listeners",
+                        "userguide/configuration/smtplisteners.md",
+                    ),
+                    Page(
+                        "Configuring Inbound and Relay Domains",
+                        "userguide/configuration/domains.md",
+                    ),
+                    Page(
+                        "Configuring Bounce Classification",
+                        "userguide/configuration/bounce.md",
+                    ),
+                    Page(
+                        "Configuring Feedback Loop Processing",
+                        "userguide/configuration/fbl.md",
+                    ),
+                    Page(
+                        "Configuring HTTP Listeners",
+                        "userguide/configuration/httplisteners.md",
+                    ),
+                    Page(
+                        "Configuring Sending IPs",
+                        "userguide/configuration/sendingips.md",
+                    ),
+                    Page(
+                        "Configuring Queue Management",
+                        "userguide/configuration/queuemanagement.md",
+                    ),
+                    Page(
+                        "Configuring Queue Rollup",
+                        "userguide/configuration/rollup.md",
+                    ),
+                    Page(
+                        "Configuring Traffic Shaping",
+                        "userguide/configuration/trafficshaping.md",
+                    ),
+                    Page("Configuring DKIM Signing", "userguide/configuration/dkim.md"),
+                ],
+            ),
+            Page(
+                "Operation",
+                None,
+                children=[
+                    Page("Starting KumoMTA", "userguide/operation/starting.md"),
+                    Page("Getting Server Status", "userguide/operation/status.md"),
+                    Page(
+                        "Troubleshooting KumoMTA",
+                        "userguide/operation/troubleshooting.md",
+                    ),
+                    Page(
+                        "Injecting Messages using SMTP",
+                        "userguide/operation/smtpinjection.md",
+                    ),
+                    Page(
+                        "Injecting Messages using HTTP",
+                        "userguide/operation/httpinjection.md",
+                    ),
+                    Page(
+                        "Routing Messages Via Proxy Servers",
+                        "userguide/operation/proxy.md",
+                    ),
+                    Page("Viewing Logs", "userguide/operation/logs.md"),
+                    Page("Canceling Queued Messages", "userguide/operation/cancel.md"),
+                    Page(
+                        "Additional Utilities",
+                        "userguide/operation/command-line-index.md",
+                    ),
+                    Page(
+                        "Using the kcli Command-Line Client",
+                        "userguide/operation/kcli.md",
+                    ),
+                    Page(
+                        "KumoProxy SOCKS5 Server", "userguide/operation/kumo-proxy.md"
+                    ),
+                ],
+            ),
+            Page(
+                "Policy",
+                "userguide/policy/index.md",
+                children=[
+                    Page(
+                        "Checking Inbound SMTP Authentication",
+                        "userguide/policy/inbound_auth.md",
+                    ),
+                    Page(
+                        "Delivering Messages Using SMTP Auth",
+                        "userguide/operation/outbound_auth.md",
+                    ),
+                    Page("Custom Destination Routing", "userguide/policy/routing.md"),
+                    Page(
+                        "Routing Messages via HTTP Request", "userguide/policy/http.md"
+                    ),
+                    Page("Routing Messages via AMQP", "userguide/policy/amqp.md"),
+                    Page("Routing Messages via Kafka", "userguide/policy/kafka.md"),
+                    Page("Routing Messages via NATS", "userguide/policy/nats.md"),
+                    Page(
+                        "Storing Secrets in Hashicorp Vault",
+                        "userguide/policy/hashicorp_vault.md",
+                    ),
+                    Page(
+                        "Publishing Log Events Via Webhooks",
+                        "userguide/operation/webhooks.md",
+                    ),
+                    Page(
+                        "Rewriting Remote Server Responses",
+                        "userguide/policy/rewrite.md",
+                    ),
+                ],
+            ),
+            Page(
+                "Clustering",
+                "userguide/clustering/index.md",
+                children=[
+                    Page(
+                        "Deployment Architecture", "userguide/clustering/deployment.md"
+                    ),
+                    Page("Aggregating Event Data", "userguide/clustering/eventdata.md"),
+                    Page(
+                        "Implementing Shared Throttles",
+                        "userguide/clustering/throttles.md",
+                    ),
+                    Page(
+                        "Clustered Traffic Shaping Automation",
+                        "userguide/clustering/trafficshapingautomation.md",
+                    ),
+                    Page(
+                        "Scaling Clusters Up and Down",
+                        "userguide/clustering/scaling.md",
+                    ),
+                    Page(
+                        "Deploying KumoMTA on Kubernetes",
+                        "userguide/clustering/kubernetes.md",
+                    ),
+                    Page(
+                        "Node ID",
+                        "userguide/clustering/nodeid.md",
+                    ),
+                ],
+            ),
+            Page(
+                "Performance",
+                "userguide/performance/index.md",
+                children=[
+                    Page("Architecture", "userguide/performance/architecture.md"),
+                    Page("Linux Tuning", "userguide/performance/linuxtuning.md"),
+                    Page("DNS", "userguide/performance/dns.md"),
+                    Page("Performance Testing", "userguide/performance/testing.md"),
+                    Page(
+                        "Understanding KumoMTA Message Flows",
+                        "userguide/performance/messageflow.md",
+                    ),
+                    Page("Log Hooks", "userguide/performance/loghooks.md"),
+                ],
+            ),
+            Page(
+                "Integrations",
+                "userguide/integrations/index.md",
+                children=[
+                    Page("EmailElement", "userguide/integrations/emailelement.md"),
+                    Page(
+                        "Ongage",
+                        "userguide/integrations/ongage.md",
+                    ),
+                    Page(
+                        "Mautic",
+                        "userguide/integrations/mautic.md",
+                    ),
+                    Page("Postmastery", "userguide/integrations/postmastery.md"),
+                    Page(
+                        "Tatami Monitor",
+                        "userguide/integrations/tatamimonitor.md",
+                    ),
+                    Page(
+                        "Prometheus",
+                        "userguide/integrations/prometheus.md",
+                    ),
+                    Page(
+                        "Grafana",
+                        "userguide/integrations/grafana.md",
+                    ),
+                    Page(
+                        "Hornetsecurity Spam Filter",
+                        "userguide/integrations/hornetsecurity.md",
+                    ),
+                    Page(
+                        "Rspamd Spam filter",
+                        "userguide/integrations/rspamd.md",
+                    ),
+                ],
+            ),
+        ],
+    ),
+    Page(
+        "Reference Manual",
+        "reference/index.md",
+        children=[
+            Page("Predefined Metadata", "reference/metadata.md"),
+            Page("Queues", "reference/queues.md"),
+            Page("Configuration Lifecycle", "reference/configuration.md"),
+            Page("SMTP Server Events", "reference/smtp_server_events.md"),
+            Page("Memory Management", "reference/memory.md"),
+            Gen("Template Syntax", "reference/template"),
+            Page("Log Record", "reference/log_record.md"),
+            Page("Access Control", "reference/access_control.md"),
+            Gen("kcli", "reference/kcli", extract_title=True),
+            Gen(
+                "module: kumo",
+                "reference/kumo",
+            ),
+            Gen(
+                "module: kumo.aaa",
+                "reference/kumo.aaa",
+            ),
+            Gen(
+                "module: kumo.amqp",
+                "reference/kumo.amqp",
+            ),
+            Gen(
+                "module: kumo.api.inject",
+                "reference/kumo.api.inject",
+            ),
+            Gen(
+                "module: kumo.crypto",
+                "reference/kumo.crypto",
+            ),
+            Gen(
+                "module: kumo.digest",
+                "reference/kumo.digest",
+            ),
+            Gen(
+                "module: kumo.dkim",
+                "reference/kumo.dkim",
+            ),
+            Gen(
+                "module: kumo.dns",
+                "reference/kumo.dns",
+            ),
+            Gen(
+                "module: kumo.encode",
+                "reference/kumo.encode",
+            ),
+            Gen(
+                "module: kumo.cidr",
+                "reference/kumo.cidr",
+            ),
+            Gen(
+                "module: kumo.domain_map",
+                "reference/kumo.domain_map",
+            ),
+            Gen(
+                "module: kumo.file_type",
+                "reference/kumo.file_type",
+            ),
+            Gen(
+                "module: kumo.fs",
+                "reference/kumo.fs",
+            ),
+            Gen(
+                "module: kumo.http",
+                "reference/kumo.http",
+            ),
+            Gen(
+                "module: kumo.kafka",
+                "reference/kumo.kafka",
+            ),
+            Gen(
+                "module: kumo.nats",
+                "reference/kumo.nats",
+            ),
+            Gen(
+                "module: kumo.mimepart",
+                "reference/kumo.mimepart",
+            ),
+            Gen(
+                "module: kumo.mpsc",
+                "reference/kumo.mpsc",
+            ),
+            Gen(
+                "module: kumo.regex_set_map",
+                "reference/kumo.regex_set_map",
+            ),
+            Gen(
+                "module: kumo.secrets",
+                "reference/kumo.secrets",
+            ),
+            Gen(
+                "module: kumo.serde",
+                "reference/kumo.serde",
+            ),
+            Gen(
+                "module: kumo.shaping",
+                "reference/kumo.shaping",
+            ),
+            Gen(
+                "module: kumo.spf",
+                "reference/kumo.spf",
+            ),
+            Gen(
+                "module: kumo.uuid",
+                "reference/kumo.uuid",
+            ),
+            Gen(
+                "module: redis",
+                "reference/redis",
+            ),
+            Gen(
+                "module: regex",
+                "reference/regex",
+            ),
+            Gen(
+                "module: sqlite",
+                "reference/sqlite",
+            ),
+            Gen(
+                "module: string",
+                "reference/string",
+            ),
+            Gen(
+                "module: kumo.time",
+                "reference/kumo.time",
+            ),
+            Gen(
+                "module: kumo.xfer",
+                "reference/kumo.xfer",
+            ),
+            Gen(
+                "module: policy-extras.mail_auth",
+                "reference/policy-extras.mail_auth",
+            ),
+            Gen(
+                "module: proxy",
+                "reference/proxy",
+            ),
+            Gen(
+                "module: tsa",
+                "reference/tsa",
+            ),
+            Gen(
+                "object: address",
+                "reference/address",
+            ),
+            Gen(
+                "object: addressheader",
+                "reference/addressheader",
+            ),
+            Page(
+                "object: authenticationresult",
+                "reference/authenticationresult.md",
+            ),
+            Page(
+                "object: connectionmeta",
+                "reference/connectionmeta.md",
+            ),
+            Gen(
+                "object: headermap",
+                "reference/headermap",
+            ),
+            Gen(
+                "object: header",
+                "reference/header",
+            ),
+            Page(
+                "object: keysource",
+                "reference/keysource.md",
+            ),
+            Gen(
+                "object: message",
+                "reference/message",
+            ),
+            Gen(
+                "object: mimepart",
+                "reference/mimepart",
+            ),
+            Gen(
+                "events",
+                "reference/events",
+            ),
+            Gen("kumod HTTP API", "reference/http/kumod", extract_title=True),
+            Gen("kumod Metrics", "reference/metrics/kumod", extract_title=True),
+            Gen(
+                "proxy-server HTTP API",
+                "reference/http/proxy-server",
+                extract_title=True,
+            ),
+            Gen(
+                "proxy-server Metrics",
+                "reference/metrics/proxy-server",
+                extract_title=True,
+            ),
+            RustDoc(
+                "Internal Rust API",
+                "rustapi",
+            ),
+            Page("Tags", "tags.md"),
+        ],
+    ),
+    Gen(
+        "FAQ",
+        "faq",
+        extract_title=True,
+    ),
+    Gen("Changelog", "changelog", extract_title=True, reverse=True),
+]
+
+os.chdir("docs")
+
+with open("../mkdocs.yml", "w") as f:
+    f.write("# this is auto-generated by docs/generate-toc.py, do not edit\n")
+    f.write("INHERIT: mkdocs-base.yml\n")
+    f.write("nav:\n")
+    for page in TOC:
+        page.render(f, depth=1)

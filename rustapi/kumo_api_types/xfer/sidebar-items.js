@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["XferCancelV1Request","XferCancelV1Response","XferProtocol","XferV1Request","XferV1Response"]};
