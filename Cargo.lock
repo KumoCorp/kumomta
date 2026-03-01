@@ -3738,6 +3738,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-counter-series"
+version = "0.1.0"
+dependencies = [
+ "k9",
+ "tokio",
+]
+
+[[package]]
 name = "kumo-dkim"
 version = "0.3.0"
 dependencies = [
