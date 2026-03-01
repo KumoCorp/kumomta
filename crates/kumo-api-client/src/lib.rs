@@ -240,6 +240,15 @@ impl KumoApiClient {
         Ok(body_text.to_string())
     }
 
+    pub async fn admin_bump_config_epoch(&self) -> anyhow::Result<String> {
+        self.request_with_text_response(
+            reqwest::Method::POST,
+            self.endpoint.join("/api/admin/bump-config-epoch")?,
+            &(),
+        )
+        .await
+    }
+
     pub async fn request_with_streaming_text_response<T: reqwest::IntoUrl, B: serde::Serialize>(
         &self,
         method: reqwest::Method,

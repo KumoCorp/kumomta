@@ -4,6 +4,7 @@ use crate::webhook::WebHookServer;
 use anyhow::Context;
 use futures::stream::FusedStream;
 use futures::{SinkExt, StreamExt};
+use kumo_api_client::KumoApiClient;
 use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Request};
 use kumo_log_types::*;
 use kumo_server_common::acct::AcctLogRecord;
@@ -608,6 +609,12 @@ impl KumoDaemon {
             Some(addr) => *addr,
             None => panic!("listener service {service} is not defined. Did it fail to start?"),
         }
+    }
+
+    pub fn api_client(&self) -> KumoApiClient {
+        let endpoint = format!("http://{}", self.listener("http"));
+        let url = kumo_api_client::Url::parse(&endpoint).unwrap();
+        KumoApiClient::new(url)
     }
 
     pub async fn smtp_client(&self, host: &str) -> anyhow::Result<SmtpClient> {
