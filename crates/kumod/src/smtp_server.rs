@@ -39,6 +39,7 @@ use rfc5321::{
     subject_name, AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response, TlsInformation,
     XClientParameter,
 };
+use rustls::server::ClientHello;
 use rustls::ServerConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -53,7 +54,6 @@ use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::time::timeout_at;
-use tokio_rustls::TlsAcceptor;
 use tracing::{error, instrument, Level};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -115,6 +115,14 @@ static SMTP_SERVER_AUTH_PLAIN: Single(
     password: &str,
     connection_metadata: ConnectionMetaData
 ) -> SerdeWrappedValue<AuthKindResult>;
+}
+declare_event! {
+static SMTP_SERVER_GET_TLS_PARAMS: Single(
+    "smtp_server_get_dynamic_tls_parameters",
+    listener: String,
+    connection_metadata: ConnectionMetaData,
+    client_hello: SerdeWrappedValue<ClientHelloWrapper>,
+) -> Option<EsmtpListenerTlsParameters>;
 }
 
 static CRLF: LazyLock<Finder> = LazyLock::new(|| Finder::new("\r\n"));
@@ -268,6 +276,19 @@ impl mlua::FromLua for LogReportDisposition {
             "expected a boolean value or one of \
             'Ignore', 'LogThenDrop' or 'LogThenRelay', but got {value:?}"
         )))
+    }
+}
+
+#[derive(Clone, Serialize)]
+pub struct ClientHelloWrapper {
+    pub server_name: Option<String>,
+}
+
+impl ClientHelloWrapper {
+    fn new(client_hello: &ClientHello<'_>) -> Self {
+        Self {
+            server_name: client_hello.server_name().map(Into::into),
+        }
     }
 }
 
@@ -430,12 +451,24 @@ pub struct ConcreteEsmtpListenerParams {
 }
 
 impl ConcreteEsmtpListenerParams {
-    pub async fn build_tls_acceptor(&self) -> anyhow::Result<TlsAcceptor> {
-        let key = TlsAcceptorConfigKey {
-            hostname: self.hostname.clone(),
-            tls_private_key: self.tls_private_key.clone(),
-            tls_certificate: self.tls_certificate.clone(),
-            tls_required_client_ca: self.tls_required_client_ca.clone(),
+    pub async fn build_server_config(
+        &self,
+        opt_params: Option<EsmtpListenerTlsParameters>,
+    ) -> anyhow::Result<Arc<ServerConfig>> {
+        let key = if let Some(params) = opt_params {
+            TlsAcceptorConfigKey {
+                hostname: params.hostname.unwrap_or_else(|| self.hostname.clone()),
+                tls_private_key: params.tls_private_key,
+                tls_certificate: params.tls_certificate,
+                tls_required_client_ca: params.tls_required_client_ca,
+            }
+        } else {
+            TlsAcceptorConfigKey {
+                hostname: self.hostname.clone(),
+                tls_private_key: self.tls_private_key.clone(),
+                tls_certificate: self.tls_certificate.clone(),
+                tls_required_client_ca: self.tls_required_client_ca.clone(),
+            }
         };
 
         let lookup = TLS_CONFIG
@@ -452,7 +485,7 @@ impl ConcreteEsmtpListenerParams {
             .await
             .map_err(|err| anyhow::anyhow!("{err:#}"))?;
 
-        Ok(TlsAcceptor::from(lookup.item))
+        Ok(lookup.item)
     }
 
     pub fn apply_generic(
@@ -600,6 +633,25 @@ pub enum BatchHandling {
     /// Extract the domains of the recipients and batch the recipients
     /// by domain
     BatchByDomain,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct EsmtpListenerTlsParameters {
+    #[serde(default)]
+    pub hostname: Option<String>,
+    #[serde(default)]
+    pub tls_certificate: Option<KeySource>,
+    #[serde(default)]
+    pub tls_private_key: Option<KeySource>,
+    #[serde(default)]
+    pub tls_required_client_ca: Option<KeySource>,
+}
+
+impl mlua::FromLua for EsmtpListenerTlsParameters {
+    fn from_lua(value: mlua::Value, lua: &mlua::Lua) -> Result<Self, mlua::Error> {
+        config::from_lua_value(lua, value)
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
@@ -1733,60 +1785,89 @@ impl SmtpServerSession {
                     }
                     self.write_response(220, "Ready to Start TLS", None, RejectDisconnect::If421)
                         .await?;
-                    let acceptor = self.params.build_tls_acceptor().await?;
-                    let socket: BoxedAsyncReadAndWrite = match acceptor
-                        .accept(self.socket.take().unwrap())
-                        .into_fallible()
-                        .await
-                    {
-                        Ok(stream) => {
-                            let (_io, conn) = stream.get_ref();
-                            let mut tls_info = TlsInformation::default();
 
-                            tls_info.provider_name = "rustls".to_string();
-                            tls_info.cipher = match conn.negotiated_cipher_suite() {
-                                Some(suite) => {
-                                    suite.suite().as_str().unwrap_or("UNKNOWN").to_string()
+                    let lazy_acceptor = tokio_rustls::LazyConfigAcceptor::new(
+                        rustls::server::Acceptor::default(),
+                        self.socket.take().expect("have socket"),
+                    );
+                    tokio::pin!(lazy_acceptor);
+
+                    let socket: BoxedAsyncReadAndWrite = match lazy_acceptor.as_mut().await {
+                        Ok(start) => {
+                            let client_hello = start.client_hello();
+
+                            let opt_params: Option<EsmtpListenerTlsParameters> = self
+                                .call_callback_sig(
+                                    &SMTP_SERVER_GET_TLS_PARAMS,
+                                    (
+                                        self.my_address.to_string(),
+                                        self.meta.clone(),
+                                        SerdeWrappedValue(ClientHelloWrapper::new(&client_hello)),
+                                    ),
+                                )
+                                .await??;
+
+                            let config = self.params.build_server_config(opt_params).await?;
+                            match start.into_stream(config).into_fallible().await {
+                                Ok(stream) => {
+                                    let (_io, conn) = stream.get_ref();
+                                    let mut tls_info = TlsInformation::default();
+
+                                    tls_info.provider_name = "rustls".to_string();
+                                    tls_info.cipher = match conn.negotiated_cipher_suite() {
+                                        Some(suite) => {
+                                            suite.suite().as_str().unwrap_or("UNKNOWN").to_string()
+                                        }
+                                        None => String::new(),
+                                    };
+                                    tls_info.protocol_version = match conn.protocol_version() {
+                                        Some(version) => {
+                                            version.as_str().unwrap_or("UNKNOWN").to_string()
+                                        }
+                                        None => String::new(),
+                                    };
+
+                                    if let Some(certs) = conn.peer_certificates() {
+                                        let peer_cert = &certs[0];
+                                        if let Ok(cert) = X509::from_der(peer_cert.as_ref()) {
+                                            tls_info.subject_name = subject_name(&cert);
+                                        }
+                                    }
+
+                                    if !tls_info.cipher.is_empty() {
+                                        self.meta.set_meta("tls_cipher", tls_info.cipher.clone());
+                                    }
+                                    if !tls_info.protocol_version.is_empty() {
+                                        self.meta.set_meta(
+                                            "tls_protocol_version",
+                                            tls_info.protocol_version.clone(),
+                                        );
+                                    }
+                                    if !tls_info.subject_name.is_empty() {
+                                        self.meta.set_meta(
+                                            "tls_peer_subject_name",
+                                            tls_info.subject_name.clone(),
+                                        );
+                                    }
+
+                                    self.tls_active = Some(tls_info);
+
+                                    Box::new(stream)
                                 }
-                                None => String::new(),
-                            };
-                            tls_info.protocol_version = match conn.protocol_version() {
-                                Some(version) => version.as_str().unwrap_or("UNKNOWN").to_string(),
-                                None => String::new(),
-                            };
-
-                            if let Some(certs) = conn.peer_certificates() {
-                                let peer_cert = &certs[0];
-                                if let Ok(cert) = X509::from_der(peer_cert.as_ref()) {
-                                    tls_info.subject_name = subject_name(&cert);
+                                Err((err, stream)) => {
+                                    tracing::debug!("TLS handshake failed: {err:#}");
+                                    stream
                                 }
                             }
-
-                            if !tls_info.cipher.is_empty() {
-                                self.meta.set_meta("tls_cipher", tls_info.cipher.clone());
-                            }
-                            if !tls_info.protocol_version.is_empty() {
-                                self.meta.set_meta(
-                                    "tls_protocol_version",
-                                    tls_info.protocol_version.clone(),
-                                );
-                            }
-                            if !tls_info.subject_name.is_empty() {
-                                self.meta.set_meta(
-                                    "tls_peer_subject_name",
-                                    tls_info.subject_name.clone(),
-                                );
-                            }
-
-                            self.tls_active = Some(tls_info);
-
-                            Box::new(stream)
                         }
-                        Err((err, stream)) => {
-                            tracing::debug!("TLS handshake failed: {err:#}");
-                            stream
+                        Err(err) => {
+                            tracing::debug!("TLS accept failed: {err:#}");
+                            lazy_acceptor
+                                .take_io()
+                                .ok_or_else(|| anyhow::anyhow!("TLS acceptor setup failed"))?
                         }
                     };
+
                     self.socket.replace(socket);
                 }
                 Ok(Command::Auth {
