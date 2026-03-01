@@ -3871,6 +3871,7 @@ dependencies = [
  "metrics-tracing-context",
  "mlua",
  "mod-amqp",
+ "mod-audit-series",
  "mod-aws-sigv4",
  "mod-crypto",
  "mod-digest",
@@ -4793,6 +4794,21 @@ dependencies = [
  "tokio-executor-trait",
  "tokio-reactor-trait",
  "tracing",
+]
+
+[[package]]
+name = "mod-audit-series"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "duration-serde",
+ "lru-cache",
+ "lruttl",
+ "mlua",
+ "parking_lot",
+ "serde",
+ "tokio",
 ]
 
 [[package]]
