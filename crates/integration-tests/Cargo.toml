@@ -14,6 +14,7 @@ futures.workspace = true
 futures-lite = {workspace=true}
 k9 = {workspace=true}
 kumo-dkim = {path="../dkim"}
+kumo-api-client = {path="../kumo-api-client"}
 kumo-api-types = {path="../kumo-api-types"}
 kumo-log-types = {path="../kumo-log-types"}
 kumo-server-common = {path="../kumo-server-common"}

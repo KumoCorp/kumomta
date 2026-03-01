@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 use tokio::time::Duration;
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct LuaDeliveryProtocol {
     /// The name of an event to fire that will construct

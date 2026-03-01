@@ -82,6 +82,9 @@ pub enum InsertReason {
     /// The peer unilaterally closed the connection before we started
     /// delivery, so we want to try a new connection plan
     PeerClosedConnection,
+    /// The delivery protocol associated with the queue implicitly via the
+    /// scheduled queue configuration changed
+    ProtocolChanged,
 }
 
 #[cfg(test)]

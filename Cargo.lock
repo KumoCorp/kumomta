@@ -3384,6 +3384,7 @@ dependencies = [
  "futures",
  "futures-lite 2.6.1",
  "k9",
+ "kumo-api-client",
  "kumo-api-types",
  "kumo-dkim",
  "kumo-log-types",

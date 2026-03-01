@@ -42,7 +42,7 @@ use rfc5321::{EnhancedStatusCode, Response};
 use serde::Serialize;
 use std::fmt::Debug;
 use std::future::Future;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use throttle::limit::{LimitLease, LimitSpecWithDuration};
@@ -144,6 +144,7 @@ pub struct Fifo {
     count: ReadyCountBundle,
     capacity: AtomicUsize,
     num_reserved: AtomicUsize,
+    closed: AtomicBool,
 }
 
 impl Fifo {
@@ -153,6 +154,7 @@ impl Fifo {
             list: FairMutex::new(MessageList::new()),
             capacity: AtomicUsize::new(capacity),
             num_reserved: AtomicUsize::new(0),
+            closed: AtomicBool::new(false),
         }
     }
 
@@ -449,6 +451,7 @@ impl ReadyQueueManager {
             ));
             let notify_dispatcher = Arc::new(Notify::new());
             let next_config_refresh = Instant::now() + path_config.refresh_interval;
+            let protocol = queue_config.borrow().protocol.clone();
 
             Arc::new(ReadyQueue {
                 name: name.clone(),
@@ -461,6 +464,7 @@ impl ReadyQueueManager {
                 num_connections: Arc::new(AtomicUsize::new(0)),
                 path_config: ConfigHandle::new(path_config),
                 queue_config: queue_config.clone(),
+                protocol,
                 egress_source,
                 metrics,
                 activity,
@@ -640,13 +644,23 @@ impl ReadyQueueManager {
             if queue.reapable(&last_notify, &suspend) {
                 if MANAGER
                     .queues
-                    .remove_if(&name, |_k, _q| queue.reapable(&last_notify, &suspend))
+                    .remove_if(&name, |_k, q| {
+                        Arc::ptr_eq(&q, &queue) && queue.reapable(&last_notify, &suspend)
+                    })
                     .is_some()
                 {
                     tracing::debug!("reaping site {name}");
+                    queue.ready.closed.store(true, Ordering::Relaxed);
 
                     queue
                         .reinsert_ready_queue("reap", InsertReason::ReadyQueueWasReaped.into())
+                        .await;
+                    return Ok(());
+                } else if ReadyQueueManager::get_by_name(&name).is_none() {
+                    // Likely removed due to the protocol changing; we have nothing more
+                    // to do, so perform a final sweep and we're complete
+                    queue
+                        .reinsert_ready_queue("reaped", InsertReason::ReadyQueueWasReaped.into())
                         .await;
                     return Ok(());
                 }
@@ -664,6 +678,36 @@ impl ReadyQueueManager {
             } else if queue.activity.is_shutting_down() {
                 let n = queue.connections.lock().len();
                 tracing::debug!("{name}: waiting for {n} connections to close before reaping");
+            } else {
+                let reap_now = !queue.is_canonical() || queue.protocol_changed();
+
+                if reap_now && !shutting_down {
+                    tracing::debug!("{name}: I am no longer the canonical ready queue");
+                    // Ensure that we're no longer linked
+                    MANAGER
+                        .queues
+                        .remove_if(&name, |_k, q| Arc::ptr_eq(&q, &queue));
+                    // Mark this instance as closed; this will cause any dispatchers
+                    // to close themselves out when we wake them on the line
+                    // following this next one
+                    queue.ready.closed.store(true, Ordering::Relaxed);
+                    // wake up dispatchers; they will notice that the fifo is closed
+                    // and wind themselves down
+                    queue.wakeup_all_dispatchers();
+
+                    // Flag to our control loop that we're in shut down mode now
+                    shutting_down = true;
+                    // compute a reasonable deadline for forcing termination
+                    let path_config = queue.path_config.borrow();
+                    let duration = path_config.system_shutdown_timeout.unwrap_or_else(|| {
+                        path_config.client_timeouts.total_message_send_duration()
+                    });
+                    force_reap_deadline.replace(tokio::time::Instant::now() + duration);
+                    tracing::debug!("{name}: reap deadline in {duration:?}");
+
+                    // Now we'll continue to loop as though we're in whole-server shutdown,
+                    // and we'll self reap "as usual".
+                }
             }
         }
     }
@@ -690,6 +734,7 @@ pub struct ReadyQueue {
     activity: Activity,
     consecutive_connection_failures: Arc<AtomicUsize>,
     path_config: ConfigHandle<EgressPathConfig>,
+    protocol: DeliveryProto,
     queue_config: ConfigHandle<QueueConfig>,
     egress_pool: String,
     egress_source: EgressSource,
@@ -712,6 +757,10 @@ impl ReadyQueue {
                 None
             }
         }
+    }
+
+    fn wakeup_maintainer(&self) {
+        self.notify_maintainer.notify_one();
     }
 
     pub fn wakeup_all_dispatchers(&self) {
@@ -910,7 +959,20 @@ impl ReadyQueue {
         connections.len()
     }
 
-    async fn maintain(&self, suspend: &Option<AdminSuspendReadyQEntryRef>) {
+    /// Returns true if this ReadyQueue instance is the canonical instance.
+    /// The canonical instance is the one currently managed by the manager
+    /// mapping.
+    fn is_canonical(self: &Arc<Self>) -> bool {
+        ReadyQueueManager::get_by_name(&self.name)
+            .map(|q| Arc::ptr_eq(&q, &self))
+            .unwrap_or(false)
+    }
+
+    fn protocol_changed(self: &Arc<Self>) -> bool {
+        self.protocol != self.queue_config.borrow().protocol
+    }
+
+    async fn maintain(self: &Arc<Self>, suspend: &Option<AdminSuspendReadyQEntryRef>) {
         // Prune completed connection tasks and obtain the number of connections
         let current_connection_count = {
             let mut connections = self.connections.lock();
@@ -944,6 +1006,13 @@ impl ReadyQueue {
                 .expect("failed to spawn save_if_needed_and_log");
             }
 
+            return;
+        }
+
+        if !self.is_canonical() || self.protocol_changed() {
+            self.reinsert_ready_queue("non canonical", InsertReason::ProtocolChanged.into())
+                .await;
+            self.wakeup_all_dispatchers();
             return;
         }
 
@@ -1091,19 +1160,21 @@ impl ReadyQueue {
     }
 
     fn reapable(
-        &self,
+        self: &Arc<Self>,
         last_change: &Instant,
         suspend: &Option<AdminSuspendReadyQEntryRef>,
     ) -> bool {
         let ideal = self.ideal_connection_count(suspend);
         ideal == 0
             && self.connections.lock().is_empty()
-            && ((last_change.elapsed() >= AGE_OUT_INTERVAL) | self.activity.is_shutting_down())
+            && ((last_change.elapsed() >= AGE_OUT_INTERVAL)
+                || self.activity.is_shutting_down()
+                || !self.is_canonical())
             && self.ready_count() == 0
     }
 
     async fn perform_config_refresh_if_due(
-        &self,
+        self: Arc<Self>,
         now: Instant,
         epoch: &ConfigEpoch,
         epoch_changed: bool,
@@ -1128,7 +1199,7 @@ impl ReadyQueue {
         }
     }
 
-    async fn perform_config_refresh(&self, epoch: &ConfigEpoch) {
+    async fn perform_config_refresh(self: Arc<Self>, epoch: &ConfigEpoch) {
         *self.config_epoch.lock() = *epoch;
         tracing::trace!("perform_config_refresh for {}", self.name);
 
@@ -1140,6 +1211,27 @@ impl ReadyQueue {
         .await
         {
             Ok(ReadyQueueConfig { path_config, .. }) => {
+                if self.protocol != self.queue_config.borrow().protocol {
+                    // This can happen if eg: the smtp protocol has its mx_list changed.
+                    // In this situation it is very important that we stop trying to
+                    // service the ready queue with an existing maintainer, as the
+                    // ready queue has what amounts to cached copies of data in its
+                    // `queue_name_for_config_change_purposes_only` and `queue_config`
+                    // fields: the former name may no longer be the correct canonical
+                    // name for the current protocol settings, and the latter is a
+                    // derivative of the former.
+                    // We remove this ready queue instance from the manager and wake it
+                    // up so that it can manage winding down any current connections.
+                    tracing::trace!("{}: protocol changed, will replace ready queue", self.name);
+                    if let Some((_name, removed)) = MANAGER
+                        .queues
+                        .remove_if(&self.name, |_name, q| Arc::ptr_eq(&self, &q))
+                    {
+                        removed.wakeup_maintainer();
+                    }
+                    return;
+                }
+
                 if path_config != **self.path_config.borrow() {
                     let max_ready = path_config.max_ready;
 
@@ -2115,7 +2207,7 @@ impl Dispatcher {
                             return Ok(!self.msgs.is_empty());
                         }
                         Ok(_) => {
-                            if self.activity.is_shutting_down() {
+                            if self.activity.is_shutting_down() || self.ready.closed.load(Ordering::Relaxed) {
                                 return Ok(false);
                             }
                             if let Some(suspend) = self.get_suspension() {

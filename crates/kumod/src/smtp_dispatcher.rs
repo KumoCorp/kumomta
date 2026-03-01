@@ -43,13 +43,13 @@ lruttl::declare_cache! {
 static CLIENT_CERT: LruCacheWithTtl<KeySource, Result<Option<Arc<Box<[u8]>>>, String>>::new("smtp_dispatcher_client_certificate", 1024);
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
 pub struct SmtpProtocol {
     #[serde(default)]
     pub mx_list: Vec<MxListEntry>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(untagged)]
 pub enum MxListEntry {
     /// A name that needs to be resolved to its A or AAAA record in DNS,
