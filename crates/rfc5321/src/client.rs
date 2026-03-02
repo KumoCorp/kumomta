@@ -21,7 +21,8 @@ use tokio_rustls::rustls::pki_types::ServerName;
 use tracing::Level;
 
 pub use kumo_tls_helper::TlsOptions;
-pub use {openssl, tokio_rustls};
+pub use openssl;
+pub use tokio_rustls;
 
 const MAX_LINE_LEN: usize = 4096;
 
