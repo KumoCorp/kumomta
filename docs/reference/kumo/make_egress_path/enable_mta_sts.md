@@ -12,7 +12,7 @@ for the destination domain.  These will be cached so that we won't perform them
 on every request.  For example, for `gmail.com` we'll issue a TXT lookup for
 `_mta-sts.gmail.com` and an HTTP GET for
 `https://mta-sts.gmail.com/.well-known/mta-sts.txt` as described in the MTA-STS
-RFC.  The latter resource returns the MTA-STS polocy, which at the time of writing
+RFC.  The latter resource returns the MTA-STS policy, which at the time of writing
 looks like this for `gmail.com`:
 
 ```
@@ -39,5 +39,3 @@ will be used.
 
 If `enable_dane=true` and `TLSA` records are present, then any MTA-STS policy
 will be ignored.
-
-
