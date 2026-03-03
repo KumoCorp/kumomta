@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
 use smallvec::{smallvec, SmallVec};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(transparent)]
 pub struct InsertContext(SmallVec<[InsertReason; 4]>);
 
 impl std::fmt::Display for InsertContext {
@@ -42,7 +44,7 @@ impl From<InsertReason> for InsertContext {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum InsertReason {
     /// Message was just received
@@ -77,4 +79,25 @@ pub enum InsertReason {
     /// The safey net in Dispatcher::Drop re-queued the message.
     /// This shouldn't happen; if you see this in a log, please report it!
     DispatcherDrop,
+    /// The peer unilaterally closed the connection before we started
+    /// delivery, so we want to try a new connection plan
+    PeerClosedConnection,
+    /// The delivery protocol associated with the queue implicitly via the
+    /// scheduled queue configuration changed
+    ProtocolChanged,
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn serialization() {
+        let context: InsertContext = InsertReason::ThrottledByThrottleInsertReadyQueue.into();
+        let s = serde_json::to_string(&context).unwrap();
+        k9::assert_equal!(s, "[\"ThrottledByThrottleInsertReadyQueue\"]");
+
+        let round_trip: InsertContext = serde_json::from_str(&s).unwrap();
+        k9::assert_equal!(context, round_trip);
+    }
 }

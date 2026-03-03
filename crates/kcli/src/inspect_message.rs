@@ -1,5 +1,6 @@
 use clap::Parser;
-use kumo_api_types::{InspectMessageV1Request, InspectMessageV1Response};
+use kumo_api_client::KumoApiClient;
+use kumo_api_types::InspectMessageV1Request;
 use reqwest::Url;
 
 #[derive(Debug, Parser)]
@@ -13,15 +14,13 @@ pub struct InspectMessageCommand {
 
 impl InspectMessageCommand {
     pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
-        let mut url = endpoint.join("/api/admin/inspect-message/v1")?;
-        let request = InspectMessageV1Request {
-            id: self.id.clone().try_into()?,
-            want_body: self.want_body,
-        };
-        request.apply_to_url(&mut url);
-
-        let result: InspectMessageV1Response =
-            crate::request_with_json_response(reqwest::Method::GET, url, &()).await?;
+        let client = KumoApiClient::new(endpoint.clone());
+        let result = client
+            .admin_inspect_message_v1(&InspectMessageV1Request {
+                id: self.id.clone().try_into()?,
+                want_body: self.want_body,
+            })
+            .await?;
 
         println!("{}", serde_json::to_string_pretty(&result)?);
 

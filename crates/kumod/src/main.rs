@@ -84,6 +84,11 @@ struct Opt {
     #[arg(long)]
     dump_lruttl_caches: bool,
 
+    /// Instead of running the daemon, output the list of metric metadata
+    /// to stdout.
+    #[arg(long)]
+    dump_metric_metadata: bool,
+
     /// Required if started as root; specifies which user to run as once
     /// privileges have been dropped.
     ///
@@ -169,7 +174,7 @@ fn main() -> anyhow::Result<()> {
     let opts = Opt::parse();
 
     if opts.dump_openapi_spec {
-        let api_docs = crate::http_server::make_router().make_docs();
+        let api_docs = crate::http_server::make_router().docs;
         println!("{}", api_docs.to_pretty_json()?);
         return Ok(());
     }
@@ -179,6 +184,12 @@ fn main() -> anyhow::Result<()> {
             "{}",
             serde_json::to_string_pretty(&lruttl::get_definitions())?
         );
+        return Ok(());
+    }
+
+    if opts.dump_metric_metadata {
+        let data = kumo_prometheus::export_metadata();
+        println!("{}", serde_json::to_string_pretty(&data)?);
         return Ok(());
     }
 
@@ -349,6 +360,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             message::dkim::register,
             crate::spf::register,
             crate::dmarc::register,
+            crate::xfer::lua::register,
         ],
         policy: &opts.policy,
     }

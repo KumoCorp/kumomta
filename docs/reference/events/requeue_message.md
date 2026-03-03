@@ -1,7 +1,17 @@
 # requeue_message
 
 ```lua
-kumo.on('requeue_message', function(message, smtp_response) end)
+kumo.on(
+  'requeue_message',
+  function(
+    message,
+    smtp_response,
+    insert_context,
+    increment_attempts,
+    delay
+  )
+  end
+)
 ```
 
 {{since('2024.11.08-d383b033')}}
@@ -12,16 +22,64 @@ kumo.on('requeue_message', function(message, smtp_response) end)
     registration that prevented it from working. That was corrected
     in the version shown above when the `smtp_response` parameter was added.
 
-This event is triggered when a message encountered a transient failure.
+This event is triggered when a message encountered a transient failure
+and will be re-inserted into an appropriate scheduled queue.
+
 Its purpose is to allow you to re-bind the message to an alternative
 queue, perhaps to relay it via an alternate tier or to use an alternative
 pool for egress.
 
-The `smtp_response` parameter is a one-line rendition of the SMTP
-response that resulted in the message being requeued. There are a couple
-of internal triggers for a requeue that are not directly caused by
-an SMTP response. Those responses have `KumoMTA internal:` prefixed
-the to textual portion of the response.
+This event has evolved to include more context over time.  The
+meaning of each parameter, along with the version in which it was
+introduced, is shown below:
+
+   * `message` - is the [Message](../message/index.md) object which is being re-queued.
+   * `smtp_response` is a one-line rendition of the SMTP response that resulted
+     in the message being requeued. There are a couple of internal triggers for
+     a requeue that are not directly caused by an SMTP response. Those
+     responses have `KumoMTA internal:` prefixed the to textual portion of the
+     response.
+   * `insert_context` {{since('dev', inline=True)}} is an array holding the
+     reason(s) why the message is being inserted into the queue manager.  There
+     will typically be 1 reason, but it is possible to have multiple reasons to
+     indicate eg: that we just received or loaded a message from spool and then
+     encountered a transient failure.  Each element of the array is a string.
+     Possible reasons include:
+
+       * `"Received"` - Message was just received.
+       * `"Enumerated"` - Message was just loaded from spool
+       * `"ScheduledForLater"` - Message had its due time explicitly set.
+       * `"ReadyQueueWasSuspended"`
+       * `"MessageRateThrottle"`
+       * `"ThrottledByThrottleInsertReadyQueue"`
+       * `"ReadyQueueWasFull"`
+       * `"FailedToInsertIntoReadyQueue"`
+       * `"MessageGetQueueNameFailed"`
+       * `"AdminRebind"`
+       * `"DueTimeWasReached"`
+       * `"MaxReadyWasReducedByConfigUpdate"`
+       * `"ReadyQueueWasDelayedDueToLowMemory"`
+       * `"FailedDueToNullMx"`
+       * `"MxResolvedToZeroHosts"`
+       * `"MxWasProhibited"`
+       * `"MxWasSkipped"`
+       * `"TooManyConnectionFailures"`
+       * `"TooManyRecipients"`
+       * `"ConnectionRateThrottle"`
+       * `"LoggedTransientFailure"` - There was a TransientFailure logged to
+         explain what really happened.  The information contained in the reason
+         may not represent the full extent of the situation.
+
+   * `increment_attempts` {{since('dev', inline=True)}} - a boolean value
+     that will be set to `true` if the number of attempts on the message
+     would be incremented as part of normal processing of the requeue
+     event.  Not every requeue situation will increment this counter.
+   * `delay` {{since('dev', inline=True)}} a [TimeDelta](../kumo.time/TimeDelta.md)
+     object indicating a suggested delay to be applied to the message.
+     This will typically be `nil` which indicates that the usual retry
+     parameters for the associated queue should be used, but in some
+     cases (eg: throttling) it may be set to a duration indicating
+     when the throttle may open back up.
 
 Multiple instances of the `requeue_message` event can be registered,
 and they will be called in the order in which they were registered,
@@ -57,16 +115,19 @@ the third attempt to send it encounters a transient failure.
 ```lua
 local SMART_HOST = '[10.0.0.1]'
 
-kumo.on('requeue_message', function(msg)
-  local queue = msg:queue_name()
-  if queue ~= SMART_HOST and msg:num_attempts() >= 2 then
-    -- Re-route to alternative infra to manage the rest of the send
-    msg:set_meta('queue', SMART_HOST)
-    -- clear any scheduling constraints, as they do not apply
-    -- when sending via a smart host
-    msg:set_scheduling(nil)
+kumo.on(
+  'requeue_message',
+  function(msg, smtp_response, insert_context, increment_attempts, delay)
+    local queue = msg:queue_name()
+    if queue ~= SMART_HOST and msg:num_attempts() >= 2 then
+      -- Re-route to alternative infra to manage the rest of the send
+      msg:set_meta('queue', SMART_HOST)
+      -- clear any scheduling constraints, as they do not apply
+      -- when sending via a smart host
+      msg:set_scheduling(nil)
+    end
   end
-end)
+)
 ```
 
 Calling [kumo.reject](../kumo/reject.md) to raise an error in your event

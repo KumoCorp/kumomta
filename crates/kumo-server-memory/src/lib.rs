@@ -13,6 +13,7 @@ use cgroups_rs::hierarchies::{V1, V2};
 use cgroups_rs::memory::MemController;
 #[cfg(target_os = "linux")]
 use cgroups_rs::{Hierarchy, MaxValue};
+use kumo_prometheus::declare_metric;
 use nix::sys::resource::{rlim_t, RLIM_INFINITY};
 use nix::unistd::{sysconf, SysconfVar};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -28,45 +29,36 @@ pub use tracking::{set_tracking_callstacks, tracking_stats};
 #[global_allocator]
 static GLOBAL: TrackingAllocator<Jemalloc> = TrackingAllocator::new(Jemalloc);
 
-static LOW_COUNT: LazyLock<metrics::Counter> = LazyLock::new(|| {
-    metrics::describe_counter!(
-        "memory_low_count",
-        "how many times the low memory threshold was exceeded"
-    );
-    metrics::counter!("memory_low_count")
-});
-static OVER_LIMIT_COUNT: LazyLock<metrics::Counter> = LazyLock::new(|| {
-    metrics::describe_counter!(
-        "memory_over_limit_count",
-        "how many times the soft memory limit was exceeded"
-    );
-    metrics::counter!("memory_over_limit_count")
-});
-static MEM_USAGE: LazyLock<metrics::Gauge> = LazyLock::new(|| {
-    metrics::describe_gauge!(
-        "memory_usage",
-        "number of bytes of used memory (Resident Set Size)"
-    );
-    metrics::gauge!("memory_usage")
-});
-static MEM_LIMIT: LazyLock<metrics::Gauge> = LazyLock::new(|| {
-    metrics::describe_gauge!("memory_limit", "soft memory limit measured in bytes");
-    metrics::gauge!("memory_limit")
-});
-static MEM_COUNTED: LazyLock<metrics::Gauge> = LazyLock::new(|| {
-    metrics::describe_gauge!(
-        "memory_usage_rust",
-        "number of bytes of used memory (allocated by Rust)"
-    );
-    metrics::gauge!("memory_usage_rust")
-});
-static LOW_MEM_THRESH: LazyLock<metrics::Gauge> = LazyLock::new(|| {
-    metrics::describe_gauge!(
-        "memory_low_thresh",
-        "low memory threshold measured in bytes"
-    );
-    metrics::gauge!("memory_low_thresh")
-});
+declare_metric! {
+/// How many times the low memory threshold was exceeded.
+static LOW_COUNT: IntCounter("memory_low_count");
+}
+
+declare_metric! {
+/// how many times the soft memory limit was exceeded
+static OVER_LIMIT_COUNT: IntCounter("memory_over_limit_count");
+}
+
+declare_metric! {
+/// number of bytes of used memory (Resident Set Size)
+static MEM_USAGE: Gauge("memory_usage");
+}
+
+declare_metric! {
+/// soft memory limit measured in bytes
+static MEM_LIMIT: Gauge("memory_limit");
+}
+
+declare_metric! {
+/// number of bytes of used memory (allocated by Rust)
+static MEM_COUNTED: Gauge("memory_usage_rust");
+}
+
+declare_metric! {
+/// low memory threshold measured in bytes
+static LOW_MEM_THRESH: Gauge("memory_low_thresh");
+}
+
 static SUBSCRIBER: LazyLock<Mutex<Option<Receiver<()>>>> = LazyLock::new(|| Mutex::new(None));
 
 static OVER_LIMIT: AtomicBool = AtomicBool::new(false);
@@ -311,6 +303,41 @@ pub fn set_low_memory_thresh(limit: usize) {
     USER_LOW_THRESH.store(limit, Ordering::Relaxed);
 }
 
+pub fn get_hard_limit() -> Option<u64> {
+    let user_limit = USER_HARD_LIMIT.load(Ordering::Relaxed);
+    if user_limit > 0 {
+        return Some(user_limit as u64);
+    }
+
+    let result = get_usage_and_limit()
+        .ok()
+        .and_then(|(_, limits)| limits.hard_limit);
+    result
+}
+
+pub fn get_soft_limit() -> Option<u64> {
+    let user_limit = USER_SOFT_LIMIT.load(Ordering::Relaxed);
+    if user_limit > 0 {
+        return Some(user_limit as u64);
+    }
+
+    get_usage_and_limit()
+        .ok()
+        .and_then(|(_, limits)| limits.soft_limit)
+}
+
+pub fn get_low_memory_thresh() -> Option<u64> {
+    let user_thresh = USER_LOW_THRESH.load(Ordering::Relaxed);
+    if user_thresh > 0 {
+        return Some(user_thresh as u64);
+    }
+
+    get_usage_and_limit()
+        .ok()
+        .and_then(|(_, limits)| limits.soft_limit)
+        .map(|limit| limit * 8 / 10)
+}
+
 pub fn get_usage_and_limit() -> anyhow::Result<(MemoryUsage, MemoryLimits)> {
     let (usage, mut limit) = get_usage_and_limit_impl()?;
 
@@ -426,13 +453,13 @@ fn memory_thread() {
 
                 if !was_low && is_low {
                     // Transition to low memory
-                    LOW_COUNT.increment(1);
+                    LOW_COUNT.inc();
                 }
 
                 if !is_ok && was_ok {
                     // Transition from OK -> !OK
                     dump_heap_profile();
-                    OVER_LIMIT_COUNT.increment(1);
+                    OVER_LIMIT_COUNT.inc();
                     tracing::error!(
                         "memory usage {} exceeds limit {}",
                         human(usage),

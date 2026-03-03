@@ -1,6 +1,7 @@
+use crate::http_server::inject_v1::activity_for_peer;
 use crate::logging::disposition::{log_disposition, LogDisposition};
 use crate::queue::{DeliveryProto, QueueConfig, QueueManager};
-use crate::ready_queue::{Dispatcher, QueueDispatcher};
+use crate::ready_queue::{AttemptConnectionDisposition, Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
@@ -36,6 +37,7 @@ static XFER_IN: Single(
 }
 
 pub mod cancel;
+pub mod lua;
 pub mod request;
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
@@ -147,8 +149,11 @@ impl QueueDispatcher for XferDispatcher {
         Ok(true)
     }
 
-    async fn attempt_connection(&mut self, _dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
-        Ok(())
+    async fn attempt_connection(
+        &mut self,
+        _dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<AttemptConnectionDisposition> {
+        Ok(AttemptConnectionDisposition::ReusedExisting)
     }
 
     async fn have_more_connection_candidates(&mut self, _dispatcher: &mut Dispatcher) -> bool {
@@ -259,8 +264,15 @@ pub struct XferResponseV1 {
 }
 
 /// Performs a message transfer.
-/// This is considered to be an internal API and should not be
-/// targeted by external consumers.
+///
+/// !!! warning
+///     This is considered to be an internal API and should not be
+///     used by external consumers.  It is intentionally under-specified
+///     in these auto-generated docs.
+///
+/// You probably want to look at the [/api/admin/xfer/v1](api_admin_xfer_v1_post.md)
+/// endpoint which is used to request that a specific queue should
+/// be re-routed via this XFER endpoint on the target node.
 #[utoipa::path(
     post,
     tag="xfer",
@@ -276,19 +288,7 @@ pub async fn inject_xfer_v1(
     State(app_state): State<AppState>,
     body: Bytes,
 ) -> Result<Json<XferResponseV1>, AppError> {
-    if kumo_server_memory::get_headroom() == 0 {
-        // Using too much memory
-        return Err(AppError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "load shedding",
-        ));
-    }
-    if kumo_server_common::disk_space::is_over_limit() {
-        return Err(AppError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "disk is too full",
-        ));
-    }
+    let _activity = activity_for_peer("inject_xfer_v1", peer_address)?;
 
     let msg = Message::deserialize_from_xfer(&body)?;
 

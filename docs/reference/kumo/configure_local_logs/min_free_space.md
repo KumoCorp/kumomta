@@ -14,7 +14,7 @@ number of available bytes.
 
 If the available storage is below the specified amount then kumomta will
 reject incoming SMTP and HTTP injection requests and the
-[check-liveness](../../rapidoc.md/#get-/api/check-liveness/v1) endpoint will indicate
+[check-liveness](../../http/kumod/api_check_liveness_v1_get.md) endpoint will indicate
 that new messages cannot be received.
 
 The default value for this option is `"10%"`.

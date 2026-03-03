@@ -9,7 +9,7 @@ constructing functions:
 
  * [kumo.time.parse_duration](parse_duration.md)
 
-or though metamethods of `TimeDelta` (see below) or [Time](Time.md#metamethod).
+or though metamethods of `TimeDelta` (see below) or [Time](Time.md#metamethods).
 
 ## Metamethods
 

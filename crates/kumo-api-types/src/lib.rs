@@ -19,15 +19,25 @@ pub mod xfer;
 /// Describes which messages should be bounced.
 /// The criteria apply to the scheduled queue associated
 /// with a given message.
+///
+/// !!! danger
+///     If you specify none of `domain`, `campaign`, `tenant`,
+///     `routing_domain` or `queue`, then **ALL** queues will
+///     be bounced.
+///
+///     With great power comes great responsibility!
+///
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BounceV1Request {
     /// The campaign name to match. If omitted, any campaign will match.
     #[serde(default)]
+    #[schema(example = "campaign_name")]
     pub campaign: Option<String>,
 
     /// The tenant to match. If omitted, any tenant will match.
     #[serde(default)]
+    #[schema(example = "tenant_name")]
     pub tenant: Option<String>,
 
     /// The domain name to match. If omitted, any domain will match.
@@ -36,7 +46,9 @@ pub struct BounceV1Request {
     pub domain: Option<String>,
 
     /// The routing_domain name to match. If omitted, any routing_domain will match.
+    /// {{since('2023.08.22-4d895015', inline=True)}}
     #[serde(default)]
+    #[schema(example = "routing_domain.com")]
     pub routing_domain: Option<String>,
 
     /// Reason to log in the delivery log. Each matching message will be bounced
@@ -60,6 +72,7 @@ pub struct BounceV1Request {
     /// If true, do not generate AdminBounce delivery logs for matching
     /// messages.
     #[serde(default)]
+    #[schema(default = false)]
     pub suppress_logging: bool,
 
     /// instead of specifying the duration, you can set an explicit
@@ -71,6 +84,7 @@ pub struct BounceV1Request {
     /// `tenant`, and `domain` and specifies the exact set of
     /// scheduled queue names to which the bounce applies.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schema(example=json!(["campaign_name:tenant_name@example.com"]))]
     pub queue_names: Vec<String>,
 }
 
@@ -134,18 +148,23 @@ pub struct BounceV1ListEntry {
 
     /// The campaign field of the original request, if any.
     #[serde(default)]
+    #[schema(example = "campaign_name")]
     pub campaign: Option<String>,
     /// The tenant field of the original request, if any.
     #[serde(default)]
+    #[schema(example = "tenant_name")]
     pub tenant: Option<String>,
     /// The domain field of the original request, if any.
     #[serde(default)]
+    #[schema(example = "example.com")]
     pub domain: Option<String>,
     /// The routing_domain field of the original request, if any.
     #[serde(default)]
+    #[schema(example = "routing_domain.com")]
     pub routing_domain: Option<String>,
 
     /// The reason field of the original request
+    #[schema(example = "cleaning up a bad send")]
     pub reason: String,
 
     /// The time remaining until this entry expires and is automatically
@@ -174,12 +193,15 @@ pub struct BounceV1CancelRequest {
 pub struct SuspendV1Request {
     /// The campaign name to match. If omitted, any campaign will match.
     #[serde(default)]
+    #[schema(example = "campaign_name")]
     pub campaign: Option<String>,
     /// The tenant name to match. If omitted, any tenant will match.
     #[serde(default)]
+    #[schema(example = "tenant_name")]
     pub tenant: Option<String>,
     /// The domain name to match. If omitted, any domain will match.
     #[serde(default)]
+    #[schema(example = "example.com")]
     pub domain: Option<String>,
 
     /// The reason for the suspension
@@ -203,6 +225,7 @@ pub struct SuspendV1Request {
     /// `tenant`, and `domain` and specifies the exact set of
     /// scheduled queue names to which the suspension applies.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schema(example=json!(["campaign_name:tenant_name@example.com"]))]
     pub queue_names: Vec<String>,
 }
 
@@ -236,12 +259,15 @@ pub struct SuspendV1ListEntry {
 
     /// The campaign name to match. If omitted, any campaign will match.
     #[serde(default)]
+    #[schema(example = "campaign_name")]
     pub campaign: Option<String>,
     /// The tenant name to match. If omitted, any tenant will match.
     #[serde(default)]
+    #[schema(example = "tenant_name")]
     pub tenant: Option<String>,
     /// The domain name to match. If omitted, any domain will match.
     #[serde(default)]
+    #[schema(example = "example.com")]
     pub domain: Option<String>,
 
     /// The reason for the suspension
@@ -256,6 +282,9 @@ pub struct SuspendV1ListEntry {
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct SuspendReadyQueueV1Request {
     /// The name of the ready queue that should be suspended
+    #[schema(
+        example = "source_name->(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com@smtp_client"
+    )]
     pub name: String,
     /// The reason for the suspension
     #[schema(example = "pause while working on resolving a block with the destination postmaster")]
@@ -288,6 +317,9 @@ pub struct SuspendReadyQueueV1ListEntry {
     /// The id for the suspension. Can be used to cancel the suspension.
     pub id: Uuid,
     /// The name of the ready queue that is suspended
+    #[schema(
+        example = "source_name->(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com@smtp_client"
+    )]
     pub name: String,
     /// The reason for the suspension
     #[schema(example = "pause while working on resolving a block with the destination postmaster")]
@@ -301,7 +333,7 @@ pub struct SuspendReadyQueueV1ListEntry {
     pub expires: DateTime<Utc>,
 }
 
-#[derive(Serialize, Deserialize, Debug, IntoParams)]
+#[derive(Serialize, Deserialize, Debug, IntoParams, ToSchema)]
 pub struct InspectMessageV1Request {
     /// The spool identifier for the message whose information
     /// is being requested
@@ -312,8 +344,12 @@ pub struct InspectMessageV1Request {
     pub want_body: bool,
 }
 
-impl InspectMessageV1Request {
-    pub fn apply_to_url(&self, url: &mut Url) {
+pub trait ApplyToUrl {
+    fn apply_to_url(&self, url: &mut Url);
+}
+
+impl ApplyToUrl for InspectMessageV1Request {
+    fn apply_to_url(&self, url: &mut Url) {
         let mut query = url.query_pairs_mut();
         query.append_pair("id", &self.id.to_string());
         if self.want_body {
@@ -330,9 +366,10 @@ pub struct InspectMessageV1Response {
     pub message: MessageInformation,
 }
 
-#[derive(Serialize, Deserialize, Debug, IntoParams)]
+#[derive(Serialize, Deserialize, Debug, IntoParams, ToSchema)]
 pub struct InspectQueueV1Request {
     /// The name of the scheduled queue
+    #[schema(example = "campaign_name:tenant_name@example.com")]
     pub queue_name: String,
     /// If true, return the message body in addition to the
     /// metadata
@@ -348,8 +385,8 @@ pub struct InspectQueueV1Request {
     pub limit: Option<usize>,
 }
 
-impl InspectQueueV1Request {
-    pub fn apply_to_url(&self, url: &mut Url) {
+impl ApplyToUrl for InspectQueueV1Request {
+    fn apply_to_url(&self, url: &mut Url) {
         let mut query = url.query_pairs_mut();
         query.append_pair("queue_name", &self.queue_name.to_string());
         if self.want_body {
@@ -363,9 +400,11 @@ impl InspectQueueV1Request {
 
 #[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
 pub struct InspectQueueV1Response {
+    #[schema(example = "campaign_name:tenant_name@example.com")]
     pub queue_name: String,
     pub messages: Vec<InspectMessageV1Response>,
     pub num_scheduled: usize,
+    #[schema(value_type=Object)]
     pub queue_config: serde_json::Value,
     pub delayed_metric: usize,
     pub now: DateTime<Utc>,
@@ -378,24 +417,28 @@ pub struct MessageInformation {
     /// The envelope sender
     #[schema(example = "sender@sender.example.com")]
     pub sender: String,
-    /// The envelope-to address
-    #[schema(example = "recipient@example.com")]
+    /// The envelope-to address.
+    /// May be either an individual string or an array of strings
+    /// for multi-recipient messages.
+    #[schema(example = "recipient@example.com", format = "email")]
     #[serde_as(as = "OneOrMany<_, PreferOne>")] // FIXME: json schema
     pub recipient: Vec<String>,
     /// The message metadata
-    #[schema(example=json!({
+    #[schema(value_type=Object, example=json!({
         "received_from": "10.0.0.1:3488"
     }))]
     pub meta: serde_json::Value,
     /// If `want_body` was set in the original request,
     /// holds the message body
     #[serde(default)]
+    #[schema(example = "From: user@example.com\nSubject: Hello\n\nHello there")]
     pub data: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub due: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_attempts: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type=Object)]
     pub scheduling: Option<serde_json::Value>,
 }
 
@@ -442,8 +485,10 @@ pub enum TraceSmtpV1Payload {
         log_oob: serde_json::Value,
         queue: String,
         meta: serde_json::Value,
+        #[schema(format = "email")]
         sender: String,
         #[serde_as(as = "OneOrMany<_, PreferOne>")] // FIXME: json schema
+        #[schema(format = "email")]
         recipient: Vec<String>,
         id: SpoolId,
         #[serde(default)]
@@ -492,10 +537,12 @@ pub enum TraceSmtpClientV1Payload {
 pub struct TraceSmtpClientV1Request {
     /// The campaign name to match. If omitted, any campaign will match.
     #[serde(default)]
+    #[schema(example = "campaign_name")]
     pub campaign: Vec<String>,
 
     /// The tenant to match. If omitted, any tenant will match.
     #[serde(default)]
+    #[schema(example = "tenant_name")]
     pub tenant: Vec<String>,
 
     /// The domain name to match. If omitted, any domain will match.
@@ -505,40 +552,49 @@ pub struct TraceSmtpClientV1Request {
 
     /// The routing_domain name to match. If omitted, any routing_domain will match.
     #[serde(default)]
+    #[schema(example = "routing_domain.com")]
     pub routing_domain: Vec<String>,
 
     /// The egress pool name to match. If omitted, any egress pool will match.
     #[serde(default)]
+    #[schema(example = "pool_name")]
     pub egress_pool: Vec<String>,
 
     /// The egress source name to match. If omitted, any egress source will match.
     #[serde(default)]
+    #[schema(example = "source_name")]
     pub egress_source: Vec<String>,
 
     /// The envelope sender to match. If omitted, any will match.
     #[serde(default)]
+    #[schema(format = "email")]
     pub mail_from: Vec<String>,
 
     /// The envelope recipient to match. If omitted, any will match.
     #[serde(default)]
+    #[schema(format = "email")]
     pub rcpt_to: Vec<String>,
 
     /// The source address to match. If omitted, any will match.
     #[serde(default)]
-    #[schema(value_type=Option<Vec<String>>)]
+    #[schema(value_type=Option<Vec<String>>, example="10.0.0.1/16")]
     pub source_addr: Option<CidrSet>,
 
     /// The mx hostname to match. If omitted, any will match.
     #[serde(default)]
+    #[schema(format = "mx1.example.com")]
     pub mx_host: Vec<String>,
 
     /// The ready queue name to match. If omitted, any will match.
     #[serde(default)]
+    #[schema(
+        example = "source_name->(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com@smtp_client"
+    )]
     pub ready_queue: Vec<String>,
 
     /// The mx ip address to match. If omitted, any will match.
     #[serde(default)]
-    #[schema(value_type=Option<Vec<String>>)]
+    #[schema(value_type=Option<Vec<String>>, example="10.0.0.1/16")]
     pub mx_addr: Option<CidrSet>,
 
     /// Use a more terse representation of the data, focusing on the first
@@ -551,11 +607,22 @@ pub struct TraceSmtpClientV1Request {
 pub struct ReadyQueueStateRequest {
     /// Which queues to request. If empty, request all queue states.
     #[serde(default)]
+    #[schema(example=json!(["campaign_name:tenant_name@example.com"]))]
     pub queues: Vec<String>,
+}
+
+impl ApplyToUrl for ReadyQueueStateRequest {
+    fn apply_to_url(&self, url: &mut Url) {
+        let mut query = url.query_pairs_mut();
+        if !self.queues.is_empty() {
+            query.append_pair("queues", &self.queues.join(","));
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
 pub struct QueueState {
+    #[schema(example = "TooManyLeases for queue")]
     pub context: String,
     pub since: DateTime<Utc>,
 }
@@ -563,4 +630,58 @@ pub struct QueueState {
 #[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
 pub struct ReadyQueueStateResponse {
     pub states_by_ready_queue: HashMap<String, HashMap<String, QueueState>>,
+}
+
+#[derive(Serialize, Clone, Deserialize, Debug, PartialEq, ToSchema)]
+pub struct MachineInfoV1 {
+    /// The NodeID of the system
+    #[schema(example = "9745bb48-14d7-48f2-a1fb-7df8d5844217")]
+    pub node_id: String,
+    /// The hostname of the system, as reported by `gethostname(2)`
+    #[schema(example = "mta1.example.com")]
+    pub hostname: String,
+    /// The MAC address of the primary, non-loopback, network interface
+    #[schema(example = "02:02:02:02:02:02")]
+    pub mac_address: String,
+    /// The number of available CPUs as reported by
+    /// <https://docs.rs/num_cpus/latest/num_cpus/fn.get.html>
+    #[schema(example = 64)]
+    pub num_cores: usize,
+    /// The kernel version
+    #[schema(example = "6.8.0-1016-aws")]
+    pub kernel_version: Option<String>,
+    /// Identifies the running platform
+    #[schema(example = "linux/x86_64")]
+    pub platform: String,
+    /// The OS distribution
+    #[schema(example = "ubuntu")]
+    pub distribution: String,
+    /// The OS version (which often includes the distribution)
+    #[schema(example = "Linux (Ubuntu 24.04)")]
+    pub os_version: String,
+    /// Total physical memory installed in the instance
+    #[schema(example = 1003929600)]
+    pub total_memory_bytes: u64,
+    /// If we detected that we're running in a container, the name
+    /// of the container runtime
+    pub container_runtime: Option<String>,
+    /// Identifies the CPU.  If you have a mixture of different CPUs,
+    /// this will be a comma separated list of the different CPUs
+    #[schema(example = "Intel(R) Xeon(R) CPU E5-2686 v4 @ 2.30GHz")]
+    pub cpu_brand: String,
+    /// Additional metadata hash(es) that can identify the running machine.
+    /// For example, when running in AWS, the instance-id will be
+    /// included.
+    #[schema(
+        example = "aws_instance_id=i-09aebefac97cf0000,machine_uid=ec22130d1de33cf52413457ac040000"
+    )]
+    pub fingerprint: String,
+    /// The date/time at which the process was last started
+    pub online_since: DateTime<Utc>,
+    /// Which process is running. eg: `kumod` vs `tsa-daemon` vs. `proxy-server`.
+    #[schema(example = "kumod")]
+    pub process_kind: String,
+    /// The version of KumoMTA that is running
+    #[schema(example = "2026.02.24-2d1a3174")]
+    pub version: String,
 }

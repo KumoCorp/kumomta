@@ -1,0 +1,14 @@
+[package]
+name = "kumo-api-client"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+bytes.workspace = true
+futures.workspace = true
+kumo-api-types = {path="../kumo-api-types", default-features=false}
+kumo-prometheus = {path="../kumo-prometheus"}
+reqwest = {workspace=true, default-features=false, features=["json", "rustls-tls", "stream"]}
+serde.workspace = true
+serde_json.workspace = true

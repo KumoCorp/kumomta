@@ -175,8 +175,9 @@ impl AdminSuspendReadyQEntry {
 /// Define a suspension for a ready queue
 #[utoipa::path(
     post,
-    tag="suspend",
+    tags=["suspend", "kcli:suspend-ready-q"],
     path="/api/admin/suspend-ready-q/v1",
+    request_body=SuspendReadyQueueV1Request,
     responses(
         (status = 200, description = "Suspended", body=SuspendV1Response),
     ),
@@ -201,7 +202,7 @@ pub async fn suspend(
 /// List the active ready-queue suspensions
 #[utoipa::path(
     get,
-    tag="suspend",
+    tags=["suspend", "kcli:suspend-ready-q-list"],
     path="/api/admin/suspend-ready-q/v1",
     responses(
         (status = 200, description = "Suspended", body=SuspendReadyQueueV1ListEntry),
@@ -214,8 +215,9 @@ pub async fn list() -> Result<Json<Vec<SuspendReadyQueueV1ListEntry>>, AppError>
 /// Remove a ready-queue suspension
 #[utoipa::path(
     delete,
-    tag="suspend",
+    tags=["suspend", "kcli:suspend-ready-q-cancel"],
     path="/api/admin/suspend-ready-q/v1",
+    request_body=SuspendV1CancelRequest,
     responses(
         (status = 200, description = "Removed the suspension"),
         (status = 404, description = "Suspension either expired or was never valid"),

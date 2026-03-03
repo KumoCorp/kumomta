@@ -7,12 +7,11 @@ edition = "2021"
 anyhow = {workspace=true}
 data-encoding = {workspace=true}
 filenamegen = {workspace=true}
+kumo-prometheus = {path="../kumo-prometheus"}
 linkme.workspace = true
-metrics = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 parking_lot = {workspace=true}
 pastey.workspace = true
-prometheus = {workspace=true}
 rand = {workspace=true}
 serde = {workspace=true}
 serde_json = {workspace=true}

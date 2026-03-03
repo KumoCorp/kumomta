@@ -7,6 +7,7 @@ edition = "2021"
 default = ["client"]
 client = [
   "dep:hickory-proto",
+  "dep:kumo-tls-helper",
   "dep:lruttl",
   "dep:openssl",
   "dep:rustls-platform-verifier",
@@ -22,6 +23,7 @@ data-encoding = {workspace=true}
 duration-serde = {path="../duration-serde"}
 hickory-proto = {workspace=true, optional=true}
 idna.workspace = true
+kumo-tls-helper = {path="../kumo-tls-helper", optional=true}
 libc = {workspace=true}
 linkme.workspace = true
 lruttl = {path="../lruttl", optional=true}

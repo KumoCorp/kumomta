@@ -1,8 +1,10 @@
 use crate::metrics::*;
 use dashmap::DashMap;
+use kumo_prometheus::prometheus::{IntCounter, IntGauge};
 use kumo_server_memory::subscribe_to_memory_status_changes_async;
+pub use linkme;
 use parking_lot::Mutex;
-use prometheus::{IntCounter, IntGauge};
+pub use pastey as paste;
 use scopeguard::defer;
 use std::borrow::Borrow;
 use std::collections::HashMap;
@@ -13,7 +15,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Weak};
 use tokio::sync::Semaphore;
 use tokio::time::{timeout_at, Duration, Instant};
-pub use {linkme, pastey as paste};
 
 mod metrics;
 
@@ -353,6 +354,9 @@ pub static LRUTTL_VIVIFY: [fn() -> CacheDefinition];
 macro_rules! optional_doc {
     ($doc:expr) => {
         Some($doc.trim())
+    };
+    ($($doc:expr)+) => {
+        Some(concat!($($doc,)+).trim())
     };
     () => {
         None

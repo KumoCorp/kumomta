@@ -1,5 +1,6 @@
 use clap::Parser;
-use kumo_api_types::xfer::{XferCancelV1Request, XferCancelV1Response};
+use kumo_api_client::KumoApiClient;
+use kumo_api_types::xfer::XferCancelV1Request;
 use reqwest::Url;
 
 #[derive(Debug, Parser)]
@@ -21,14 +22,13 @@ pub struct XferCancelCommand {
 
 impl XferCancelCommand {
     pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
-        let url = endpoint.join("/api/admin/xfer/cancel/v1")?;
-        let request = XferCancelV1Request {
-            queue_name: self.queue_name.clone(),
-            reason: self.reason.clone(),
-        };
-
-        let result: XferCancelV1Response =
-            crate::request_with_json_response(reqwest::Method::POST, url, &request).await?;
+        let client = KumoApiClient::new(endpoint.clone());
+        let result = client
+            .admin_xfer_cancel_v1(&XferCancelV1Request {
+                queue_name: self.queue_name.clone(),
+                reason: self.reason.clone(),
+            })
+            .await?;
 
         println!("{}", serde_json::to_string_pretty(&result)?);
 
