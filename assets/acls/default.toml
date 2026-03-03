@@ -84,6 +84,12 @@ allow = true
 privileges = ["POST"]
 identity.Group = "kumomta:http-listener-trusted-ip"
 
+# Explicitly allow blanket unauthenticated access to the health status endpoint
+[[acl."http_listener/*/tsa/status"]]
+allow = true
+privileges = ["GET"]
+identity.Any = {}
+
 ### TSA config access -----------------------------
 [[acl."http_listener/*/get_config_v1"]]
 allow = true
