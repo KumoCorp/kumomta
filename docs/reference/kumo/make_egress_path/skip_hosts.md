@@ -23,7 +23,10 @@ or for policy reasons, should not use IPv6 you can set:
 ```lua
 kumo.make_egress_path {
   -- Don't use IPv6 for deliveries
-  skip_hosts = { '::/0' },
+  ip_lookup_strategy = 'Ipv4Only',
+
+  -- For older versions of KumoMTA, you can use skip_hosts instead
+  -- skip_hosts = { '::/0' },
 }
 ```
 
@@ -31,5 +34,7 @@ If you are using the shaping helper, you can express that in your `shaping.toml`
 
 ```toml
 [default]
-skip_hosts = ["::/0"]
+ip_lookup_strategy = "Ipv4Only"
+# For older versions of KumoMTA, you can use skip_hosts instead:
+# skip_hosts = ["::/0"]
 ```

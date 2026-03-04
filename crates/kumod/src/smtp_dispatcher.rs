@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use bounce_classify::{BounceClass, PreDefinedBounceClass};
 use config::{load_config, CallbackSignature};
 use data_loader::KeySource;
-use dns_resolver::{has_colon_port, resolve_a_or_aaaa, ResolvedMxAddresses};
+use dns_resolver::{has_colon_port, resolve_a_or_aaaa, IpLookupStrategy, ResolvedMxAddresses};
 use kumo_address::socket::SocketAddress;
 use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls};
 use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
@@ -63,11 +63,15 @@ pub enum MxListEntry {
 impl MxListEntry {
     /// Resolve self into 1 or more `ResolvedAddress` and append to the
     /// supplied `addresses` vector.
-    pub async fn resolve_into(&self, addresses: &mut Vec<ResolvedAddress>) -> anyhow::Result<()> {
+    pub async fn resolve_into(
+        &self,
+        addresses: &mut Vec<ResolvedAddress>,
+        strategy: IpLookupStrategy,
+    ) -> anyhow::Result<()> {
         match self {
             Self::Name(a) => {
                 if let Some((label, port)) = has_colon_port(a) {
-                    let resolved = resolve_a_or_aaaa(label, None)
+                    let resolved = resolve_a_or_aaaa(label, None, strategy)
                         .await
                         .with_context(|| format!("resolving mx_list entry {a}"))?;
                     for mut r in resolved {
@@ -79,7 +83,7 @@ impl MxListEntry {
                 }
 
                 addresses.append(
-                    &mut resolve_a_or_aaaa(a, None)
+                    &mut resolve_a_or_aaaa(a, None, strategy)
                         .await
                         .with_context(|| format!("resolving mx_list entry {a}"))?,
                 );
@@ -163,12 +167,13 @@ impl SmtpDispatcher {
                 .mx
                 .as_ref()
                 .expect("to have mx when doing smtp")
-                .resolve_addresses()
+                .resolve_addresses(path_config.ip_lookup_strategy)
                 .await
         } else {
             let mut addresses = vec![];
             for a in proto_config.mx_list.iter() {
-                a.resolve_into(&mut addresses).await?;
+                a.resolve_into(&mut addresses, path_config.ip_lookup_strategy)
+                    .await?;
             }
             // Note that ResolvedMxAddresses::Addresses is in LIFO
             // order, and we have FIFO order.  Reverse it!
