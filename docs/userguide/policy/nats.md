@@ -1,5 +1,5 @@
 # Routing Messages via NATS
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 In addition to local logging and Webhooks, KumoMTA can relay log events (or
 other queued messages) via [NATS JetStream](https://nats.io/).

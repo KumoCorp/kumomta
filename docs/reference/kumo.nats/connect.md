@@ -1,5 +1,5 @@
 # kumo.nats.connect
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 ```lua
 kumo.nats.connect(CONFIG)

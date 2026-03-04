@@ -1,6 +1,6 @@
 # require_auth
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 If true, the proxy server will require RFC 1929 username/password
 authentication from clients before allowing them to use the proxy.

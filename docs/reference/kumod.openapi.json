@@ -959,7 +959,7 @@
                   "string",
                   "null"
                 ],
-                "description": "If set, will be used to create a text/x-amp-html part.\nThis is available {{since('dev', inline=True)}}",
+                "description": "If set, will be used to create a text/x-amp-html part.\nThis is available {{since('2026.03.04-bb93ecb1', inline=True)}}",
                 "example": "<!doctype html><html amp4email>...</html>"
               },
               "attachments": {
@@ -1091,7 +1091,7 @@
             "items": {
               "$ref": "#/components/schemas/Recipient"
             },
-            "description": "Specifies the list of recipients to which message(s) will be sent.\nWhen generating the message for the recipient, a suitable `To` header will be\nconstructed using the provided fields.\n\nIf you also set a `To` header using the `headers` field, then the behavior\ndepends on the version of kumomta:\n\n|Behavior|Version|\n|--------|-------|\n|The per-recipient `To` header will not be generated|{{since('dev', inline=True)}}|\n|Two `To` headers will be generated|All previous versions|"
+            "description": "Specifies the list of recipients to which message(s) will be sent.\nWhen generating the message for the recipient, a suitable `To` header will be\nconstructed using the provided fields.\n\nIf you also set a `To` header using the `headers` field, then the behavior\ndepends on the version of kumomta:\n\n|Behavior|Version|\n|--------|-------|\n|The per-recipient `To` header will not be generated|{{since('2026.03.04-bb93ecb1', inline=True)}}|\n|Two `To` headers will be generated|All previous versions|"
           },
           "substitutions": {
             "type": "object",

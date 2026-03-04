@@ -11,7 +11,7 @@ behavior depends on the version of kumod:
 
 |Behavior|Since|
 |--------|-----|
-|Transiently Failed with a `451 4.4.4 KumoMTA internal: MX consisted solely of hosts on the skip_hosts list` status|{{since('dev', inline=True)}}|
+|Transiently Failed with a `451 4.4.4 KumoMTA internal: MX consisted solely of hosts on the skip_hosts list` status|{{since('2026.03.04-bb93ecb1', inline=True)}}|
 |Permanently Failed with a `550 5.4.4 MX consisted solely of hosts on the skip_hosts list` status|All earlier versions|
 
 ## Skipping IPv6 Addresses

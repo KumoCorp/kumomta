@@ -5,7 +5,7 @@ tags:
 
 # kumo.aaa.set_fall_back_to_acl_map
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 ```lua
 kumo.on('pre_init', function()

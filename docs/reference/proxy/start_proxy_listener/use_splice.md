@@ -1,6 +1,6 @@
 # use_splice
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 On Linux, the proxy server uses `splice(2)` for efficient zero-copy data
 transfer between the client and remote connections. This can significantly

@@ -8,7 +8,7 @@ Called by the HTTP injection API endpoint after generating a message, but prior
 to injecting it into the queue.
 
 The event handler will be passed a [Message](../message/index.md) object, as
-well as an [AuthInfo](../kumo.aaa/auth_info.md) {{since('dev', inline=True)}}
+well as an [AuthInfo](../kumo.aaa/auth_info.md) {{since('2026.03.04-bb93ecb1', inline=True)}}
 that can be used to implement more granular access control policies.
 
 The HTTP injector does not add a `Received` header, but it will pre-set the

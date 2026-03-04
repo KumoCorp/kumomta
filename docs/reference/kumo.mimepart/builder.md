@@ -26,7 +26,7 @@ up in a `multipart/alternative` container part.  If you add attachments, then a
   * `builder:text_amp_html(AMP_HTML)` - call this to set the [AMP
     HTML](https://amp.dev/documentation/guides-and-tutorials/email/learn/email-spec/amp-email-structure)
     part of the message. The part is constructed as though you created a new
-    text part with the content type `text/x-amp-html`. {{since('dev', inline=True)}}.
+    text part with the content type `text/x-amp-html`. {{since('2026.03.04-bb93ecb1', inline=True)}}.
 
 ## Example
 

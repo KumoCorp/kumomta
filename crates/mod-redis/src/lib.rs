@@ -49,7 +49,7 @@ impl Manager for ClientManager {
 declare_metric! {
 /// The latency of an operation talking to Redis.
 ///
-/// {{since('dev')}}
+/// {{since('2026.03.04-bb93ecb1')}}
 ///
 /// The `service` key represents the redis server/service. It is not
 /// a direct match to a server name as it is really a hash of the

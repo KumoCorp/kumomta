@@ -1,6 +1,6 @@
 # timeout
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 Specifies the connection timeout duration. If a client does not complete
 the SOCKS5 handshake or send data within this duration, the connection

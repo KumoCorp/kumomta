@@ -1,5 +1,5 @@
 ### client:publish({PARAMS})
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 Sends a message. `PARAMS` is an object style table with the following keys:
 

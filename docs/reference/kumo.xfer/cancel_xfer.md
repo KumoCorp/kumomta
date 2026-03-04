@@ -4,7 +4,7 @@ tags:
 ---
 # kumo.xfer.cancel_xfer
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 ```lua
 kumo.xfer.cancel_xfer(msg, opt_reason)

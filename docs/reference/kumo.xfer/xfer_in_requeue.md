@@ -4,7 +4,7 @@ tags:
 ---
 # kumo.xfer.xfer_in_requeue
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 ```lua
 kumo.xfer.xfer_in_requeue(

@@ -141,7 +141,7 @@ pub struct InjectV1Request {
     ///
     /// |Behavior|Version|
     /// |--------|-------|
-    /// |The per-recipient `To` header will not be generated|{{since('dev', inline=True)}}|
+    /// |The per-recipient `To` header will not be generated|{{since('2026.03.04-bb93ecb1', inline=True)}}|
     /// |Two `To` headers will be generated|All previous versions|
     pub recipients: Vec<Recipient>,
 
@@ -403,7 +403,7 @@ pub enum Content {
         html_body: Option<String>,
 
         /// If set, will be used to create a text/x-amp-html part.
-        /// This is available {{since('dev', inline=True)}}
+        /// This is available {{since('2026.03.04-bb93ecb1', inline=True)}}
         #[serde(default)]
         #[schema(example = "<!doctype html><html amp4email>...</html>")]
         amp_html_body: Option<String>,
