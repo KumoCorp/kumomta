@@ -6,7 +6,7 @@ This section describes how Access Control is implemented within KumoMTA.
 There are three related parts to access control:
 
  * Authentication - deciding the identity of a session, which may be
-   base on factors such as the peer address or an explicit credential
+   based on factors such as the peer address or an explicit credential
    exchanged as part of SMTP or HTTP authentication.
  * Authorization - deciding whether the session is allowed to perform some
    action on a resource based on their identity and the configured Access
