@@ -35,7 +35,12 @@ The log record is a JSON object with the following shape:
     // Empty string for Reception records.
     "site": "source2->(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com.",
 
-    // The size of the message payload, in bytes
+    // The size of the message payload, in bytes.
+    // In situations where the message payload was unloaded from memory,
+    // (most likely to see this with a subset of TransientFailure and
+    // some Delayed logs), the size will be reported as zero because
+    // we can't know the size without going to the expensive of loading
+    // it back into memory.
     "size": 1047,
 
     // The response from the peer, if applicable
