@@ -14,3 +14,4 @@
 
 ## Fixes
 
+ * sources helper didn't allow creating empty egress pools
