@@ -30,6 +30,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         cidr_map::register,
         domain_map::register,
         mod_amqp::register,
+        mod_audit_series::register,
         mod_filesystem::register,
         mod_file_type::register,
         mod_http::register,
