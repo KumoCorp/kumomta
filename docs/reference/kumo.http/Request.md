@@ -110,7 +110,7 @@ the result of the request.
 
 ## request:aws_sign_v4({PARAMS})
 
-{{since('dev', indent=True)}}
+{{since('2026.03.04-bb93ecb1', indent=True)}}
     Signs this request using AWS Signature Version 4 (SigV4).
 
     This is a convenience wrapper around

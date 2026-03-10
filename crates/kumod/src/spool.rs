@@ -512,8 +512,6 @@ impl SpoolManager {
     }
 
     pub async fn start_spool(&self, start_time: DateTime<Utc>) -> anyhow::Result<()> {
-        self.started.store(true, Ordering::SeqCst);
-
         let (tx, rx) = flume::bounded(1024);
         {
             let mut named = self.named.lock().await;
@@ -563,6 +561,10 @@ impl SpoolManager {
 
             Self::spawn_memory_monitor();
         }
+
+        // It is now safe for the various injection methods to attempt to
+        // store to the spool; both meta and data spools are assigned
+        self.started.store(true, Ordering::SeqCst);
 
         // Ensure that there are no more senders outstanding,
         // otherwise we'll deadlock ourselves in the loop below

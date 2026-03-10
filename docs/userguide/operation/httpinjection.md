@@ -19,11 +19,11 @@ kumo.start_http_listener {
 ```
 
 KumoMTA will accept any HTTPS injection on port 8005 from the local host ONLY.
-(This also enables the full [HTTP API](../../reference/http/index.md) from
+(This also enables the full [HTTP API](../../reference/http/kumod/index.md) from
 localhost).
 
 
-The simplest test of [HTTP injection](../../reference/http/api_inject_v1.md)
+The simplest test of [HTTP injection](../../reference/http/kumod/api_inject_v1_post.md)
 can be done using cURL right from localhost console.
 
 ```console
@@ -43,5 +43,5 @@ That should return something like this:
 
 Any system that can use an HTTP API to pass JSON should work as an injection
 system if you follow the JSON payload formatting rules posted
-[here](../..//reference/http/api_inject_v1.md)
+[here](../..//reference/http/kumod/api_inject_v1_post.md)
 

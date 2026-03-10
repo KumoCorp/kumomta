@@ -1,4 +1,4 @@
-use crate::kumod::{DaemonWithMaildir, MailGenParams};
+use crate::kumod::{DaemonWithMaildir, DaemonWithMaildirOptions, MailGenParams};
 use kumo_api_types::{InspectQueueV1Response, SuspendV1Response};
 use kumo_log_types::RecordType;
 use kumo_log_types::RecordType::{Delivery, Reception, TransientFailure, XferIn, XferOut};
@@ -518,6 +518,109 @@ DeliverySummary {
 ]
 "#
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn xfer_requeue() -> anyhow::Result<()> {
+    let mut daemon = DaemonWithMaildirOptions::new()
+        .policy_file("source-xfer.lua")
+        .start()
+        .await?;
+    let mut client = daemon.smtp_client().await?;
+
+    // This SMTP message will always get transiently failed
+    // when sending to the sink via SMTP
+    let response = MailGenParams {
+        recip: Some("tempfail@example"),
+        ..Default::default()
+    }
+    .send(&mut client)
+    .await?;
+    anyhow::ensure!(response.code == 250);
+
+    // The source-xfer.lua policy will always xfer a message
+    // when it is requeued after the SMTP attempt.
+    // Let's wait for that to happen
+    daemon
+        .wait_for_source_summary(
+            |summary| summary.get(&XferOut).copied().unwrap_or(0) > 0,
+            Duration::from_secs(50),
+        )
+        .await;
+
+    daemon
+        .wait_for_sink_summary(
+            |summary| summary.get(&Delivery).copied().unwrap_or(0) > 0,
+            Duration::from_secs(50),
+        )
+        .await;
+
+    // And now verify that the expected things happened
+    let delivery_summary = daemon.dump_logs().await?;
+    k9::snapshot!(
+        delivery_summary,
+        "
+DeliverySummary {
+    source_counts: {
+        Reception: 1,
+        TransientFailure: 1,
+        AdminRebind: 1,
+        XferOut: 1,
+    },
+    sink_counts: {
+        Delivery: 1,
+        Rejection: 2,
+        Delayed: 1,
+        XferIn: 1,
+    },
+}
+"
+    );
+
+    // Our injected message should be delayed (TransientFailure) due
+    // to the tempfail@ address, then rebound into an xfer queue by
+    // requeue_message event handler, before being transferred out
+    let source_records: Vec<RecordType> = daemon
+        .source
+        .collect_logs()
+        .await?
+        .into_iter()
+        .map(|r| r.kind)
+        .collect();
+    k9::snapshot!(
+        source_records,
+        "
+[
+    Reception,
+    TransientFailure,
+    AdminRebind,
+    XferOut,
+]
+"
+    );
+
+    // Two Rejections because of pipelining and the tranfail.
+    // Then we receive the xfer and deliver to the maildir.
+    // There is a Delayed record because we respect the delay
+    // set in the source node before we deliver.
+    let sink_logs = daemon.sink.collect_logs().await?;
+    let sink_records: Vec<RecordType> = sink_logs.iter().map(|r| r.kind).collect();
+    k9::snapshot!(
+        &sink_records,
+        "
+[
+    Rejection,
+    Rejection,
+    XferIn,
+    Delayed,
+    Delivery,
+]
+"
+    );
+
+    daemon.stop_both().await?;
 
     Ok(())
 }

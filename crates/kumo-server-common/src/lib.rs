@@ -45,6 +45,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         mod_memoize::register,
         mod_mimepart::register,
         mod_mpsc::register,
+        mod_nats::register,
         mod_uuid::register,
         kumo_api_types::shaping::register,
         regex_set_map::register,
@@ -365,6 +366,21 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             kumo_server_memory::set_soft_limit(limit);
             Ok(())
         })?,
+    )?;
+
+    kumo_mod.set(
+        "get_memory_hard_limit",
+        lua.create_function(move |_, _: ()| Ok(kumo_server_memory::get_hard_limit()))?,
+    )?;
+
+    kumo_mod.set(
+        "get_memory_soft_limit",
+        lua.create_function(move |_, _: ()| Ok(kumo_server_memory::get_soft_limit()))?,
+    )?;
+
+    kumo_mod.set(
+        "get_memory_low_thresh",
+        lua.create_function(move |_, _: ()| Ok(kumo_server_memory::get_low_memory_thresh()))?,
     )?;
 
     kumo_mod.set(

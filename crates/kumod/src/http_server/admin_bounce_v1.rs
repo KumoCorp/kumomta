@@ -191,10 +191,14 @@ impl AdminBounceEntry {
 
 /// Allows the system operator to administratively bounce messages that match
 /// certain criteria, or if no criteria are provided, ALL messages.
+///
+/// !!! danger
+///     There is no way to undo the actions carried out by this request!
 #[utoipa::path(
     post,
-    tag="bounce",
+    tags=["bounce", "kcli:bounce"],
     path="/api/admin/bounce/v1",
+    request_body=BounceV1Request,
     responses(
         (status = 200, description = "Bounce added successfully", body=BounceV1Response)
     ),
@@ -246,7 +250,7 @@ pub async fn bounce_v1(
 /// configured.
 #[utoipa::path(
     get,
-    tag="bounce",
+    tags=["bounce", "kcli:bounce-list"],
     path="/api/admin/bounce/v1",
     responses(
         (status = 200, description = "Returned information about current admin bounces", body=[BounceV1ListEntry])
@@ -259,8 +263,9 @@ pub async fn bounce_v1_list() -> Result<Json<Vec<BounceV1ListEntry>>, AppError> 
 /// Allows the system operator to delete an administrative bounce entry by its id.
 #[utoipa::path(
     delete,
-    tag="bounce",
+    tags=["bounce", "kcli:bounce-cancel"],
     path="/api/admin/bounce/v1",
+    request_body=BounceV1CancelRequest,
     responses(
         (status = 200, description = "Removed the requested bounce id"),
         (status = 404, description = "The requested bounce id is no longer, or never was, valid"),

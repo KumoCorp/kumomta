@@ -1,9 +1,9 @@
 use anyhow::Context;
-use config::{any_err, get_or_create_sub_module, serialize_options};
+use config::{any_err, get_or_create_sub_module, serialize_options, SerdeWrappedValue};
 use dns_resolver::{
     get_resolver, ptr_host, resolve_a_or_aaaa, reverse_ip, set_mx_concurrency_limit,
-    set_mx_negative_cache_ttl, set_mx_timeout, AggregateResolver, HickoryResolver, MailExchanger,
-    Resolver, TestResolver, UnboundResolver,
+    set_mx_negative_cache_ttl, set_mx_timeout, AggregateResolver, HickoryResolver,
+    IpLookupStrategy, MailExchanger, Resolver, TestResolver, UnboundResolver,
 };
 use hickory_resolver::config::{NameServerConfig, ResolveHosts, ResolverConfig, ResolverOpts};
 use hickory_resolver::name_server::TokioConnectionProvider;
@@ -151,11 +151,20 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     dns_mod.set(
         "lookup_addr",
         lua.create_async_function(
-            |_lua, (domain, opt_resolver_name): (String, Option<String>)| async move {
+            |_lua,
+             (domain, opt_resolver_name, strategy): (
+                String,
+                Option<String>,
+                Option<SerdeWrappedValue<IpLookupStrategy>>,
+            )| async move {
                 let opt_resolver = get_opt_resolver(&opt_resolver_name).map_err(any_err)?;
-                let result = resolve_a_or_aaaa(&domain, opt_resolver.as_ref().map(|r| &***r))
-                    .await
-                    .map_err(any_err)?;
+                let result = resolve_a_or_aaaa(
+                    &domain,
+                    opt_resolver.as_ref().map(|r| &***r),
+                    strategy.map(|v| v.0).unwrap_or_default(),
+                )
+                .await
+                .map_err(any_err)?;
                 let result: Vec<String> = result
                     .into_iter()
                     .map(|item| item.addr.to_string())

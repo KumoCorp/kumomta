@@ -1,3 +1,8 @@
+---
+tags:
+  - ops
+  - debugging
+---
 # kcli trace-smtp-server
 
 

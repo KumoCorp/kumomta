@@ -1,4 +1,4 @@
-use map_vec::Map;
+pub use map_vec::Map;
 use memchr::memchr_iter;
 use std::borrow::Borrow;
 use std::collections::HashSet;

@@ -62,10 +62,13 @@ end
 -- or movement through internal queues, rather than interactions
 -- with a destination system
 local UNINTERESTING_LOG_RECORD_TYPES = {
-  Reception = true,
   AdminRebind = true,
   DeferredInjectionRebind = true,
   Delayed = true,
+  Reception = true,
+  Rejection = true,
+  XferIn = true,
+  XferOut = true,
 }
 
 local function should_enq(publish, msg, hook_name, options)
@@ -462,21 +465,16 @@ function mod:setup_with_automation(options)
   end
 
   local function setup_publish()
+    local per_record = {}
+    for record_type, _true in pairs(UNINTERESTING_LOG_RECORD_TYPES) do
+      per_record[record_type] = {
+        enable = false,
+      }
+    end
     for _, params in pairs(publish) do
       kumo.configure_log_hook {
         name = params.hook_name,
-        per_record = {
-          -- Don't feed reception data to the daemon; we're
-          -- only interested in data that flows back to us
-          -- from after the point of reception
-          Reception = {
-            enable = false,
-          },
-          -- Likewise, rejections don't make sense to pass to TSA
-          Rejection = {
-            enable = false,
-          },
-        },
+        per_record = per_record,
         back_pressure = options.back_pressure,
       }
     end

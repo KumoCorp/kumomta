@@ -526,6 +526,52 @@ function mod.default(target_type, default_value)
   return make_simple_ctor(ty)
 end
 
+function mod.variant(...)
+  local variants = { ... }
+
+  if #variants < 2 then
+    error(
+      string.format(
+        'typing.variant: must have a list of 2 or more variants, %d were provided',
+        #variants
+      )
+    )
+  end
+
+  local names = {}
+  for _, variant in ipairs(variants) do
+    table.insert(names, variant.name)
+  end
+  name = string.format('variant<%s>', table.concat(names, ','))
+
+  local ty = {
+    name = name,
+    variants = variants,
+  }
+
+  function ty:validate_value(v)
+    local failures = {}
+    for _, variant in ipairs(variants) do
+      local status, error = variant:validate_value(v)
+      if status then
+        return status, error
+      end
+      table.insert(failures, tostring(error))
+    end
+    return false,
+      TypeError:new(
+        string.format(
+          "Unexpected '%s' value %s. Failed to match any allowed variant: %s",
+          ty.name,
+          value_dump(v),
+          table.concat(failures, '. ')
+        )
+      )
+  end
+
+  return make_simple_ctor(ty)
+end
+
 function mod.option(target_type)
   local ty = {
     name = string.format('option<%s>', target_type.name),

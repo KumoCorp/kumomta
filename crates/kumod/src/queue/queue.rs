@@ -26,6 +26,8 @@ use config::{declare_event, load_config, LuaConfig};
 use humantime::format_duration;
 use kumo_api_types::egress_path::{ConfigRefreshStrategy, MemoryReductionPolicy};
 use kumo_api_types::xfer::XferProtocol;
+use kumo_chrono_helper::DateTime;
+use kumo_prometheus::declare_metric;
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on};
@@ -33,11 +35,10 @@ use kumo_template::TemplateEngine;
 use message::queue_name::QueueNameComponents;
 use message::Message;
 use parking_lot::FairMutex;
-use prometheus::IntGauge;
 use rfc5321::{EnhancedStatusCode, Response};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use throttle::ThrottleResult;
 use timeq::TimerEntryWithDelay;
@@ -740,6 +741,31 @@ impl Queue {
                 tracing::error!("Unable to schedule spool removal for {count} messages! {err:#}");
             }
         }
+    }
+
+    /// Utility method exposed for the benefit of xfer processing
+    /// in a requeue_message event handler
+    pub async fn increment_attempts_and_update_delay_without_expiry(
+        &self,
+        msg: &Message,
+    ) -> anyhow::Result<Option<DateTime<Utc>>> {
+        // Pre-calculate the delay, prior to incrementing the number of attempts,
+        // as the delay_for_attempt uses a zero-based attempt number to figure
+        // the interval
+        let num_attempts = msg.get_num_attempts();
+        let delay = self.queue_config.borrow().delay_for_attempt(num_attempts);
+        msg.increment_num_attempts();
+
+        // Compute some jitter. The default retry_interval is 20 minutes for
+        // which 1 minute is desired. To accomodate different intervals we translate
+        // that to allowing up to 1/20th of the retry_interval as jitter, but we
+        // cap it to 1 minute so that it doesn't result in excessive divergence
+        // for very large intervals.
+        let jitter_magnitude =
+            (self.queue_config.borrow().retry_interval.as_secs_f32() / 20.0).min(60.0);
+        let jitter = (rand::random::<f32>() * jitter_magnitude) - (jitter_magnitude / 2.0);
+        let delay = kumo_chrono_helper::seconds(delay.num_seconds() + jitter as i64)?;
+        msg.delay_by(delay).await
     }
 
     async fn increment_attempts_and_update_delay(
@@ -1741,13 +1767,10 @@ pub static GET_Q_CONFIG_SIG: Multiple(
     ) -> QueueConfig;
 }
 
-static QMAINT_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
-    prometheus::register_int_gauge!(
-        "scheduled_queue_maintainer_count",
-        "how many scheduled queues have active maintainer tasks"
-    )
-    .unwrap()
-});
+declare_metric! {
+/// How many scheduled queues have active maintainer tasks.
+static QMAINT_COUNT: IntGauge("scheduled_queue_maintainer_count");
+}
 
 declare_event! {
 pub static THROTTLE_INSERT_READY_SIG: Multiple(

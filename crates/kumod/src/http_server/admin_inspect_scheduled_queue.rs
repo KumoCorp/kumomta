@@ -10,7 +10,7 @@ use reqwest::StatusCode;
 /// Retrieve information about messages in a scheduled queue.
 #[utoipa::path(
     get,
-    tag="inspect",
+    tags=["inspect", "kcli:inspect-sched-q"],
     path="/api/admin/inspect-sched-q/v1",
     params(InspectQueueV1Request),
     responses(

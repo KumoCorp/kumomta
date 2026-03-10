@@ -5,7 +5,7 @@ tags:
 
 # kumo.aaa.load_acl_map
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 ```lua
 local map = kumo.aaa.load_acl_map(KEYSOURCE)

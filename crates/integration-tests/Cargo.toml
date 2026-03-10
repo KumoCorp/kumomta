@@ -5,6 +5,7 @@ edition = "2021"
 
 [dev-dependencies]
 anyhow = {workspace=true}
+async-nats = {workspace=true}
 axum = {workspace=true}
 axum-server = {workspace=true}
 chrono = {workspace=true, default-features=false, features=["std", "clock"]}
@@ -13,6 +14,7 @@ futures.workspace = true
 futures-lite = {workspace=true}
 k9 = {workspace=true}
 kumo-dkim = {path="../dkim"}
+kumo-api-client = {path="../kumo-api-client"}
 kumo-api-types = {path="../kumo-api-types"}
 kumo-log-types = {path="../kumo-log-types"}
 kumo-server-common = {path="../kumo-server-common"}
@@ -30,7 +32,7 @@ serde = {workspace=true}
 serde_json = {workspace=true}
 sqlite = {workspace=true}
 tempfile = {workspace=true}
-testcontainers-modules = {workspace=true, default-features=false, features=["rabbitmq"]}
+testcontainers-modules = {workspace=true, default-features=false, features=["nats", "rabbitmq"]}
 textwrap = {workspace=true}
 tokio = {workspace=true, features=["full"]}
 tokio-executor-trait = {workspace=true}

@@ -1,5 +1,6 @@
 use cidr_map::CidrSet;
 use data_loader::KeySource;
+use dns_resolver::IpLookupStrategy;
 #[cfg(feature = "lua")]
 use mlua::prelude::*;
 use openssl::ssl::SslOptions;
@@ -279,6 +280,9 @@ pub struct EgressPathConfig {
     pub skip_hosts: CidrSet,
 
     #[serde(default)]
+    pub ip_lookup_strategy: IpLookupStrategy,
+
+    #[serde(default)]
     pub ehlo_domain: Option<String>,
 
     // TODO: decide if we want to keep this and then document
@@ -413,6 +417,7 @@ impl Default for EgressPathConfig {
             dispatcher_wakeup_strategy: WakeupStrategy::default(),
             try_next_host_on_transport_error: false,
             ignore_8bit_checks: false,
+            ip_lookup_strategy: IpLookupStrategy::default(),
         }
     }
 }

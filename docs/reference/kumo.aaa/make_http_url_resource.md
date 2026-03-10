@@ -5,7 +5,7 @@ tags:
 
 # kumo.aaa.make_http_url_resource
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 ```lua
 local resource = kumo.aaa.make_http_url_resource(LOCAL_ADDR, HTTP_URL)

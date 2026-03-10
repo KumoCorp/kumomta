@@ -66,7 +66,7 @@ end)
 
 ## Returning Group and identity Information
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 Rather than just returning a boolean to indicate whether authentication was
 successful, you may now return an [AuthInfo](../kumo.aaa/auth_info.md) object

@@ -1,3 +1,7 @@
+---
+tags:
+  - suspend
+---
 # kcli suspend
 
 

@@ -104,8 +104,9 @@ impl AdminSuspendEntry {
 /// Define a suspension for a scheduled queue
 #[utoipa::path(
     post,
-    tag="suspend",
+    tags=["suspend", "kcli:suspend"],
     path="/api/admin/suspend/v1",
+    request_body=SuspendV1Request,
     responses(
         (status = 200, description = "Suspended", body=SuspendV1Response),
     ),
@@ -136,7 +137,7 @@ pub async fn suspend(
 /// List the active scheduled-queue suspensions
 #[utoipa::path(
     get,
-    tag="suspend",
+    tags=["suspend", "kcli:suspend-list"],
     path="/api/admin/suspend/v1",
     responses(
         (status = 200, description = "Suspended", body=SuspendV1ListEntry),
@@ -149,8 +150,9 @@ pub async fn list() -> Result<Json<Vec<SuspendV1ListEntry>>, AppError> {
 /// Remove a scheduled-queue suspension
 #[utoipa::path(
     delete,
-    tag="suspend",
+    tags=["suspend", "kcli:suspend-cancel"],
     path="/api/admin/suspend/v1",
+    request_body=SuspendV1CancelRequest,
     responses(
         (status = 200, description = "Removed the suspension"),
         (status = 404, description = "Suspension either expired or was never valid"),
