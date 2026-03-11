@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = {workspace=true}
+parking_lot.workspace = true
 tracing = {workspace=true}
 tokio = {workspace=true, features=["full", "tracing"]}
 uuid = {workspace=true, features=["v4", "fast-rng"]}

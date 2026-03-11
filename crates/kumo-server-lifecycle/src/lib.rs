@@ -2,9 +2,10 @@
 //! and to shut things down gracefully.
 //!
 //! See <https://tokio.rs/tokio/topics/shutdown> for more information.
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{LazyLock, Mutex, OnceLock};
+use std::sync::{LazyLock, OnceLock};
 use tokio::signal::unix::SignalKind;
 use tokio::sync::mpsc::{Receiver as MPSCReceiver, Sender as MPSCSender};
 use tokio::sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
@@ -34,7 +35,7 @@ impl std::fmt::Debug for Activity {
 impl Clone for Activity {
     fn clone(&self) -> Self {
         let uuid = Uuid::new_v4();
-        let mut labels = ACTIVE_LABELS.lock().unwrap();
+        let mut labels = ACTIVE_LABELS.lock();
 
         let label = match labels.get(&self.uuid) {
             Some(existing) => format!("clone of {existing}"),
@@ -51,7 +52,7 @@ impl Clone for Activity {
 
 impl Drop for Activity {
     fn drop(&mut self) {
-        ACTIVE_LABELS.lock().unwrap().remove(&self.uuid);
+        ACTIVE_LABELS.lock().remove(&self.uuid);
     }
 }
 
@@ -60,11 +61,19 @@ impl Activity {
     /// If None is returned then the process is shutting down
     /// and no new activity can be initiated.
     pub fn get_opt(label: String) -> Option<Self> {
+        Self::get_impl(label).ok()
+    }
+
+    fn get_impl(label: String) -> Result<Self, String> {
         let uuid = Uuid::new_v4();
-        let active = ACTIVE.get()?.lock().unwrap();
-        let activity = active.as_ref()?;
-        ACTIVE_LABELS.lock().unwrap().insert(uuid, label);
-        Some(Activity {
+        let Some(active) = ACTIVE.get().map(|a| a.lock()) else {
+            return Err(label);
+        };
+        let Some(activity) = active.as_ref() else {
+            return Err(label);
+        };
+        ACTIVE_LABELS.lock().insert(uuid, label);
+        Ok(Activity {
             tx: activity.tx.clone(),
             uuid,
         })
@@ -74,7 +83,8 @@ impl Activity {
     /// Returns Err if the process is shutting down and no new
     /// activity can be initiated
     pub fn get(label: String) -> anyhow::Result<Self> {
-        Self::get_opt(label).ok_or_else(|| anyhow::anyhow!("shutting down"))
+        Self::get_impl(label)
+            .map_err(|label| anyhow::anyhow!("Activity::get for {label} refused: shutting down"))
     }
 
     /// Returns true if the process is shutting down.
@@ -144,7 +154,6 @@ impl LifeCycle {
         let uuid = Uuid::new_v4();
         ACTIVE_LABELS
             .lock()
-            .unwrap()
             .insert(uuid, "Root LifeCycle".to_string());
         ACTIVE
             .set(Mutex::new(Some(Activity {
@@ -222,14 +231,14 @@ impl LifeCycle {
         // Signal that we are stopping
         tracing::debug!("Signal tasks that we are stopping");
         SHUTTING_DOWN.store(true, Ordering::SeqCst);
-        ACTIVE.get().map(|a| a.lock().unwrap().take());
+        ACTIVE.get().map(|a| a.lock().take());
         STOPPING.get().map(|s| s.tx.send(()).ok());
         // Wait for all pending activity to finish
         tracing::debug!("Waiting for tasks to wrap up");
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(15)) => {
-                    let labels = ACTIVE_LABELS.lock().unwrap().clone();
+                    let labels = ACTIVE_LABELS.lock().clone();
                     let n = labels.len();
                     let summary :Vec<&str> = labels.values().map(|s| s.as_str()).take(10).collect();
                     let summary = summary.join(", ");
