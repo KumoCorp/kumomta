@@ -10,5 +10,5 @@ kumo-prometheus = {path="../kumo-prometheus"}
 linkme.workspace = true
 parking_lot.workspace = true
 prometheus = {workspace=true}
-tokio = {workspace=true, features=["full", "tracing"]}
+tokio = {workspace=true, features=["full", "tracing", "taskdump"]}
 tracing = {workspace=true}
