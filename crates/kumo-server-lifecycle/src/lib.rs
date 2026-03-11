@@ -6,6 +6,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock};
+use thiserror::Error;
 use tokio::signal::unix::SignalKind;
 use tokio::sync::mpsc::{Receiver as MPSCReceiver, Sender as MPSCSender};
 use tokio::sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
@@ -16,6 +17,27 @@ static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 static STOPPING: OnceLock<ShutdownState> = OnceLock::new();
 
 static ACTIVE_LABELS: LazyLock<Mutex<HashMap<Uuid, String>>> = LazyLock::new(Mutex::default);
+
+#[derive(Error, Debug, Clone)]
+#[error("{0} refused: shutting down")]
+pub struct ShuttingDownError(String);
+
+impl ShuttingDownError {
+    pub fn is_shutting_down(err: &anyhow::Error) -> bool {
+        if err
+            .root_cause()
+            .downcast_ref::<ShuttingDownError>()
+            .is_some()
+        {
+            return true;
+        }
+        format!("{err:#}").contains("shutting down")
+    }
+
+    pub fn new(label: impl Into<String>) -> Self {
+        Self(label.into())
+    }
+}
 
 /// Represents some activity which cannot be ruthlessly interrupted.
 /// Obtain an Activity instance via Activity::get(). While any
@@ -61,30 +83,25 @@ impl Activity {
     /// If None is returned then the process is shutting down
     /// and no new activity can be initiated.
     pub fn get_opt(label: String) -> Option<Self> {
-        Self::get_impl(label).ok()
+        Self::get(label).ok()
     }
 
-    fn get_impl(label: String) -> Result<Self, String> {
+    /// Obtain an Activity instance.
+    /// Returns Err if the process is shutting down and no new
+    /// activity can be initiated
+    pub fn get(label: String) -> Result<Self, ShuttingDownError> {
         let uuid = Uuid::new_v4();
         let Some(active) = ACTIVE.get().map(|a| a.lock()) else {
-            return Err(label);
+            return Err(ShuttingDownError(label));
         };
         let Some(activity) = active.as_ref() else {
-            return Err(label);
+            return Err(ShuttingDownError(label));
         };
         ACTIVE_LABELS.lock().insert(uuid, label);
         Ok(Activity {
             tx: activity.tx.clone(),
             uuid,
         })
-    }
-
-    /// Obtain an Activity instance.
-    /// Returns Err if the process is shutting down and no new
-    /// activity can be initiated
-    pub fn get(label: String) -> anyhow::Result<Self> {
-        Self::get_impl(label)
-            .map_err(|label| anyhow::anyhow!("Activity::get for {label} refused: shutting down"))
     }
 
     /// Returns true if the process is shutting down.

@@ -24,7 +24,7 @@ use kumo_prometheus::{declare_metric, AtomicCounter};
 use kumo_server_common::acct::{log_authn, AuthnAuditRecord};
 use kumo_server_common::authn_authz::{AuthInfo, Identity, IdentityContext};
 use kumo_server_common::http_server::auth::AuthKindResult;
-use kumo_server_lifecycle::{Activity, ShutdownSubcription};
+use kumo_server_lifecycle::{Activity, ShutdownSubcription, ShuttingDownError};
 use kumo_server_runtime::{spawn, Runtime};
 use lruttl::declare_cache;
 use mailparsing::ConformanceDisposition;
@@ -779,23 +779,6 @@ impl EsmtpListenerParams {
             }
         })?;
         Ok(())
-    }
-}
-
-#[derive(Error, Debug, Clone)]
-#[error("shutting down")]
-pub struct ShuttingDownError;
-
-impl ShuttingDownError {
-    pub fn is_shutting_down(err: &anyhow::Error) -> bool {
-        if err
-            .root_cause()
-            .downcast_ref::<ShuttingDownError>()
-            .is_some()
-        {
-            return true;
-        }
-        format!("{err:#}").contains("shutting down")
     }
 }
 
