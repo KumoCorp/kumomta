@@ -632,4 +632,110 @@ mod test {
         assert_eq!(result, 0);
         assert_eq!(call_count.load(Ordering::SeqCst), 1);
     }
+
+    #[tokio::test]
+    #[test_log::test]
+    async fn test_memoize_blocked() {
+        use std::sync::Mutex;
+        use tokio::sync::Notify;
+
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let notify = Arc::new(Notify::new());
+        let shared_notify = Arc::new(Mutex::new(Some(Arc::clone(&notify))));
+
+        async fn setup_lua(
+            call_count: &Arc<AtomicUsize>,
+            notify: Arc<Mutex<Option<Arc<Notify>>>>,
+        ) -> Lua {
+            let lua = Lua::new();
+            register(&lua).unwrap();
+            let globals = lua.globals();
+            let counter = Arc::clone(&call_count);
+
+            fn take_notify(n: &Arc<Mutex<Option<Arc<Notify>>>>) -> Option<Arc<Notify>> {
+                n.lock().unwrap().take()
+            }
+
+            globals
+                .set(
+                    "do_thing",
+                    lua.create_async_function(move |_lua, _: ()| {
+                        let counter = counter.clone();
+                        let notify = notify.clone();
+                        async move {
+                            eprintln!("do_thing called!");
+                            match dbg!(take_notify(&notify)) {
+                                Some(notify) => {
+                                    eprintln!("do_thing: wait for notify");
+                                    notify.notified().await;
+                                    eprintln!("notified!");
+                                }
+                                None => {
+                                    eprintln!("do_thing: sleeping");
+                                    tokio::time::sleep(Duration::from_secs(1)).await;
+                                    eprintln!("do_thing: slept");
+                                }
+                            };
+                            eprintln!("do_thing: increment");
+                            let count = counter.fetch_add(1, Ordering::SeqCst);
+                            Ok(count)
+                        }
+                    })
+                    .unwrap(),
+                )
+                .unwrap();
+
+            let init = r#"
+            local kumo = require 'kumo';
+            -- make cached_do_thing a global for use in the expiry test below
+            cached_do_thing = kumo.memoize(do_thing, {
+                ttl = "1s",
+                capacity = 4,
+                name = "test_memoize_do_thing",
+                populate_timeout = "2s",
+            })
+        "#;
+
+            let () = lua.load(init).eval_async().await.unwrap();
+            lua
+        }
+
+        let lua = setup_lua(&call_count, shared_notify.clone()).await;
+        async fn do_thing(lua: Lua) -> mlua::Result<usize> {
+            lua.load("return cached_do_thing()").eval_async().await
+        }
+
+        // Set up a future that will get far enough to own the lookup,
+        // but that won't complete until we notify it to do so.
+        eprintln!("spawning first call to do_thing");
+        let first_future = tokio::spawn(do_thing(lua));
+        // Let it progress to await on the notifier
+        tokio::task::yield_now().await;
+
+        // Now setup a second call; we expect this one to time out
+        // because the first one owns the lookup
+        let lua = setup_lua(&call_count, shared_notify.clone()).await;
+        eprintln!("second call to do_thing");
+
+        let res = do_thing(lua).await;
+        eprintln!("second_future is done!");
+        let error = res.unwrap_err().to_string();
+        assert!(
+            error.contains(
+                "timed out after 2s on semaphore acquire while waiting for cache to populate"
+            ),
+            "error: {error}"
+        );
+
+        // The third call will succeed because we've de-coupled the
+        // original lookup from the herd protection
+        eprintln!("third call to do_thing");
+        let lua = setup_lua(&call_count, shared_notify.clone()).await;
+        let result = do_thing(lua).await.unwrap();
+        assert_eq!(result, 0);
+
+        // Now wake up the original future and verify what it returns
+        notify.notify_one();
+        assert_eq!(first_future.await.unwrap().unwrap(), 1);
+    }
 }

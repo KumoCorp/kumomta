@@ -4957,6 +4957,7 @@ dependencies = [
  "mlua",
  "serde",
  "serde_json",
+ "test-log",
  "tokio",
  "tracing",
 ]
