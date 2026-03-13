@@ -24,3 +24,5 @@
 ## Fixes
 
  * sources helper didn't allow creating empty egress pools
+ * RFC5965 parsing now strips the enclosing angle brackets from the
+   `original-rcpt-to` and `original-mail-from` fields in the ARF report.
