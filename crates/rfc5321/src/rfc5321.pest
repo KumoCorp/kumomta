@@ -44,6 +44,9 @@ path_no_angles = { (adl ~ ":" )? ~ mailbox }
 adl = { at_domain ~ ( "," ~ at_domain )* }
 at_domain = { "@" ~ domain }
 
+// Helper for use outside of the client when parsing addresses
+envelope_address = { path | postmaster | null_sender | path_no_angles }
+
 forward_path = { path | postmaster | path_no_angles }
 reverse_path = { path | null_sender | path_no_angles }
 null_sender = { "<>" }

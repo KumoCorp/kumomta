@@ -34,6 +34,29 @@ impl Parser {
         }
     }
 
+    pub fn parse_envelope_address(text: &str) -> Result<String, String> {
+        let result = Parser::parse(Rule::envelope_address, text)
+            .map_err(|err| format!("{err:#}"))?
+            .next()
+            .unwrap();
+        match result.as_rule() {
+            Rule::envelope_address => {
+                let pairs = result.into_inner().next().unwrap();
+
+                match pairs.as_rule() {
+                    Rule::path | Rule::path_no_angles => {
+                        let path = Self::parse_path(pairs)?;
+                        Ok(path.to_string())
+                    }
+                    Rule::postmaster => Ok("postmaster".to_string()),
+                    Rule::null_sender => Ok("".to_string()),
+                    _ => Err(format!("unexpected {pairs:?}")),
+                }
+            }
+            _ => Err(format!("unexpected {result:?}")),
+        }
+    }
+
     fn parse_ehlo(mut pairs: Pairs<Rule>) -> Result<Command, String> {
         let domain = pairs.next().unwrap();
         Ok(Command::Ehlo(Self::parse_domain(domain)?))
@@ -209,6 +232,10 @@ impl Parser {
         let domain = Self::parse_domain(mailbox.next().unwrap())?;
         Ok(Mailbox { local_part, domain })
     }
+}
+
+pub fn parse_envelope_address(text: &str) -> Result<String, String> {
+    Parser::parse_envelope_address(text)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1001,6 +1028,25 @@ mod test {
                 },
             ])
         );
+    }
+
+    #[test]
+    fn parse_envelope_address() {
+        assert_eq!(
+            Parser::parse_envelope_address("foo@bar.com"),
+            Ok("foo@bar.com".to_string())
+        );
+        assert_eq!(
+            Parser::parse_envelope_address("<foo@bar.com>"),
+            Ok("foo@bar.com".to_string())
+        );
+        assert_eq!(
+            Parser::parse_envelope_address("<postmaster>"),
+            Ok("postmaster".to_string())
+        );
+        assert!(Parser::parse_envelope_address("postmaster").is_err());
+        assert_eq!(Parser::parse_envelope_address("<>"), Ok("".to_string()));
+        assert!(Parser::parse_envelope_address("").is_err());
     }
 }
 

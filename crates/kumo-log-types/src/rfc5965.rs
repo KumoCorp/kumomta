@@ -2,20 +2,28 @@
 use crate::rfc3464::{content_type, RemoteMta};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
-use mailparsing::{EncodeHeaderValue, Header, HeaderParseResult, MimePart, Parser};
+use mailparsing::{Header, HeaderParseResult, MimePart};
+use rfc5321::parse_envelope_address;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(transparent)]
-struct EnvelopeAddress(String);
+pub(crate) struct EnvelopeAddress(String);
+
+impl EnvelopeAddress {
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
 
 impl FromStr for EnvelopeAddress {
     type Err = anyhow::Error;
     fn from_str(input: &str) -> anyhow::Result<Self> {
-        let mailbox = Parser::parse_mailbox_header(input)?;
-        Ok(Self(mailbox.address.encode_value().to_string()))
+        Ok(Self(parse_envelope_address(input).map_err(|err| {
+            anyhow!("failed to parse {input} as EnvelopeAddress: {err}")
+        })?))
     }
 }
 
