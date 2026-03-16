@@ -21,6 +21,10 @@
    reported earlier and/or more frequently than in prior versions, but should
    result in less of an overall bottleneck in the triggering scenario.
 
+ * [kumo.serde.json_encode_pretty](../reference/kumo.serde/json_encode_pretty.md)
+   now outputs keys of json objects in sorted order.  This means that utilities
+   such as `resolve-shaping-domain` will now output keys in sorted order as well.
+
 ## Fixes
 
  * sources helper didn't allow creating empty egress pools
