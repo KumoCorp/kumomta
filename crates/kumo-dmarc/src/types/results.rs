@@ -3,18 +3,19 @@ use crate::types::policy::Policy;
 use crate::types::policy_override::PolicyOverrideReason;
 use instant_xml::{FromXml, ToXml};
 use kumo_spf::SpfDisposition;
-use serde::Serialize;
+use mailparsing::AuthenticationResult;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::net::IpAddr;
 
-#[derive(Debug, Eq, FromXml, PartialEq, ToXml)]
+#[derive(Debug, Eq, FromXml, PartialEq, ToXml, Serialize, Deserialize, Clone, Copy)]
 #[xml(scalar, rename_all = "lowercase")]
 pub enum SpfScope {
     Helo,
     Mfrom,
 }
 
-#[derive(Debug, Eq, FromXml, PartialEq, ToXml)]
+#[derive(Debug, Eq, FromXml, PartialEq, ToXml, Serialize, Deserialize, Clone)]
 #[xml(rename = "spf")]
 pub struct SpfAuthResult {
     domain: String,
@@ -22,22 +23,34 @@ pub struct SpfAuthResult {
     result: SpfDisposition,
 }
 
-#[derive(Debug, Eq, PartialEq, ToXml)]
+impl From<AuthenticationResult> for SpfAuthResult {
+    fn from(value: AuthenticationResult) -> Self {
+        let d = value.props.get("header.d");
+
+        Self {
+            domain: d.cloned().unwrap_or_default(),
+            scope: SpfScope::Mfrom,
+            result: value.result.into(),
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, ToXml, Serialize, Deserialize, Clone)]
 #[xml(rename = "auth_results")]
 pub struct AuthResults {
-    dkim: Vec<DkimAuthResult>,
-    spf: Vec<SpfAuthResult>,
+    pub(crate) dkim: Vec<DkimAuthResult>,
+    pub(crate) spf: Vec<SpfAuthResult>,
 }
 
 #[derive(Debug, Eq, PartialEq, ToXml)]
 #[xml(rename = "record")]
 pub struct Results {
-    row: Row,
-    identifiers: Identifier,
-    auth_results: AuthResults,
+    pub(crate) row: Row,
+    pub(crate) identifiers: Identifier,
+    pub(crate) auth_results: AuthResults,
 }
 
-#[derive(Debug, Eq, PartialEq, ToXml)]
+#[derive(Debug, Eq, PartialEq, ToXml, Serialize, Deserialize, Clone, Copy)]
 #[xml(scalar, rename_all = "lowercase")]
 pub enum DkimResult {
     None,
@@ -49,7 +62,22 @@ pub enum DkimResult {
     PermError,
 }
 
-#[derive(Debug, Eq, PartialEq, ToXml)]
+impl From<String> for DkimResult {
+    fn from(value: String) -> Self {
+        match value.to_lowercase().as_str() {
+            "none" => DkimResult::None,
+            "pass" => DkimResult::Pass,
+            "fail" => DkimResult::Fail,
+            "policy" => DkimResult::Policy,
+            "neutral" => DkimResult::Neutral,
+            "temperror" => DkimResult::TempError,
+            "permerror" => DkimResult::PermError,
+            _ => DkimResult::None,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, ToXml, Serialize, Deserialize, Clone)]
 pub struct DkimAuthResult {
     domain: String,
     selector: Option<String>,
@@ -57,7 +85,20 @@ pub struct DkimAuthResult {
     human_result: Option<String>,
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Copy, ToXml, Serialize)]
+impl From<AuthenticationResult> for DkimAuthResult {
+    fn from(value: AuthenticationResult) -> Self {
+        let d = value.props.get("header.d");
+        let s = value.props.get("header.s");
+        Self {
+            domain: d.cloned().unwrap_or_default(),
+            selector: s.cloned(),
+            result: value.result.clone().into(),
+            human_result: Some(value.result),
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Copy, ToXml, Serialize, Deserialize)]
 #[xml(scalar, rename_all = "lowercase")]
 pub enum DmarcResult {
     Pass,
@@ -122,19 +163,19 @@ pub struct DispositionWithContext {
     pub context: String,
 }
 
-#[derive(Debug, Eq, PartialEq, ToXml)]
+#[derive(Debug, Eq, PartialEq, ToXml, Serialize, Deserialize, Clone)]
 #[xml(rename = "policy_evaluated")]
 pub struct PolicyEvaluated {
-    disposition: Policy,
-    dkim: DmarcResult,
-    spf: DmarcResult,
-    reason: Vec<PolicyOverrideReason>,
+    pub(crate) disposition: Policy,
+    pub(crate) dkim: DmarcResult,
+    pub(crate) spf: DmarcResult,
+    pub(crate) reason: Vec<PolicyOverrideReason>,
 }
 
 #[derive(Debug, Eq, PartialEq, ToXml)]
 #[xml(rename = "row")]
 pub struct Row {
-    source_ip: IpAddr,
-    count: u64,
-    policy_evaluated: PolicyEvaluated,
+    pub(crate) source_ip: IpAddr,
+    pub(crate) count: u64,
+    pub(crate) policy_evaluated: PolicyEvaluated,
 }
