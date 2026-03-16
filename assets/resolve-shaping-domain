@@ -45,11 +45,16 @@ for the source name.
 
   local source = source or 'unspecified'
 
-  local mx = kumo.dns.lookup_mx(domain)
+  local site_name = domain
+  local ok, mx = pcall(kumo.dns.lookup_mx, domain)
+  if ok then
+    site_name = mx.site_name
+  end
+
   local path_config = kumo.invoke_get_egress_path_config(
     domain,
     source,
-    mx.site_name
+    site_name
   )
   print(kumo.serde.json_encode_pretty(path_config))
 end)
