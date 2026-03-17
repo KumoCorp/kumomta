@@ -4,7 +4,7 @@ tags:
 ---
 # kumo.xfer.xfer
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 ```lua
 kumo.xfer.xfer(msg, target_url, opt_reason)

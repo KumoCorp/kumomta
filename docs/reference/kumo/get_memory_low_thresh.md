@@ -9,7 +9,7 @@ tags:
 local thresh = kumo.get_memory_low_thresh()
 ```
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 Returns the low memory threshold, or `nil` if none has been configured.
 

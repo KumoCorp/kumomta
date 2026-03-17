@@ -1,6 +1,6 @@
 # hostname
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 Specifies the hostname to use when generating a self-signed TLS certificate.
 

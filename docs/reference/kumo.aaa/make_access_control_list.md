@@ -5,7 +5,7 @@ tags:
 
 # kumo.aaa.make_access_control_list
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 ```lua
 local acl = kumo.aaa.make_access_control_list(RULES)

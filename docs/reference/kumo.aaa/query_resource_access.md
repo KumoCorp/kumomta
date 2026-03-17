@@ -5,7 +5,7 @@ tags:
 
 # kumo.aaa.query_resource_access
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 ```lua
 local result = kumo.aaa.query_resource_access(RESOURCE, AUTH_INFO, PRIVILEGE)

@@ -27,7 +27,7 @@ This is an object value, with the following properties:
 
 
   * `amp_html_body` - optional nullable `string`. If set, will be used to create a text/x-amp-html part.
-    This is available {{since('dev', inline=True)}}
+    This is available {{since('2026.03.04-bb93ecb1', inline=True)}}
 
   * `attachments` - optional array of [Attachment](Attachment.md). Optional list of attachments.
 

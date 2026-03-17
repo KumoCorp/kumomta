@@ -15,7 +15,7 @@ use crate::queue::{
     QueueManager, QueueState,
 };
 use crate::smtp_dispatcher::{OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
-use crate::smtp_server::{DeferredSmtpInjectionDispatcher, ShuttingDownError};
+use crate::smtp_server::DeferredSmtpInjectionDispatcher;
 use crate::spool::SpoolManager;
 use crate::xfer::XferDispatcher;
 use anyhow::Context;
@@ -30,7 +30,7 @@ use kumo_api_types::egress_path::{
 };
 use kumo_prometheus::declare_metric;
 use kumo_server_common::config_handle::ConfigHandle;
-use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
+use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription, ShuttingDownError};
 use kumo_server_memory::{
     get_headroom, memory_status, subscribe_to_memory_status_changes_async, MemoryStatus,
 };
@@ -1777,15 +1777,10 @@ impl Dispatcher {
             msg.data().await?;
         }
 
-        let activity = match Activity::get_opt(format!(
+        let activity = Activity::get(format!(
             "ready_queue Dispatcher deliver_message {}",
             self.name
-        )) {
-            Some(a) => a,
-            None => {
-                return Err(ShuttingDownError.into());
-            }
-        };
+        ))?;
 
         self.delivered_this_connection += self.msgs.len();
 

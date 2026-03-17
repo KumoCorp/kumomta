@@ -2,6 +2,7 @@
 //! from an email message
 use crate::rfc5965::{
     extract_headers, extract_single, extract_single_conv, extract_single_req, DateTimeRfc2822,
+    EnvelopeAddress,
 };
 use crate::{JsonLogRecord, RecordType};
 use anyhow::{anyhow, Context};
@@ -173,9 +174,16 @@ impl FromStr for Recipient {
         let (recipient_type, recipient) = input
             .split_once(";")
             .ok_or_else(|| anyhow!("expected 'recipient-type; recipient', got {input}"))?;
+
+        let recipient = if recipient_type == "rfc822" {
+            recipient.trim().parse::<EnvelopeAddress>()?.into_inner()
+        } else {
+            recipient.trim().to_string()
+        };
+
         Ok(Self {
             recipient_type: recipient_type.trim().to_string(),
-            recipient: recipient.trim().to_string(),
+            recipient,
         })
     }
 }
@@ -1646,6 +1654,75 @@ Some(
         ],
         original_message: Some(
             "[original message goes here]
+
+",
+        ),
+    },
+)
+"#
+        );
+    }
+
+    #[test]
+    fn rfc3464_6() {
+        let result = Report::parse(include_bytes!("../data/rfc3464/6.eml")).unwrap();
+        k9::snapshot!(
+            result,
+            r#"
+Some(
+    Report {
+        per_message: PerMessageReportEntry {
+            original_envelope_id: None,
+            reporting_mta: RemoteMta {
+                mta_type: "dns",
+                name: "tls02.example.com",
+            },
+            dsn_gateway: None,
+            received_from_mta: None,
+            arrival_date: None,
+            extensions: {},
+        },
+        per_recipient: [
+            PerRecipientReportEntry {
+                final_recipient: Recipient {
+                    recipient_type: "rfc822",
+                    recipient: "redacted@example.com",
+                },
+                action: Failed,
+                status: ReportStatus {
+                    class: 5,
+                    subject: 0,
+                    detail: 0,
+                    comment: None,
+                },
+                original_recipient: Some(
+                    Recipient {
+                        recipient_type: "rfc822",
+                        recipient: "redacted@example.com",
+                    },
+                ),
+                remote_mta: Some(
+                    RemoteMta {
+                        mta_type: "dns",
+                        name: "example-com.mail.eo.outlook.com:25",
+                    },
+                ),
+                diagnostic_code: Some(
+                    DiagnosticCode {
+                        diagnostic_type: "smtp",
+                        diagnostic: "host example-com.mail.eo.outlook.com:25 says: 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [XXX.namprd05.prod.outlook.com 2026-03-13T18:10:42.797Z XXX]",
+                    },
+                ),
+                last_attempt_date: None,
+                final_log_id: None,
+                will_retry_until: None,
+                extensions: {},
+            },
+        ],
+        original_message: Some(
+            "Subject: [Bulk Mail] the subject
+From: INFO <info@email.example.com>
+To: redacted@example.com
 
 ",
         ),

@@ -1,6 +1,6 @@
 # use_tls
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 If true, the listener will start with TLS enabled and require clients to
 connect using TLS.

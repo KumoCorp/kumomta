@@ -1,6 +1,6 @@
 # AuthInfo Object
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 AuthInfo Objects are used to represent the authentication state of a session.
 There are two main ways that you might interact with them in KumoMTA:

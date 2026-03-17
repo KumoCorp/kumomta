@@ -80,6 +80,7 @@ async fn mx_list_refresh() -> anyhow::Result<()> {
     )?;
 
     daemon.source.api_client().admin_bump_config_epoch().await?;
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     send(&mut client, "three@one.example.com").await?;
     send(&mut client, "four@two.example.com").await?;

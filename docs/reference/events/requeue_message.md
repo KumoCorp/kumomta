@@ -39,7 +39,7 @@ introduced, is shown below:
      a requeue that are not directly caused by an SMTP response. Those
      responses have `KumoMTA internal:` prefixed the to textual portion of the
      response.
-   * `insert_context` {{since('dev', inline=True)}} is an array holding the
+   * `insert_context` {{since('2026.03.04-bb93ecb1', inline=True)}} is an array holding the
      reason(s) why the message is being inserted into the queue manager.  There
      will typically be 1 reason, but it is possible to have multiple reasons to
      indicate eg: that we just received or loaded a message from spool and then
@@ -70,11 +70,11 @@ introduced, is shown below:
          explain what really happened.  The information contained in the reason
          may not represent the full extent of the situation.
 
-   * `increment_attempts` {{since('dev', inline=True)}} - a boolean value
+   * `increment_attempts` {{since('2026.03.04-bb93ecb1', inline=True)}} - a boolean value
      that will be set to `true` if the number of attempts on the message
      would be incremented as part of normal processing of the requeue
      event.  Not every requeue situation will increment this counter.
-   * `delay` {{since('dev', inline=True)}} a [TimeDelta](../kumo.time/TimeDelta.md)
+   * `delay` {{since('2026.03.04-bb93ecb1', inline=True)}} a [TimeDelta](../kumo.time/TimeDelta.md)
      object indicating a suggested delay to be applied to the message.
      This will typically be `nil` which indicates that the usual retry
      parameters for the associated queue should be used, but in some

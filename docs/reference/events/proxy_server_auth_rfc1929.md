@@ -1,6 +1,6 @@
 # proxy_server_auth_rfc1929
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 ```lua
 kumo.on(

@@ -3,9 +3,29 @@ use crate::rfc3464::{content_type, RemoteMta};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use mailparsing::{Header, HeaderParseResult, MimePart};
+use rfc5321::parse_envelope_address;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::str::FromStr;
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[serde(transparent)]
+pub(crate) struct EnvelopeAddress(String);
+
+impl EnvelopeAddress {
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+impl FromStr for EnvelopeAddress {
+    type Err = anyhow::Error;
+    fn from_str(input: &str) -> anyhow::Result<Self> {
+        Ok(Self(parse_envelope_address(input).map_err(|err| {
+            anyhow!("failed to parse {input} as EnvelopeAddress: {err}")
+        })?))
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct ARFReport {
@@ -133,11 +153,16 @@ impl ARFReport {
         );
         let incidents = extract_single("incidents", &mut extensions)?;
         let original_envelope_id = extract_single("original-envelope-id", &mut extensions)?;
-        let original_mail_from = extract_single("original-mail-from", &mut extensions)?;
+        let original_mail_from =
+            extract_single::<EnvelopeAddress>("original-mail-from", &mut extensions)?.map(|a| a.0);
         let reporting_mta = extract_single("reporting-mta", &mut extensions)?;
         let source_ip = extract_single("source-ip", &mut extensions)?;
         let authentication_results = extract_multiple("authentication-results", &mut extensions)?;
-        let original_rcpto_to = extract_multiple("original-rcpt-to", &mut extensions)?;
+        let original_rcpto_to =
+            extract_multiple::<EnvelopeAddress>("original-rcpt-to", &mut extensions)?
+                .into_iter()
+                .map(|a| a.0)
+                .collect();
         let reported_domain = extract_multiple("reported-domain", &mut extensions)?;
         let reported_uri = extract_multiple("reported-uri", &mut extensions)?;
 
@@ -347,7 +372,7 @@ Some(
         incidents: None,
         original_envelope_id: None,
         original_mail_from: Some(
-            "<somespammer@example.net>",
+            "somespammer@example.net",
         ),
         reporting_mta: Some(
             RemoteMta {
@@ -362,7 +387,7 @@ Some(
             "mail.example.com; spf=fail smtp.mail=somespammer@example.com",
         ],
         original_rcpto_to: [
-            "<user@example.com>",
+            "user@example.com",
         ],
         reported_domain: [
             "example.net",
@@ -423,7 +448,7 @@ Some(
         incidents: None,
         original_envelope_id: None,
         original_mail_from: Some(
-            "<test1@example.com>",
+            "test1@example.com",
         ),
         reporting_mta: None,
         source_ip: None,

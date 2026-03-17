@@ -1,6 +1,6 @@
 # proxy_init
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 The `proxy_init` event is triggered when the proxy server starts up.
 

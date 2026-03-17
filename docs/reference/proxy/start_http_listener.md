@@ -1,6 +1,6 @@
 # proxy.start_http_listener
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 ```lua
 proxy.start_http_listener { PARAMS }

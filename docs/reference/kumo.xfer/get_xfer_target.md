@@ -4,7 +4,7 @@ tags:
 ---
 # kumo.xfer.get_xfer_target
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 ```lua
 local proto = kumo.xfer.get_xfer_target(msg)

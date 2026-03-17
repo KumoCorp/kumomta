@@ -9,7 +9,7 @@ tags:
 local limit = kumo.get_memory_soft_limit()
 ```
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 Returns the soft memory limit, or `nil` if none has been configured.
 

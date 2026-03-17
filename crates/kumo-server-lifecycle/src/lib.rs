@@ -2,9 +2,11 @@
 //! and to shut things down gracefully.
 //!
 //! See <https://tokio.rs/tokio/topics/shutdown> for more information.
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{LazyLock, Mutex, OnceLock};
+use std::sync::{LazyLock, OnceLock};
+use thiserror::Error;
 use tokio::signal::unix::SignalKind;
 use tokio::sync::mpsc::{Receiver as MPSCReceiver, Sender as MPSCSender};
 use tokio::sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
@@ -15,6 +17,27 @@ static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 static STOPPING: OnceLock<ShutdownState> = OnceLock::new();
 
 static ACTIVE_LABELS: LazyLock<Mutex<HashMap<Uuid, String>>> = LazyLock::new(Mutex::default);
+
+#[derive(Error, Debug, Clone)]
+#[error("{0} refused: shutting down")]
+pub struct ShuttingDownError(String);
+
+impl ShuttingDownError {
+    pub fn is_shutting_down(err: &anyhow::Error) -> bool {
+        if err
+            .root_cause()
+            .downcast_ref::<ShuttingDownError>()
+            .is_some()
+        {
+            return true;
+        }
+        format!("{err:#}").contains("shutting down")
+    }
+
+    pub fn new(label: impl Into<String>) -> Self {
+        Self(label.into())
+    }
+}
 
 /// Represents some activity which cannot be ruthlessly interrupted.
 /// Obtain an Activity instance via Activity::get(). While any
@@ -34,7 +57,7 @@ impl std::fmt::Debug for Activity {
 impl Clone for Activity {
     fn clone(&self) -> Self {
         let uuid = Uuid::new_v4();
-        let mut labels = ACTIVE_LABELS.lock().unwrap();
+        let mut labels = ACTIVE_LABELS.lock();
 
         let label = match labels.get(&self.uuid) {
             Some(existing) => format!("clone of {existing}"),
@@ -51,7 +74,7 @@ impl Clone for Activity {
 
 impl Drop for Activity {
     fn drop(&mut self) {
-        ACTIVE_LABELS.lock().unwrap().remove(&self.uuid);
+        ACTIVE_LABELS.lock().remove(&self.uuid);
     }
 }
 
@@ -60,21 +83,25 @@ impl Activity {
     /// If None is returned then the process is shutting down
     /// and no new activity can be initiated.
     pub fn get_opt(label: String) -> Option<Self> {
-        let uuid = Uuid::new_v4();
-        let active = ACTIVE.get()?.lock().unwrap();
-        let activity = active.as_ref()?;
-        ACTIVE_LABELS.lock().unwrap().insert(uuid, label);
-        Some(Activity {
-            tx: activity.tx.clone(),
-            uuid,
-        })
+        Self::get(label).ok()
     }
 
     /// Obtain an Activity instance.
     /// Returns Err if the process is shutting down and no new
     /// activity can be initiated
-    pub fn get(label: String) -> anyhow::Result<Self> {
-        Self::get_opt(label).ok_or_else(|| anyhow::anyhow!("shutting down"))
+    pub fn get(label: String) -> Result<Self, ShuttingDownError> {
+        let uuid = Uuid::new_v4();
+        let Some(active) = ACTIVE.get().map(|a| a.lock()) else {
+            return Err(ShuttingDownError(label));
+        };
+        let Some(activity) = active.as_ref() else {
+            return Err(ShuttingDownError(label));
+        };
+        ACTIVE_LABELS.lock().insert(uuid, label);
+        Ok(Activity {
+            tx: activity.tx.clone(),
+            uuid,
+        })
     }
 
     /// Returns true if the process is shutting down.
@@ -144,7 +171,6 @@ impl LifeCycle {
         let uuid = Uuid::new_v4();
         ACTIVE_LABELS
             .lock()
-            .unwrap()
             .insert(uuid, "Root LifeCycle".to_string());
         ACTIVE
             .set(Mutex::new(Some(Activity {
@@ -222,14 +248,14 @@ impl LifeCycle {
         // Signal that we are stopping
         tracing::debug!("Signal tasks that we are stopping");
         SHUTTING_DOWN.store(true, Ordering::SeqCst);
-        ACTIVE.get().map(|a| a.lock().unwrap().take());
+        ACTIVE.get().map(|a| a.lock().take());
         STOPPING.get().map(|s| s.tx.send(()).ok());
         // Wait for all pending activity to finish
         tracing::debug!("Waiting for tasks to wrap up");
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(15)) => {
-                    let labels = ACTIVE_LABELS.lock().unwrap().clone();
+                    let labels = ACTIVE_LABELS.lock().clone();
                     let n = labels.len();
                     let summary :Vec<&str> = labels.values().map(|s| s.as_str()).take(10).collect();
                     let summary = summary.join(", ");

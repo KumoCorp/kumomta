@@ -11,7 +11,7 @@ The latency of an operation talking to Redis.
 !!! info
     This metric has labels which means that the system will track the metric for each combination of the possible labels that are active.  Certain labels, especially those that correlate with source or destination addresses or domains, can have high cardinality.  High cardinality metrics may require some care and attention when provisioning a downstream metrics server.
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 The `service` key represents the redis server/service. It is not
 a direct match to a server name as it is really a hash of the

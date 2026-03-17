@@ -1,6 +1,6 @@
 # tls_private_key
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 Specify the path to a TLS private key file to use for the server identity when
 *use_tls* is set to `true`.
