@@ -261,8 +261,14 @@ impl TlsOptions {
         if let (Some(cert_data), Some(key_data)) =
             (&self.certificate_from_pem, &self.private_key_from_pem)
         {
-            let cert = X509::from_pem(cert_data)?;
-            builder.set_certificate(&cert)?;
+            let certs = X509::stack_from_pem(cert_data)?;
+            let leaf = certs[0].clone();
+            builder.set_certificate(&leaf)?;
+
+            // Add intermediates
+            for cert in certs.iter().skip(1) {
+                builder.add_extra_chain_cert(cert.clone())?;
+            }
 
             let key = PKey::private_key_from_pem(key_data)?;
             builder.set_private_key(&key)?;
