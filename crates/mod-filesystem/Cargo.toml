@@ -11,3 +11,6 @@ mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "seriali
 tokio = {workspace=true}
 linkme.workspace = true
 lruttl = {path="../lruttl"}
+serde = {workspace=true}
+mod-time = {path="../mod-time"}
+chrono = {workspace=true}

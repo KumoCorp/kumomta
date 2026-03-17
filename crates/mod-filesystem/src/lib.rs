@@ -1,12 +1,26 @@
 use anyhow::anyhow;
+use chrono::{DateTime, Utc};
 use config::{get_or_create_module, get_or_create_sub_module};
-use mlua::Lua;
+use mlua::{IntoLua, Lua, LuaSerdeExt, Value};
+use mod_time::Time;
+use serde::Serialize;
+use std::time::SystemTime;
 use tokio::time::{Duration, Instant};
 
 mod file;
 
 const GLOB_CACHE_CAPACITY: usize = 32;
 const DEFAULT_CACHE_TTL: f32 = 60.;
+
+#[derive(Serialize)]
+struct FileStat {
+    path: String,
+    is_file: bool,
+    is_dir: bool,
+    is_symlink: bool,
+    len: u64,
+    readonly: bool,
+}
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 struct GlobKey {
@@ -24,6 +38,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set("read_dir", lua.create_async_function(read_dir)?)?;
     kumo_mod.set("glob", lua.create_async_function(cached_glob)?)?;
     kumo_mod.set("uncached_glob", lua.create_async_function(uncached_glob)?)?;
+    kumo_mod.set("stat", lua.create_async_function(stat)?)?;
 
     let fs_mod = get_or_create_sub_module(lua, "fs")?;
     fs_mod.set("open", lua.create_async_function(file::AsyncFile::open)?)?;
@@ -81,6 +96,44 @@ async fn uncached_glob(
     (pattern, path): (String, Option<String>),
 ) -> mlua::Result<Vec<String>> {
     glob(pattern, path).await
+}
+
+async fn stat(lua: Lua, path: String) -> mlua::Result<mlua::Table> {
+    let metadata = tokio::fs::metadata(&path)
+        .await
+        .map_err(mlua::Error::external)?;
+
+    let file_type = metadata.file_type();
+    let perms = metadata.permissions();
+
+    let stat = FileStat {
+        path,
+        is_file: file_type.is_file(),
+        is_dir: file_type.is_dir(),
+        is_symlink: file_type.is_symlink(),
+        len: metadata.len(),
+        readonly: perms.readonly(),
+    };
+
+    match lua.to_value(&stat)? {
+        Value::Table(table) => {
+            table.set("mtime", system_time_to_lua_time(&lua, metadata.modified().ok())?)?;
+            table.set("atime", system_time_to_lua_time(&lua, metadata.accessed().ok())?)?;
+            table.set("ctime", system_time_to_lua_time(&lua, metadata.created().ok())?)?;
+            Ok(table)
+        }
+        _ => Err(mlua::Error::external("failed to serialize file metadata")),
+    }
+}
+
+fn system_time_to_lua_time(lua: &Lua, time: Option<SystemTime>) -> mlua::Result<Value> {
+    match time {
+        Some(t) => {
+            let dt: DateTime<Utc> = t.into();
+            Time::from(dt).into_lua(lua)
+        }
+        None => Ok(Value::Nil),
+    }
 }
 
 async fn glob(pattern: String, path: Option<String>) -> mlua::Result<Vec<String>> {

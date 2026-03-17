@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow.workspace = true
-chrono.workspace = true
+chrono = {workspace=true, default-features=false, features=["clock", "serde", "std"]}
 config = {path="../config"}
 humantime.workspace = true
 linkme.workspace = true
