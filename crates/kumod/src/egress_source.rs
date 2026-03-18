@@ -97,6 +97,12 @@ pub struct ConnectError {
     pub reason: String,
 }
 
+#[derive(thiserror::Error, Debug)]
+#[error("{reason}")]
+pub struct ProxyBindError {
+    pub reason: String,
+}
+
 pub fn err_match_anyhow<T: std::error::Error + 'static>(err: &anyhow::Error) -> Option<&T> {
     err_match(err.root_cause())
 }
@@ -1001,7 +1007,15 @@ impl<'a> ProxyProto<'a> {
                     SocksV5RequestStatus::Success => {
                         tracing::debug!("SOCKS5: bind response: {bind_status:?}");
                     }
-                    _ => anyhow::bail!("failed to bind {source:?} via {self:?}: {bind_status:?}"),
+                    _ => {
+                        return Err(ProxyBindError {
+                            reason: format!(
+                                "The proxy server failed to bind {source:?} \
+                                 via {self:?}: {bind_status:?}"
+                            ),
+                        }
+                        .into())
+                    }
                 }
 
                 tracing::debug!("SOCKS5: requesting connect to {dest_host:?}:{dest_port}");

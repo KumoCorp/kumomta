@@ -1,5 +1,7 @@
 use crate::delivery_metrics::{DeliveryMetrics, ReadyCountBundle};
-use crate::egress_source::{err_match_anyhow, BindError, ConnectError, EgressSource};
+use crate::egress_source::{
+    err_match_anyhow, BindError, ConnectError, EgressSource, ProxyBindError,
+};
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_suspend_ready_q_v1::{
     AdminSuspendReadyQEntry, AdminSuspendReadyQEntryRef,
@@ -1505,6 +1507,7 @@ impl Dispatcher {
             OpportunisticInsecureTlsHandshakeError,
             UnplumbedSource,
             ProxyConnect,
+            ProxyUnplumbedSource,
             Other,
         }
 
@@ -1524,6 +1527,8 @@ impl Dispatcher {
                     } else {
                         Self::Other
                     }
+                } else if err_match_anyhow::<ProxyBindError>(err).is_some() {
+                    Self::ProxyUnplumbedSource
                 } else {
                     Self::Other
                 }
@@ -1531,6 +1536,7 @@ impl Dispatcher {
 
             fn all_same(v: &[ConnectionFailureKind]) -> Option<Self> {
                 let mut item = None;
+                tracing::info!("all_same: {v:#?}");
                 for i in v.iter() {
                     item = match item.take() {
                         None => Some(*i),
@@ -1600,6 +1606,11 @@ impl Dispatcher {
                             Some(ConnectionFailureKind::UnplumbedSource) => {
                                 "All failures are related to having an unplumbed source address. \
                                  Are the network interfaces provisioned correctly? "
+                            }
+                            Some(ConnectionFailureKind::ProxyUnplumbedSource) => {
+                                "All failures are related to the proxy server \
+                                 having an unplumbed source address. \
+                                 Are the network interfaces provisioned correctly on the proxy? "
                             }
                             Some(ConnectionFailureKind::ProxyConnect) => {
                                 "All failures are related to proxy connection issues. \
