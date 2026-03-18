@@ -1,0 +1,11 @@
+[package]
+name = "kumo-counter-series"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio.workspace = true
+
+[dev-dependencies]
+k9.workspace = true
+tokio = {workspace = true, features=["test-util", "macros"]}
