@@ -1,5 +1,5 @@
 use crate::delivery_metrics::{DeliveryMetrics, ReadyCountBundle};
-use crate::egress_source::{err_match_anyhow, BindError, EgressSource};
+use crate::egress_source::{err_match_anyhow, BindError, ConnectError, EgressSource};
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_suspend_ready_q_v1::{
     AdminSuspendReadyQEntry, AdminSuspendReadyQEntryRef,
@@ -1504,6 +1504,7 @@ impl Dispatcher {
         enum ConnectionFailureKind {
             OpportunisticInsecureTlsHandshakeError,
             UnplumbedSource,
+            ProxyConnect,
             Other,
         }
 
@@ -1514,6 +1515,12 @@ impl Dispatcher {
                 } else if let Some(bind) = err_match_anyhow::<BindError>(err) {
                     if bind.is_unplumbed() {
                         Self::UnplumbedSource
+                    } else {
+                        Self::Other
+                    }
+                } else if let Some(conn) = err_match_anyhow::<ConnectError>(err) {
+                    if conn.is_proxy {
+                        Self::ProxyConnect
                     } else {
                         Self::Other
                     }
@@ -1593,6 +1600,10 @@ impl Dispatcher {
                             Some(ConnectionFailureKind::UnplumbedSource) => {
                                 "All failures are related to having an unplumbed source address. \
                                  Are the network interfaces provisioned correctly? "
+                            }
+                            Some(ConnectionFailureKind::ProxyConnect) => {
+                                "All failures are related to proxy connection issues. \
+                                 Is the proxy infrastructure online and healthy? "
                             }
                             Some(ConnectionFailureKind::Other) | None => "",
                         };

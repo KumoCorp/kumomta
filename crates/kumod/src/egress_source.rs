@@ -90,6 +90,13 @@ impl BindError {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+#[error("{reason}")]
+pub struct ConnectError {
+    pub is_proxy: bool,
+    pub reason: String,
+}
+
 pub fn err_match_anyhow<T: std::error::Error + 'static>(err: &anyhow::Error) -> Option<&T> {
     err_match(err.root_cause())
 }
@@ -254,14 +261,22 @@ impl EgressSource {
             {
                 Err(_) => {
                     inc_failed_proxy_connection_attempts(is_proxy);
-                    anyhow::bail!(
-                        "timeout after {timeout_duration:?} \
-                         while connecting to {transport_context}"
-                    );
+                    return Err(ConnectError {
+                        is_proxy,
+                        reason: format!(
+                            "timeout after {timeout_duration:?} \
+                             while connecting to {transport_context}"
+                        ),
+                    }
+                    .into());
                 }
                 Ok(Err(err)) => {
                     inc_failed_proxy_connection_attempts(is_proxy);
-                    anyhow::bail!("failed to connect to {transport_context}: {err:#}");
+                    return Err(ConnectError {
+                        is_proxy,
+                        reason: format!("failed to connect to {transport_context}: {err:#}"),
+                    }
+                    .into());
                 }
                 Ok(Ok(stream)) => stream,
             };

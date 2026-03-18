@@ -121,7 +121,7 @@ async fn proxy_protocol_broken_proxy() -> anyhow::Result<()> {
     "Response {
     code: 400,
     enhanced_code: None,
-    content: "KumoMTA internal: failed to connect to any candidate hosts: connect to 127.0.0.1:PORT and read initial banner: failed to connect to 255.255.255.255:1 HA { server: 255.255.255.255:1, addresses: IPv4(IPv4 { source_address: 127.0.0.1, source_port: 0, destination_address: 127.0.0.1, destination_port: PORT }), source: 127.0.0.1 }: Network is unreachable (os error 101)",
+    content: "KumoMTA internal: failed to connect to any candidate hosts: All failures are related to proxy connection issues. Is the proxy infrastructure online and healthy? connect to 127.0.0.1:PORT and read initial banner: failed to connect to 255.255.255.255:1 HA { server: 255.255.255.255:1, addresses: IPv4(IPv4 { source_address: 127.0.0.1, source_port: 0, destination_address: 127.0.0.1, destination_port: PORT }), source: 127.0.0.1 }: Network is unreachable (os error 101)",
     command: None,
 }",
 ]
