@@ -262,7 +262,11 @@ impl TlsOptions {
             (&self.certificate_from_pem, &self.private_key_from_pem)
         {
             let certs = X509::stack_from_pem(cert_data)?;
-            let leaf = certs[0].clone();
+            let Some(leaf) = certs.get(0).map(Clone::clone) else {
+                return Err(OpensslConnectorError::SslErrorStack(
+                    "certificate PEM data is empty".to_string(),
+                ));
+            };
             builder.set_certificate(&leaf)?;
 
             // Add intermediates
