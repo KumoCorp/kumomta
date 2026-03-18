@@ -75,6 +75,35 @@ pub struct EgressSource {
 
 impl LuaUserData for EgressSource {}
 
+#[derive(thiserror::Error, Debug)]
+#[error("bind {source_ip:?} for {source_name} failed: {error:#} while attempting to connect to {connect_context}")]
+pub struct BindError {
+    pub source_ip: IpAddr,
+    pub error: std::io::Error,
+    pub connect_context: String,
+    pub source_name: String,
+}
+
+impl BindError {
+    pub fn is_unplumbed(&self) -> bool {
+        matches!(self.error.kind(), std::io::ErrorKind::AddrNotAvailable)
+    }
+}
+
+pub fn err_match_anyhow<T: std::error::Error + 'static>(err: &anyhow::Error) -> Option<&T> {
+    err_match(err.root_cause())
+}
+
+pub fn err_match<'a, T: std::error::Error + 'static>(
+    err: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a T> {
+    if let Some(cause) = err.source() {
+        err_match(cause)
+    } else {
+        err.downcast_ref::<T>()
+    }
+}
+
 impl EgressSource {
     pub async fn resolve(name: &str, config: &mut LuaConfig) -> anyhow::Result<Self> {
         SOURCES
@@ -197,11 +226,6 @@ impl EgressSource {
 
         if let Some(source) = self.source_address {
             if let Err(err) = socket.bind(SocketAddr::new(source, 0)) {
-                let error = format!(
-                    "bind {source:?} for source:{source_name} failed: {err:#} \
-                    while attempting to connect to {connect_context}"
-                );
-
                 declare_metric! {
                     /// How many times that directly binding a source address has failed.
                     ///
@@ -212,7 +236,13 @@ impl EgressSource {
                 }
 
                 FAILED_BIND.inc();
-                anyhow::bail!("{error}");
+                return Err(BindError {
+                    source_ip: source,
+                    error: err,
+                    connect_context,
+                    source_name: source_name.to_string(),
+                }
+                .into());
             }
         }
 

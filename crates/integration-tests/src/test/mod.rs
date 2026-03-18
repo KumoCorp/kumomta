@@ -2,6 +2,7 @@
 mod arc;
 mod auth_deliver;
 mod auth_deliver_invalid_password;
+mod bad_source_address;
 mod broken_first_choice_mx;
 mod disconnect_in_data;
 mod disconnect_in_mail_from;

@@ -1,5 +1,5 @@
 use crate::delivery_metrics::{DeliveryMetrics, ReadyCountBundle};
-use crate::egress_source::EgressSource;
+use crate::egress_source::{err_match_anyhow, BindError, EgressSource};
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_suspend_ready_q_v1::{
     AdminSuspendReadyQEntry, AdminSuspendReadyQEntryRef,
@@ -1499,7 +1499,48 @@ impl Dispatcher {
         }
 
         let mut connection_failures = vec![];
-        let mut num_opportunistic_tls_failures = 0;
+
+        #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+        enum ConnectionFailureKind {
+            OpportunisticInsecureTlsHandshakeError,
+            UnplumbedSource,
+            Other,
+        }
+
+        impl ConnectionFailureKind {
+            fn classify(err: &anyhow::Error) -> Self {
+                if err_match_anyhow::<OpportunisticInsecureTlsHandshakeError>(err).is_some() {
+                    Self::OpportunisticInsecureTlsHandshakeError
+                } else if let Some(bind) = err_match_anyhow::<BindError>(err) {
+                    if bind.is_unplumbed() {
+                        Self::UnplumbedSource
+                    } else {
+                        Self::Other
+                    }
+                } else {
+                    Self::Other
+                }
+            }
+
+            fn all_same(v: &[ConnectionFailureKind]) -> Option<Self> {
+                let mut item = None;
+                for i in v.iter() {
+                    item = match item.take() {
+                        None => Some(*i),
+                        Some(o) => {
+                            if o != *i {
+                                return None;
+                            }
+                            Some(o)
+                        }
+                    };
+                }
+
+                item
+            }
+        }
+
+        let mut connection_failure_classifications = vec![];
         let mut shutting_down = ShutdownSubcription::get();
 
         loop {
@@ -1536,23 +1577,27 @@ impl Dispatcher {
 
             match result {
                 Err(err) => {
-                    if OpportunisticInsecureTlsHandshakeError::is_match_anyhow(&err) {
-                        num_opportunistic_tls_failures += 1;
-                    }
+                    connection_failure_classifications.push(ConnectionFailureKind::classify(&err));
                     connection_failures.push(format!("{err:#}"));
                     if !queue_dispatcher
                         .have_more_connection_candidates(&mut dispatcher)
                         .await
                     {
-                        for msg in dispatcher.msgs.drain(..) {
-                            let summary =
-                                if num_opportunistic_tls_failures == connection_failures.len() {
-                                    "All failures are related to OpportunisticInsecure STARTTLS. \
-                             Consider setting enable_tls=Disabled for this site. "
-                                } else {
-                                    ""
-                                };
+                        let summary = match ConnectionFailureKind::all_same(
+                            &connection_failure_classifications,
+                        ) {
+                            Some(ConnectionFailureKind::OpportunisticInsecureTlsHandshakeError) => {
+                                "All failures are related to OpportunisticInsecure STARTTLS. \
+                                 Consider setting enable_tls=Disabled for this site. "
+                            }
+                            Some(ConnectionFailureKind::UnplumbedSource) => {
+                                "All failures are related to having an unplumbed source address. \
+                                 Are the network interfaces provisioned correctly? "
+                            }
+                            Some(ConnectionFailureKind::Other) | None => "",
+                        };
 
+                        for msg in dispatcher.msgs.drain(..) {
                             let response = Response {
                                 code: 400,
                                 enhanced_code: None,
