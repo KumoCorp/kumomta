@@ -185,7 +185,7 @@ impl UserData for PartRef {
             let part = this.resolve().map_err(any_err)?;
             let body = part.body().map_err(any_err)?;
             match body {
-                DecodedBody::Text(s) => lua.create_string(s.as_str()),
+                DecodedBody::Text(s) => lua.create_string(s.as_bytes()),
                 DecodedBody::Binary(b) => lua.create_string(b),
             }
         });

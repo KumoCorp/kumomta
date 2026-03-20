@@ -234,8 +234,8 @@ impl<'a> MimePart<'a> {
             body_len,
             conformance,
             parts: vec![],
-            intro: SharedString::Borrowed(""),
-            outro: SharedString::Borrowed(""),
+            intro: SharedString::Borrowed(b""),
+            outro: SharedString::Borrowed(b""),
         };
 
         part.recursive_parse()?;
