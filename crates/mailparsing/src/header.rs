@@ -122,7 +122,7 @@ impl<'a> Header<'a> {
         let value = value.into();
 
         let value = if value.is_ascii() {
-            kumo_wrap::wrap(&value)
+            String::from_utf8(kumo_wrap::wrap_bytes(value.as_bytes())).expect("ASCII-in, ASCII-out")
         } else {
             crate::rfc5322_parser::qp_encode(&value)
         }

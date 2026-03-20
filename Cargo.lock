@@ -4034,6 +4034,7 @@ dependencies = [
 name = "kumo-wrap"
 version = "0.1.0"
 dependencies = [
+ "bstr",
  "k9",
 ]
 
@@ -5082,6 +5083,7 @@ name = "mod-string"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bstr",
  "config",
  "kumo-template",
  "kumo-wrap",
