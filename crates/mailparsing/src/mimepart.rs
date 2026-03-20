@@ -5,6 +5,7 @@ use crate::{
     has_lone_cr_or_lf, Header, MailParsingError, MessageID, MimeParameterEncoding, MimeParameters,
     Result, SharedString,
 };
+use bstr::BStr;
 use charset_normalizer_rs::entity::NormalizerSettings;
 use charset_normalizer_rs::Encoding;
 use chrono::Utc;
@@ -498,7 +499,7 @@ impl<'a> MimePart<'a> {
                         .as_ref()
                         .map(|ct| ct.value.as_str())
                         .unwrap_or("text/plain");
-                    Self::new_text(ct, text.as_str())?
+                    Self::new_text(ct, text.as_bytes())?
                 }
                 DecodedBody::Binary(data) => {
                     let ct = info
@@ -637,7 +638,11 @@ impl<'a> MimePart<'a> {
         String::from_utf8_lossy(&out).to_string()
     }
 
-    pub fn replace_text_body(&mut self, content_type: &str, content: &str) -> Result<()> {
+    pub fn replace_text_body(
+        &mut self,
+        content_type: &str,
+        content: impl AsRef<BStr>,
+    ) -> Result<()> {
         let mut new_part = Self::new_text(content_type, content)?;
         self.bytes = new_part.bytes;
         self.body_offset = new_part.body_offset;
@@ -695,21 +700,19 @@ impl<'a> MimePart<'a> {
     /// Constructs a new part with textual utf8 content.
     /// quoted-printable transfer encoding will be applied,
     /// unless it is smaller to represent the text in base64
-    pub fn new_text(content_type: &str, content: &str) -> Result<Self> {
+    pub fn new_text(content_type: &str, content: impl AsRef<BStr>) -> Result<Self> {
+        let content = content.as_ref();
         // We'll probably use qp, so speculatively do the work
         let qp_encoded = quoted_printable::encode(content);
 
-        let (mut encoded, encoding) = if qp_encoded == content.as_bytes() {
+        let (mut encoded, encoding) = if qp_encoded == content {
             (qp_encoded, None)
         } else if qp_encoded.len() <= BASE64_RFC2045.encode_len(content.len()) {
             (qp_encoded, Some("quoted-printable"))
         } else {
             // Turns out base64 will be smaller; perhaps the content
             // is dominated by non-ASCII text?
-            (
-                BASE64_RFC2045.encode(content.as_bytes()).into_bytes(),
-                Some("base64"),
-            )
+            (BASE64_RFC2045.encode(content).into_bytes(), Some("base64"))
         };
 
         if !encoded.ends_with(b"\r\n") {
@@ -748,11 +751,11 @@ impl<'a> MimePart<'a> {
         })
     }
 
-    pub fn new_text_plain(content: &str) -> Result<Self> {
+    pub fn new_text_plain(content: impl AsRef<BStr>) -> Result<Self> {
         Self::new_text("text/plain", content)
     }
 
-    pub fn new_html(content: &str) -> Result<Self> {
+    pub fn new_html(content: impl AsRef<BStr>) -> Result<Self> {
         Self::new_text("text/html", content)
     }
 

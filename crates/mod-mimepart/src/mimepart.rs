@@ -76,7 +76,7 @@ impl PartRef {
 
             match body.to_str() {
                 Ok(s) => {
-                    part.replace_text_body(content_type.as_deref().unwrap_or("text/plain"), &s)?;
+                    part.replace_text_body(content_type.as_deref().unwrap_or("text/plain"), &*s)?;
                 }
                 _ => {
                     part.replace_binary_body(

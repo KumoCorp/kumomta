@@ -528,14 +528,15 @@ impl Report {
             _ => unreachable!(),
         };
 
-        parts.push(MimePart::new_text_plain(&exposition).context("new_text_plain")?);
+        parts.push(MimePart::new_text_plain(&*exposition).context("new_text_plain")?);
 
         let mut status_text = format!("{per_message}\r\n");
         for per_recip in per_recipient {
             status_text.push_str(&format!("{per_recip}\r\n"));
         }
-        parts
-            .push(MimePart::new_text("message/delivery-status", &status_text).context("new_text")?);
+        parts.push(
+            MimePart::new_text("message/delivery-status", &*status_text).context("new_text")?,
+        );
 
         match (params.include_original_message, msg) {
             (IncludeOriginalMessage::No, _) | (_, None) => {}

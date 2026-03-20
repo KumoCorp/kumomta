@@ -7,18 +7,21 @@ pub mod builder;
 pub mod headers;
 pub mod mimepart;
 
-fn new_text_part(_: &Lua, (content_type, content): (String, String)) -> mlua::Result<PartRef> {
-    let part = MimePart::new_text(&content_type, &content).map_err(any_err)?;
+fn new_text_part(
+    _: &Lua,
+    (content_type, content): (String, mlua::String),
+) -> mlua::Result<PartRef> {
+    let part = MimePart::new_text(&content_type, content.as_bytes().as_ref()).map_err(any_err)?;
     Ok(PartRef::new(part))
 }
 
-fn new_text_plain(_: &Lua, content: String) -> mlua::Result<PartRef> {
-    let part = MimePart::new_text_plain(&content).map_err(any_err)?;
+fn new_text_plain(_: &Lua, content: mlua::String) -> mlua::Result<PartRef> {
+    let part = MimePart::new_text_plain(content.as_bytes().as_ref()).map_err(any_err)?;
     Ok(PartRef::new(part))
 }
 
-fn new_html(_: &Lua, content: String) -> mlua::Result<PartRef> {
-    let part = MimePart::new_html(&content).map_err(any_err)?;
+fn new_html(_: &Lua, content: mlua::String) -> mlua::Result<PartRef> {
+    let part = MimePart::new_html(content.as_bytes().as_ref()).map_err(any_err)?;
     Ok(PartRef::new(part))
 }
 

@@ -7,6 +7,7 @@ pub use crate::queue_name::QueueNameComponents;
 use crate::scheduling::Scheduling;
 use crate::EnvelopeAddress;
 use anyhow::Context;
+use bstr::{ByteSlice, ByteVec};
 use chrono::{DateTime, Utc};
 #[cfg(feature = "impl")]
 use config::{any_err, from_lua_value, serialize_options};
@@ -1228,10 +1229,10 @@ impl Message {
         if let Some(p) = parts.text_part.and_then(|p| msg.resolve_ptr_mut(p)) {
             match p.body()? {
                 DecodedBody::Text(text) => {
-                    let mut text = text.as_str().to_string();
+                    let mut text = text.as_bytes().to_vec();
                     text.push_str("\r\n");
                     text.push_str(content);
-                    p.replace_text_body("text/plain", &text)?;
+                    p.replace_text_body("text/plain", &*text)?;
 
                     let new_data = msg.to_message_string();
                     self.assign_data(new_data.into_bytes());
@@ -1253,7 +1254,7 @@ impl Message {
         if let Some(p) = parts.html_part.and_then(|p| msg.resolve_ptr_mut(p)) {
             match p.body()? {
                 DecodedBody::Text(text) => {
-                    let mut text = text.as_str().to_string();
+                    let mut text = text.as_bytes().to_vec();
 
                     match text.rfind("</body>").or_else(|| text.rfind("</BODY>")) {
                         Some(idx) => {
@@ -1267,7 +1268,7 @@ impl Message {
                         }
                     }
 
-                    p.replace_text_body("text/html", &text)?;
+                    p.replace_text_body("text/html", &*text)?;
 
                     let new_data = msg.to_message_string();
                     self.assign_data(new_data.into_bytes());
