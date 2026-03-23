@@ -5,7 +5,9 @@ use crate::{
     ARCAuthenticationResults, AddressList, AuthenticationResults, MailParsingError, Mailbox,
     MailboxList, MessageID, MimeParameters, Result, SharedString,
 };
+use bstr::BStr;
 use chrono::{DateTime, FixedOffset};
+use std::borrow::Cow;
 use std::str::FromStr;
 
 bitflags::bitflags! {
@@ -121,12 +123,11 @@ impl<'a> Header<'a> {
         let name = name.into();
         let value = value.into();
 
-        let value = if value.is_ascii() {
-            String::from_utf8(kumo_wrap::wrap_bytes(value.as_bytes())).expect("ASCII-in, ASCII-out")
-        } else {
-            crate::rfc5322_parser::qp_encode(&value)
-        }
-        .into();
+        let value: SharedString = match value.to_str() {
+            Ok(value) if value.is_ascii() => kumo_wrap::wrap_bytes(value).into(),
+            Ok(value) => crate::rfc5322_parser::qp_encode(value).into(),
+            Err(_) => kumo_wrap::wrap_bytes(value.as_bytes()).into(),
+        };
 
         Self {
             name,
@@ -165,70 +166,80 @@ impl<'a> Header<'a> {
         String::from_utf8_lossy(&out).to_string()
     }
 
-    pub fn get_name(&self) -> &str {
-        &self.name
+    pub fn get_name(&self) -> &BStr {
+        BStr::new(self.name.as_bytes())
     }
 
-    pub fn get_raw_value(&self) -> &str {
-        &self.value
+    pub fn get_name_lossy(&self) -> Cow<'_, str> {
+        String::from_utf8_lossy(self.name.as_bytes())
+    }
+
+    pub fn get_raw_value(&self) -> &BStr {
+        BStr::new(self.value.as_bytes())
+    }
+
+    #[deprecated = "use bytes!"]
+    pub fn get_raw_value_string(&self) -> Result<&str> {
+        self.value.to_str().map_err(|_| MailParsingError::EightBit)
     }
 
     pub fn as_content_transfer_encoding(&self) -> Result<MimeParameters> {
-        Parser::parse_content_transfer_encoding_header(self.get_raw_value())
+        Parser::parse_content_transfer_encoding_header(self.get_raw_value_string()?)
     }
 
     pub fn as_content_disposition(&self) -> Result<MimeParameters> {
-        Parser::parse_content_transfer_encoding_header(self.get_raw_value())
+        Parser::parse_content_transfer_encoding_header(self.get_raw_value_string()?)
     }
 
     pub fn as_content_type(&self) -> Result<MimeParameters> {
-        Parser::parse_content_type_header(self.get_raw_value())
+        Parser::parse_content_type_header(self.get_raw_value_string()?)
     }
 
     /// Parse the header into a mailbox-list (as defined in
     /// RFC 5322), which is how the `From` and `Resent-From`,
     /// headers are defined.
     pub fn as_mailbox_list(&self) -> Result<MailboxList> {
-        Parser::parse_mailbox_list_header(self.get_raw_value())
+        Parser::parse_mailbox_list_header(self.get_raw_value_string()?)
     }
 
     /// Parse the header into a mailbox (as defined in
     /// RFC 5322), which is how the `Sender` and `Resent-Sender`
     /// headers are defined.
     pub fn as_mailbox(&self) -> Result<Mailbox> {
-        Parser::parse_mailbox_header(self.get_raw_value())
+        Parser::parse_mailbox_header(self.get_raw_value_string()?)
     }
 
     pub fn as_address_list(&self) -> Result<AddressList> {
-        Parser::parse_address_list_header(self.get_raw_value())
+        Parser::parse_address_list_header(self.get_raw_value_string()?)
     }
 
     pub fn as_message_id(&self) -> Result<MessageID> {
-        Parser::parse_msg_id_header(self.get_raw_value())
+        Parser::parse_msg_id_header(self.get_raw_value_string()?)
     }
 
     pub fn as_content_id(&self) -> Result<MessageID> {
-        Parser::parse_content_id_header(self.get_raw_value())
+        Parser::parse_content_id_header(self.get_raw_value_string()?)
     }
 
     pub fn as_message_id_list(&self) -> Result<Vec<MessageID>> {
-        Parser::parse_msg_id_header_list(self.get_raw_value())
+        Parser::parse_msg_id_header_list(self.get_raw_value_string()?)
     }
 
     pub fn as_unstructured(&self) -> Result<String> {
-        Parser::parse_unstructured_header(self.get_raw_value())
+        Parser::parse_unstructured_header(self.get_raw_value_string()?)
     }
 
     pub fn as_authentication_results(&self) -> Result<AuthenticationResults> {
-        Parser::parse_authentication_results_header(self.get_raw_value())
+        Parser::parse_authentication_results_header(self.get_raw_value_string()?)
     }
 
     pub fn as_arc_authentication_results(&self) -> Result<ARCAuthenticationResults> {
-        Parser::parse_arc_authentication_results_header(self.get_raw_value())
+        Parser::parse_arc_authentication_results_header(self.get_raw_value_string()?)
     }
 
     pub fn as_date(&self) -> Result<DateTime<FixedOffset>> {
-        DateTime::parse_from_rfc2822(self.get_raw_value()).map_err(MailParsingError::ChronoError)
+        DateTime::parse_from_rfc2822(self.get_raw_value_string()?)
+            .map_err(MailParsingError::ChronoError)
     }
 
     pub fn parse_headers<S>(header_block: S) -> Result<HeaderParseResult<'a>>
@@ -418,7 +429,7 @@ impl<'a> Header<'a> {
 
         macro_rules! hdr {
             ($header_name:literal, $func_name:ident, encode) => {
-                if name.eq_ignore_ascii_case($header_name) {
+                if name.eq_ignore_ascii_case($header_name.as_bytes()) {
                     let value = self.$func_name().map_err(|err| {
                         MailParsingError::HeaderParse(format!(
                             "rebuilding '{name}' header: {err:#}"
@@ -428,7 +439,7 @@ impl<'a> Header<'a> {
                 }
             };
             ($header_name:literal, unstructured) => {
-                if name.eq_ignore_ascii_case($header_name) {
+                if name.eq_ignore_ascii_case($header_name.as_bytes()) {
                     let value = self.as_unstructured().map_err(|err| {
                         MailParsingError::HeaderParse(format!(
                             "rebuilding '{name}' header: {err:#}"

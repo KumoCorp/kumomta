@@ -43,13 +43,6 @@ impl std::fmt::Debug for SharedString<'_> {
     }
 }
 
-impl std::ops::Deref for SharedString<'_> {
-    type Target = str;
-    fn deref(&self) -> &str {
-        self.as_str()
-    }
-}
-
 impl std::ops::Index<usize> for SharedString<'_> {
     type Output = u8;
     fn index(&self, index: usize) -> &u8 {
@@ -142,6 +135,12 @@ impl SharedString<'_> {
 impl From<String> for SharedString<'_> {
     fn from(s: String) -> Self {
         Self::Owned(Arc::new(s.into_bytes()))
+    }
+}
+
+impl From<Vec<u8>> for SharedString<'_> {
+    fn from(s: Vec<u8>) -> Self {
+        Self::Owned(Arc::new(s))
     }
 }
 

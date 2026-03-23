@@ -3393,6 +3393,7 @@ dependencies = [
  "async-nats",
  "axum",
  "axum-server",
+ "bstr",
  "chrono",
  "dns-resolver",
  "flate2",
@@ -3757,6 +3758,7 @@ dependencies = [
 name = "kumo-dkim"
 version = "0.3.0"
 dependencies = [
+ "bstr",
  "chrono",
  "criterion",
  "data-encoding",
@@ -3798,6 +3800,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bounce-classify",
+ "bstr",
  "chrono",
  "data-encoding",
  "k9",

@@ -1039,7 +1039,7 @@ impl Message {
         ARFReport::parse(&data)
     }
 
-    pub async fn prepend_header(&self, name: Option<&str>, value: &str) -> anyhow::Result<()> {
+    pub async fn prepend_header(&self, name: Option<&str>, value: &[u8]) -> anyhow::Result<()> {
         let data = self.data().await?;
         let mut new_data = Vec::with_capacity(size_header(name, value) + 2 + data.len());
         emit_header(&mut new_data, name, value);
@@ -1048,9 +1048,9 @@ impl Message {
         Ok(())
     }
 
-    pub async fn append_header(&self, name: Option<&str>, value: &str) -> anyhow::Result<()> {
+    pub async fn append_header(&self, name: Option<&str>, value: &[u8]) -> anyhow::Result<()> {
         let data = self.data().await?;
-        let mut new_data = Vec::with_capacity(size_header(name, value) + 2 + data.len());
+        let mut new_data = Vec::with_capacity(size_header(name, value.as_bytes()) + 2 + data.len());
         for (idx, window) in data.windows(4).enumerate() {
             if window == b"\r\n\r\n" {
                 let headers = &data[0..idx + 2];
@@ -1144,7 +1144,7 @@ impl Message {
     pub async fn remove_first_named_header(&self, name: &str) -> anyhow::Result<()> {
         let mut removed = false;
         self.retain_headers(|hdr| {
-            if hdr.get_name().eq_ignore_ascii_case(name) && !removed {
+            if hdr.get_name().eq_ignore_ascii_case(name.as_bytes()) && !removed {
                 removed = true;
                 false
             } else {
@@ -1165,7 +1165,7 @@ impl Message {
                 is_header_in_names_list(hdr.get_name(), &names)
             };
             if do_import {
-                let name = imported_header_name(hdr.get_name());
+                let name = imported_header_name(&hdr.get_name_lossy());
                 self.set_meta(name, hdr.as_unstructured()?).await?;
             }
         }
@@ -1185,7 +1185,7 @@ impl Message {
     }
 
     pub async fn remove_all_named_headers(&self, name: &str) -> anyhow::Result<()> {
-        self.retain_headers(|hdr| !hdr.get_name().eq_ignore_ascii_case(name))
+        self.retain_headers(|hdr| !hdr.get_name().eq_ignore_ascii_case(name.as_bytes()))
             .await
     }
 
@@ -1197,7 +1197,7 @@ impl Message {
         } else {
             signer.sign(&data)?
         };
-        self.prepend_header(None, &header).await?;
+        self.prepend_header(None, header.as_bytes()).await?;
         Ok(())
     }
 
@@ -1320,9 +1320,9 @@ impl Message {
     }
 }
 
-fn is_header_in_names_list(hdr_name: &str, names: &[String]) -> bool {
+fn is_header_in_names_list(hdr_name: &[u8], names: &[String]) -> bool {
     for name in names {
-        if hdr_name.eq_ignore_ascii_case(name) {
+        if hdr_name.eq_ignore_ascii_case(name.as_bytes()) {
             return true;
         }
     }
@@ -1338,21 +1338,21 @@ fn imported_header_name(name: &str) -> String {
         .collect()
 }
 
-fn is_x_header(name: &str) -> bool {
-    name.starts_with("X-") || name.starts_with("x-")
+fn is_x_header(name: &[u8]) -> bool {
+    name.starts_with_str("X-") || name.starts_with_str("x-")
 }
 
-fn size_header(name: Option<&str>, value: &str) -> usize {
+fn size_header(name: Option<&str>, value: &[u8]) -> usize {
     name.map(|name| name.len() + 2).unwrap_or(0) + value.len()
 }
 
-fn emit_header(dest: &mut Vec<u8>, name: Option<&str>, value: &str) {
+fn emit_header(dest: &mut Vec<u8>, name: Option<&str>, value: &[u8]) {
     if let Some(name) = name {
         dest.extend_from_slice(name.as_bytes());
         dest.extend_from_slice(b": ");
     }
-    dest.extend_from_slice(value.as_bytes());
-    if !value.ends_with("\r\n") {
+    dest.extend_from_slice(value);
+    if !value.ends_with_str("\r\n") {
         dest.extend_from_slice(b"\r\n");
     }
 }
@@ -1498,9 +1498,12 @@ impl UserData for Message {
                     results,
                 };
 
-                this.prepend_header(Some("Authentication-Results"), &results.encode_value())
-                    .await
-                    .map_err(any_err)?;
+                this.prepend_header(
+                    Some("Authentication-Results"),
+                    results.encode_value().as_bytes(),
+                )
+                .await
+                .map_err(any_err)?;
 
                 Ok(())
             },
@@ -1560,7 +1563,7 @@ impl UserData for Message {
                         .await
                         .map_err(any_err)?;
                 } else {
-                    this.prepend_header(Some(&name), &value)
+                    this.prepend_header(Some(&name), value.as_bytes())
                         .await
                         .map_err(any_err)?;
                 }
@@ -1577,7 +1580,7 @@ impl UserData for Message {
                         .await
                         .map_err(any_err)?;
                 } else {
-                    this.append_header(Some(&name), &value)
+                    this.append_header(Some(&name), value.as_bytes())
                         .await
                         .map_err(any_err)?;
                 }
@@ -1820,7 +1823,7 @@ pub(crate) mod test {
     async fn prepend_header_2_params() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.prepend_header(Some("Date"), "Today").await.unwrap();
+        msg.prepend_header(Some("Date"), b"Today").await.unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "Date: Today\r\nX-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\n\r\nBody"
@@ -1831,7 +1834,7 @@ pub(crate) mod test {
     async fn prepend_header_1_params() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.prepend_header(None, "Date: Today").await.unwrap();
+        msg.prepend_header(None, b"Date: Today").await.unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "Date: Today\r\nX-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\n\r\nBody"
@@ -1842,7 +1845,7 @@ pub(crate) mod test {
     async fn append_header_2_params() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.append_header(Some("Date"), "Today").await.unwrap();
+        msg.append_header(Some("Date"), b"Today").await.unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\nDate: Today\r\n\r\nBody"
@@ -1853,7 +1856,7 @@ pub(crate) mod test {
     async fn append_header_1_params() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.append_header(None, "Date: Today").await.unwrap();
+        msg.append_header(None, b"Date: Today").await.unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\nDate: Today\r\n\r\nBody"

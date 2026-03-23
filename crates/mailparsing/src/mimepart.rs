@@ -192,7 +192,7 @@ impl<'a> MimePart<'a> {
 
         let body_len = bytes.len();
 
-        if !bytes.is_ascii() {
+        if !bytes.as_bytes().is_ascii() {
             conformance.set(MessageConformance::NEEDS_TRANSFER_ENCODING, true);
         }
         {
@@ -521,13 +521,13 @@ impl<'a> MimePart<'a> {
 
         for hdr in self.headers.iter() {
             let name = hdr.get_name();
-            if name.eq_ignore_ascii_case("Content-ID") {
+            if name.eq_ignore_ascii_case(b"Content-ID") {
                 continue;
             }
 
             // Merge in any MimeParameters that we might otherwise have lost
             // in the rebuild
-            if name.eq_ignore_ascii_case("Content-Type") {
+            if name.eq_ignore_ascii_case(b"Content-Type") {
                 if let Ok(params) = hdr.as_content_type() {
                     let Some(mut dest) = rebuilt.headers_mut().content_type()? else {
                         continue;
@@ -543,7 +543,7 @@ impl<'a> MimePart<'a> {
                 }
                 continue;
             }
-            if name.eq_ignore_ascii_case("Content-Transfer-Encoding") {
+            if name.eq_ignore_ascii_case(b"Content-Transfer-Encoding") {
                 if let Ok(params) = hdr.as_content_transfer_encoding() {
                     let Some(mut dest) = rebuilt.headers_mut().content_transfer_encoding()? else {
                         continue;
@@ -559,7 +559,7 @@ impl<'a> MimePart<'a> {
                 }
                 continue;
             }
-            if name.eq_ignore_ascii_case("Content-Disposition") {
+            if name.eq_ignore_ascii_case(b"Content-Disposition") {
                 if let Ok(params) = hdr.as_content_disposition() {
                     let Some(mut dest) = rebuilt.headers_mut().content_disposition()? else {
                         continue;
@@ -1271,7 +1271,7 @@ pub enum DecodedBody<'a> {
 impl<'a> DecodedBody<'a> {
     pub fn to_string_lossy(&'a self) -> Cow<'a, str> {
         match self {
-            Self::Text(s) => Cow::Borrowed(s),
+            Self::Text(s) => s.to_str_lossy(),
             Self::Binary(b) => String::from_utf8_lossy(b),
         }
     }
@@ -1465,7 +1465,7 @@ Ok(
             let headers = part.headers_mut();
             headers.push(Header::with_name_value("X-Woot", "Hello"));
             headers.insert(0, Header::with_name_value("X-First", "at the top"));
-            headers.retain(|hdr| !hdr.get_name().eq_ignore_ascii_case("date"));
+            headers.retain(|hdr| !hdr.get_name().eq_ignore_ascii_case(b"date"));
         }
         munge(&mut part);
 

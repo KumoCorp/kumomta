@@ -376,7 +376,7 @@ impl TraceHeaders {
 
         let value = BASE64.encode(serde_json::to_string(&object)?.as_bytes());
         message
-            .prepend_header(Some(&self.header_name), &value)
+            .prepend_header(Some(&self.header_name), value.as_bytes())
             .await?;
 
         Ok(())

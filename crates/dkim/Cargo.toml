@@ -11,6 +11,7 @@ readme = "README.md"
 license = "MIT"
 
 [dependencies]
+bstr.workspace = true
 chrono = { workspace = true, default-features = false, features = ["clock", "std"] }
 data-encoding = {workspace=true}
 dns-resolver = {path="../dns-resolver"}

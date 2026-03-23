@@ -161,7 +161,11 @@ impl ARC {
         let mut issues = vec![];
 
         for hdr in headers.iter_named(ARC_SEAL_HEADER_NAME) {
-            match ARCSealHeader::parse(hdr.get_raw_value()) {
+            match hdr
+                .get_raw_value_string()
+                .map_err(Into::into)
+                .and_then(ARCSealHeader::parse)
+            {
                 Ok(seal) => {
                     let instance = seal.arc_instance().expect("validated by parse");
                     seals
@@ -182,7 +186,11 @@ impl ARC {
         }
 
         for hdr in headers.iter_named(ARC_MESSAGE_SIGNATURE_HEADER_NAME) {
-            match ARCMessageSignatureHeader::parse(hdr.get_raw_value()) {
+            match hdr
+                .get_raw_value_string()
+                .map_err(Into::into)
+                .and_then(ARCMessageSignatureHeader::parse)
+            {
                 Ok(sig) => {
                     let instance = sig.arc_instance().expect("validated by parse");
                     sigs.entry(instance)

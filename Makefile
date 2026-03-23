@@ -31,6 +31,9 @@ test: build test-lua
 	./docs/update-openapi.sh
 	RUST_BACKTRACE=1 cargo nextest run --no-fail-fast
 
+int-test: build
+	RUST_BACKTRACE=1 cargo nextest run --no-fail-fast
+
 test-adhoc: build
 	cargo nextest run --no-fail-fast --no-capture -p integration-tests -- mx_list_refresh
 

@@ -1,6 +1,7 @@
 use crate::headermap::EncodeHeaderValue;
 use crate::nom_utils::{explain_nom, make_context_error, make_span, IResult, ParseError, Span};
 use crate::{MailParsingError, Result, SharedString};
+use bstr::ByteVec;
 use charset_normalizer_rs::Encoding;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1};
@@ -2159,26 +2160,33 @@ impl EncodeHeaderValue for Mailbox {
                     quote_string(name)
                 } else {
                     qp_encode(name)
-                };
+                }
+                .into_bytes();
 
                 value.push_str(" <");
-                value.push_str(&self.address.encode_value());
-                value.push('>');
+                value.push_str(self.address.encode_value().as_bytes());
+                value.push(b'>');
                 value.into()
             }
-            None => format!("<{}>", self.address.encode_value()).into(),
+            None => {
+                let mut result: Vec<u8> = vec![];
+                result.push(b'<');
+                result.push_str(self.address.encode_value().as_bytes());
+                result.push(b'>');
+                result.into()
+            }
         }
     }
 }
 
 impl EncodeHeaderValue for MailboxList {
     fn encode_value(&self) -> SharedString<'static> {
-        let mut result = String::new();
+        let mut result: Vec<u8> = vec![];
         for mailbox in &self.0 {
             if !result.is_empty() {
                 result.push_str(",\r\n\t");
             }
-            result.push_str(&mailbox.encode_value());
+            result.push_str(mailbox.encode_value().as_bytes());
         }
         result.into()
     }
@@ -2189,9 +2197,11 @@ impl EncodeHeaderValue for Address {
         match self {
             Self::Mailbox(mbox) => mbox.encode_value(),
             Self::Group { name, entries } => {
-                let mut result = format!("{name}:");
-                result += &entries.encode_value();
-                result.push(';');
+                let mut result: Vec<u8> = vec![];
+                result.push_str(name);
+                result.push(b':');
+                result.push_str(entries.encode_value().as_bytes());
+                result.push(b';');
                 result.into()
             }
         }
@@ -2200,12 +2210,12 @@ impl EncodeHeaderValue for Address {
 
 impl EncodeHeaderValue for AddressList {
     fn encode_value(&self) -> SharedString<'static> {
-        let mut result = String::new();
+        let mut result: Vec<u8> = vec![];
         for address in &self.0 {
             if !result.is_empty() {
                 result.push_str(",\r\n\t");
             }
-            result.push_str(&address.encode_value());
+            result.push_str(address.encode_value().as_bytes());
         }
         result.into()
     }

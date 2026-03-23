@@ -22,7 +22,7 @@ impl HeaderMapRef {
 struct HeaderIterInner {
     part: PartRef,
     idx: usize,
-    name: Option<String>,
+    name: Option<mlua::String>,
 }
 
 impl UserData for HeaderMapRef {
@@ -72,7 +72,7 @@ impl UserData for HeaderMapRef {
                 .map(|hdr| HeaderWrap(hdr.to_owned())))
         });
 
-        methods.add_method("iter", |lua, this, name: Option<String>| {
+        methods.add_method("iter", |lua, this, name: Option<mlua::String>| {
             let mut iter = HeaderIterInner {
                 part: this.0.clone(),
                 idx: 0,
@@ -91,7 +91,10 @@ impl UserData for HeaderMapRef {
                         let matched = iter
                             .name
                             .as_ref()
-                            .map(|name| hdr.get_name().eq_ignore_ascii_case(name))
+                            .map(|name| {
+                                hdr.get_name()
+                                    .eq_ignore_ascii_case(name.as_bytes().as_ref())
+                            })
                             .unwrap_or(true);
 
                         if matched {
@@ -440,7 +443,7 @@ impl UserData for HeaderWrap {
         fields.add_field_method_get("value", |lua, this| {
             let name = this.0.get_name();
             for (candidate, getter) in NAME_GETTER {
-                if candidate.eq_ignore_ascii_case(name) {
+                if candidate.as_bytes().eq_ignore_ascii_case(name) {
                     return (getter)(lua, &this.0);
                 }
             }

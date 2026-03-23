@@ -6,6 +6,7 @@ use crate::rfc5965::{
 };
 use crate::{JsonLogRecord, RecordType};
 use anyhow::{anyhow, Context};
+use bstr::{BString, ByteSlice};
 use chrono::{DateTime, Utc};
 use mailparsing::MimePart;
 use serde::{Deserialize, Serialize};
@@ -358,7 +359,7 @@ impl PerMessageReportEntry {
 pub struct Report {
     pub per_message: PerMessageReportEntry,
     pub per_recipient: Vec<PerRecipientReportEntry>,
-    pub original_message: Option<String>,
+    pub original_message: Option<BString>,
 }
 
 pub(crate) fn content_type(part: &MimePart) -> Option<String> {
@@ -385,7 +386,9 @@ impl Report {
             let ct = content_type(part);
             let ct = ct.as_deref();
             if ct == Some("message/rfc822") || ct == Some("text/rfc822-headers") {
-                original_message = Some(part.raw_body().replace("\r\n", "\n"));
+                original_message = Some(BString::new(
+                    part.raw_body().as_bytes().replace(b"\r\n", b"\n"),
+                ));
             }
         }
 
@@ -401,7 +404,7 @@ impl Report {
         anyhow::bail!("delivery-status part missing");
     }
 
-    fn parse_inner(part: &MimePart, original_message: Option<String>) -> anyhow::Result<Self> {
+    fn parse_inner(part: &MimePart, original_message: Option<BString>) -> anyhow::Result<Self> {
         let body = part.body()?.to_string_lossy().replace("\r\n", "\n");
         let mut parts = body.trim().split("\n\n");
 

@@ -82,14 +82,30 @@ impl EnvelopeAddress {
 impl TryInto<EnvelopeAddress> for &Mailbox {
     type Error = anyhow::Error;
     fn try_into(self) -> anyhow::Result<EnvelopeAddress> {
-        EnvelopeAddress::parse(&self.address.encode_value())
+        if self.address.local_part.is_empty() && self.address.domain.is_empty() {
+            Ok(EnvelopeAddress::null_sender())
+        } else {
+            EnvelopeAddress::parse(&format!(
+                "{}@{}",
+                self.address.local_part, self.address.domain
+            ))
+        }
     }
 }
 
 impl TryInto<EnvelopeAddress> for &Address {
     type Error = anyhow::Error;
     fn try_into(self) -> anyhow::Result<EnvelopeAddress> {
-        EnvelopeAddress::parse(&self.encode_value())
+        match self {
+            Address::Mailbox(mbox) => mbox.try_into(),
+            Address::Group { name: _, entries } => {
+                if entries.len() == 1 {
+                    (&entries[0]).try_into()
+                } else {
+                    anyhow::bail!("Cannot convert an Address::Group to an EnvelopeAddress unless it has exactly one entry");
+                }
+            }
+        }
     }
 }
 

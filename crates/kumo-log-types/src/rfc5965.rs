@@ -1,6 +1,7 @@
 //! ARF reports
 use crate::rfc3464::{content_type, RemoteMta};
 use anyhow::anyhow;
+use bstr::{BString, ByteSlice};
 use chrono::{DateTime, Utc};
 use mailparsing::{Header, HeaderParseResult, MimePart};
 use rfc5321::parse_envelope_address;
@@ -57,7 +58,7 @@ pub struct ARFReport {
 
     pub extensions: BTreeMap<String, Vec<String>>,
 
-    pub original_message: Option<String>,
+    pub original_message: Option<BString>,
     pub supplemental_trace: Option<serde_json::Value>,
 }
 
@@ -90,7 +91,9 @@ impl ARFReport {
                 {
                     // Look for x-headers that might be our supplemental trace headers
                     for hdr in headers.iter() {
-                        if !(hdr.get_name().starts_with("X-") || hdr.get_name().starts_with("x-")) {
+                        if !(hdr.get_name().starts_with_str("X-")
+                            || hdr.get_name().starts_with_str("x-"))
+                        {
                             continue;
                         }
                         if let Ok(decoded) =
@@ -116,7 +119,9 @@ impl ARFReport {
                     }
                 }
 
-                original_message = Some(part.raw_body().replace("\r\n", "\n"));
+                original_message = Some(BString::new(
+                    part.raw_body().as_bytes().replace("\r\n", "\n"),
+                ));
             }
         }
 
@@ -137,7 +142,7 @@ impl ARFReport {
 
     fn parse_inner(
         part: &MimePart,
-        original_message: Option<String>,
+        original_message: Option<BString>,
         supplemental_trace: Option<serde_json::Value>,
     ) -> anyhow::Result<Self> {
         let body = part.raw_body();
@@ -193,7 +198,7 @@ pub(crate) fn extract_headers(part: &[u8]) -> anyhow::Result<BTreeMap<String, Ve
     let mut extensions = BTreeMap::new();
 
     for hdr in headers.iter() {
-        let name = hdr.get_name().to_ascii_lowercase();
+        let name = String::from_utf8_lossy(&hdr.get_name()).to_ascii_lowercase();
         extensions
             .entry(name)
             .or_insert_with(std::vec::Vec::new)

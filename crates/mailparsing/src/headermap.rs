@@ -29,7 +29,7 @@ impl<'a> std::ops::DerefMut for HeaderMap<'a> {
 
 pub trait EncodeHeaderValue {
     fn encode_value(&self) -> SharedString<'static>;
-    fn as_header(&self, _name: &str) -> Option<Header<'static>> {
+    fn as_header(&self, _name: &[u8]) -> Option<Header<'static>> {
         None
     }
 }
@@ -39,8 +39,8 @@ impl EncodeHeaderValue for &str {
         unimplemented!();
     }
 
-    fn as_header(&self, name: &str) -> Option<Header<'static>> {
-        Some(Header::new_unstructured(name.to_string(), self.to_string()))
+    fn as_header(&self, name: &[u8]) -> Option<Header<'static>> {
+        Some(Header::new_unstructured(name.to_vec(), self.to_string()))
     }
 }
 
@@ -72,7 +72,7 @@ macro_rules! accessor {
                 if let Some(idx) = self
                     .headers
                     .iter()
-                    .position(|header| header.get_name().eq_ignore_ascii_case($header_name))
+                    .position(|header| header.get_name().eq_ignore_ascii_case($header_name.as_bytes()))
                 {
                     if let Some(hdr) = v.as_header(self.headers[idx].get_name()) {
                         hdr.$parser().map_err(|error| {
@@ -86,7 +86,7 @@ macro_rules! accessor {
                         self.headers[idx].assign(v);
                     }
                 } else {
-                    if let Some(hdr) = v.as_header($header_name) {
+                    if let Some(hdr) = v.as_header($header_name.as_bytes()) {
                         hdr.$parser().map_err(|error| {
                             MailParsingError::InvalidHeaderValueDuringAssignment {
                                 header_name: $header_name.to_string(),
@@ -118,7 +118,7 @@ impl<'a> HeaderMap<'a> {
 
     pub fn remove_all_named(&mut self, name: &str) {
         self.headers
-            .retain(|hdr| !hdr.get_name().eq_ignore_ascii_case(name));
+            .retain(|hdr| !hdr.get_name().eq_ignore_ascii_case(name.as_bytes()));
     }
 
     pub fn prepend<V: Into<SharedString<'a>>>(&mut self, name: &str, v: V) {
@@ -156,7 +156,7 @@ impl<'a> HeaderMap<'a> {
     {
         self.headers
             .iter()
-            .filter(|header| header.get_name().eq_ignore_ascii_case(name))
+            .filter(|header| header.get_name().eq_ignore_ascii_case(name.as_bytes()))
     }
 
     pub fn iter_named_mut<'name>(
@@ -168,7 +168,7 @@ impl<'a> HeaderMap<'a> {
     {
         self.headers
             .iter_mut()
-            .filter(|header| header.get_name().eq_ignore_ascii_case(name))
+            .filter(|header| header.get_name().eq_ignore_ascii_case(name.as_bytes()))
     }
 
     accessor!(from, "From", MailboxList, as_mailbox_list);

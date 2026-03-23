@@ -269,8 +269,11 @@ pub async fn verify_email_with_resolver<'a>(
             break;
         }
 
-        let value = h.get_raw_value();
-        match DKIMHeader::parse(value) {
+        match h
+            .get_raw_value_string()
+            .map_err(Into::into)
+            .and_then(DKIMHeader::parse)
+        {
             Ok(v) => {
                 dkim_headers.push(v);
             }
@@ -497,7 +500,8 @@ Joe."#
             .iter_named(DKIM_SIGNATURE_HEADER_NAME)
             .next()
             .unwrap()
-            .get_raw_value();
+            .get_raw_value_string()
+            .unwrap();
 
         const DKIM_BRISBANE: &str = r#"
 $ORIGIN brisbane._domainkey.football.example.com
@@ -552,7 +556,8 @@ Joe.
             .iter_named(DKIM_SIGNATURE_HEADER_NAME)
             .next()
             .unwrap()
-            .get_raw_value();
+            .get_raw_value_string()
+            .unwrap();
 
         let resolver =
             TestResolver::default().with_txt(NEW_ENGLAND_DKIM.0, NEW_ENGLAND_DKIM.1.to_owned());

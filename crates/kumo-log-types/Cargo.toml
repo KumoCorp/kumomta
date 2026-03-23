@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = {workspace=true}
 bounce-classify = {path="../bounce-classify"}
+bstr.workspace = true
 chrono = {workspace=true, default-features=false, features=["serde", "std"]}
 data-encoding = {workspace=true}
 kumo-address = {path="../kumo-address"}
