@@ -66,6 +66,10 @@
    [kumo.encode.charset_decode](../reference/kumo.encode/charset_decode.md) string
    charset encoding/decoding functions for advanced use cases.
 
+ * [kumo.string.starts_with](../reference/string/starts_with.md) and
+   [kumo.string.ends_with](../reference/string/ends_with.md). Thanks to
+   @kayozaki! #498
+
 ## Fixes
 
  * sources helper didn't allow creating empty egress pools
