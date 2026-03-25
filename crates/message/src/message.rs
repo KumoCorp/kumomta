@@ -1006,9 +1006,9 @@ impl Message {
             .contains(MessageConformance::NON_CANONICAL_LINE_ENDINGS)
         {
             return Ok(vec![AuthenticationResult {
-                method: "dkim".to_string(),
+                method: "dkim".into(),
                 method_version: None,
-                result: "permerror".to_string(),
+                result: "permerror".into(),
                 reason: Some("message has non-canonical line endings".to_string()),
                 props: Default::default(),
             }]);

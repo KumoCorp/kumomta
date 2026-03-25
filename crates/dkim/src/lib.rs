@@ -279,9 +279,9 @@ pub async fn verify_email_with_resolver<'a>(
             }
             Err(err) => {
                 results.push(AuthenticationResult {
-                    method: "dkim".to_string(),
+                    method: "dkim".into(),
                     method_version: None,
-                    result: "permerror".to_string(),
+                    result: "permerror".into(),
                     reason: Some(format!("{err}")),
                     props: BTreeMap::new(),
                 });
@@ -348,9 +348,9 @@ pub async fn verify_email_with_resolver<'a>(
             };
 
         results.push(AuthenticationResult {
-            method: "dkim".to_string(),
+            method: "dkim".into(),
             method_version: None,
-            result: result.to_string(),
+            result: result.into(),
             reason,
             props,
         });

@@ -90,9 +90,9 @@ impl ARC {
         }
 
         AuthenticationResult {
-            method: "arc".to_string(),
+            method: "arc".into(),
             method_version: None,
-            result: status.to_string(),
+            result: status.to_string().into(),
             reason: self.issues.first().map(|issue| issue.reason.to_string()),
             props,
         }

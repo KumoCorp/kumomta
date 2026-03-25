@@ -96,9 +96,9 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
             &CheckHostOutput {
                 disposition: result.disposition,
                 result: AuthenticationResult {
-                    method: "spf".to_string(),
+                    method: "spf".into(),
                     method_version: None,
-                    result: result.disposition.to_string(),
+                    result: result.disposition.to_string().into(),
                     reason: Some(result.context),
                     props,
                 },

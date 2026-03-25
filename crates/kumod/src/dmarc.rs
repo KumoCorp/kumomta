@@ -42,9 +42,9 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                             &CheckHostOutput {
                                 disposition: Disposition::None,
                                 result: AuthenticationResult {
-                                    method: "dmarc".to_string(),
+                                    method: "dmarc".into(),
                                     method_version: None,
-                                    result: "None".to_string(),
+                                    result: "None".into(),
                                     reason: Some("'From:' header missing domain".to_string()),
                                     props: BTreeMap::default(),
                                 },
@@ -58,9 +58,9 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                         &CheckHostOutput {
                             disposition: Disposition::None,
                             result: AuthenticationResult {
-                                method: "dmarc".to_string(),
+                                method: "dmarc".into(),
                                 method_version: None,
-                                result: "None".to_string(),
+                                result: "None".into(),
                                 reason: Some("Only single 'From:' header supported".to_string()),
                                 props: BTreeMap::default(),
                             },
@@ -88,9 +88,9 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                         &CheckHostOutput {
                             disposition: result.result.clone(),
                             result: AuthenticationResult {
-                                method: "dmarc".to_string(),
+                                method: "dmarc".into(),
                                 method_version: None,
-                                result: result.result.to_string().to_ascii_lowercase(),
+                                result: result.result.to_string().to_ascii_lowercase().into(),
                                 reason: Some(result.context),
                                 props: BTreeMap::default(),
                             },
@@ -107,9 +107,9 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                             &CheckHostOutput {
                                 disposition: result.result.clone(),
                                 result: AuthenticationResult {
-                                    method: "dmarc".to_string(),
+                                    method: "dmarc".into(),
                                     method_version: None,
-                                    result: "fail".to_string(),
+                                    result: "fail".into(),
                                     reason: Some(result.context),
                                     props,
                                 },

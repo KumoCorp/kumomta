@@ -1,7 +1,7 @@
 use crate::headermap::EncodeHeaderValue;
 use crate::nom_utils::{explain_nom, make_context_error, make_span, IResult, ParseError, Span};
 use crate::{MailParsingError, Result, SharedString};
-use bstr::{BString, ByteVec};
+use bstr::{BString, ByteSlice, ByteVec};
 use charset_normalizer_rs::Encoding;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1};
@@ -1066,7 +1066,7 @@ fn resinfo(input: Span) -> IResult<Span, AuthenticationResult> {
                 opt(many1(propspec)),
             )),
             |(_, _, (method, method_version, result), reason, props)| AuthenticationResult {
-                method,
+                method: method.into(),
                 method_version,
                 result,
                 reason,
@@ -1529,14 +1529,14 @@ impl EncodeHeaderValue for ARCAuthenticationResults {
                     result.push_str(&format!("/{v}"));
                 }
                 result.push(b'=');
-                emit_value_token(&res.result, &mut result);
+                emit_value_token(res.result.as_bytes(), &mut result);
                 if let Some(reason) = &res.reason {
                     result.push_str(" reason=");
-                    emit_value_token(reason, &mut result);
+                    emit_value_token(reason.as_bytes(), &mut result);
                 }
                 for (k, v) in &res.props {
                     result.push_str(&format!("\r\n\t{k}="));
-                    emit_value_token(v, &mut result);
+                    emit_value_token(v.as_bytes(), &mut result);
                 }
             }
         }
@@ -1556,15 +1556,15 @@ pub struct AuthenticationResults {
 }
 
 /// Emits a value that was parsed by `value`, into target
-fn emit_value_token(value: &str, target: &mut Vec<u8>) {
-    let use_quoted_string = !value.chars().all(|c| is_mime_token(c) || c == '@');
+fn emit_value_token(value: &[u8], target: &mut Vec<u8>) {
+    let use_quoted_string = !value.iter().all(|&c| is_mime_token(c as char) || c == b'@');
     if use_quoted_string {
         target.push(b'"');
-        for c in value.chars() {
+        for (start, end, c) in value.char_indices() {
             if c == '"' || c == '\\' {
                 target.push(b'\\');
             }
-            target.push_char(c);
+            target.push_str(&value[start..end]);
         }
         target.push(b'"');
     } else {
@@ -1588,14 +1588,14 @@ impl EncodeHeaderValue for AuthenticationResults {
                     result.push_str(&format!("/{v}"));
                 }
                 result.push(b'=');
-                emit_value_token(&res.result, &mut result);
+                emit_value_token(res.result.as_bytes(), &mut result);
                 if let Some(reason) = &res.reason {
                     result.push_str(" reason=");
-                    emit_value_token(reason, &mut result);
+                    emit_value_token(reason.as_bytes(), &mut result);
                 }
                 for (k, v) in &res.props {
                     result.push_str(&format!("\r\n\t{k}="));
-                    emit_value_token(v, &mut result);
+                    emit_value_token(v.as_bytes(), &mut result);
                 }
             }
         }
@@ -1607,7 +1607,7 @@ impl EncodeHeaderValue for AuthenticationResults {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthenticationResult {
-    pub method: String,
+    pub method: BString,
     #[serde(default)]
     pub method_version: Option<u32>,
     pub result: String,
