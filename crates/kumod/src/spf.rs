@@ -99,7 +99,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                     method: "spf".into(),
                     method_version: None,
                     result: result.disposition.to_string().into(),
-                    reason: Some(result.context),
+                    reason: Some(result.context.into()),
                     props,
                 },
             },

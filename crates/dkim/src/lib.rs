@@ -282,7 +282,7 @@ pub async fn verify_email_with_resolver<'a>(
                     method: "dkim".into(),
                     method_version: None,
                     result: "permerror".into(),
-                    reason: Some(format!("{err}")),
+                    reason: Some(format!("{err}").into()),
                     props: BTreeMap::new(),
                 });
             }
@@ -351,7 +351,7 @@ pub async fn verify_email_with_resolver<'a>(
             method: "dkim".into(),
             method_version: None,
             result: result.into(),
-            reason,
+            reason: reason.map(Into::into),
             props,
         });
     }

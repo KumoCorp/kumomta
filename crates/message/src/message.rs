@@ -1009,7 +1009,7 @@ impl Message {
                 method: "dkim".into(),
                 method_version: None,
                 result: "permerror".into(),
-                reason: Some("message has non-canonical line endings".to_string()),
+                reason: Some("message has non-canonical line endings".into()),
                 props: Default::default(),
             }]);
         }

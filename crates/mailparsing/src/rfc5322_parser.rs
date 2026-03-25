@@ -1068,8 +1068,8 @@ fn resinfo(input: Span) -> IResult<Span, AuthenticationResult> {
             |(_, _, (method, method_version, result), reason, props)| AuthenticationResult {
                 method: method.into(),
                 method_version,
-                result,
-                reason,
+                result: result.into(),
+                reason: reason.map(Into::into),
                 props: match props {
                     None => BTreeMap::default(),
                     Some(props) => props.into_iter().collect(),
@@ -1610,9 +1610,9 @@ pub struct AuthenticationResult {
     pub method: BString,
     #[serde(default)]
     pub method_version: Option<u32>,
-    pub result: String,
+    pub result: BString,
     #[serde(default)]
-    pub reason: Option<String>,
+    pub reason: Option<BString>,
     #[serde(default)]
     pub props: BTreeMap<String, String>,
 }
