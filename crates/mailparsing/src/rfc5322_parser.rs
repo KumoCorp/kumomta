@@ -9,7 +9,7 @@ use nom::character::complete::{char, satisfy};
 use nom::combinator::{all_consuming, map, opt, recognize};
 use nom::error::context;
 use nom::multi::{many0, many1, separated_list1};
-use nom::sequence::{delimited, preceded, separated_pair, terminated, tuple};
+use nom::sequence::{delimited, preceded, separated_pair, terminated};
 use nom::Parser as _;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -175,13 +175,13 @@ fn obs_mbox_list(input: Span) -> IResult<Span, Vec<Mailbox>> {
         "obs_mbox_list",
         many1(preceded(
             many0(preceded(opt(cfws), char(','))),
-            tuple((
+            (
                 mailbox,
                 many0(preceded(
                     char(','),
                     alt((map(mailbox, Some), map(cfws, |_| None))),
                 )),
-            )),
+            ),
         )),
     )
     .parse(input)?;
@@ -234,13 +234,13 @@ fn obs_address_list(input: Span) -> IResult<Span, AddressList> {
         "obs_address_list",
         many1(preceded(
             many0(preceded(opt(cfws), char(','))),
-            tuple((
+            (
                 address,
                 many0(preceded(
                     char(','),
                     alt((map(address, Some), map(cfws, |_| None))),
                 )),
-            )),
+            ),
         )),
     )
     .parse(input)?;
@@ -269,7 +269,7 @@ fn group(input: Span) -> IResult<Span, Address> {
     let (loc, (name, _, group_list, _)) = context(
         "group",
         terminated(
-            tuple((display_name, char(':'), opt(group_list), char(';'))),
+            (display_name, char(':'), opt(group_list), char(';')),
             opt(cfws),
         ),
     )
@@ -312,8 +312,9 @@ fn obs_group_list(input: Span) -> IResult<Span, MailboxList> {
 fn name_addr(input: Span) -> IResult<Span, Mailbox> {
     context(
         "name_addr",
-        map(tuple((opt(display_name), angle_addr)), |(name, address)| {
-            Mailbox { name, address }
+        map((opt(display_name), angle_addr), |(name, address)| Mailbox {
+            name,
+            address,
         }),
     )
     .parse(input)
@@ -329,7 +330,7 @@ fn display_name(input: Span) -> IResult<Span, String> {
 fn phrase(input: Span) -> IResult<Span, String> {
     let (loc, (a, b)): (Span, (String, Vec<Option<String>>)) = context(
         "phrase",
-        tuple((
+        (
             alt((encoded_word, word)),
             many0(alt((
                 map(cfws, |_| None),
@@ -337,7 +338,7 @@ fn phrase(input: Span) -> IResult<Span, String> {
                 map(word, Option::Some),
                 map(char('.'), |dot| Some(dot.to_string())),
             ))),
-        )),
+        ),
     )
     .parse(input)?;
     let mut result = vec![];
@@ -386,16 +387,12 @@ fn obs_route(input: Span) -> IResult<Span, Span> {
     context(
         "obs_route",
         recognize(terminated(
-            tuple((
+            (
                 many0(alt((cfws, recognize(char(','))))),
                 recognize(char('@')),
                 recognize(domain),
-                many0(tuple((
-                    char(','),
-                    opt(cfws),
-                    opt(tuple((char('@'), domain))),
-                ))),
-            )),
+                many0((char(','), opt(cfws), opt((char('@'), domain)))),
+            ),
             char(':'),
         )),
     )
@@ -511,11 +508,8 @@ fn word(input: Span) -> IResult<Span, String> {
 
 // obs_local_part = { word ~ (dot ~ word)* }
 fn obs_local_part(input: Span) -> IResult<Span, String> {
-    let (loc, (word, dotted_words)) = context(
-        "obs_local_part",
-        tuple((word, many0(tuple((char('.'), word))))),
-    )
-    .parse(input)?;
+    let (loc, (word, dotted_words)) =
+        context("obs_local_part", (word, many0((char('.'), word)))).parse(input)?;
     let mut result = String::new();
 
     result.push_str(&word);
@@ -540,7 +534,7 @@ fn domain(input: Span) -> IResult<Span, String> {
 // obs_domain = { atom ~ ( dot ~ atom)* }
 fn obs_domain(input: Span) -> IResult<Span, String> {
     let (loc, (atom, dotted_atoms)) =
-        context("obs_domain", tuple((atom, many0(tuple((char('.'), atom)))))).parse(input)?;
+        context("obs_domain", (atom, many0((char('.'), atom)))).parse(input)?;
     let mut result = String::new();
 
     result.push_str(&atom);
@@ -560,10 +554,10 @@ fn domain_literal(input: Span) -> IResult<Span, String> {
             opt(cfws),
             delimited(
                 char('['),
-                tuple((
-                    many0(tuple((opt(fws), alt((satisfy(is_dtext), quoted_pair))))),
+                (
+                    many0((opt(fws), alt((satisfy(is_dtext), quoted_pair)))),
                     opt(fws),
-                )),
+                ),
                 char(']'),
             ),
             opt(cfws),
@@ -588,11 +582,8 @@ fn domain_literal(input: Span) -> IResult<Span, String> {
 
 // dot_atom_text = @{ atext ~ ("." ~ atext)* }
 fn dot_atom_text(input: Span) -> IResult<Span, String> {
-    let (loc, (a, b)) = context(
-        "dot_atom_text",
-        tuple((atext, many0(preceded(char('.'), atext)))),
-    )
-    .parse(input)?;
+    let (loc, (a, b)) =
+        context("dot_atom_text", (atext, many0(preceded(char('.'), atext)))).parse(input)?;
     let mut result = String::new();
     result.push_str(&a);
     for item in b {
@@ -659,7 +650,7 @@ fn cfws(input: Span) -> IResult<Span, Span> {
     context(
         "cfws",
         recognize(alt((
-            recognize(tuple((many1(tuple((opt(fws), comment))), opt(fws)))),
+            recognize((many1((opt(fws), comment)), opt(fws))),
             fws,
         ))),
     )
@@ -670,12 +661,7 @@ fn cfws(input: Span) -> IResult<Span, Span> {
 fn comment(input: Span) -> IResult<Span, Span> {
     context(
         "comment",
-        recognize(tuple((
-            char('('),
-            many0(tuple((opt(fws), ccontent))),
-            opt(fws),
-            char(')'),
-        ))),
+        recognize((char('('), many0((opt(fws), ccontent)), opt(fws), char(')'))),
     )
     .parse(input)
 }
@@ -731,14 +717,14 @@ fn encoded_word(input: Span) -> IResult<Span, String> {
         "encoded_word",
         delimited(
             tag("=?"),
-            tuple((
+            (
                 charset,
                 opt(preceded(char('*'), language)),
                 char('?'),
                 encoding,
                 char('?'),
                 encoded_text,
-            )),
+            ),
             tag("?="),
         ),
     )
@@ -830,7 +816,7 @@ fn quoted_string(input: Span) -> IResult<Span, String> {
             opt(cfws),
             delimited(
                 char('"'),
-                tuple((many0(tuple((opt(fws), qcontent))), opt(fws))),
+                (many0((opt(fws), qcontent)), opt(fws)),
                 char('"'),
             ),
             opt(cfws),
@@ -902,7 +888,7 @@ fn no_fold_literal(input: Span) -> IResult<Span, String> {
     context(
         "no_fold_literal",
         map(
-            recognize(tuple((tag("["), take_while(is_dtext), tag("]")))),
+            recognize((tag("["), take_while(is_dtext), tag("]"))),
             |s: Span| s.to_string(),
         ),
     )
@@ -915,7 +901,7 @@ fn strict_msg_id(input: Span) -> IResult<Span, MessageID> {
         "msg_id",
         delimited(
             preceded(opt(cfws), char('<')),
-            tuple((id_left, char('@'), id_right)),
+            (id_left, char('@'), id_right),
             preceded(char('>'), opt(cfws)),
         ),
     )
@@ -1002,7 +988,7 @@ fn arc_authentication_results(input: Span) -> IResult<Span, ARCAuthenticationRes
     context(
         "arc_authentication_results",
         map(
-            tuple((
+            (
                 preceded(opt(cfws), char('i')),
                 preceded(opt(cfws), char('=')),
                 preceded(opt(cfws), nom::character::complete::u8),
@@ -1011,7 +997,7 @@ fn arc_authentication_results(input: Span) -> IResult<Span, ARCAuthenticationRes
                 opt(preceded(cfws, nom::character::complete::u32)),
                 alt((no_result, many1(resinfo))),
                 opt(cfws),
-            )),
+            ),
             |(_i, _eq, instance, _semic, serv_id, version, results, _)| ARCAuthenticationResults {
                 instance,
                 serv_id: serv_id.into(),
@@ -1027,12 +1013,12 @@ fn authentication_results(input: Span) -> IResult<Span, AuthenticationResults> {
     context(
         "authentication_results",
         map(
-            tuple((
+            (
                 preceded(opt(cfws), value),
                 opt(preceded(cfws, nom::character::complete::u32)),
                 alt((no_result, many1(resinfo))),
                 opt(cfws),
-            )),
+            ),
             |(serv_id, version, results, _)| AuthenticationResults {
                 serv_id: serv_id.into(),
                 version,
@@ -1046,10 +1032,7 @@ fn authentication_results(input: Span) -> IResult<Span, AuthenticationResults> {
 fn no_result(input: Span) -> IResult<Span, Vec<AuthenticationResult>> {
     context(
         "no_result",
-        map(
-            tuple((opt(cfws), char(';'), opt(cfws), tag("none"))),
-            |_| vec![],
-        ),
+        map((opt(cfws), char(';'), opt(cfws), tag("none")), |_| vec![]),
     )
     .parse(input)
 }
@@ -1058,13 +1041,13 @@ fn resinfo(input: Span) -> IResult<Span, AuthenticationResult> {
     context(
         "resinfo",
         map(
-            tuple((
+            (
                 opt(cfws),
                 char(';'),
                 methodspec,
                 opt(preceded(cfws, reasonspec)),
                 opt(many1(propspec)),
-            )),
+            ),
             |(_, _, (method, method_version, result), reason, props)| AuthenticationResult {
                 method: method.into(),
                 method_version,
@@ -1084,14 +1067,14 @@ fn methodspec(input: Span) -> IResult<Span, (String, Option<u32>, String)> {
     context(
         "methodspec",
         map(
-            tuple((
+            (
                 opt(cfws),
-                tuple((keyword, opt(methodversion))),
+                (keyword, opt(methodversion)),
                 opt(cfws),
                 char('='),
                 opt(cfws),
                 keyword,
-            )),
+            ),
             |(_, (method, methodversion), _, _, _, result)| (method, methodversion, result),
         ),
     )
@@ -1115,7 +1098,7 @@ fn methodversion(input: Span) -> IResult<Span, u32> {
     context(
         "methodversion",
         preceded(
-            tuple((opt(cfws), char('/'), opt(cfws))),
+            (opt(cfws), char('/'), opt(cfws)),
             nom::character::complete::u32,
         ),
     )
@@ -1126,7 +1109,7 @@ fn reasonspec(input: Span) -> IResult<Span, String> {
     context(
         "reason",
         map(
-            tuple((tag("reason"), opt(cfws), char('='), opt(cfws), value)),
+            (tag("reason"), opt(cfws), char('='), opt(cfws), value),
             |(_, _, _, _, value)| value,
         ),
     )
@@ -1137,7 +1120,7 @@ fn propspec(input: Span) -> IResult<Span, (String, String)> {
     context(
         "propspec",
         map(
-            tuple((
+            (
                 opt(cfws),
                 keyword,
                 opt(cfws),
@@ -1157,7 +1140,7 @@ fn propspec(input: Span) -> IResult<Span, (String, String)> {
                     value,
                 )),
                 opt(cfws),
-            )),
+            ),
             |(_, ptype, _, _, _, property, _, _, _, value, _)| {
                 (format!("{ptype}.{property}"), value)
             },
@@ -1193,7 +1176,7 @@ fn content_type(input: Span) -> IResult<Span, MimeParameters> {
         "content_type",
         preceded(
             opt(cfws),
-            tuple((
+            (
                 mime_token,
                 opt(cfws),
                 char('/'),
@@ -1211,7 +1194,7 @@ fn content_type(input: Span) -> IResult<Span, MimeParameters> {
                     preceded(opt(char(';')), opt(cfws)),
                     terminated(parameter, opt(cfws)),
                 )),
-            )),
+            ),
         ),
     )
     .parse(input)?;
@@ -1225,7 +1208,7 @@ fn content_transfer_encoding(input: Span) -> IResult<Span, MimeParameters> {
         "content_transfer_encoding",
         preceded(
             opt(cfws),
-            tuple((
+            (
                 mime_token,
                 opt(cfws),
                 many0(preceded(
@@ -1239,7 +1222,7 @@ fn content_transfer_encoding(input: Span) -> IResult<Span, MimeParameters> {
                     preceded(opt(char(';')), opt(cfws)),
                     terminated(parameter, opt(cfws)),
                 )),
-            )),
+            ),
         ),
     )
     .parse(input)?;
@@ -1276,7 +1259,7 @@ fn param_with_unquoted_rfc2047(input: Span) -> IResult<Span, MimeParameter> {
     context(
         "param_with_unquoted_rfc2047",
         map(
-            tuple((attribute, opt(cfws), char('='), opt(cfws), encoded_word)),
+            (attribute, opt(cfws), char('='), opt(cfws), encoded_word),
             |(name, _, _, _, value)| MimeParameter {
                 name: name.to_string(),
                 value,
@@ -1294,13 +1277,13 @@ fn param_with_quoted_rfc2047(input: Span) -> IResult<Span, MimeParameter> {
     context(
         "param_with_quoted_rfc2047",
         map(
-            tuple((
+            (
                 attribute,
                 opt(cfws),
                 char('='),
                 opt(cfws),
                 delimited(char('"'), encoded_word, char('"')),
-            )),
+            ),
             |(name, _, _, _, value)| MimeParameter {
                 name: name.to_string(),
                 value,
@@ -1318,7 +1301,7 @@ fn extended_param_with_charset(input: Span) -> IResult<Span, MimeParameter> {
     context(
         "extended_param_with_charset",
         map(
-            tuple((
+            (
                 attribute,
                 opt(section),
                 char('*'),
@@ -1333,7 +1316,7 @@ fn extended_param_with_charset(input: Span) -> IResult<Span, MimeParameter> {
                     recognize(many0(alt((ext_octet, take_while1(is_attribute_char))))),
                     |s: Span| s.to_string(),
                 ),
-            )),
+            ),
             |(name, section, _, _, _, _, mime_charset, _, mime_language, _, value)| MimeParameter {
                 name: name.to_string(),
                 section,
@@ -1351,7 +1334,7 @@ fn extended_param_no_charset(input: Span) -> IResult<Span, MimeParameter> {
     context(
         "extended_param_no_charset",
         map(
-            tuple((
+            (
                 attribute,
                 opt(section),
                 opt(char('*')),
@@ -1365,7 +1348,7 @@ fn extended_param_no_charset(input: Span) -> IResult<Span, MimeParameter> {
                         |s: Span| s.to_string(),
                     ),
                 )),
-            )),
+            ),
             |(name, section, star, _, _, _, value)| MimeParameter {
                 name: name.to_string(),
                 section,
@@ -1402,11 +1385,11 @@ fn mime_language(input: Span) -> IResult<Span, Span> {
 fn ext_octet(input: Span) -> IResult<Span, Span> {
     context(
         "ext_octet",
-        recognize(tuple((
+        recognize((
             char('%'),
             satisfy(|c| c.is_ascii_hexdigit()),
             satisfy(|c| c.is_ascii_hexdigit()),
-        ))),
+        )),
     )
     .parse(input)
 }
@@ -1425,7 +1408,7 @@ fn regular_parameter(input: Span) -> IResult<Span, MimeParameter> {
     context(
         "regular_parameter",
         map(
-            tuple((attribute, opt(cfws), char('='), opt(cfws), value)),
+            (attribute, opt(cfws), char('='), opt(cfws), value),
             |(name, _, _, _, value)| MimeParameter {
                 name: name.to_string(),
                 value,
