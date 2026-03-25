@@ -3,6 +3,9 @@ name = "mod-filesystem"
 version = "0.1.0"
 edition = "2021"
 
+[dev-dependencies]
+tempfile = {workspace=true}
+
 [dependencies]
 filenamegen = {workspace=true}
 anyhow = {workspace=true}

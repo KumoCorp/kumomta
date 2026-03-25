@@ -38,14 +38,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set("read_dir", lua.create_async_function(read_dir)?)?;
     kumo_mod.set("glob", lua.create_async_function(cached_glob)?)?;
     kumo_mod.set("uncached_glob", lua.create_async_function(uncached_glob)?)?;
-    kumo_mod.set("stat", lua.create_async_function(stat)?)?;
 
     let fs_mod = get_or_create_sub_module(lua, "fs")?;
     fs_mod.set("open", lua.create_async_function(file::AsyncFile::open)?)?;
     fs_mod.set("read_dir", lua.create_async_function(read_dir)?)?;
     fs_mod.set("glob", lua.create_async_function(cached_glob)?)?;
     fs_mod.set("uncached_glob", lua.create_async_function(uncached_glob)?)?;
-
+    fs_mod.set("stat", lua.create_async_function(stat)?)?;
     Ok(())
 }
 
@@ -117,9 +116,18 @@ async fn stat(lua: Lua, path: String) -> mlua::Result<mlua::Table> {
 
     match lua.to_value(&stat)? {
         Value::Table(table) => {
-            table.set("mtime", system_time_to_lua_time(&lua, metadata.modified().ok())?)?;
-            table.set("atime", system_time_to_lua_time(&lua, metadata.accessed().ok())?)?;
-            table.set("ctime", system_time_to_lua_time(&lua, metadata.created().ok())?)?;
+            table.set(
+                "mtime",
+                system_time_to_lua_time(&lua, metadata.modified().ok())?,
+            )?;
+            table.set(
+                "atime",
+                system_time_to_lua_time(&lua, metadata.accessed().ok())?,
+            )?;
+            table.set(
+                "ctime",
+                system_time_to_lua_time(&lua, metadata.created().ok())?,
+            )?;
             Ok(table)
         }
         _ => Err(mlua::Error::external("failed to serialize file metadata")),
@@ -156,4 +164,68 @@ async fn glob(pattern: String, path: Option<String>) -> mlua::Result<Vec<String>
     .map_err(mlua::Error::external)?
     .map_err(mlua::Error::external)?;
     Ok(entries)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::io::Write;
+
+    #[tokio::test]
+    async fn test_basic_operation() -> anyhow::Result<()> {
+        let lua = Lua::new();
+        register(&lua)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_stat_file() -> anyhow::Result<()> {
+        let mut tmp = tempfile::NamedTempFile::new()?;
+        tmp.write_all(b"hello world")?;
+        let path = tmp.path().to_str().unwrap().to_string();
+
+        let lua = Lua::new();
+        let table = stat(lua.clone(), path.clone()).await?;
+
+        let got_path: String = table.get("path")?;
+        let is_file: bool = table.get("is_file")?;
+        let is_dir: bool = table.get("is_dir")?;
+        let is_symlink: bool = table.get("is_symlink")?;
+        let len: u64 = table.get("len")?;
+        let ctime: mlua::Value = table.get("ctime")?;
+
+        assert_eq!(got_path, path);
+        assert!(is_file);
+        assert!(!is_dir);
+        assert!(!is_symlink);
+        assert_eq!(len, 11);
+        assert!(!matches!(ctime, mlua::Value::Nil), "ctime is missing");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_stat_directory() -> anyhow::Result<()> {
+        let tmp_dir = tempfile::tempdir()?;
+        let path = tmp_dir.path().to_str().unwrap().to_string();
+
+        let lua = Lua::new();
+        let table = stat(lua.clone(), path.clone()).await?;
+
+        let is_file: bool = table.get("is_file")?;
+        let is_dir: bool = table.get("is_dir")?;
+        let is_symlink: bool = table.get("is_symlink")?;
+
+        assert!(!is_file);
+        assert!(is_dir);
+        assert!(!is_symlink);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_stat_not_found() -> anyhow::Result<()> {
+        let lua = Lua::new();
+        let result = stat(lua, "/nonexistent/path/that/does/not/exist".to_string()).await;
+        assert!(result.is_err());
+        Ok(())
+    }
 }

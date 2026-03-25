@@ -4901,6 +4901,7 @@ name = "mod-filesystem"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "config",
  "filenamegen",
  "linkme",
@@ -4908,6 +4909,7 @@ dependencies = [
  "mlua",
  "mod-time",
  "serde",
+ "tempfile",
  "tokio",
 ]
 
