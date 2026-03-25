@@ -58,16 +58,10 @@ fn sign(domain: &str, raw_email: &str) -> String {
     format!("{header}\r\n{header2}\r\n{header3}\r\n{raw_email}")
 }
 
-async fn verify(
-    resolver: &dyn Resolver,
-    from_domain: &str,
-    raw_email: &str,
-) -> Vec<AuthenticationResult> {
+async fn verify(resolver: &dyn Resolver, raw_email: &str) -> Vec<AuthenticationResult> {
     let email = ParsedEmail::parse(raw_email).unwrap();
 
-    verify_email_with_resolver(from_domain, &email, resolver)
-        .await
-        .unwrap()
+    verify_email_with_resolver(&email, resolver).await.unwrap()
 }
 
 #[tokio::test]
@@ -89,7 +83,7 @@ Hello Alice
         eprintln!("input email:\n{email:?}");
         eprintln!("signed email:\n{signed_email:?}");
 
-        let res = verify(&resolver, from_domain, &signed_email).await;
+        let res = verify(&resolver, &signed_email).await;
         k9::snapshot!(
             res,
             r#"
@@ -110,17 +104,14 @@ Hello Alice
     AuthenticationResult {
         method: "dkim",
         method_version: None,
-        result: "policy",
-        reason: Some(
-            "mail-from-mismatch-signing-domain",
-        ),
+        result: "pass",
+        reason: None,
         props: {
             "header.a": "rsa-sha256",
             "header.b": "fdUa++8n",
             "header.d": "not.cloudflare.com",
             "header.i": "@not.cloudflare.com",
             "header.s": "2022",
-            "policy.dkim-rules": "mail-from-mismatch-signing-domain",
         },
     },
     AuthenticationResult {
@@ -154,7 +145,7 @@ From: Sven Sauleau <sven@cloudflare.com>
         .replace("\n", "\r\n");
 
         let signed_email = sign(from_domain, &email);
-        let res = verify(&resolver, from_domain, &signed_email).await;
+        let res = verify(&resolver, &signed_email).await;
         k9::snapshot!(
             res,
             r#"
@@ -175,17 +166,14 @@ From: Sven Sauleau <sven@cloudflare.com>
     AuthenticationResult {
         method: "dkim",
         method_version: None,
-        result: "policy",
-        reason: Some(
-            "mail-from-mismatch-signing-domain",
-        ),
+        result: "pass",
+        reason: None,
         props: {
             "header.a": "rsa-sha256",
             "header.b": "UZw1wwBY",
             "header.d": "not.cloudflare.com",
             "header.i": "@not.cloudflare.com",
             "header.s": "2022",
-            "policy.dkim-rules": "mail-from-mismatch-signing-domain",
         },
     },
     AuthenticationResult {
@@ -258,7 +246,7 @@ sentation" style=3D"width:100%;">
 "#.replace("\n", "\r\n");
 
         let signed_email = sign(from_domain, &email);
-        let res = verify(&resolver, from_domain, &signed_email).await;
+        let res = verify(&resolver, &signed_email).await;
         k9::snapshot!(
             res,
             r#"
@@ -279,17 +267,14 @@ sentation" style=3D"width:100%;">
     AuthenticationResult {
         method: "dkim",
         method_version: None,
-        result: "policy",
-        reason: Some(
-            "mail-from-mismatch-signing-domain",
-        ),
+        result: "pass",
+        reason: None,
         props: {
             "header.a": "rsa-sha256",
             "header.b": "WzP4DTuC",
             "header.d": "not.cloudflare.com",
             "header.i": "@not.cloudflare.com",
             "header.s": "2022",
-            "policy.dkim-rules": "mail-from-mismatch-signing-domain",
         },
     },
     AuthenticationResult {

@@ -1,6 +1,14 @@
 # Unreleased Changes in The Mainline
 
 ## Breaking Changes
+ * DKIM verification no longer implicitly generates a policy failure if
+   the From: domain doesn't match the DKIM signature.  It was an overly
+   restrictive non-standard check that was carried over from when we
+   imported that DKIM dependency.  If you require such a policy, you can
+   iterate over the authentication results that are returned by 
+   `msg:dkim_verify()` and check the signatures and compare their
+   domains against the message and take whatever action is appropriate
+   to your policy.
 
 ## Other Changes and Enhancements
 

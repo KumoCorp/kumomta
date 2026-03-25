@@ -1014,43 +1014,7 @@ impl Message {
         }
         let message = kumo_dkim::ParsedEmail::HeaderOnlyParse { bytes, parsed };
 
-        let from = match message.get_headers().from() {
-            Ok(Some(from)) if from.0.len() == 1 => from.0,
-            Ok(Some(from)) => {
-                return Ok(vec![AuthenticationResult {
-                    method: "dkim".to_string(),
-                    method_version: None,
-                    result: "permerror".to_string(),
-                    reason: Some(format!(
-                        "From header must have a single sender, found {}",
-                        from.len()
-                    )),
-                    props: Default::default(),
-                }]);
-            }
-            Ok(None) => {
-                return Ok(vec![AuthenticationResult {
-                    method: "dkim".to_string(),
-                    method_version: None,
-                    result: "permerror".to_string(),
-                    reason: Some("From header is missing".to_string()),
-                    props: Default::default(),
-                }]);
-            }
-            Err(err) => {
-                return Ok(vec![AuthenticationResult {
-                    method: "dkim".to_string(),
-                    method_version: None,
-                    result: "permerror".to_string(),
-                    reason: Some(format!("From header is invalid: {err:#}")),
-                    props: Default::default(),
-                }]);
-            }
-        };
-        let from_domain = &from[0].address.domain;
-
-        let results =
-            kumo_dkim::verify_email_with_resolver(from_domain, &message, &**resolver).await?;
+        let results = kumo_dkim::verify_email_with_resolver(&message, &**resolver).await?;
         Ok(results)
     }
 

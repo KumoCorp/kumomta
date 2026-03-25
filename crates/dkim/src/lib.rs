@@ -255,7 +255,6 @@ async fn verify_email_header<'a>(
 
 /// Run the DKIM verification on the email providing an existing resolver
 pub async fn verify_email_with_resolver<'a>(
-    from_domain: &str,
     email: &'a ParsedEmail<'a>,
     resolver: &dyn Resolver,
 ) -> Result<Vec<AuthenticationResult>, DKIMError> {
@@ -335,16 +334,7 @@ pub async fn verify_email_with_resolver<'a>(
             match verify_email_header(resolver, DKIM_SIGNATURE_HEADER_NAME, dkim_header, email)
                 .await
             {
-                Ok(()) => {
-                    if signing_domain.eq_ignore_ascii_case(from_domain) {
-                        "pass"
-                    } else {
-                        let why = "mail-from-mismatch-signing-domain".to_string();
-                        reason.replace(why.clone());
-                        props.insert("policy.dkim-rules".to_string(), why);
-                        "policy"
-                    }
-                }
+                Ok(()) => "pass",
                 Err(err) => {
                     reason.replace(format!("{err}"));
                     match err.status() {
@@ -368,14 +358,13 @@ pub async fn verify_email_with_resolver<'a>(
 
 /// Run the DKIM verification on the email
 pub async fn verify_email<'a>(
-    from_domain: &str,
     email: &'a ParsedEmail<'a>,
 ) -> Result<Vec<AuthenticationResult>, DKIMError> {
     let resolver = HickoryResolver::new().map_err(|err| {
         DKIMError::UnknownInternalError(format!("failed to create DNS resolver: {}", err))
     })?;
 
-    verify_email_with_resolver(from_domain, email, &resolver).await
+    verify_email_with_resolver(email, &resolver).await
 }
 
 #[cfg(test)]
