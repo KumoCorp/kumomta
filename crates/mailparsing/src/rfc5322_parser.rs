@@ -277,7 +277,7 @@ fn group(input: Span) -> IResult<Span, Address> {
     Ok((
         loc,
         Address::Group {
-            name,
+            name: name.into(),
             entries: group_list.unwrap_or_else(|| MailboxList(vec![])),
         },
     ))
@@ -1655,7 +1655,7 @@ impl EncodeHeaderValue for AddrSpec {
 #[serde(untagged)]
 pub enum Address {
     Mailbox(Mailbox),
-    Group { name: String, entries: MailboxList },
+    Group { name: BString, entries: MailboxList },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
