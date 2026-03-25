@@ -12,6 +12,9 @@ kumo.fs.stat(path)
 
 {{since('dev')}}
 
+This function returns the file or directory attributes. Available attributes are as below.
+Not all attributes are guaranteed to be retrievable as they may be platform dependent.
+
 * `path` same as supplied path
 * `is_file` returns true if path points to a file
 * `is_dir` returns true if path points to a directory
