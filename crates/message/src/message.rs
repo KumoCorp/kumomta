@@ -1490,10 +1490,10 @@ impl UserData for Message {
 
         methods.add_async_method(
             "add_authentication_results",
-            |lua, this, (serv_id, results): (String, mlua::Value)| async move {
+            |lua, this, (serv_id, results): (mlua::String, mlua::Value)| async move {
                 let results: Vec<AuthenticationResult> = lua.from_value(results)?;
                 let results = AuthenticationResults {
-                    serv_id,
+                    serv_id: serv_id.as_bytes().as_ref().into(),
                     version: None,
                     results,
                 };
@@ -1525,7 +1525,7 @@ impl UserData for Message {
              this,
              (signer, serv_id, auth_res, opt_resolver_name): (
                 Signer,
-                String,
+                mlua::String,
                 mlua::Value,
                 Option<String>,
             )| async move {
@@ -1533,7 +1533,7 @@ impl UserData for Message {
                 this.arc_seal(
                     signer,
                     AuthenticationResults {
-                        serv_id,
+                        serv_id: serv_id.as_bytes().as_ref().into(),
                         version: None,
                         results,
                     },

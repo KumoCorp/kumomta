@@ -1014,7 +1014,7 @@ fn arc_authentication_results(input: Span) -> IResult<Span, ARCAuthenticationRes
             )),
             |(_i, _eq, instance, _semic, serv_id, version, results, _)| ARCAuthenticationResults {
                 instance,
-                serv_id,
+                serv_id: serv_id.into(),
                 version,
                 results,
             },
@@ -1034,7 +1034,7 @@ fn authentication_results(input: Span) -> IResult<Span, AuthenticationResults> {
                 opt(cfws),
             )),
             |(serv_id, version, results, _)| AuthenticationResults {
-                serv_id,
+                serv_id: serv_id.into(),
                 version,
                 results,
             },
@@ -1505,14 +1505,14 @@ impl Parser {
 #[serde(deny_unknown_fields)]
 pub struct ARCAuthenticationResults {
     pub instance: u8,
-    pub serv_id: String,
+    pub serv_id: BString,
     pub version: Option<u32>,
     pub results: Vec<AuthenticationResult>,
 }
 
 impl EncodeHeaderValue for ARCAuthenticationResults {
     fn encode_value(&self) -> SharedString<'static> {
-        let mut result = format!("i={}; ", self.instance);
+        let mut result = format!("i={}; ", self.instance).into_bytes();
 
         match self.version {
             Some(v) => result.push_str(&format!("{} {v}", self.serv_id)),
@@ -1528,7 +1528,7 @@ impl EncodeHeaderValue for ARCAuthenticationResults {
                 if let Some(v) = res.method_version {
                     result.push_str(&format!("/{v}"));
                 }
-                result.push('=');
+                result.push(b'=');
                 emit_value_token(&res.result, &mut result);
                 if let Some(reason) = &res.reason {
                     result.push_str(" reason=");
@@ -1548,7 +1548,7 @@ impl EncodeHeaderValue for ARCAuthenticationResults {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthenticationResults {
-    pub serv_id: String,
+    pub serv_id: BString,
     #[serde(default)]
     pub version: Option<u32>,
     #[serde(default)]
@@ -1556,17 +1556,17 @@ pub struct AuthenticationResults {
 }
 
 /// Emits a value that was parsed by `value`, into target
-fn emit_value_token(value: &str, target: &mut String) {
+fn emit_value_token(value: &str, target: &mut Vec<u8>) {
     let use_quoted_string = !value.chars().all(|c| is_mime_token(c) || c == '@');
     if use_quoted_string {
-        target.push('"');
+        target.push(b'"');
         for c in value.chars() {
             if c == '"' || c == '\\' {
-                target.push('\\');
+                target.push(b'\\');
             }
-            target.push(c);
+            target.push_char(c);
         }
-        target.push('"');
+        target.push(b'"');
     } else {
         target.push_str(value);
     }
@@ -1575,8 +1575,8 @@ fn emit_value_token(value: &str, target: &mut String) {
 impl EncodeHeaderValue for AuthenticationResults {
     fn encode_value(&self) -> SharedString<'static> {
         let mut result = match self.version {
-            Some(v) => format!("{} {v}", self.serv_id),
-            None => self.serv_id.to_string(),
+            Some(v) => format!("{} {v}", self.serv_id).into_bytes(),
+            None => self.serv_id.to_vec(),
         };
         if self.results.is_empty() {
             result.push_str("; none");
@@ -1587,7 +1587,7 @@ impl EncodeHeaderValue for AuthenticationResults {
                 if let Some(v) = res.method_version {
                     result.push_str(&format!("/{v}"));
                 }
-                result.push('=');
+                result.push(b'=');
                 emit_value_token(&res.result, &mut result);
                 if let Some(reason) = &res.reason {
                     result.push_str(" reason=");

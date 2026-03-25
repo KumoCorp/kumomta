@@ -549,7 +549,7 @@ mod test {
                 .seal(
                     &email,
                     AuthenticationResults {
-                        serv_id: "localhost".to_string(),
+                        serv_id: "localhost".into(),
                         version: None,
                         results: vec![arc.authentication_result()],
                     },
