@@ -4481,7 +4481,7 @@ dependencies = [
  "k9",
  "kumo-wrap",
  "memchr",
- "nom 7.1.3",
+ "nom 8.0.0",
  "nom_locate",
  "pastey",
  "quoted_printable",
@@ -5241,13 +5241,13 @@ dependencies = [
 
 [[package]]
 name = "nom_locate"
-version = "4.2.0"
+version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e3c83c053b0713da60c5b8de47fe8e494fe3ece5267b2f23090a07a053ba8f3"
+checksum = "0b577e2d69827c4740cba2b52efaad1c4cc7c73042860b199710b3575c68438d"
 dependencies = [
  "bytecount",
  "memchr",
- "nom 7.1.3",
+ "nom 8.0.0",
 ]
 
 [[package]]
