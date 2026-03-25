@@ -40,6 +40,16 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     string_mod.set(
+        "starts_with",
+        lua.create_function(move |_, (s, pattern): (String, String)| Ok(s.starts_with(&pattern)))?,
+    )?;
+
+    string_mod.set(
+        "ends_with",
+        lua.create_function(move |_, (s, pattern): (String, String)| Ok(s.ends_with(&pattern)))?,
+    )?;
+
+    string_mod.set(
         "split",
         lua.create_function(move |_, (s, pattern): (String, String)| {
             Ok(s.split(&pattern)
