@@ -1,7 +1,7 @@
 use crate::headermap::EncodeHeaderValue;
 use crate::nom_utils::{explain_nom, make_context_error, make_span, IResult, ParseError, Span};
 use crate::{MailParsingError, Result, SharedString};
-use bstr::ByteVec;
+use bstr::{BString, ByteVec};
 use charset_normalizer_rs::Encoding;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1};
@@ -406,7 +406,13 @@ fn obs_route(input: Span) -> IResult<Span, Span> {
 fn addr_spec(input: Span) -> IResult<Span, AddrSpec> {
     let (loc, (local_part, domain)) =
         context("addr_spec", separated_pair(local_part, char('@'), domain)).parse(input)?;
-    Ok((loc, AddrSpec { local_part, domain }))
+    Ok((
+        loc,
+        AddrSpec {
+            local_part: local_part.into(),
+            domain: domain.into(),
+        },
+    ))
 }
 
 fn parse_with<'a, R, F>(text: &'a str, parser: F) -> Result<R>
@@ -1614,15 +1620,15 @@ pub struct AuthenticationResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AddrSpec {
-    pub local_part: String,
-    pub domain: String,
+    pub local_part: BString,
+    pub domain: BString,
 }
 
 impl AddrSpec {
     pub fn new(local_part: &str, domain: &str) -> Self {
         Self {
-            local_part: local_part.to_string(),
-            domain: domain.to_string(),
+            local_part: local_part.into(),
+            domain: domain.into(),
         }
     }
 
@@ -1633,26 +1639,29 @@ impl AddrSpec {
 
 impl EncodeHeaderValue for AddrSpec {
     fn encode_value(&self) -> SharedString<'static> {
-        let mut result = String::new();
+        let mut result: Vec<u8> = vec![];
 
-        let needs_quoting = !self.local_part.chars().all(|c| is_atext(c) || c == '.');
+        let needs_quoting = !self
+            .local_part
+            .iter()
+            .all(|&c| is_atext(c as char) || c == b'.');
         if needs_quoting {
-            result.push('"');
+            result.push(b'"');
             // RFC5321 4.1.2 qtextSMTP:
             // within a quoted string, any ASCII graphic or space is permitted without
             // blackslash-quoting except double-quote and the backslash itself.
 
-            for c in self.local_part.chars() {
-                if c == '"' || c == '\\' {
-                    result.push('\\');
+            for &c in self.local_part.iter() {
+                if c == b'"' || c == b'\\' {
+                    result.push(b'\\');
                 }
                 result.push(c);
             }
-            result.push('"');
+            result.push(b'"');
         } else {
             result.push_str(&self.local_part);
         }
-        result.push('@');
+        result.push(b'@');
         result.push_str(&self.domain);
 
         result.into()
@@ -2283,8 +2292,8 @@ mod test {
         let mbox = Mailbox {
             name: Some("foo@bar.com".to_string()),
             address: AddrSpec {
-                local_part: "foo".to_string(),
-                domain: "bar.com".to_string(),
+                local_part: "foo".into(),
+                domain: "bar.com".into(),
             },
         };
         assert_eq!(mbox.encode_value(), "\"foo@bar.com\" <foo@bar.com>");
