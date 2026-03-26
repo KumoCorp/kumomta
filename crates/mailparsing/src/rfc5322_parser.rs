@@ -1949,11 +1949,11 @@ impl EncodeHeaderValue for MimeParameters {
 
             match stated_encoding {
                 MimeParameterEncoding::UnquotedRfc2047 => {
-                    let encoded = qp_encode(value.to_str().expect("FIXME: bytes"));
+                    let encoded = qp_encode(&value);
                     result.push_str(&format!(";\r\n\t{name}={encoded}"));
                 }
                 MimeParameterEncoding::QuotedRfc2047 => {
-                    let encoded = qp_encode(value.to_str().expect("FIXME: bytes"));
+                    let encoded = qp_encode(&value);
                     result.push_str(&format!(";\r\n\t{name}=\"{encoded}\""));
                 }
                 MimeParameterEncoding::None | MimeParameterEncoding::Rfc2231 => {
@@ -2080,8 +2080,7 @@ impl EncodeHeaderValue for MimeParameters {
 
 static HEX_CHARS: &[u8] = b"0123456789ABCDEF";
 
-#[deprecated = "revise to bytes"]
-pub(crate) fn qp_encode(s: &str) -> String {
+pub(crate) fn qp_encode(s: &[u8]) -> String {
     let prefix = b"=?UTF-8?q?";
     let suffix = b"?=";
     let limit = 72 - (prefix.len() + suffix.len());
@@ -2098,9 +2097,8 @@ pub(crate) fn qp_encode(s: &str) -> String {
 
     // Iterate by char so that we don't confuse space (0x20) with a
     // utf8 subsequence and incorrectly encode the input string.
-    for c in s.chars() {
-        let mut bytes = [0u8; 4];
-        let bytes = c.encode_utf8(&mut bytes).as_bytes();
+    for (start, end, c) in s.char_indices() {
+        let bytes = &s[start..end];
 
         let b = if (c.is_ascii_alphanumeric() || c.is_ascii_punctuation())
             && c != '?'
@@ -2157,7 +2155,7 @@ pub(crate) fn qp_encode(s: &str) -> String {
 #[test]
 fn test_qp_encode() {
     let encoded = qp_encode(
-        "hello, I am a line that is this long, or maybe a little \
+        b"hello, I am a line that is this long, or maybe a little \
         bit longer than this, and that should get wrapped by the encoder",
     );
     k9::snapshot!(
@@ -2214,7 +2212,7 @@ impl EncodeHeaderValue for Mailbox {
                 let mut value = if name.is_ascii() {
                     quote_string(name)
                 } else {
-                    qp_encode(name)
+                    qp_encode(name.as_bytes())
                 }
                 .into_bytes();
 

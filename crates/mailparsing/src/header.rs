@@ -125,7 +125,7 @@ impl<'a> Header<'a> {
 
         let value: SharedString = match value.to_str() {
             Ok(value) if value.is_ascii() => kumo_wrap::wrap_bytes(value).into(),
-            Ok(value) => crate::rfc5322_parser::qp_encode(value).into(),
+            Ok(value) => crate::rfc5322_parser::qp_encode(value.as_bytes()).into(),
             Err(_) => kumo_wrap::wrap_bytes(value.as_bytes()).into(),
         };
 
