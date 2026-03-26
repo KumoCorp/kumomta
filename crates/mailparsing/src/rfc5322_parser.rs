@@ -313,7 +313,7 @@ fn name_addr(input: Span) -> IResult<Span, Mailbox> {
     context(
         "name_addr",
         map((opt(display_name), angle_addr), |(name, address)| Mailbox {
-            name,
+            name: name.map(Into::into),
             address,
         }),
     )
@@ -1705,7 +1705,7 @@ impl MailboxList {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Mailbox {
-    pub name: Option<String>,
+    pub name: Option<BString>,
     pub address: AddrSpec,
 }
 
@@ -2170,20 +2170,21 @@ fn test_qp_encode() {
 /// Quote input string `s`, using a backslash escape, if any
 /// of the characters is NOT atext.  When quoting, the input
 /// string is enclosed in quotes.
-fn quote_string(s: &str) -> String {
+fn quote_string(s: impl AsRef<[u8]>) -> BString {
+    let s = s.as_ref();
     if s.chars().any(|c| !is_atext(c)) {
-        let mut result = String::with_capacity(s.len() + 4);
-        result.push('"');
-        for c in s.chars() {
+        let mut result = Vec::<u8>::with_capacity(s.len() + 4);
+        result.push(b'"');
+        for (start, end, c) in s.char_indices() {
             if !c.is_ascii_whitespace() && !is_qtext(c) && !is_atext(c) {
-                result.push('\\');
+                result.push(b'\\');
             }
-            result.push(c);
+            result.push_str(&s[start..end]);
         }
-        result.push('"');
-        result
+        result.push(b'"');
+        result.into()
     } else {
-        s.to_string()
+        s.into()
     }
 }
 
@@ -2209,12 +2210,11 @@ impl EncodeHeaderValue for Mailbox {
     fn encode_value(&self) -> SharedString<'static> {
         match &self.name {
             Some(name) => {
-                let mut value = if name.is_ascii() {
-                    quote_string(name)
+                let mut value: Vec<u8> = if name.is_ascii() {
+                    quote_string(name).into()
                 } else {
-                    qp_encode(name.as_bytes())
-                }
-                .into_bytes();
+                    qp_encode(name.as_bytes()).into_bytes()
+                };
 
                 value.push_str(" <");
                 value.push_str(self.address.encode_value().as_bytes());
@@ -2282,7 +2282,7 @@ mod test {
     #[test]
     fn mailbox_encodes_at() {
         let mbox = Mailbox {
-            name: Some("foo@bar.com".to_string()),
+            name: Some("foo@bar.com".into()),
             address: AddrSpec {
                 local_part: "foo".into(),
                 domain: "bar.com".into(),

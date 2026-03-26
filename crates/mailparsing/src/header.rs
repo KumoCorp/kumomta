@@ -577,7 +577,7 @@ Ok(
     fn assign_mailbox() {
         let mut sender = Header::with_name_value("Sender", "");
         sender.assign(Mailbox {
-            name: Some("John Smith".to_string()),
+            name: Some("John Smith".into()),
             address: AddrSpec::new("john.smith", "example.com"),
         });
         assert_eq!(
@@ -586,7 +586,7 @@ Ok(
         );
 
         sender.assign(Mailbox {
-            name: Some("John \"the smith\" Smith".to_string()),
+            name: Some("John \"the smith\" Smith".into()),
             address: AddrSpec::new("john.smith", "example.com"),
         });
         assert_eq!(
@@ -600,7 +600,7 @@ Ok(
         let sender = Header::new(
             "Sender",
             Mailbox {
-                name: Some("John".to_string()),
+                name: Some("John".into()),
                 address: AddrSpec::new("john.smith", "example.com"),
             },
         );
@@ -612,7 +612,7 @@ Ok(
         let sender = Header::new(
             "Sender",
             Mailbox {
-                name: Some("John".to_string()),
+                name: Some("John".into()),
                 address: AddrSpec::new("john smith", "example.com"),
             },
         );
@@ -627,7 +627,7 @@ Ok(
         let sender = Header::new(
             "Sender",
             Mailbox {
-                name: Some("André Pirard".to_string()),
+                name: Some("André Pirard".into()),
                 address: AddrSpec::new("andre", "example.com"),
             },
         );

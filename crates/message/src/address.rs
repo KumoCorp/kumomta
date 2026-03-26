@@ -1,3 +1,4 @@
+use bstr::{BStr, BString, ByteSlice};
 use config::any_err;
 use dns_resolver::DomainClassification;
 use mailparsing::{Address, AddressList, EncodeHeaderValue, Mailbox};
@@ -164,9 +165,9 @@ impl HeaderAddressList {
 
     /// If the address list is comprised of a single entry,
     /// returns just the display name portion, if any
-    pub fn name(&self) -> anyhow::Result<Option<&str>> {
+    pub fn name(&self) -> anyhow::Result<Option<&BStr>> {
         let addr = self.single_address()?;
-        Ok(addr.name.as_deref())
+        Ok(addr.name.as_ref().map(|b| b.as_bstr()))
     }
 
     pub fn email(&self) -> anyhow::Result<Option<&str>> {
@@ -285,7 +286,7 @@ impl From<&Address> for HeaderAddressEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeaderAddress {
-    pub name: Option<String>,
+    pub name: Option<BString>,
     pub address: Option<String>,
 }
 
@@ -310,8 +311,8 @@ impl HeaderAddress {
     pub fn email(&self) -> Option<&str> {
         self.address.as_deref()
     }
-    pub fn name(&self) -> Option<&str> {
-        self.name.as_deref()
+    pub fn name(&self) -> Option<&BStr> {
+        self.name.as_ref().map(|b| b.as_bstr())
     }
 
     pub fn crack_address(&self) -> anyhow::Result<(&str, &str)> {

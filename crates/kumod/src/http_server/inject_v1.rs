@@ -554,7 +554,7 @@ impl<'a> Compiled<'a> {
 
                 if need_to {
                     builder.set_to(Address::Mailbox(Mailbox {
-                        name: recip.name.clone(),
+                        name: recip.name.clone().map(Into::into),
                         address: AddrSpec::parse(&recip.email)?,
                     }))?;
                 }
@@ -586,7 +586,7 @@ impl InjectV1Request {
             } => {
                 if let Some(from) = from {
                     let mailbox = Address::Mailbox(Mailbox {
-                        name: from.name.clone(),
+                        name: from.name.clone().map(Into::into),
                         address: AddrSpec::parse(&from.email)
                             .context("failed parsing content.from")?,
                     });
@@ -595,7 +595,7 @@ impl InjectV1Request {
                 }
                 if let Some(reply_to) = reply_to {
                     let mailbox = Address::Mailbox(Mailbox {
-                        name: reply_to.name.clone(),
+                        name: reply_to.name.clone().map(Into::into),
                         address: AddrSpec::parse(&reply_to.email)
                             .context("failed parsing content.reply_to")?,
                     });
