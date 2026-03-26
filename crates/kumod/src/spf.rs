@@ -86,10 +86,10 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
         let mut props = BTreeMap::default();
 
         if let Some(sender) = sender {
-            props.insert("smtp.mailfrom".to_string(), sender);
+            props.insert("smtp.mailfrom".into(), sender.into());
         }
         if let Some(ehlo) = ehlo {
-            props.insert("smtp.helo".to_string(), ehlo);
+            props.insert("smtp.helo".into(), ehlo.into());
         }
 
         lua.to_value_with(

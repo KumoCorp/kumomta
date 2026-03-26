@@ -100,8 +100,8 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                     disp @ Disposition::Quarantine | disp @ Disposition::Reject => {
                         let mut props = BTreeMap::default();
                         props.insert(
-                            "policy.published-domain-policy".to_string(),
-                            disp.to_string().to_ascii_lowercase(),
+                            "policy.published-domain-policy".into(),
+                            disp.to_string().to_ascii_lowercase().into(),
                         );
                         Ok(lua.to_value_with(
                             &CheckHostOutput {

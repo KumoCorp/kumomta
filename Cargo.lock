@@ -3770,6 +3770,7 @@ dependencies = [
 name = "kumo-dmarc"
 version = "0.1.0"
 dependencies = [
+ "bstr",
  "chrono",
  "dns-resolver",
  "instant-xml",
@@ -4039,6 +4040,7 @@ dependencies = [
  "axum-client-ip",
  "axum-server",
  "bounce-classify",
+ "bstr",
  "caps",
  "chrono",
  "cidr-map",

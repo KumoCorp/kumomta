@@ -1,5 +1,5 @@
 use crate::MessageConformance;
-use bstr::BStr;
+use bstr::{BStr, BString};
 use std::borrow::Cow;
 use std::str::Utf8Error;
 use std::sync::Arc;
@@ -129,6 +129,13 @@ impl SharedString<'_> {
                 range: range.clone(),
             },
         }
+    }
+}
+
+impl From<BString> for SharedString<'_> {
+    fn from(s: BString) -> Self {
+        let v: Vec<u8> = s.into();
+        v.into()
     }
 }
 

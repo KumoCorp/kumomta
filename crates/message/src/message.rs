@@ -7,7 +7,7 @@ pub use crate::queue_name::QueueNameComponents;
 use crate::scheduling::Scheduling;
 use crate::EnvelopeAddress;
 use anyhow::Context;
-use bstr::{ByteSlice, ByteVec};
+use bstr::{BString, ByteSlice, ByteVec};
 use chrono::{DateTime, Utc};
 #[cfg(feature = "impl")]
 use config::{any_err, from_lua_value, serialize_options};
@@ -1085,7 +1085,10 @@ impl Message {
         }
     }
 
-    pub async fn get_first_named_header_value(&self, name: &str) -> anyhow::Result<Option<String>> {
+    pub async fn get_first_named_header_value(
+        &self,
+        name: &str,
+    ) -> anyhow::Result<Option<BString>> {
         let data = self.data().await?;
         let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
@@ -1095,7 +1098,7 @@ impl Message {
         }
     }
 
-    pub async fn get_all_named_header_values(&self, name: &str) -> anyhow::Result<Vec<String>> {
+    pub async fn get_all_named_header_values(&self, name: &str) -> anyhow::Result<Vec<BString>> {
         let data = self.data().await?;
         let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
@@ -1106,13 +1109,13 @@ impl Message {
         Ok(values)
     }
 
-    pub async fn get_all_headers(&self) -> anyhow::Result<Vec<(String, String)>> {
+    pub async fn get_all_headers(&self) -> anyhow::Result<Vec<(BString, BString)>> {
         let data = self.data().await?;
         let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
         let mut values = vec![];
         for hdr in headers.iter() {
-            values.push((hdr.get_name().to_string(), hdr.as_unstructured()?));
+            values.push((hdr.get_name().into(), hdr.as_unstructured()?));
         }
         Ok(values)
     }
@@ -1166,7 +1169,8 @@ impl Message {
             };
             if do_import {
                 let name = imported_header_name(&hdr.get_name_lossy());
-                self.set_meta(name, hdr.as_unstructured()?).await?;
+                self.set_meta(name, hdr.as_unstructured()?.to_str_lossy())
+                    .await?;
             }
         }
 
@@ -1207,7 +1211,7 @@ impl Message {
         remove: bool,
     ) -> anyhow::Result<Option<Scheduling>> {
         if let Some(value) = self.get_first_named_header_value(header_name).await? {
-            let sched: Scheduling = serde_json::from_str(&value).with_context(|| {
+            let sched: Scheduling = serde_json::from_slice(&value).with_context(|| {
                 format!("{value} from header {header_name} is not a valid Scheduling header")
             })?;
             let result = self.set_scheduling(Some(sched)).await?;
@@ -1620,7 +1624,7 @@ impl UserData for Message {
                 .map_err(any_err)?
                 .into_iter()
                 .map(|(name, value)| vec![name, value])
-                .collect::<Vec<Vec<String>>>())
+                .collect::<Vec<Vec<BString>>>())
         });
         methods.add_async_method(
             "import_x_headers",

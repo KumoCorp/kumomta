@@ -56,7 +56,7 @@ pub struct ARFReport {
     #[serde(default)]
     pub reported_uri: Vec<String>,
 
-    pub extensions: BTreeMap<String, Vec<String>>,
+    pub extensions: BTreeMap<String, Vec<BString>>,
 
     pub original_message: Option<BString>,
     pub supplemental_trace: Option<serde_json::Value>,
@@ -195,7 +195,7 @@ impl ARFReport {
     }
 }
 
-pub(crate) fn extract_headers(part: &[u8]) -> anyhow::Result<BTreeMap<String, Vec<String>>> {
+pub(crate) fn extract_headers(part: &[u8]) -> anyhow::Result<BTreeMap<String, Vec<BString>>> {
     let HeaderParseResult { headers, .. } = Header::parse_headers(part)?;
 
     let mut extensions = BTreeMap::new();
@@ -228,7 +228,7 @@ impl From<DateTimeRfc2822> for DateTime<Utc> {
 
 pub(crate) fn extract_single_req<R>(
     name: &str,
-    extensions: &mut BTreeMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<BString>>,
 ) -> anyhow::Result<R>
 where
     R: FromStr,
@@ -240,7 +240,7 @@ where
 
 pub(crate) fn extract_single<R>(
     name: &str,
-    extensions: &mut BTreeMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<BString>>,
 ) -> anyhow::Result<Option<R>>
 where
     R: FromStr,
@@ -249,6 +249,9 @@ where
     match extensions.remove(name) {
         Some(mut hdrs) if hdrs.len() == 1 => {
             let value = hdrs.remove(0);
+            let value = value
+                .to_str()
+                .map_err(|err| anyhow!("{value} could not be converted to UTF-8: {err:#}"))?;
             let converted = value
                 .parse::<R>()
                 .map_err(|err| anyhow!("failed to convert '{value}': {err:#}"))?;
@@ -261,7 +264,7 @@ where
 
 pub(crate) fn extract_single_conv<R, T>(
     name: &str,
-    extensions: &mut BTreeMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<BString>>,
 ) -> anyhow::Result<Option<T>>
 where
     R: FromStr,
@@ -274,7 +277,7 @@ where
 pub(crate) fn extract_single_conv_fallback<R, T>(
     name: &str,
     fallback: &str,
-    extensions: &mut BTreeMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<BString>>,
 ) -> Option<T>
 where
     R: FromStr,
@@ -292,7 +295,7 @@ where
 
 pub(crate) fn extract_multiple<R>(
     name: &str,
-    extensions: &mut BTreeMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<BString>>,
 ) -> anyhow::Result<Vec<R>>
 where
     R: FromStr,
@@ -302,7 +305,10 @@ where
         Some(hdrs) => {
             let mut results = vec![];
             for h in hdrs {
-                let converted = h
+                let value = h
+                    .to_str()
+                    .map_err(|err| anyhow!("{h} could not be converted to UTF-8: {err:#}"))?;
+                let converted = value
                     .parse::<R>()
                     .map_err(|err| anyhow!("failed to convert {h}: {err:#}"))?;
                 results.push(converted);

@@ -225,7 +225,7 @@ pub struct PerRecipientReportEntry {
     pub last_attempt_date: Option<DateTime<Utc>>,
     pub final_log_id: Option<String>,
     pub will_retry_until: Option<DateTime<Utc>>,
-    pub extensions: BTreeMap<String, Vec<String>>,
+    pub extensions: BTreeMap<String, Vec<BString>>,
 }
 
 impl std::fmt::Display for PerRecipientReportEntry {
@@ -304,7 +304,7 @@ pub struct PerMessageReportEntry {
     pub dsn_gateway: Option<RemoteMta>,
     pub received_from_mta: Option<RemoteMta>,
     pub arrival_date: Option<DateTime<Utc>>,
-    pub extensions: BTreeMap<String, Vec<String>>,
+    pub extensions: BTreeMap<String, Vec<BString>>,
 }
 
 impl std::fmt::Display for PerMessageReportEntry {

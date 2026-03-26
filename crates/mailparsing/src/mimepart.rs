@@ -233,7 +233,7 @@ impl<'a> MimePart<'a> {
             conformance.set(
                 MessageConformance::MISSING_MIME_VERSION,
                 match headers.mime_version() {
-                    Ok(Some(v)) => v.as_str() != "1.0",
+                    Ok(Some(v)) => v != "1.0",
                     _ => true,
                 },
             );

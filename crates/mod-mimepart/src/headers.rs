@@ -141,9 +141,9 @@ impl UserData for HeaderMapRef {
 
         fn getter_unstructured<GET>(
             get: GET,
-        ) -> impl Fn(&Lua, &HeaderMapRef, ()) -> mlua::Result<Option<String>>
+        ) -> impl Fn(&Lua, &HeaderMapRef, ()) -> mlua::Result<Option<BString>>
         where
-            GET: Fn(&HeaderMap) -> Result<Option<String>, MailParsingError>,
+            GET: Fn(&HeaderMap) -> Result<Option<BString>, MailParsingError>,
         {
             move |_lua, this, ()| {
                 let part = this.0.resolve().map_err(any_err)?;

@@ -321,14 +321,14 @@ fn name_addr(input: Span) -> IResult<Span, Mailbox> {
 }
 
 // display_name = { phrase }
-fn display_name(input: Span) -> IResult<Span, String> {
+fn display_name(input: Span) -> IResult<Span, BString> {
     context("display_name", phrase).parse(input)
 }
 
 // phrase = { (encoded_word | word)+ | obs_phrase }
 // obs_phrase = { (encoded_word | word) ~ (encoded_word | word | dot | cfws)* }
-fn phrase(input: Span) -> IResult<Span, String> {
-    let (loc, (a, b)): (Span, (String, Vec<Option<String>>)) = context(
+fn phrase(input: Span) -> IResult<Span, BString> {
+    let (loc, (a, b)): (Span, (BString, Vec<Option<BString>>)) = context(
         "phrase",
         (
             alt((encoded_word, word)),
@@ -336,19 +336,18 @@ fn phrase(input: Span) -> IResult<Span, String> {
                 map(cfws, |_| None),
                 map(encoded_word, Option::Some),
                 map(word, Option::Some),
-                map(char('.'), |dot| Some(dot.to_string())),
+                map(char('.'), |_dot| Some(BString::from("."))),
             ))),
         ),
     )
     .parse(input)?;
-    let mut result = vec![];
-    result.push(a);
+    let mut result = a;
     for item in b {
         if let Some(item) = item {
-            result.push(item);
+            result.push(b' ');
+            result.push_str(item);
         }
     }
-    let result = result.join(" ");
     Ok((loc, result))
 }
 
@@ -496,25 +495,24 @@ Ok(
 }
 
 // atom = { cfws? ~ atext ~ cfws? }
-fn atom(input: Span) -> IResult<Span, String> {
+fn atom(input: Span) -> IResult<Span, BString> {
     let (loc, text) = context("atom", delimited(opt(cfws), atext, opt(cfws))).parse(input)?;
-    Ok((loc, text.to_string()))
+    Ok((loc, (*text).into()))
 }
 
 // word = { atom | quoted_string }
-fn word(input: Span) -> IResult<Span, String> {
+fn word(input: Span) -> IResult<Span, BString> {
     context("word", alt((atom, quoted_string))).parse(input)
 }
 
 // obs_local_part = { word ~ (dot ~ word)* }
-fn obs_local_part(input: Span) -> IResult<Span, String> {
+fn obs_local_part(input: Span) -> IResult<Span, BString> {
     let (loc, (word, dotted_words)) =
         context("obs_local_part", (word, many0((char('.'), word)))).parse(input)?;
-    let mut result = String::new();
+    let mut result = word;
 
-    result.push_str(&word);
     for (dot, w) in dotted_words {
-        result.push(dot);
+        result.push_char(dot);
         result.push_str(&w);
     }
 
@@ -522,24 +520,23 @@ fn obs_local_part(input: Span) -> IResult<Span, String> {
 }
 
 // local_part = { dot_atom | quoted_string | obs_local_part }
-fn local_part(input: Span) -> IResult<Span, String> {
+fn local_part(input: Span) -> IResult<Span, BString> {
     context("local_part", alt((dot_atom, quoted_string, obs_local_part))).parse(input)
 }
 
 // domain = { dot_atom | domain_literal | obs_domain }
-fn domain(input: Span) -> IResult<Span, String> {
+fn domain(input: Span) -> IResult<Span, BString> {
     context("domain", alt((dot_atom, domain_literal, obs_domain))).parse(input)
 }
 
 // obs_domain = { atom ~ ( dot ~ atom)* }
-fn obs_domain(input: Span) -> IResult<Span, String> {
+fn obs_domain(input: Span) -> IResult<Span, BString> {
     let (loc, (atom, dotted_atoms)) =
         context("obs_domain", (atom, many0((char('.'), atom)))).parse(input)?;
-    let mut result = String::new();
+    let mut result = atom;
 
-    result.push_str(&atom);
     for (dot, w) in dotted_atoms {
-        result.push(dot);
+        result.push_char(dot);
         result.push_str(&w);
     }
 
@@ -547,7 +544,7 @@ fn obs_domain(input: Span) -> IResult<Span, String> {
 }
 
 // domain_literal = { cfws? ~ "[" ~ (fws? ~ dtext)* ~ fws? ~ "]" ~ cfws? }
-fn domain_literal(input: Span) -> IResult<Span, String> {
+fn domain_literal(input: Span) -> IResult<Span, BString> {
     let (loc, (bits, trailer)) = context(
         "domain_literal",
         delimited(
@@ -565,29 +562,28 @@ fn domain_literal(input: Span) -> IResult<Span, String> {
     )
     .parse(input)?;
 
-    let mut result = String::new();
-    result.push('[');
+    let mut result = BString::default();
+    result.push(b'[');
     for (a, b) in bits {
         if let Some(a) = a {
             result.push_str(&a);
         }
-        result.push(b);
+        result.push_char(b);
     }
     if let Some(t) = trailer {
         result.push_str(&t);
     }
-    result.push(']');
+    result.push(b']');
     Ok((loc, result))
 }
 
 // dot_atom_text = @{ atext ~ ("." ~ atext)* }
-fn dot_atom_text(input: Span) -> IResult<Span, String> {
+fn dot_atom_text(input: Span) -> IResult<Span, BString> {
     let (loc, (a, b)) =
         context("dot_atom_text", (atext, many0(preceded(char('.'), atext)))).parse(input)?;
-    let mut result = String::new();
-    result.push_str(&a);
+    let mut result: BString = (*a).into();
     for item in b {
-        result.push('.');
+        result.push(b'.');
         result.push_str(&item);
     }
 
@@ -595,7 +591,7 @@ fn dot_atom_text(input: Span) -> IResult<Span, String> {
 }
 
 // dot_atom = { cfws? ~ dot_atom_text ~ cfws? }
-fn dot_atom(input: Span) -> IResult<Span, String> {
+fn dot_atom(input: Span) -> IResult<Span, BString> {
     context("dot_atom", delimited(opt(cfws), dot_atom_text, opt(cfws))).parse(input)
 }
 
@@ -712,7 +708,7 @@ fn quoted_pair(input: Span) -> IResult<Span, char> {
 }
 
 // encoded_word = { "=?" ~ charset ~ ("*" ~ language)? ~ "?" ~ encoding ~ "?" ~ encoded_text ~ "?=" }
-fn encoded_word(input: Span) -> IResult<Span, String> {
+fn encoded_word(input: Span) -> IResult<Span, BString> {
     let (loc, (charset, _language, _, encoding, _, text)) = context(
         "encoded_word",
         delimited(
@@ -781,7 +777,7 @@ fn encoded_word(input: Span) -> IResult<Span, String> {
         )
     })?;
 
-    Ok((loc, decoded.to_string()))
+    Ok((loc, decoded.into()))
 }
 
 // charset = @{ (!"*" ~ token)+ }
@@ -809,7 +805,7 @@ fn encoded_text(input: Span) -> IResult<Span, Span> {
 }
 
 // quoted_string = { cfws? ~ "\"" ~ (fws? ~ qcontent)* ~ fws? ~ "\"" ~ cfws? }
-fn quoted_string(input: Span) -> IResult<Span, String> {
+fn quoted_string(input: Span) -> IResult<Span, BString> {
     let (loc, (bits, trailer)) = context(
         "quoted_string",
         delimited(
@@ -824,12 +820,12 @@ fn quoted_string(input: Span) -> IResult<Span, String> {
     )
     .parse(input)?;
 
-    let mut result = String::new();
+    let mut result = BString::default();
     for (a, b) in bits {
         if let Some(a) = a {
             result.push_str(&a);
         }
-        result.push(b);
+        result.push_char(b);
     }
     if let Some(t) = trailer {
         result.push_str(&t);
@@ -873,23 +869,23 @@ fn msg_id_list(input: Span) -> IResult<Span, Vec<MessageID>> {
 
 // id_left = { dot_atom_text | obs_id_left }
 // obs_id_left = { local_part }
-fn id_left(input: Span) -> IResult<Span, String> {
+fn id_left(input: Span) -> IResult<Span, BString> {
     context("id_left", alt((dot_atom_text, local_part))).parse(input)
 }
 
 // id_right = { dot_atom_text | no_fold_literal | obs_id_right }
 // obs_id_right = { domain }
-fn id_right(input: Span) -> IResult<Span, String> {
+fn id_right(input: Span) -> IResult<Span, BString> {
     context("id_right", alt((dot_atom_text, no_fold_literal, domain))).parse(input)
 }
 
 // no_fold_literal = { "[" ~ dtext* ~ "]" }
-fn no_fold_literal(input: Span) -> IResult<Span, String> {
+fn no_fold_literal(input: Span) -> IResult<Span, BString> {
     context(
         "no_fold_literal",
         map(
             recognize((tag("["), take_while(is_dtext), tag("]"))),
-            |s: Span| s.to_string(),
+            |s: Span| (*s).into(),
         ),
     )
     .parse(input)
@@ -911,10 +907,10 @@ fn strict_msg_id(input: Span) -> IResult<Span, MessageID> {
 }
 
 // obs_unstruct = { (( "\r"* ~ "\n"* ~ ((encoded_word | obs_utext)~ "\r"* ~ "\n"*)+) | fws)+ }
-fn unstructured(input: Span) -> IResult<Span, String> {
+fn unstructured(input: Span) -> IResult<Span, BString> {
     #[derive(Debug)]
     enum Word {
-        Encoded(String),
+        Encoded(BString),
         UText(char),
         Fws,
     }
@@ -939,8 +935,8 @@ fn unstructured(input: Span) -> IResult<Span, String> {
 
     #[derive(Debug)]
     enum ProcessedWord {
-        Encoded(String),
-        Text(String),
+        Encoded(BString),
+        Text(BString),
         Fws,
     }
     let mut processed = vec![];
@@ -963,20 +959,20 @@ fn unstructured(input: Span) -> IResult<Span, String> {
                 }
             }
             Word::UText(c) => match processed.last_mut() {
-                Some(ProcessedWord::Text(prior)) => prior.push(c),
-                _ => processed.push(ProcessedWord::Text(c.to_string())),
+                Some(ProcessedWord::Text(prior)) => prior.push_char(c),
+                _ => processed.push(ProcessedWord::Text(c.to_string().into())),
             },
         }
     }
 
-    let mut result = String::new();
+    let mut result = BString::default();
     for word in processed {
         match word {
             ProcessedWord::Encoded(s) | ProcessedWord::Text(s) => {
                 result.push_str(&s);
             }
             ProcessedWord::Fws => {
-                result.push(' ');
+                result.push(b' ');
             }
         }
     }
@@ -1105,7 +1101,7 @@ fn methodversion(input: Span) -> IResult<Span, u32> {
     .parse(input)
 }
 
-fn reasonspec(input: Span) -> IResult<Span, String> {
+fn reasonspec(input: Span) -> IResult<Span, BString> {
     context(
         "reason",
         map(
@@ -1116,7 +1112,7 @@ fn reasonspec(input: Span) -> IResult<Span, String> {
     .parse(input)
 }
 
-fn propspec(input: Span) -> IResult<Span, (String, String)> {
+fn propspec(input: Span) -> IResult<Span, (BString, BString)> {
     context(
         "propspec",
         map(
@@ -1131,9 +1127,16 @@ fn propspec(input: Span) -> IResult<Span, (String, String)> {
                 char('='),
                 opt(cfws),
                 alt((
-                    map(preceded(char('@'), domain), |d| format!("@{d}")),
+                    map(preceded(char('@'), domain), |d| {
+                        let mut at_dom = BString::from("@");
+                        at_dom.push_str(d);
+                        at_dom
+                    }),
                     map(separated_pair(local_part, char('@'), domain), |(u, d)| {
-                        format!("{u}@{d}")
+                        let mut result: BString = u.into();
+                        result.push(b'@');
+                        result.push_str(d);
+                        result
                     }),
                     domain,
                     // value must be last in this alternation
@@ -1142,7 +1145,7 @@ fn propspec(input: Span) -> IResult<Span, (String, String)> {
                 opt(cfws),
             ),
             |(_, ptype, _, _, _, property, _, _, _, value, _)| {
-                (format!("{ptype}.{property}"), value)
+                (format!("{ptype}.{property}").into(), value)
             },
         ),
     )
@@ -1351,7 +1354,7 @@ fn extended_param_no_charset(input: Span) -> IResult<Span, MimeParameter> {
                     quoted_string,
                     map(
                         recognize(many0(alt((ext_octet, take_while1(is_attribute_char))))),
-                        |s: Span| s.to_string(),
+                        |s: Span| s.to_string().into(),
                     ),
                 )),
             ),
@@ -1365,7 +1368,7 @@ fn extended_param_no_charset(input: Span) -> IResult<Span, MimeParameter> {
                 } else {
                     MimeParameterEncoding::None
                 },
-                value: value.into(),
+                value,
             },
         ),
     )
@@ -1434,10 +1437,10 @@ fn attribute(input: Span) -> IResult<Span, Span> {
     context("attribute", take_while1(is_attribute_char)).parse(input)
 }
 
-fn value(input: Span) -> IResult<Span, String> {
+fn value(input: Span) -> IResult<Span, BString> {
     context(
         "value",
-        alt((map(mime_token, |s: Span| s.to_string()), quoted_string)),
+        alt((map(mime_token, |s: Span| (*s).into()), quoted_string)),
     )
     .parse(input)
 }
@@ -1477,7 +1480,7 @@ impl Parser {
         parse_with(text, content_transfer_encoding)
     }
 
-    pub fn parse_unstructured_header(text: &str) -> Result<String> {
+    pub fn parse_unstructured_header(text: &str) -> Result<BString> {
         parse_with(text, unstructured)
     }
 
@@ -1603,7 +1606,7 @@ pub struct AuthenticationResult {
     #[serde(default)]
     pub reason: Option<BString>,
     #[serde(default)]
-    pub props: BTreeMap<String, String>,
+    pub props: BTreeMap<BString, BString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -82,7 +82,7 @@ async fn spf_basic() -> anyhow::Result<()> {
                     "no SPF records found for example.com"
                 );
                 assert_eq!(
-                    results[0].props.get("smtp.mailfrom").unwrap(),
+                    results[0].props.get("smtp.mailfrom".as_bytes()).unwrap(),
                     "sender@example.com"
                 );
             }
@@ -95,7 +95,7 @@ async fn spf_basic() -> anyhow::Result<()> {
                     "matched 'all' directive"
                 );
                 assert_eq!(
-                    results[0].props.get("smtp.mailfrom").unwrap(),
+                    results[0].props.get("smtp.mailfrom".as_bytes()).unwrap(),
                     "foo@allowed.localhost"
                 );
             }

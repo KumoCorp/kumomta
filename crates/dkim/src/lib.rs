@@ -318,19 +318,13 @@ pub async fn verify_email_with_resolver<'a>(
         let signing_domain = dkim_header.get_required_tag("d");
         let mut props = BTreeMap::new();
 
-        props.insert("header.d".to_string(), signing_domain.to_string());
-        props.insert("header.i".to_string(), format!("@{signing_domain}"));
-        props.insert(
-            "header.a".to_string(),
-            dkim_header.get_required_tag("a").to_string(),
-        );
-        props.insert(
-            "header.s".to_string(),
-            dkim_header.get_required_tag("s").to_string(),
-        );
+        props.insert("header.d".into(), signing_domain.into());
+        props.insert("header.i".into(), format!("@{signing_domain}").into());
+        props.insert("header.a".into(), dkim_header.get_required_tag("a").into());
+        props.insert("header.s".into(), dkim_header.get_required_tag("s").into());
 
         let b_tag = compute_header_b(dkim_header.get_required_tag("b"), &dkim_headers);
-        props.insert("header.b".to_string(), b_tag);
+        props.insert("header.b".into(), b_tag.into());
 
         let mut reason = None;
         let result =

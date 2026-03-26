@@ -5,7 +5,7 @@ use crate::{
     ARCAuthenticationResults, AddressList, AuthenticationResults, MailParsingError, Mailbox,
     MailboxList, MessageID, MimeParameters, Result, SharedString,
 };
-use bstr::BStr;
+use bstr::{BStr, BString};
 use chrono::{DateTime, FixedOffset};
 use std::borrow::Cow;
 use std::str::FromStr;
@@ -225,7 +225,7 @@ impl<'a> Header<'a> {
         Parser::parse_msg_id_header_list(self.get_raw_value_string()?)
     }
 
-    pub fn as_unstructured(&self) -> Result<String> {
+    pub fn as_unstructured(&self) -> Result<BString> {
         Parser::parse_unstructured_header(self.get_raw_value_string()?)
     }
 

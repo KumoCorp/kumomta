@@ -2,6 +2,7 @@
 
 use crate::types::record::Record;
 pub use crate::types::results::{Disposition, DispositionWithContext};
+use bstr::BString;
 use dns_resolver::Resolver;
 use std::collections::BTreeMap;
 use std::str::FromStr;
@@ -24,7 +25,7 @@ pub struct CheckHostParams {
     pub mail_from_domain: Option<String>,
 
     /// The results of the DKIM part of the checks
-    pub dkim: Vec<BTreeMap<String, String>>,
+    pub dkim: Vec<BTreeMap<BString, BString>>,
 }
 
 impl CheckHostParams {
@@ -82,7 +83,7 @@ struct DmarcContext<'a> {
     pub(crate) from_domain: &'a str,
     pub(crate) mail_from_domain: Option<&'a str>,
     pub(crate) now: SystemTime,
-    pub(crate) dkim: &'a [BTreeMap<String, String>],
+    pub(crate) dkim: &'a [BTreeMap<BString, BString>],
 }
 
 impl<'a> DmarcContext<'a> {
@@ -94,7 +95,7 @@ impl<'a> DmarcContext<'a> {
     fn new(
         from_domain: &'a str,
         mail_from_domain: Option<&'a str>,
-        dkim: &'a [BTreeMap<String, String>],
+        dkim: &'a [BTreeMap<BString, BString>],
     ) -> Result<Self, DispositionWithContext> {
         Ok(Self {
             from_domain,

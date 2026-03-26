@@ -79,13 +79,14 @@ impl ARC {
 
         if !self.sets.is_empty() {
             props.insert(
-                "header.oldest-pass".to_string(),
+                "header.oldest-pass".into(),
                 if status == ChainValidationStatus::Fail {
                     self.last_validated_instance
                 } else {
                     0
                 }
-                .to_string(),
+                .to_string()
+                .into(),
             );
         }
 

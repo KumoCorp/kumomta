@@ -2,6 +2,7 @@ use crate::{
     AddressList, AuthenticationResults, Header, MailParsingError, Mailbox, MailboxList, MessageID,
     MimeParameters, Result, SharedString,
 };
+use bstr::BString;
 use chrono::{DateTime, FixedOffset, TimeZone};
 use pastey::paste;
 
@@ -191,15 +192,15 @@ impl<'a> HeaderMap<'a> {
     accessor!(content_id, "Content-ID", MessageID, as_content_id);
     accessor!(references, "References", Vec<MessageID>, as_message_id_list);
 
-    accessor!(subject, "Subject", String, as_unstructured);
-    accessor!(comments, "Comments", String, as_unstructured);
+    accessor!(subject, "Subject", BString, as_unstructured);
+    accessor!(comments, "Comments", BString, as_unstructured);
     accessor!(
         content_transfer_encoding,
         "Content-Transfer-Encoding",
         MimeParameters,
         as_content_transfer_encoding
     );
-    accessor!(mime_version, "Mime-Version", String, as_unstructured);
+    accessor!(mime_version, "Mime-Version", BString, as_unstructured);
     accessor!(
         content_disposition,
         "Content-Disposition",
