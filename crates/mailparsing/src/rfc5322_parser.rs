@@ -1059,7 +1059,7 @@ fn resinfo(input: Span) -> IResult<Span, AuthenticationResult> {
     .parse(input)
 }
 
-fn methodspec(input: Span) -> IResult<Span, (String, Option<u32>, String)> {
+fn methodspec(input: Span) -> IResult<Span, (BString, Option<u32>, BString)> {
     context(
         "methodspec",
         map(
@@ -1079,12 +1079,12 @@ fn methodspec(input: Span) -> IResult<Span, (String, Option<u32>, String)> {
 
 // Taken from https://datatracker.ietf.org/doc/html/rfc8601 which says
 // that this is the same as the SMTP Keyword token
-fn keyword(input: Span) -> IResult<Span, String> {
+fn keyword(input: Span) -> IResult<Span, BString> {
     context(
         "keyword",
         map(
             take_while1(|c: char| c.is_ascii_alphanumeric() || c == '+' || c == '-'),
-            |s: Span| s.to_string(),
+            |s: Span| (*s).into(),
         ),
     )
     .parse(input)
