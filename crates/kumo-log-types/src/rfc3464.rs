@@ -6,7 +6,7 @@ use crate::rfc5965::{
 };
 use crate::{JsonLogRecord, RecordType};
 use anyhow::{anyhow, Context};
-use bstr::{BString, ByteSlice};
+use bstr::{BStr, BString, ByteSlice};
 use chrono::{DateTime, Utc};
 use mailparsing::MimePart;
 use serde::{Deserialize, Serialize};
@@ -362,7 +362,7 @@ pub struct Report {
     pub original_message: Option<BString>,
 }
 
-pub(crate) fn content_type(part: &MimePart) -> Option<String> {
+pub(crate) fn content_type(part: &MimePart) -> Option<BString> {
     let ct = part.headers().content_type().ok()??;
     Some(ct.value)
 }
@@ -376,7 +376,8 @@ impl Report {
             )
         })?;
 
-        if content_type(&mail).as_deref() != Some("multipart/report") {
+        if content_type(&mail).as_ref().map(|b| b.as_bstr()) != Some(BStr::new("multipart/report"))
+        {
             return Ok(None);
         }
 
@@ -384,8 +385,10 @@ impl Report {
 
         for part in mail.child_parts() {
             let ct = content_type(part);
-            let ct = ct.as_deref();
-            if ct == Some("message/rfc822") || ct == Some("text/rfc822-headers") {
+            let ct = ct.as_ref().map(|b| b.as_bstr());
+            if ct == Some(BStr::new("message/rfc822"))
+                || ct == Some(BStr::new("text/rfc822-headers"))
+            {
                 original_message = Some(BString::new(
                     part.raw_body().as_bytes().replace(b"\r\n", b"\n"),
                 ));
@@ -394,8 +397,9 @@ impl Report {
 
         for part in mail.child_parts() {
             let ct = content_type(part);
-            let ct = ct.as_deref();
-            if ct == Some("message/delivery-status") || ct == Some("message/global-delivery-status")
+            let ct = ct.as_ref().map(|b| b.as_bstr());
+            if ct == Some(BStr::new("message/delivery-status"))
+                || ct == Some(BStr::new("message/global-delivery-status"))
             {
                 return Ok(Some(Self::parse_inner(part, original_message)?));
             }
@@ -567,7 +571,7 @@ impl Report {
             "multipart/report",
             parts,
             if params.stable_content {
-                Some("report-boundary")
+                Some(b"report-boundary")
             } else {
                 None
             },

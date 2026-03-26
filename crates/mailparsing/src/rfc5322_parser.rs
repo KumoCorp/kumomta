@@ -1,7 +1,7 @@
 use crate::headermap::EncodeHeaderValue;
 use crate::nom_utils::{explain_nom, make_context_error, make_span, IResult, ParseError, Span};
 use crate::{MailParsingError, Result, SharedString};
-use bstr::{BString, ByteSlice, ByteVec};
+use bstr::{BStr, BString, ByteSlice, ByteVec};
 use charset_normalizer_rs::Encoding;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1};
@@ -1200,7 +1200,13 @@ fn content_type(input: Span) -> IResult<Span, MimeParameters> {
     .parse(input)?;
 
     let value = format!("{mime_type}/{mime_subtype}");
-    Ok((loc, MimeParameters { value, parameters }))
+    Ok((
+        loc,
+        MimeParameters {
+            value: value.into(),
+            parameters,
+        },
+    ))
 }
 
 fn content_transfer_encoding(input: Span) -> IResult<Span, MimeParameters> {
@@ -1230,7 +1236,7 @@ fn content_transfer_encoding(input: Span) -> IResult<Span, MimeParameters> {
     Ok((
         loc,
         MimeParameters {
-            value: value.to_string(),
+            value: value.as_bytes().into(),
             parameters,
         },
     ))
@@ -1261,8 +1267,8 @@ fn param_with_unquoted_rfc2047(input: Span) -> IResult<Span, MimeParameter> {
         map(
             (attribute, opt(cfws), char('='), opt(cfws), encoded_word),
             |(name, _, _, _, value)| MimeParameter {
-                name: name.to_string(),
-                value,
+                name: name.as_bytes().into(),
+                value: value.as_bytes().into(),
                 section: None,
                 encoding: MimeParameterEncoding::UnquotedRfc2047,
                 mime_charset: None,
@@ -1285,8 +1291,8 @@ fn param_with_quoted_rfc2047(input: Span) -> IResult<Span, MimeParameter> {
                 delimited(char('"'), encoded_word, char('"')),
             ),
             |(name, _, _, _, value)| MimeParameter {
-                name: name.to_string(),
-                value,
+                name: name.as_bytes().into(),
+                value: value.as_bytes().into(),
                 section: None,
                 encoding: MimeParameterEncoding::QuotedRfc2047,
                 mime_charset: None,
@@ -1318,12 +1324,12 @@ fn extended_param_with_charset(input: Span) -> IResult<Span, MimeParameter> {
                 ),
             ),
             |(name, section, _, _, _, _, mime_charset, _, mime_language, _, value)| MimeParameter {
-                name: name.to_string(),
+                name: name.as_bytes().into(),
                 section,
-                mime_charset: mime_charset.map(|s| s.to_string()),
-                mime_language: mime_language.map(|s| s.to_string()),
+                mime_charset: mime_charset.map(|s| s.as_bytes().into()),
+                mime_language: mime_language.map(|s| s.as_bytes().into()),
                 encoding: MimeParameterEncoding::Rfc2231,
-                value,
+                value: value.into(),
             },
         ),
     )
@@ -1350,7 +1356,7 @@ fn extended_param_no_charset(input: Span) -> IResult<Span, MimeParameter> {
                 )),
             ),
             |(name, section, star, _, _, _, value)| MimeParameter {
-                name: name.to_string(),
+                name: name.as_bytes().into(),
                 section,
                 mime_charset: None,
                 mime_language: None,
@@ -1359,7 +1365,7 @@ fn extended_param_no_charset(input: Span) -> IResult<Span, MimeParameter> {
                 } else {
                     MimeParameterEncoding::None
                 },
-                value,
+                value: value.into(),
             },
         ),
     )
@@ -1410,8 +1416,8 @@ fn regular_parameter(input: Span) -> IResult<Span, MimeParameter> {
         map(
             (attribute, opt(cfws), char('='), opt(cfws), value),
             |(name, _, _, _, value)| MimeParameter {
-                name: name.to_string(),
-                value,
+                name: name.as_bytes().into(),
+                value: value.as_bytes().into(),
                 section: None,
                 encoding: MimeParameterEncoding::None,
                 mime_charset: None,
@@ -1744,24 +1750,24 @@ pub(crate) enum MimeParameterEncoding {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MimeParameter {
-    pub name: String,
+    pub name: BString,
     pub section: Option<u32>,
-    pub mime_charset: Option<String>,
-    pub mime_language: Option<String>,
+    pub mime_charset: Option<BString>,
+    pub mime_language: Option<BString>,
     pub encoding: MimeParameterEncoding,
-    pub value: String,
+    pub value: BString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MimeParameters {
-    pub value: String,
+    pub value: BString,
     parameters: Vec<MimeParameter>,
 }
 
 impl MimeParameters {
-    pub fn new(value: &str) -> Self {
+    pub fn new(value: impl AsRef<[u8]>) -> Self {
         Self {
-            value: value.to_string(),
+            value: value.as_ref().into(),
             parameters: vec![],
         }
     }
@@ -1770,10 +1776,10 @@ impl MimeParameters {
     /// of the parameter names to parameters values.
     /// Incorrectly encoded parameters are silently ignored
     /// and are not returned in the resulting map.
-    pub fn parameter_map(&self) -> BTreeMap<String, String> {
+    pub fn parameter_map(&self) -> BTreeMap<BString, BString> {
         let mut map = BTreeMap::new();
 
-        fn contains_key_ignore_case(map: &BTreeMap<String, String>, key: &str) -> bool {
+        fn contains_key_ignore_case(map: &BTreeMap<BString, BString>, key: &[u8]) -> bool {
             for k in map.keys() {
                 if k.eq_ignore_ascii_case(key) {
                     return true;
@@ -1783,9 +1789,10 @@ impl MimeParameters {
         }
 
         for entry in &self.parameters {
-            if !contains_key_ignore_case(&map, &entry.name) {
-                if let Some(value) = self.get(&entry.name) {
-                    map.insert(entry.name.to_string(), value);
+            let name = entry.name.as_bytes();
+            if !contains_key_ignore_case(&map, name) {
+                if let Some(value) = self.get(name) {
+                    map.insert(name.into(), value);
                 }
             }
         }
@@ -1798,11 +1805,12 @@ impl MimeParameters {
     /// per RFC 2231 and combine multi-element fields into a single
     /// contiguous value.
     /// Invalid charsets and encoding will be silently ignored.
-    pub fn get(&self, name: &str) -> Option<String> {
+    pub fn get(&self, name: impl AsRef<[u8]>) -> Option<BString> {
+        let name = name.as_ref();
         let mut elements: Vec<_> = self
             .parameters
             .iter()
-            .filter(|p| p.name.eq_ignore_ascii_case(name))
+            .filter(|p| p.name.eq_ignore_ascii_case(name.as_bytes()))
             .collect();
         if elements.is_empty() {
             return None;
@@ -1810,10 +1818,10 @@ impl MimeParameters {
         elements.sort_by(|a, b| a.section.cmp(&b.section));
 
         let mut mime_charset = None;
-        let mut result = String::new();
+        let mut result: Vec<u8> = vec![];
 
         for ele in elements {
-            if let Some(cset) = ele.mime_charset.as_deref() {
+            if let Some(cset) = ele.mime_charset.as_ref().and_then(|b| b.to_str().ok()) {
                 mime_charset = Encoding::by_name(&*cset);
             }
 
@@ -1886,30 +1894,31 @@ impl MimeParameters {
             }
         }
 
-        Some(result)
+        Some(result.into())
     }
 
     /// Remove the named parameter
-    pub fn remove(&mut self, name: &str) {
+    pub fn remove(&mut self, name: impl AsRef<[u8]>) {
+        let name = name.as_ref();
         self.parameters
             .retain(|p| !p.name.eq_ignore_ascii_case(name));
     }
 
-    pub fn set(&mut self, name: &str, value: &str) {
+    pub fn set(&mut self, name: impl AsRef<[u8]>, value: impl AsRef<[u8]>) {
         self.set_with_encoding(name, value, MimeParameterEncoding::None)
     }
 
     pub(crate) fn set_with_encoding(
         &mut self,
-        name: &str,
-        value: &str,
+        name: impl AsRef<[u8]>,
+        value: impl AsRef<[u8]>,
         encoding: MimeParameterEncoding,
     ) {
-        self.remove(name);
+        self.remove(name.as_ref());
 
         self.parameters.push(MimeParameter {
-            name: name.to_string(),
-            value: value.to_string(),
+            name: name.as_ref().into(),
+            value: value.as_ref().into(),
             section: None,
             mime_charset: None,
             mime_language: None,
@@ -1918,21 +1927,21 @@ impl MimeParameters {
     }
 
     pub fn is_multipart(&self) -> bool {
-        self.value.starts_with("message/") || self.value.starts_with("multipart/")
+        self.value.starts_with_str("message/") || self.value.starts_with_str("multipart/")
     }
 
     pub fn is_text(&self) -> bool {
-        self.value.starts_with("text/")
+        self.value.starts_with_str("text/")
     }
 }
 
 impl EncodeHeaderValue for MimeParameters {
     fn encode_value(&self) -> SharedString<'static> {
         let mut result = self.value.to_string();
-        let names: BTreeMap<&str, MimeParameterEncoding> = self
+        let names: BTreeMap<&BStr, MimeParameterEncoding> = self
             .parameters
             .iter()
-            .map(|p| (p.name.as_str(), p.encoding))
+            .map(|p| (p.name.as_bstr(), p.encoding))
             .collect();
 
         for (name, stated_encoding) in names {
@@ -1940,11 +1949,11 @@ impl EncodeHeaderValue for MimeParameters {
 
             match stated_encoding {
                 MimeParameterEncoding::UnquotedRfc2047 => {
-                    let encoded = qp_encode(&value);
+                    let encoded = qp_encode(value.to_str().expect("FIXME: bytes"));
                     result.push_str(&format!(";\r\n\t{name}={encoded}"));
                 }
                 MimeParameterEncoding::QuotedRfc2047 => {
-                    let encoded = qp_encode(&value);
+                    let encoded = qp_encode(value.to_str().expect("FIXME: bytes"));
                     result.push_str(&format!(";\r\n\t{name}=\"{encoded}\""));
                 }
                 MimeParameterEncoding::None | MimeParameterEncoding::Rfc2231 => {
@@ -1956,7 +1965,7 @@ impl EncodeHeaderValue for MimeParameters {
                         .all(|c| (is_qtext(c) || is_quoted_pair(c)) && c.is_ascii());
 
                     let mut params = vec![];
-                    let mut chars = value.chars().peekable();
+                    let mut chars = value.char_indices().peekable();
                     while chars.peek().is_some() {
                         let count = params.len();
                         let is_first = count == 0;
@@ -1969,51 +1978,45 @@ impl EncodeHeaderValue for MimeParameters {
                         };
                         let limit = 74 - (name.len() + 4 + prefix.len());
 
-                        let mut encoded = String::new();
+                        let mut encoded: Vec<u8> = vec![];
 
                         while encoded.len() < limit {
-                            let c = match chars.next() {
-                                Some(c) => c,
-                                None => break,
+                            let Some((start, end, c)) = chars.next() else {
+                                break;
                             };
+                            let s = &value[start..end];
 
                             if use_quoted_string {
                                 if c == '"' || c == '\\' {
-                                    encoded.push('\\');
+                                    encoded.push(b'\\');
                                 }
-                                encoded.push(c);
+                                encoded.push_str(s);
                             } else if is_mime_token(c) && (!needs_encoding || c != '%') {
-                                encoded.push(c);
+                                encoded.push_str(s);
                             } else {
-                                let mut buf = [0u8; 8];
-                                let s = c.encode_utf8(&mut buf);
                                 for b in s.bytes() {
-                                    encoded.push('%');
-                                    encoded.push(HEX_CHARS[(b as usize) >> 4] as char);
-                                    encoded.push(HEX_CHARS[(b as usize) & 0x0f] as char);
+                                    encoded.push(b'%');
+                                    encoded.push(HEX_CHARS[(b as usize) >> 4]);
+                                    encoded.push(HEX_CHARS[(b as usize) & 0x0f]);
                                 }
                             }
                         }
 
                         if use_quoted_string {
-                            encoded.push('"');
+                            encoded.push(b'"');
                         }
 
                         params.push(MimeParameter {
-                            name: name.to_string(),
+                            name: name.into(),
                             section: Some(count as u32),
-                            mime_charset: if is_first {
-                                Some("UTF-8".to_string())
-                            } else {
-                                None
-                            },
+                            mime_charset: if is_first { Some("UTF-8".into()) } else { None },
                             mime_language: None,
                             encoding: if needs_encoding {
                                 MimeParameterEncoding::Rfc2231
                             } else {
                                 MimeParameterEncoding::None
                             },
-                            value: encoded,
+                            value: encoded.into(),
                         })
                     }
                     if params.len() == 1 {
@@ -2048,11 +2051,18 @@ impl EncodeHeaderValue for MimeParameters {
                                 ""
                             };
                         let charset = if use_quoted_string {
-                            "\""
+                            BStr::new("\"")
                         } else {
-                            p.mime_charset.as_deref().unwrap_or("")
+                            p.mime_charset
+                                .as_ref()
+                                .map(|b| b.as_bstr())
+                                .unwrap_or(BStr::new(""))
                         };
-                        let lang = p.mime_language.as_deref().unwrap_or("");
+                        let lang = p
+                            .mime_language
+                            .as_ref()
+                            .map(|b| b.as_bstr())
+                            .unwrap_or(BStr::new(""));
 
                         let line = format!(
                             "{name}{section}{uses_encoding}={charset}{charset_tick}{lang}{lang_tick}{value}",
@@ -2070,6 +2080,7 @@ impl EncodeHeaderValue for MimeParameters {
 
 static HEX_CHARS: &[u8] = b"0123456789ABCDEF";
 
+#[deprecated = "revise to bytes"]
 pub(crate) fn qp_encode(s: &str) -> String {
     let prefix = b"=?UTF-8?q?";
     let suffix = b"?=";

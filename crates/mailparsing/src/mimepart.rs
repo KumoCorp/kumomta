@@ -5,7 +5,7 @@ use crate::{
     has_lone_cr_or_lf, Header, MailParsingError, MessageID, MimeParameterEncoding, MimeParameters,
     Result, SharedString,
 };
-use bstr::BStr;
+use bstr::{BStr, BString, ByteSlice};
 use charset_normalizer_rs::entity::NormalizerSettings;
 use charset_normalizer_rs::Encoding;
 use chrono::Utc;
@@ -58,7 +58,12 @@ impl Rfc2045Info {
     fn new(headers: &HeaderMap) -> Self {
         let mut invalid_mime_headers = false;
         let encoding = match headers.content_transfer_encoding() {
-            Ok(Some(cte)) => match ContentTransferEncoding::from_str(&cte.value) {
+            Ok(Some(cte)) => match cte
+                .value
+                .to_str()
+                .map_err(|_| ())
+                .and_then(|s| ContentTransferEncoding::from_str(s).map_err(|_| ()))
+            {
                 Ok(encoding) => encoding,
                 Err(_) => {
                     invalid_mime_headers = true;
@@ -87,10 +92,16 @@ impl Rfc2045Info {
         } else {
             None
         };
-        let charset = charset.unwrap_or_else(|| "us-ascii".to_string());
+        let charset = charset.unwrap_or_else(|| "us-ascii".into());
 
-        let charset = Encoding::by_name(&*charset)
-            .ok_or_else(|| MailParsingError::BodyParse(format!("unsupported charset {charset}")));
+        let charset = match charset.to_str() {
+            Ok(charset) => Encoding::by_name(&*charset).ok_or_else(|| {
+                MailParsingError::BodyParse(format!("unsupported charset {charset}"))
+            }),
+            Err(_) => Err(MailParsingError::BodyParse(format!(
+                "non-ascii charset name {charset}"
+            ))),
+        };
 
         let (is_text, is_multipart) = if let Some(ct) = &content_type {
             (ct.is_text(), ct.is_multipart())
@@ -149,7 +160,7 @@ impl Rfc2045Info {
     pub fn content_type(&self) -> Option<&str> {
         self.content_type
             .as_ref()
-            .map(|params| params.value.as_str())
+            .and_then(|params| params.value.to_str().ok())
     }
 }
 
@@ -497,16 +508,16 @@ impl<'a> MimePart<'a> {
                     let ct = info
                         .content_type
                         .as_ref()
-                        .map(|ct| ct.value.as_str())
-                        .unwrap_or("text/plain");
+                        .map(|ct| ct.value.as_bstr())
+                        .unwrap_or_else(|| BStr::new("text/plain"));
                     Self::new_text(ct, text.as_bytes())?
                 }
                 DecodedBody::Binary(data) => {
                     let ct = info
                         .content_type
                         .as_ref()
-                        .map(|ct| ct.value.as_str())
-                        .unwrap_or("application/octet-stream");
+                        .map(|ct| ct.value.as_bstr())
+                        .unwrap_or_else(|| BStr::new("application/octet-stream"));
                     Self::new_binary(ct, &data, info.attachment_options.as_ref())?
                 }
             }
@@ -516,7 +527,11 @@ impl<'a> MimePart<'a> {
                     "multipart message has no content-type information!?".to_string(),
                 )
             })?;
-            Self::new_multipart(&ct.value, children, ct.get("boundary").as_deref())?
+            Self::new_multipart(
+                &ct.value,
+                children,
+                ct.get("boundary").as_deref().map(|b| b.as_bytes()),
+            )?
         };
 
         for hdr in self.headers.iter() {
@@ -640,7 +655,7 @@ impl<'a> MimePart<'a> {
 
     pub fn replace_text_body(
         &mut self,
-        content_type: &str,
+        content_type: impl AsRef<[u8]>,
         content: impl AsRef<BStr>,
     ) -> Result<()> {
         let mut new_part = Self::new_text(content_type, content)?;
@@ -657,7 +672,7 @@ impl<'a> MimePart<'a> {
         Ok(())
     }
 
-    pub fn replace_binary_body(&mut self, content_type: &str, content: &[u8]) -> Result<()> {
+    pub fn replace_binary_body(&mut self, content_type: &[u8], content: &[u8]) -> Result<()> {
         let mut new_part = Self::new_binary(content_type, content, None)?;
         self.bytes = new_part.bytes;
         self.body_offset = new_part.body_offset;
@@ -700,7 +715,7 @@ impl<'a> MimePart<'a> {
     /// Constructs a new part with textual utf8 content.
     /// quoted-printable transfer encoding will be applied,
     /// unless it is smaller to represent the text in base64
-    pub fn new_text(content_type: &str, content: impl AsRef<BStr>) -> Result<Self> {
+    pub fn new_text(content_type: impl AsRef<[u8]>, content: impl AsRef<BStr>) -> Result<Self> {
         let content = content.as_ref();
         // We'll probably use qp, so speculatively do the work
         let qp_encoded = quoted_printable::encode(content);
@@ -760,9 +775,9 @@ impl<'a> MimePart<'a> {
     }
 
     pub fn new_multipart(
-        content_type: &str,
+        content_type: impl AsRef<[u8]>,
         parts: Vec<Self>,
-        boundary: Option<&str>,
+        boundary: Option<&[u8]>,
     ) -> Result<Self> {
         let mut headers = HeaderMap::default();
 
@@ -793,7 +808,7 @@ impl<'a> MimePart<'a> {
     }
 
     pub fn new_binary(
-        content_type: &str,
+        content_type: impl AsRef<[u8]>,
         content: &[u8],
         options: Option<&AttachmentOptions>,
     ) -> Result<Self> {
@@ -990,7 +1005,7 @@ impl<'a> MimePart<'a> {
                 }
             }
 
-            if ct.value.starts_with("multipart/") {
+            if ct.value.starts_with_str("multipart/") {
                 let mut text_part = None;
                 let mut html_part = None;
                 let mut amp_html_part = None;
@@ -1224,7 +1239,7 @@ pub struct SimplifiedStructure<'a> {
 #[serde(deny_unknown_fields)]
 pub struct AttachmentOptions {
     #[serde(default)]
-    pub file_name: Option<String>,
+    pub file_name: Option<BString>,
     #[serde(default)]
     pub inline: bool,
     #[serde(default)]
@@ -1618,14 +1633,14 @@ Ok(
                     "application/octet-stream",
                     &[0, 1, 2, 3],
                     Some(&AttachmentOptions {
-                        file_name: Some("woot.bin".to_string()),
+                        file_name: Some("woot.bin".into()),
                         inline: false,
-                        content_id: Some("woot.id".to_string()),
+                        content_id: Some("woot.id".into()),
                     }),
                 )
                 .unwrap(),
             ],
-            Some("my-boundary"),
+            Some(b"my-boundary"),
         )
         .unwrap();
         k9::snapshot!(
@@ -1723,7 +1738,7 @@ Ok(
             Some(AttachmentOptions {
                 content_id: None,
                 inline: false,
-                file_name: Some("cdname".to_string()),
+                file_name: Some("cdname".into()),
             })
         );
     }
@@ -1756,7 +1771,7 @@ Ok(
             Some(AttachmentOptions {
                 content_id: None,
                 inline: false,
-                file_name: Some("ctname".to_string()),
+                file_name: Some("ctname".into()),
             })
         );
     }

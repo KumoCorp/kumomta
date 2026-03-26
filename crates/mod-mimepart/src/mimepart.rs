@@ -1,3 +1,4 @@
+use bstr::{BStr, BString, ByteSlice};
 use config::any_err;
 use mailparsing::{DecodedBody, MimePart, PartPointer};
 use mlua::{MetaMethod, UserData, UserDataFields, UserDataMethods, UserDataRef};
@@ -65,7 +66,7 @@ impl PartRef {
     pub fn replace_body(
         &self,
         body: mlua::String,
-        mut content_type: Option<String>,
+        mut content_type: Option<BString>,
     ) -> anyhow::Result<()> {
         self.mutate(|part| {
             if content_type.is_none() {
@@ -76,13 +77,20 @@ impl PartRef {
 
             match body.to_str() {
                 Ok(s) => {
-                    part.replace_text_body(content_type.as_deref().unwrap_or("text/plain"), &*s)?;
+                    part.replace_text_body(
+                        content_type
+                            .as_ref()
+                            .map(|b| b.as_bstr())
+                            .unwrap_or_else(|| BStr::new("text/plain")),
+                        &*s,
+                    )?;
                 }
                 _ => {
                     part.replace_binary_body(
                         content_type
-                            .as_deref()
-                            .unwrap_or("application/octet-stream"),
+                            .as_ref()
+                            .map(|b| b.as_bstr())
+                            .unwrap_or_else(|| BStr::new("application/octet-stream")),
                         &body.as_bytes(),
                     )?;
                 }
@@ -175,7 +183,8 @@ impl UserData for PartRef {
         methods.add_method(
             "replace_body",
             move |_lua, this, (body, content_type): (mlua::String, Option<String>)| {
-                this.replace_body(body, content_type).map_err(any_err)
+                this.replace_body(body, content_type.map(Into::into))
+                    .map_err(any_err)
             },
         );
     }

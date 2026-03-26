@@ -1,7 +1,7 @@
 //! ARF reports
 use crate::rfc3464::{content_type, RemoteMta};
 use anyhow::anyhow;
-use bstr::{BString, ByteSlice};
+use bstr::{BStr, BString, ByteSlice};
 use chrono::{DateTime, Utc};
 use mailparsing::{Header, HeaderParseResult, MimePart};
 use rfc5321::parse_envelope_address;
@@ -75,7 +75,8 @@ impl ARFReport {
             return Ok(None);
         }
 
-        if ct.get("report-type").as_deref() != Some("feedback-report") {
+        if ct.get("report-type").as_ref().map(|b| b.as_bstr()) != Some(BStr::new("feedback-report"))
+        {
             return Ok(None);
         }
 
@@ -84,8 +85,10 @@ impl ARFReport {
 
         for part in mail.child_parts() {
             let ct = content_type(part);
-            let ct = ct.as_deref();
-            if ct == Some("message/rfc822") || ct == Some("text/rfc822-headers") {
+            let ct = ct.as_ref().map(|b| b.as_bstr());
+            if ct == Some(BStr::new("message/rfc822"))
+                || ct == Some(BStr::new("text/rfc822-headers"))
+            {
                 if let Ok(HeaderParseResult { headers, .. }) =
                     Header::parse_headers(part.raw_body())
                 {
@@ -127,8 +130,8 @@ impl ARFReport {
 
         for part in mail.child_parts() {
             let ct = content_type(part);
-            let ct = ct.as_deref();
-            if ct == Some("message/feedback-report") {
+            let ct = ct.as_ref().map(|b| b.as_bstr());
+            if ct == Some(BStr::new("message/feedback-report")) {
                 return Ok(Some(Self::parse_inner(
                     part,
                     original_message,

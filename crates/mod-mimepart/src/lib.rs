@@ -51,8 +51,12 @@ fn new_multipart(
         child_parts.push(p.resolve().map_err(any_err)?.to_owned());
     }
 
-    let part = MimePart::new_multipart(&content_type, child_parts, boundary.as_deref())
-        .map_err(any_err)?;
+    let part = MimePart::new_multipart(
+        &content_type,
+        child_parts,
+        boundary.as_ref().map(|s| s.as_bytes()),
+    )
+    .map_err(any_err)?;
     Ok(PartRef::new(part))
 }
 

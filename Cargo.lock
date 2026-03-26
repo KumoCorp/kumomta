@@ -4959,6 +4959,7 @@ name = "mod-mimepart"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bstr",
  "config",
  "mailparsing",
  "mlua",

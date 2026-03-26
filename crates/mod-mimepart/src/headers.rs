@@ -1,4 +1,5 @@
 use crate::PartRef;
+use bstr::BString;
 use config::{SerdeWrappedValue, any_err};
 use mailparsing::{
     AddressList, Header, HeaderMap, MailParsingError, Mailbox, MailboxList, MessageID,
@@ -338,8 +339,8 @@ impl UserData for HeaderMapRef {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MimeParams {
-    pub value: String,
-    pub parameters: BTreeMap<String, String>,
+    pub value: BString,
+    pub parameters: BTreeMap<BString, BString>,
 }
 
 impl From<MimeParameters> for MimeParams {

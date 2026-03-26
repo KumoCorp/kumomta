@@ -711,7 +711,7 @@ impl InjectV1Request {
                 let mut attached = vec![];
                 for a in attachments {
                     let opts = mailparsing::AttachmentOptions {
-                        file_name: a.file_name.clone(),
+                        file_name: a.file_name.clone().map(|s| s.into()),
                         inline: a.content_id.is_some(),
                         content_id: a.content_id.clone(),
                     };
