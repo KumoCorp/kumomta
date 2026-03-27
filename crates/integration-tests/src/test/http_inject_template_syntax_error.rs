@@ -99,13 +99,12 @@ async fn http_inject_deferred_template_syntax_error() -> anyhow::Result<()> {
     assert_equal!(status, 422, "Should be unprocessable");
     assert_equal!(
         &*body_bytes,
-        "Error: failed parsing content.from: invalid header: 0: at line 1:\n\
-        bork bork\n     ^___\n\
-        expected '@', found b\n\
-        \n\
-        1: at line 1, in addr_spec:\n\
-        bork bork\n\
-        ^________\n\n"
+        "Error: failed parsing content.from: invalid header: \
+         Error at line 1, expected \"@\" but found \"b\":\
+         \nbork bork\
+         \n     ^___\n\
+         \n\
+         while parsing addr_spec\n"
     );
 
     daemon.stop_both().await.context("stop_both")?;
