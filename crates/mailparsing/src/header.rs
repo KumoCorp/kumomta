@@ -178,7 +178,6 @@ impl<'a> Header<'a> {
         BStr::new(self.value.as_bytes())
     }
 
-    #[deprecated = "use bytes!"]
     pub fn get_raw_value_string(&self) -> Result<&str> {
         self.value.to_str().map_err(|_| MailParsingError::EightBit)
     }
