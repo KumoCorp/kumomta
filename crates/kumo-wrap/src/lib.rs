@@ -22,6 +22,9 @@ pub fn wrap_impl(value: impl AsRef<BStr>, soft_width: usize, hard_width: usize) 
     let mut line: Vec<u8> = vec![];
 
     for word in value.split(|&b| b.is_ascii_whitespace()) {
+        if word.len() == 0 {
+            continue;
+        }
         if line.len() + word.len() < soft_width {
             if !line.is_empty() {
                 line.push(b' ');
@@ -82,6 +85,7 @@ mod test {
             ("foo", "foo"),
             ("hi there", "hi there"),
             ("hello world", "hello\r\n\tworld"),
+            ("hello world ", "hello\r\n\tworld"),
             (
                 "hello world foo bar baz woot woot",
                 "hello\r\n\tworld foo\r\n\tbar baz\r\n\twoot woot",
