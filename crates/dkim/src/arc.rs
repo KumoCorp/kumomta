@@ -539,7 +539,7 @@ mod test {
             .unwrap();
 
         for instance in 1..=5 {
-            let email = ParsedEmail::parse(email_content.as_str()).unwrap();
+            let email = ParsedEmail::parse(&*email_content).unwrap();
             let arc = ARC::verify(&email, &resolver).await;
             assert_eq!(
                 arc.chain_validation_status(),
