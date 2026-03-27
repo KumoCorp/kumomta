@@ -33,6 +33,10 @@
    now outputs keys of json objects in sorted order.  This means that utilities
    such as `resolve-shaping-domain` will now output keys in sorted order as well.
 
+ * [kumo.encode.charset_encode](../reference/kumo.encode/charset_encode.md) and
+   [kumo.encode.charset_decode](../reference/kumo.encode/charset_decode.md) string
+   charset encoding/decoding functions for advanced use cases.
+
 ## Fixes
 
  * sources helper didn't allow creating empty egress pools

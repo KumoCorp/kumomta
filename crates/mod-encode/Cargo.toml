@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = {workspace=true}
+charset-normalizer-rs.workspace = true
 config = {path="../config"}
 data-encoding = {workspace=true}
 mlua = {workspace=true, features=["serialize"]}

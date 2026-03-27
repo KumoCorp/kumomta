@@ -4874,6 +4874,7 @@ name = "mod-encode"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "charset-normalizer-rs",
  "config",
  "data-encoding",
  "mlua",
