@@ -5,7 +5,7 @@ HTTP service is configured via
 
 ## Access Control
 
-All HTTP endpoints are managed by the internal ACL system, with the default ACL map found at [https://github.com/KumoCorp/kumomta/blob/main/assets/acls/default.toml](https://github.com/KumoCorp/kumomta/blob/main/assets/acls/default.toml).
+All HTTP endpoints are managed by KumoMTA's internal [Access Control system](https://docs.kumomta.com/reference/access_control/).
 
 ## Endpoints { data-search-exclude }
 
