@@ -1861,7 +1861,19 @@ impl SmtpServerSession {
                         .await?;
                         continue;
                     }
-                    let address = EnvelopeAddress::parse(&address.to_string())?;
+                    let address = match EnvelopeAddress::parse(&address.to_string()) {
+                        Ok(address) => address,
+                        Err(err) => {
+                            self.write_response(
+                                501,
+                                format!("5.1.7 Invalid sender address syntax: {err}"),
+                                Some(line),
+                                RejectDisconnect::If421,
+                            )
+                            .await?;
+                            continue;
+                        }
+                    };
                     if let Err(rej) = self
                         .call_callback::<(), _, _>(
                             "smtp_server_mail_from",
@@ -1901,7 +1913,19 @@ impl SmtpServerSession {
                         .await?;
                         continue;
                     }
-                    let address = EnvelopeAddress::parse(&address.to_string())?;
+                    let address = match EnvelopeAddress::parse(&address.to_string()) {
+                        Ok(address) => address,
+                        Err(err) => {
+                            self.write_response(
+                                501,
+                                format!("5.1.3 Invalid recipient address syntax: {err}"),
+                                Some(line),
+                                RejectDisconnect::If421,
+                            )
+                            .await?;
+                            continue;
+                        }
+                    };
 
                     let sender = self.state.as_ref().unwrap().sender.clone();
                     let relay_disposition = self.check_relaying(&sender, &address).await?;

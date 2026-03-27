@@ -42,3 +42,6 @@
  * sources helper didn't allow creating empty egress pools
  * RFC5965 and RFC3464 parsing now strips enclosing angle brackets from envelope
    address fields in the ARF/OOB message.
+ * smtp server: invalid addresses passed to MAIL FROM or RCPT TO would result
+   in a 421 response instead of the more appropriate 501 permanent failure
+   response. #495
