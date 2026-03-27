@@ -1045,7 +1045,7 @@ fn unstructured(input: Span) -> IResult<Span, BString> {
             }
             Word::UText(c) => match processed.last_mut() {
                 Some(ProcessedWord::Text(prior)) => prior.push_str(c),
-                _ => processed.push(ProcessedWord::Text(c.to_string().into())),
+                _ => processed.push(ProcessedWord::Text(c)),
             },
         }
     }
@@ -2022,7 +2022,7 @@ impl MimeParameters {
 
 impl EncodeHeaderValue for MimeParameters {
     fn encode_value(&self) -> SharedString<'static> {
-        let mut result = self.value.to_string();
+        let mut result = self.value.clone();
         let names: BTreeMap<&BStr, MimeParameterEncoding> = self
             .parameters
             .iter()
