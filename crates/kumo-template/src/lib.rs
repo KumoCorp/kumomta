@@ -57,7 +57,7 @@ impl<'env, 'source> Template<'env, 'source> {
     ) -> anyhow::Result<()> {
         match &self {
             Self::Jinja(t) => {
-                t.render_to_write(ctx, w)?;
+                t.render_captured_to(ctx, w)?;
                 Ok(())
             }
             Self::Static(s) => {
