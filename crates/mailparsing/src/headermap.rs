@@ -35,6 +35,16 @@ pub trait EncodeHeaderValue {
     }
 }
 
+impl EncodeHeaderValue for &[u8] {
+    fn encode_value(&self) -> SharedString<'static> {
+        unimplemented!();
+    }
+
+    fn as_header(&self, name: &[u8]) -> Option<Header<'static>> {
+        Some(Header::new_unstructured(name.to_vec(), self.to_vec()))
+    }
+}
+
 impl EncodeHeaderValue for &str {
     fn encode_value(&self) -> SharedString<'static> {
         unimplemented!();
