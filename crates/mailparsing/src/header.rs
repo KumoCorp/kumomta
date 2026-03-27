@@ -184,57 +184,57 @@ impl<'a> Header<'a> {
     }
 
     pub fn as_content_transfer_encoding(&self) -> Result<MimeParameters> {
-        Parser::parse_content_transfer_encoding_header(self.get_raw_value_string()?)
+        Parser::parse_content_transfer_encoding_header(self.get_raw_value())
     }
 
     pub fn as_content_disposition(&self) -> Result<MimeParameters> {
-        Parser::parse_content_transfer_encoding_header(self.get_raw_value_string()?)
+        Parser::parse_content_transfer_encoding_header(self.get_raw_value())
     }
 
     pub fn as_content_type(&self) -> Result<MimeParameters> {
-        Parser::parse_content_type_header(self.get_raw_value_string()?)
+        Parser::parse_content_type_header(self.get_raw_value())
     }
 
     /// Parse the header into a mailbox-list (as defined in
     /// RFC 5322), which is how the `From` and `Resent-From`,
     /// headers are defined.
     pub fn as_mailbox_list(&self) -> Result<MailboxList> {
-        Parser::parse_mailbox_list_header(self.get_raw_value_string()?)
+        Parser::parse_mailbox_list_header(self.get_raw_value())
     }
 
     /// Parse the header into a mailbox (as defined in
     /// RFC 5322), which is how the `Sender` and `Resent-Sender`
     /// headers are defined.
     pub fn as_mailbox(&self) -> Result<Mailbox> {
-        Parser::parse_mailbox_header(self.get_raw_value_string()?)
+        Parser::parse_mailbox_header(self.get_raw_value())
     }
 
     pub fn as_address_list(&self) -> Result<AddressList> {
-        Parser::parse_address_list_header(self.get_raw_value_string()?)
+        Parser::parse_address_list_header(self.get_raw_value())
     }
 
     pub fn as_message_id(&self) -> Result<MessageID> {
-        Parser::parse_msg_id_header(self.get_raw_value_string()?)
+        Parser::parse_msg_id_header(self.get_raw_value())
     }
 
     pub fn as_content_id(&self) -> Result<MessageID> {
-        Parser::parse_content_id_header(self.get_raw_value_string()?)
+        Parser::parse_content_id_header(self.get_raw_value())
     }
 
     pub fn as_message_id_list(&self) -> Result<Vec<MessageID>> {
-        Parser::parse_msg_id_header_list(self.get_raw_value_string()?)
+        Parser::parse_msg_id_header_list(self.get_raw_value())
     }
 
     pub fn as_unstructured(&self) -> Result<BString> {
-        Parser::parse_unstructured_header(self.get_raw_value_string()?)
+        Parser::parse_unstructured_header(self.get_raw_value())
     }
 
     pub fn as_authentication_results(&self) -> Result<AuthenticationResults> {
-        Parser::parse_authentication_results_header(self.get_raw_value_string()?)
+        Parser::parse_authentication_results_header(self.get_raw_value())
     }
 
     pub fn as_arc_authentication_results(&self) -> Result<ARCAuthenticationResults> {
-        Parser::parse_arc_authentication_results_header(self.get_raw_value_string()?)
+        Parser::parse_arc_authentication_results_header(self.get_raw_value())
     }
 
     pub fn as_date(&self) -> Result<DateTime<FixedOffset>> {

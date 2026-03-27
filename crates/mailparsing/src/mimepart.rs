@@ -834,7 +834,7 @@ impl<'a> MimePart<'a> {
             headers.set_content_disposition(cd)?;
 
             if let Some(id) = &opts.content_id {
-                headers.set_content_id(MessageID(id.to_string()))?;
+                headers.set_content_id(MessageID(id.clone()))?;
             }
         }
 
@@ -1142,7 +1142,7 @@ impl<'a> MimePart<'a> {
         if to_fix.contains(MessageConformance::MISSING_MESSAGE_ID_HEADER) {
             if let Some(message_id) = &settings.message_id {
                 msg.headers_mut()
-                    .set_message_id(MessageID(message_id.clone()))?;
+                    .set_message_id(MessageID(message_id.clone().into()))?;
             }
         }
 
@@ -1243,7 +1243,7 @@ pub struct AttachmentOptions {
     #[serde(default)]
     pub inline: bool,
     #[serde(default)]
-    pub content_id: Option<String>,
+    pub content_id: Option<BString>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -713,7 +713,7 @@ impl InjectV1Request {
                     let opts = mailparsing::AttachmentOptions {
                         file_name: a.file_name.clone().map(|s| s.into()),
                         inline: a.content_id.is_some(),
-                        content_id: a.content_id.clone(),
+                        content_id: a.content_id.clone().map(Into::into),
                     };
 
                     let decoded_data;

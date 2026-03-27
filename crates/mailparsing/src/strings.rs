@@ -107,11 +107,6 @@ impl SharedString<'_> {
         String::from_utf8_lossy(self.as_bytes())
     }
 
-    #[deprecated = "use either as_bytes() or to_str() instead"]
-    pub fn as_str(&self) -> &str {
-        self.to_str().expect("SharedString is not UTF-8")
-    }
-
     pub fn len(&self) -> usize {
         match self {
             Self::Owned(s) => s.len(),
