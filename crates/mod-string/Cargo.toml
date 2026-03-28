@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = {workspace=true}
+bstr = {workspace=true}
 config = {path="../config"}
 kumo-template = {path="../kumo-template"}
 kumo-wrap = {path="../kumo-wrap"}

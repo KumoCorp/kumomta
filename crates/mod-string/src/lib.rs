@@ -1,4 +1,5 @@
 use config::{from_lua_value, get_or_create_sub_module};
+use bstr::ByteSlice;
 use kumo_template::TemplateDialect;
 use mlua::Lua;
 
@@ -41,12 +42,16 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     string_mod.set(
         "starts_with",
-        lua.create_function(move |_, (s, pattern): (String, String)| Ok(s.starts_with(&pattern)))?,
+        lua.create_function(move |_, (s, pattern): (mlua::String, mlua::String)| {
+            Ok(s.as_bytes().starts_with_str(pattern.as_bytes()))
+        })?,
     )?;
 
     string_mod.set(
         "ends_with",
-        lua.create_function(move |_, (s, pattern): (String, String)| Ok(s.ends_with(&pattern)))?,
+        lua.create_function(move |_, (s, pattern): (mlua::String, mlua::String)| {
+            Ok(s.as_bytes().ends_with_str(pattern.as_bytes()))
+        })?,
     )?;
 
     string_mod.set(
