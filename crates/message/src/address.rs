@@ -7,9 +7,15 @@ use mlua::{FromLua, MetaMethod, UserData, UserDataFields, UserDataMethods};
 use rfc5321::{EnvelopeAddress as EnvelopeAddress5321, ForwardPath, ReversePath};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Eq)]
 #[serde(transparent)]
 pub struct EnvelopeAddress(EnvelopeAddress5321);
+
+impl std::fmt::Debug for EnvelopeAddress {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(fmt, "<{}>", self.0.to_string())
+    }
+}
 
 #[cfg(feature = "impl")]
 impl FromLua for EnvelopeAddress {
