@@ -134,10 +134,10 @@ The following values are pre-defined in the context:
     as `domain_part`, but may be different if you are using advanced queue
     name assignment).
   * `routing_domain` - the routing domain portion of the queue (may be nil).
-  * `local_part` - the user mailbox portion of the envelope recipient email address.
+  * `local_part` - the user mailbox portion of the envelope recipient email address. See [address.user](../../address/user.md) for the semantics of how this is produced.
   * `domain_part` - the domain portion of the envelope recipient email address.
   * `email` - the full envelope recipient email address.
-  * `sender_local_part` the user mailbox portion of the envelope sender email address.
+  * `sender_local_part` the user mailbox portion of the envelope sender email address. See [address.user](../../address/user.md) for the semantics of how this is produced.
   * `sender_domain_part` the domain portion of the envelope sender email address.
   * `sender_email` the full envelope sender email address.
 

@@ -2,13 +2,13 @@
 //! from an email message
 use crate::rfc5965::{
     extract_headers, extract_single, extract_single_conv, extract_single_req, DateTimeRfc2822,
-    EnvelopeAddress,
 };
 use crate::{JsonLogRecord, RecordType};
 use anyhow::{anyhow, Context};
 use bstr::{BStr, BString, ByteSlice};
 use chrono::{DateTime, Utc};
 use mailparsing::MimePart;
+use rfc5321::EnvelopeAddress;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::str::FromStr;
@@ -177,7 +177,11 @@ impl FromStr for Recipient {
             .ok_or_else(|| anyhow!("expected 'recipient-type; recipient', got {input}"))?;
 
         let recipient = if recipient_type == "rfc822" {
-            recipient.trim().parse::<EnvelopeAddress>()?.into_inner()
+            recipient
+                .trim()
+                .parse::<EnvelopeAddress>()
+                .map_err(|err| anyhow!("{err}"))?
+                .to_string()
         } else {
             recipient.trim().to_string()
         };

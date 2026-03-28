@@ -1,21 +1,25 @@
+use anyhow::anyhow;
 use bstr::{BStr, BString, ByteSlice};
 use config::any_err;
-use dns_resolver::DomainClassification;
 use mailparsing::{Address, AddressList, EncodeHeaderValue, Mailbox};
 #[cfg(feature = "impl")]
 use mlua::{FromLua, MetaMethod, UserData, UserDataFields, UserDataMethods};
-use rfc5321::{ForwardPath, ReversePath};
+use rfc5321::{EnvelopeAddress as EnvelopeAddress5321, ForwardPath, ReversePath};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq)]
 #[serde(transparent)]
-pub struct EnvelopeAddress(String);
+pub struct EnvelopeAddress(EnvelopeAddress5321);
 
 #[cfg(feature = "impl")]
 impl FromLua for EnvelopeAddress {
     fn from_lua(value: mlua::Value, lua: &mlua::Lua) -> mlua::Result<Self> {
         match value {
-            mlua::Value::String(s) => EnvelopeAddress::parse(&s.to_str()?).map_err(any_err),
+            mlua::Value::String(s) => s
+                .to_str()?
+                .parse::<EnvelopeAddress5321>()
+                .map_err(any_err)
+                .map(Self),
             _ => {
                 let ud = mlua::UserDataRef::<EnvelopeAddress>::from_lua(value, lua)?;
                 Ok(ud.clone())
@@ -26,53 +30,29 @@ impl FromLua for EnvelopeAddress {
 
 impl EnvelopeAddress {
     pub fn parse(text: &str) -> anyhow::Result<Self> {
-        if text.is_empty() {
-            Ok(Self::null_sender())
-        } else {
-            let fields: Vec<&str> = text.split('@').collect();
-            anyhow::ensure!(
-                fields.len() == 2,
-                "Invalid EnvelopeAddress value {text}: expected user@domain form, \
-                but after splitting by @ there are {} fields",
-                fields.len()
-            );
-            // TODO: stronger validation of local part and domain
-            let domain = &fields[1];
-            Self::validate_domain(domain)?;
-            Ok(Self(text.to_string()))
+        let addr = text
+            .parse::<EnvelopeAddress5321>()
+            .map_err(|err| anyhow!("{err}"))?;
+        Ok(Self(addr))
+    }
+
+    pub fn user(&self) -> String {
+        match &self.0 {
+            EnvelopeAddress5321::Postmaster => "postmaster".to_string(),
+            EnvelopeAddress5321::Null => "".to_string(),
+            EnvelopeAddress5321::Path(path) => path.mailbox.local_part().into(),
         }
     }
 
-    fn validate_domain(domain: &str) -> anyhow::Result<()> {
-        // Ensure that there are no port numbers in the domain portion.
-        // These are no allowed by SMTP. We don't allow them during
-        // RCPT TO in the incoming SMTP, but it is possible for
-        // addresses to be constructed in a few other code paths,
-        // so it is prudent to explicitly validate that here
-        let classified = DomainClassification::classify(domain)?;
-        if classified.has_port() {
-            anyhow::bail!("EnvelopeAddress does not allow port numbers in the domain ({domain})");
-        }
-
-        Ok(())
-    }
-
-    pub fn user(&self) -> &str {
-        match self.0.find('@') {
-            Some(at) => &self.0[..at],
-            None => "",
-        }
-    }
-
-    pub fn domain(&self) -> &str {
-        match self.0.find('@') {
-            Some(at) => &self.0[at + 1..],
-            None => "",
+    pub fn domain(&self) -> String {
+        match &self.0 {
+            EnvelopeAddress5321::Postmaster | EnvelopeAddress5321::Null => "".to_string(),
+            EnvelopeAddress5321::Path(path) => path.mailbox.domain.to_string(),
         }
     }
 
     pub fn null_sender() -> Self {
-        Self("".to_string())
+        Self(EnvelopeAddress5321::Null)
     }
 
     pub fn to_string(&self) -> String {
@@ -113,20 +93,20 @@ impl TryInto<EnvelopeAddress> for &Address {
 impl TryInto<ForwardPath> for EnvelopeAddress {
     type Error = String;
     fn try_into(self) -> Result<ForwardPath, Self::Error> {
-        ForwardPath::try_from(self.0.as_str())
+        self.0.try_into()
     }
 }
 
 impl TryInto<ReversePath> for EnvelopeAddress {
     type Error = String;
     fn try_into(self) -> Result<ReversePath, Self::Error> {
-        ReversePath::try_from(self.0.as_str())
+        self.0.try_into()
     }
 }
 
 impl From<ForwardPath> for EnvelopeAddress {
     fn from(fp: ForwardPath) -> EnvelopeAddress {
-        EnvelopeAddress(fp.to_string())
+        EnvelopeAddress(fp.into())
     }
 }
 
@@ -361,7 +341,14 @@ mod test {
     fn no_ports_in_domain() {
         k9::snapshot!(
             EnvelopeAddress::parse("user@example.com:2025").unwrap_err(),
-            "EnvelopeAddress does not allow port numbers in the domain (example.com:2025)"
+            "
+ --> 1:17
+  |
+1 | user@example.com:2025
+  |                 ^---
+  |
+  = expected EOI, alpha, digit, or utf8_non_ascii
+"
         );
     }
 }

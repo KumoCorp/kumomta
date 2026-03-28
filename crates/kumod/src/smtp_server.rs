@@ -2114,7 +2114,13 @@ impl SmtpServerSession {
                 Ok(Command::XClient(params)) => {
                     self.process_xclient(&params).await?;
                 }
-                Ok(Command::Vrfy(_) | Command::Expn(_) | Command::Help(_) | Command::Lhlo(_)) => {
+                Ok(
+                    Command::Vrfy(_)
+                    | Command::Expn(_)
+                    | Command::Help(_)
+                    | Command::Lhlo(_)
+                    | Command::RawLine(_),
+                ) => {
                     self.write_response(
                         502,
                         format!("5.5.1 Command unimplemented"),

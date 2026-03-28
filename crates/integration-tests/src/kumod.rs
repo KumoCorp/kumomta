@@ -1,7 +1,7 @@
 #![cfg(test)]
 use crate::tsa::{TsaArgs, TsaDaemon};
 use crate::webhook::WebHookServer;
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use futures::stream::FusedStream;
 use futures::{SinkExt, StreamExt};
 use kumo_api_client::KumoApiClient;
@@ -110,8 +110,8 @@ impl MailGenParams<'_> {
 
         Ok(client
             .send_mail(
-                ReversePath::try_from(sender).unwrap(),
-                ForwardPath::try_from(recip).unwrap(),
+                ReversePath::try_from(sender).map_err(|err| anyhow!("invalid sender: {err}"))?,
+                ForwardPath::try_from(recip).map_err(|err| anyhow!("invalid recipient: {err}"))?,
                 &body,
             )
             .await?)

@@ -9,6 +9,12 @@
    `msg:dkim_verify()` and check the signatures and compare their
    domains against the message and take whatever action is appropriate
    to your policy.
+ * [address.user](../reference/address/user.md) now returns the *normalized
+   local part* rather than the raw local part.  This affects the uncommon
+   quoted local part form of an address, such as `"quoted"@example.com`.
+   This behavior also applies to the local part values that are used
+   to construct [Advanced Maildir
+   Paths](../reference/kumo/make_queue_config/protocol.md#advanced-maildir-path).
 
 ## Other Changes and Enhancements
 
@@ -45,3 +51,5 @@
  * smtp server: invalid addresses passed to MAIL FROM or RCPT TO would result
    in a 421 response instead of the more appropriate 501 permanent failure
    response. #495
+ * smtp server: uncommon quoted local parts containing the `@` sign are now
+   accepted by the envelope address parser. #495
