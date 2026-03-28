@@ -170,6 +170,7 @@ end)
 
         let output = tokio::process::Command::new(find_kumod())
             .args(["--user", &me.name, "--policy", script, "--script"])
+            .env("KUMOD_LOG", "error,lua=info")
             .output()
             .await?;
 

@@ -5,6 +5,7 @@ use crate::types::policy::Policy;
 use crate::types::report_failure::ReportFailure;
 use crate::types::results::{Disposition, DispositionWithContext};
 use crate::{DmarcContext, SenderDomainAlignment};
+use bstr::{BStr, ByteSlice};
 use std::str::FromStr;
 
 #[derive(Debug)]
@@ -36,10 +37,12 @@ impl Record {
         match self.align_dkim {
             Mode::Relaxed => {
                 for dkim in cx.dkim {
-                    if let Some(result) = dkim.get("header.d") {
+                    if let Some(result) = dkim.get("header.d".as_bytes()) {
                         let organizational_domain = psl::domain_str(cx.from_domain);
 
-                        if cx.from_domain != result && organizational_domain != Some(result) {
+                        if cx.from_domain != result
+                            && organizational_domain.map(BStr::new) != Some(result.as_bstr())
+                        {
                             return DispositionWithContext {
                                 result: self.select_failure_mode(sender_location),
                                 context: "DMARC: DKIM relaxed check failed".into(),
@@ -55,7 +58,7 @@ impl Record {
             }
             Mode::Strict => {
                 for dkim in cx.dkim {
-                    if let Some(result) = dkim.get("header.d") {
+                    if let Some(result) = dkim.get("header.d".as_bytes()) {
                         if cx.from_domain != result {
                             return DispositionWithContext {
                                 result: self.select_failure_mode(sender_location),

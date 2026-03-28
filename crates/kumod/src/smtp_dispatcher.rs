@@ -4,19 +4,18 @@ use crate::http_server::admin_trace_smtp_client_v1::{
 };
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::{IncrementAttempts, InsertReason, QueueManager, QueueState};
-use crate::ready_queue::{Dispatcher, QueueDispatcher};
-use crate::smtp_server::ShuttingDownError;
+use crate::ready_queue::{AttemptConnectionDisposition, Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
 use bounce_classify::{BounceClass, PreDefinedBounceClass};
 use config::{load_config, CallbackSignature};
 use data_loader::KeySource;
-use dns_resolver::{has_colon_port, resolve_a_or_aaaa, ResolvedMxAddresses};
+use dns_resolver::{has_colon_port, resolve_a_or_aaaa, IpLookupStrategy, ResolvedMxAddresses};
 use kumo_address::socket::SocketAddress;
 use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls};
 use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
-use kumo_server_lifecycle::ShutdownSubcription;
+use kumo_server_lifecycle::{ShutdownSubcription, ShuttingDownError};
 use kumo_server_runtime::spawn;
 use message::message::QueueNameComponents;
 use message::Message;
@@ -43,13 +42,13 @@ lruttl::declare_cache! {
 static CLIENT_CERT: LruCacheWithTtl<KeySource, Result<Option<Arc<Box<[u8]>>>, String>>::new("smtp_dispatcher_client_certificate", 1024);
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
 pub struct SmtpProtocol {
     #[serde(default)]
     pub mx_list: Vec<MxListEntry>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(untagged)]
 pub enum MxListEntry {
     /// A name that needs to be resolved to its A or AAAA record in DNS,
@@ -63,11 +62,15 @@ pub enum MxListEntry {
 impl MxListEntry {
     /// Resolve self into 1 or more `ResolvedAddress` and append to the
     /// supplied `addresses` vector.
-    pub async fn resolve_into(&self, addresses: &mut Vec<ResolvedAddress>) -> anyhow::Result<()> {
+    pub async fn resolve_into(
+        &self,
+        addresses: &mut Vec<ResolvedAddress>,
+        strategy: IpLookupStrategy,
+    ) -> anyhow::Result<()> {
         match self {
             Self::Name(a) => {
                 if let Some((label, port)) = has_colon_port(a) {
-                    let resolved = resolve_a_or_aaaa(label, None)
+                    let resolved = resolve_a_or_aaaa(label, None, strategy)
                         .await
                         .with_context(|| format!("resolving mx_list entry {a}"))?;
                     for mut r in resolved {
@@ -79,7 +82,7 @@ impl MxListEntry {
                 }
 
                 addresses.append(
-                    &mut resolve_a_or_aaaa(a, None)
+                    &mut resolve_a_or_aaaa(a, None, strategy)
                         .await
                         .with_context(|| format!("resolving mx_list entry {a}"))?,
                 );
@@ -127,20 +130,6 @@ pub struct OpportunisticInsecureTlsHandshakeError {
     pub label: String,
 }
 
-impl OpportunisticInsecureTlsHandshakeError {
-    pub fn is_match_anyhow(err: &anyhow::Error) -> bool {
-        Self::is_match(err.root_cause())
-    }
-
-    pub fn is_match(err: &(dyn std::error::Error + 'static)) -> bool {
-        if let Some(cause) = err.source() {
-            return Self::is_match(cause);
-        } else {
-            err.downcast_ref::<Self>().is_some()
-        }
-    }
-}
-
 impl SmtpDispatcher {
     pub async fn init(
         dispatcher: &mut Dispatcher,
@@ -163,12 +152,13 @@ impl SmtpDispatcher {
                 .mx
                 .as_ref()
                 .expect("to have mx when doing smtp")
-                .resolve_addresses()
+                .resolve_addresses(path_config.ip_lookup_strategy)
                 .await
         } else {
             let mut addresses = vec![];
             for a in proto_config.mx_list.iter() {
-                a.resolve_into(&mut addresses).await?;
+                a.resolve_into(&mut addresses, path_config.ip_lookup_strategy)
+                    .await?;
             }
             // Note that ResolvedMxAddresses::Addresses is in LIFO
             // order, and we have FIFO order.  Reverse it!
@@ -262,13 +252,15 @@ impl SmtpDispatcher {
             dispatcher
                 .bulk_ready_queue_operation(
                     Response {
-                        code: 550,
+                        code: 451,
                         enhanced_code: Some(EnhancedStatusCode {
-                            class: 5,
+                            class: 4,
                             subject: 4,
                             detail: 4,
                         }),
-                        content: "MX consisted solely of hosts on the skip_hosts list".to_string(),
+                        content:
+                            "KumoMTA internal: MX consisted solely of hosts on the skip_hosts list"
+                                .to_string(),
                         command: None,
                     },
                     InsertReason::MxWasSkipped.into(),
@@ -292,10 +284,86 @@ impl SmtpDispatcher {
         }))
     }
 
-    async fn attempt_connection_impl(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
-        if let Some(client) = &self.client {
+    async fn attempt_connection_impl(
+        &mut self,
+        dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<AttemptConnectionDisposition> {
+        if let Some(client) = &mut self.client {
             if client.is_connected() {
-                return Ok(());
+                // If we get a unilateral response here now it can either be:
+                // 1. a 421 advising us that the connection is being closed.
+                // 2. a protocol sync/deviation/conformance issue, and we must
+                //    therefore treat this as a closed connection.
+                // Errors that present here also indicate that the connection
+                // has closed.
+                //
+                // We want to surface these right now so that we can proceed with
+                // making a new connection, rather than returning this current
+                // connection that will immediately result in a transfail
+                // when we try sending a message through it.
+                match client.check_unilateral_response().await {
+                    Ok(None) => {
+                        // Still connected
+                        return Ok(AttemptConnectionDisposition::ReusedExisting);
+                    }
+                    Ok(Some(response)) => {
+                        // We got an explicit signal that the connection is closing
+                        // out.  We don't consider this to be a transport error
+                        // so we'll close the current connection.
+                        // If we've managed to send messages so far in this session,
+                        // then we're consider it to be a successful plan so we should
+                        // not advance to the next candidate in the plan and make a
+                        // new session.
+                        // However, if we haven't managed to send anything so far,
+                        // closing and restarting the plan now would likely lead to
+                        // a persistent recurrence of this same state, so in that
+                        // situation we need to ensure that the reconnect_strategy
+                        // is applied to decide what to do.
+                        tracing::debug!(
+                            "{} sent a unilateral response: \
+                            {response:?}, treating the connection as closed",
+                            dispatcher.name
+                        );
+                        // Decide whether this is a successful plan
+                        self.update_state_for_reconnect(dispatcher);
+
+                        // if so, we can/should close the current session and start
+                        // a new one with a fresh plan
+                        if self.terminated_ok {
+                            let _ = self.close_connection(dispatcher).await;
+                            return Ok(
+                                AttemptConnectionDisposition::PeerClosedConnectionNeedNewSession,
+                            );
+                        }
+
+                        // otherwise, continue to next candidate host if that is what
+                        // the reconnect_strategy indicates.
+                        // While this is a return that leaves this function,
+                        // our caller will typically continue its loop and call
+                        // back in, but on the next call we won't show as connected
+                        // and will instead reach the logic below to make a new
+                        // connection in the current session, if that is what
+                        // the reconnect_strategy indicated.
+                        return Ok(
+                            AttemptConnectionDisposition::PeerClosedConnectionContinueSession,
+                        );
+                    }
+                    Err(err) => {
+                        // We got a transport error of some kind.
+                        // update_state_for_reconnect applies any reconnect_strategy
+                        // which will decide whether we continue with the connection
+                        // plan or whether we need to go to a new session.
+                        tracing::debug!(
+                            "{} had error: {err:#} \
+                            while checking for liveness, treating it as closed",
+                            dispatcher.name
+                        );
+                        self.update_state_for_reconnect(dispatcher);
+                        return Ok(
+                            AttemptConnectionDisposition::PeerClosedConnectionContinueSession,
+                        );
+                    }
+                };
             }
         }
 
@@ -342,7 +410,7 @@ impl SmtpDispatcher {
                     tokio::select! {
                         _ = tokio::time::sleep(delay) => {},
                         _ = shutdown.shutting_down() => {
-                            return Err(ShuttingDownError.into());
+                            return Err(ShuttingDownError::new("waiting for max_connection_rate").into());
                         }
                     };
                 } else {
@@ -465,7 +533,7 @@ impl SmtpDispatcher {
         self.source_address.take();
         let (mut client, source_address) = tokio::select! {
             _ = shutdown.shutting_down() => {
-                return Err(ShuttingDownError.into());
+                return Err(ShuttingDownError::new("waiting for new connection").into());
             }
             result = make_connection => { result? },
         }
@@ -811,7 +879,7 @@ impl SmtpDispatcher {
             .replace(connection_wrapper.map_connection(client));
         self.client_address.replace(address);
         dispatcher.delivered_this_connection = 0;
-        Ok(())
+        Ok(AttemptConnectionDisposition::ConnectedNew)
     }
 
     async fn resolve_cached_client_cert(
@@ -937,7 +1005,10 @@ impl QueueDispatcher for SmtpDispatcher {
         self.terminated_ok
     }
 
-    async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+    async fn attempt_connection(
+        &mut self,
+        dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<AttemptConnectionDisposition> {
         self.attempt_connection_impl(dispatcher)
             .await
             .map_err(|err| {

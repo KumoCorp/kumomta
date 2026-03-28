@@ -1,4 +1,3 @@
-use crate::queue_summary::get_metrics;
 use crate::top::heatmap::HeatMap;
 use crate::top::histogram::*;
 use crate::top::sparkline::Sparkline;
@@ -6,6 +5,7 @@ use crate::top::timeseries::*;
 use crate::top::{Action, TopCommand, WhichTab};
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 use human_bytes::human_bytes;
+use kumo_api_client::KumoApiClient;
 use kumo_prometheus::parser::Metric;
 use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher};
@@ -163,11 +163,13 @@ impl State {
     }
 
     async fn update_metrics(&mut self, endpoint: &Url) -> anyhow::Result<()> {
-        match get_metrics::<Vec<()>, _>(endpoint, |m| {
-            self.accumulate_series(m);
-            None
-        })
-        .await
+        let client = KumoApiClient::new(endpoint.clone());
+        match client
+            .get_metrics::<Vec<()>, _>(|m| {
+                self.accumulate_series(m);
+                None
+            })
+            .await
         {
             Ok(_) => {
                 self.error.clear();

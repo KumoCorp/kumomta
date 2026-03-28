@@ -2,13 +2,14 @@ use crate::epoch::{get_current_epoch, ConfigEpoch};
 use crate::pool::{pool_get, pool_put};
 pub use crate::pool::{set_gc_on_put, set_max_age, set_max_spare, set_max_use};
 use anyhow::Context;
+use kumo_prometheus::declare_metric;
+use kumo_prometheus::prometheus::HistogramTimer;
 use mlua::{
     FromLua, FromLuaMulti, IntoLua, IntoLuaMulti, Lua, LuaSerdeExt, MetaMethod, RegistryKey, Table,
     UserData, UserDataMethods, Value,
 };
 use parking_lot::FairMutex as Mutex;
 pub use pastey as paste;
-use prometheus::{CounterVec, HistogramTimer, HistogramVec};
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -22,39 +23,37 @@ mod pool;
 
 static POLICY_FILE: LazyLock<Mutex<Option<PathBuf>>> = LazyLock::new(|| Mutex::new(None));
 static FUNCS: LazyLock<Mutex<Vec<RegisterFunc>>> = LazyLock::new(|| Mutex::new(vec![]));
-static LUA_LOAD_COUNT: LazyLock<metrics::Counter> = LazyLock::new(|| {
-    metrics::describe_counter!(
-        "lua_load_count",
-        "how many times the policy lua script has been \
-         loaded into a new context"
-    );
-    metrics::counter!("lua_load_count")
-});
-static LUA_COUNT: LazyLock<metrics::Gauge> = LazyLock::new(|| {
-    metrics::describe_gauge!("lua_count", "the number of lua contexts currently alive");
-    metrics::gauge!("lua_count")
-});
+
+declare_metric! {
+/// how many times the policy lua script has been loaded into a new context
+static LUA_LOAD_COUNT: IntCounter("lua_load_count");
+}
+
+declare_metric! {
+/// the number of lua contexts currently alive
+static LUA_COUNT: IntGauge("lua_count");
+}
+
 static CALLBACK_ALLOWS_MULTIPLE: LazyLock<Mutex<HashSet<String>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 
 pub static VALIDATE_ONLY: AtomicBool = AtomicBool::new(false);
 pub static VALIDATION_FAILED: AtomicBool = AtomicBool::new(false);
-static LATENCY_HIST: LazyLock<HistogramVec> = LazyLock::new(|| {
-    prometheus::register_histogram_vec!(
+
+declare_metric! {
+/// how long a given lua event callback took
+static LATENCY_HIST: HistogramVec(
         "lua_event_latency",
-        "how long a given lua event callback took",
-        &["event"]
-    )
-    .unwrap()
-});
-static EVENT_STARTED_COUNT: LazyLock<CounterVec> = LazyLock::new(|| {
-    prometheus::register_counter_vec!(
+        &["event"]);
+}
+
+declare_metric! {
+/// Incremented each time we start to call a lua event callback. Use lua_event_latency_count to track completed events
+static EVENT_STARTED_COUNT: CounterVec(
         "lua_event_started",
-        "Incremented each time we start to call a lua event callback. Use lua_event_latency_count to track completed events",
         &["event"]
-    )
-    .unwrap()
-});
+    );
+}
 
 pub type RegisterFunc = fn(&Lua) -> anyhow::Result<()>;
 
@@ -79,7 +78,7 @@ struct LuaConfigInner {
 
 impl Drop for LuaConfigInner {
     fn drop(&mut self) {
-        LUA_COUNT.decrement(1.);
+        LUA_COUNT.dec();
     }
 }
 
@@ -119,7 +118,7 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
         return Ok(pool);
     }
 
-    LUA_LOAD_COUNT.increment(1);
+    LUA_LOAD_COUNT.inc();
     let lua = Lua::new();
     let created = Instant::now();
     let epoch = get_current_epoch();
@@ -169,7 +168,7 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
         let _timer = latency_timer("context-creation");
         func.call_async::<()>(()).await?;
     }
-    LUA_COUNT.increment(1.);
+    LUA_COUNT.inc();
 
     Ok(LuaConfig {
         inner: Some(LuaConfigInner {

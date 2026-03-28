@@ -300,6 +300,7 @@ TOC = [
                     ),
                     Page("Routing Messages via AMQP", "userguide/policy/amqp.md"),
                     Page("Routing Messages via Kafka", "userguide/policy/kafka.md"),
+                    Page("Routing Messages via NATS", "userguide/policy/nats.md"),
                     Page(
                         "Storing Secrets in Hashicorp Vault",
                         "userguide/policy/hashicorp_vault.md",
@@ -337,6 +338,10 @@ TOC = [
                     Page(
                         "Deploying KumoMTA on Kubernetes",
                         "userguide/clustering/kubernetes.md",
+                    ),
+                    Page(
+                        "Node ID",
+                        "userguide/clustering/nodeid.md",
                     ),
                 ],
             ),
@@ -467,6 +472,10 @@ TOC = [
                 "reference/kumo.kafka",
             ),
             Gen(
+                "module: kumo.nats",
+                "reference/kumo.nats",
+            ),
+            Gen(
                 "module: kumo.mimepart",
                 "reference/kumo.mimepart",
             ),
@@ -527,6 +536,10 @@ TOC = [
                 "reference/policy-extras.mail_auth",
             ),
             Gen(
+                "module: proxy",
+                "reference/proxy",
+            ),
+            Gen(
                 "module: tsa",
                 "reference/tsa",
             ),
@@ -571,6 +584,17 @@ TOC = [
                 "reference/events",
             ),
             Gen("kumod HTTP API", "reference/http/kumod", extract_title=True),
+            Gen("kumod Metrics", "reference/metrics/kumod", extract_title=True),
+            Gen(
+                "proxy-server HTTP API",
+                "reference/http/proxy-server",
+                extract_title=True,
+            ),
+            Gen(
+                "proxy-server Metrics",
+                "reference/metrics/proxy-server",
+                extract_title=True,
+            ),
             RustDoc(
                 "Internal Rust API",
                 "rustapi",

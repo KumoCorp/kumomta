@@ -60,7 +60,7 @@ strings or numbers, but may also be an array or object value.
 
 ### `conn_meta:auth_info()`
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 Returns a *read-only copy* of the [AuthInfo](kumo.aaa/auth_info.md) object
 for the current session, which can be used in a call to

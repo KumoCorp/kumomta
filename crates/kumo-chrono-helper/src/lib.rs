@@ -1,5 +1,4 @@
-pub use chrono;
-pub use chrono::{DateTime, TimeZone, Utc};
+pub use chrono::{self, DateTime, TimeZone, Utc};
 
 // chrono has a slightly awkward API that returns Option<T> in
 // a few cases; for small constant values it makes the call site

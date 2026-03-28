@@ -1,7 +1,7 @@
 use crate::delivery_metrics::MetricsWrappedConnection;
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::{DeliveryProto, QueueConfig, QueueManager};
-use crate::ready_queue::{Dispatcher, QueueDispatcher};
+use crate::ready_queue::{AttemptConnectionDisposition, Dispatcher, QueueDispatcher};
 use crate::smtp_server::{default_hostname, TraceHeaders};
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -15,6 +15,7 @@ use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::AtomicCounter;
 use kumo_server_common::authn_authz::AuthInfo;
 use kumo_server_common::http_server::{AppError, AppState};
+use kumo_server_lifecycle::Activity;
 use kumo_server_runtime::{Runtime, RUNTIME};
 use kumo_template::{CompiledTemplates, TemplateDialect, TemplateEngine, TemplateList};
 use mailparsing::{AddrSpec, Address, EncodeHeaderValue, Mailbox, MessageBuilder, MimePart};
@@ -140,7 +141,7 @@ pub struct InjectV1Request {
     ///
     /// |Behavior|Version|
     /// |--------|-------|
-    /// |The per-recipient `To` header will not be generated|{{since('dev', inline=True)}}|
+    /// |The per-recipient `To` header will not be generated|{{since('2026.03.04-bb93ecb1', inline=True)}}|
     /// |Two `To` headers will be generated|All previous versions|
     pub recipients: Vec<Recipient>,
 
@@ -402,7 +403,7 @@ pub enum Content {
         html_body: Option<String>,
 
         /// If set, will be used to create a text/x-amp-html part.
-        /// This is available {{since('dev', inline=True)}}
+        /// This is available {{since('2026.03.04-bb93ecb1', inline=True)}}
         #[serde(default)]
         #[schema(example = "<!doctype html><html amp4email>...</html>")]
         amp_html_body: Option<String>,
@@ -555,7 +556,7 @@ impl<'a> Compiled<'a> {
 
                 if need_to {
                     builder.set_to(Address::Mailbox(Mailbox {
-                        name: recip.name.clone(),
+                        name: recip.name.clone().map(Into::into),
                         address: AddrSpec::parse(&recip.email)?,
                     }))?;
                 }
@@ -587,16 +588,18 @@ impl InjectV1Request {
             } => {
                 if let Some(from) = from {
                     let mailbox = Address::Mailbox(Mailbox {
-                        name: from.name.clone(),
-                        address: AddrSpec::parse(&from.email)?,
+                        name: from.name.clone().map(Into::into),
+                        address: AddrSpec::parse(&from.email)
+                            .context("failed parsing content.from")?,
                     });
 
                     headers.insert("From".to_string(), mailbox.encode_value().to_string());
                 }
                 if let Some(reply_to) = reply_to {
                     let mailbox = Address::Mailbox(Mailbox {
-                        name: reply_to.name.clone(),
-                        address: AddrSpec::parse(&reply_to.email)?,
+                        name: reply_to.name.clone().map(Into::into),
+                        address: AddrSpec::parse(&reply_to.email)
+                            .context("failed parsing content.reply_to")?,
                     });
                     headers.insert("Reply-To".to_string(), mailbox.encode_value().to_string());
                 }
@@ -710,9 +713,9 @@ impl InjectV1Request {
                 let mut attached = vec![];
                 for a in attachments {
                     let opts = mailparsing::AttachmentOptions {
-                        file_name: a.file_name.clone(),
+                        file_name: a.file_name.clone().map(|s| s.into()),
                         inline: a.content_id.is_some(),
-                        content_id: a.content_id.clone(),
+                        content_id: a.content_id.clone().map(Into::into),
                     };
 
                     let decoded_data;
@@ -942,6 +945,15 @@ async fn queue_deferred(
     })
 }
 
+fn content_syntax_err(err: anyhow::Error) -> AppError {
+    // UNPROCESSABLE_ENTITY is the label assigned by reqwest for a 422
+    // error response, but the spec refers to it as Unprocessable Content:
+    // <https://datatracker.ietf.org/doc/html/rfc9110#section-15.5.21>
+    // The JSON in the request is well-formed, but the template
+    // content has syntax errors
+    AppError::new(StatusCode::UNPROCESSABLE_ENTITY, format!("{err:#}"))
+}
+
 async fn inject_v1_impl(
     auth: AuthInfo,
     sender: EnvelopeAddress,
@@ -950,7 +962,9 @@ async fn inject_v1_impl(
     via_address: Option<IpAddr>,
     hostname: Option<String>,
 ) -> Result<Json<InjectV1Response>, AppError> {
-    request.normalize()?;
+    request.normalize().map_err(content_syntax_err)?;
+
+    let compiled = request.compile().map_err(content_syntax_err)?;
 
     if request.deferred_generation {
         return Ok(Json(
@@ -958,7 +972,6 @@ async fn inject_v1_impl(
         ));
     }
 
-    let compiled = request.compile()?;
     let mut success_count = 0;
     let mut fail_count = 0;
     let mut errors = vec![];
@@ -1077,6 +1090,43 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Grab an Activity handle for an HTTP injection task.
+/// It will generate 503 errors if the service hasn't fully started,
+/// is shutting down, memory is low, or the disk is too full.
+pub fn activity_for_peer(
+    label: &str,
+    peer_address: impl std::fmt::Debug,
+) -> Result<Activity, AppError> {
+    let Some(activity) = Activity::get_opt(format!("{label} for {peer_address:?}")) else {
+        return Err(AppError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "shutting down",
+        ));
+    };
+
+    if kumo_server_memory::get_headroom() == 0 {
+        // Using too much memory
+        return Err(AppError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "load shedding",
+        ));
+    }
+    if kumo_server_common::disk_space::is_over_limit() {
+        return Err(AppError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "disk is too full",
+        ));
+    }
+    if !SpoolManager::get().spool_started() {
+        return Err(AppError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "waiting for spool startup",
+        ));
+    }
+
+    Ok(activity)
+}
+
 /// Inject a message using a given message body, with template expansion,
 /// to a list of recipients.
 /// Both message assembly and templating are supported, and multiple recipients
@@ -1163,7 +1213,8 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     path="/api/inject/v1",
     request_body=InjectV1Request,
     responses(
-        (status = 200, description = "Message(s) injected successfully", body=InjectV1Response)
+        (status = 200, description = "Message(s) injected successfully", body=InjectV1Response),
+        (status = 422, description = "One or more fields in the content section have syntax errors"),
     ),
 )]
 pub async fn inject_v1(
@@ -1173,19 +1224,7 @@ pub async fn inject_v1(
     // Note: Json<> must be last in the param list
     Json(request): Json<InjectV1Request>,
 ) -> Result<Json<InjectV1Response>, AppError> {
-    if kumo_server_memory::get_headroom() == 0 {
-        // Using too much memory
-        return Err(AppError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "load shedding",
-        ));
-    }
-    if kumo_server_common::disk_space::is_over_limit() {
-        return Err(AppError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "disk is too full",
-        ));
-    }
+    let activity = activity_for_peer("inject_v1", peer_address)?;
 
     let limit = LIMIT.load();
     if let Some(limit) = limit.as_ref() {
@@ -1218,7 +1257,10 @@ pub async fn inject_v1(
     let hostname = Some(app_state.params().hostname.to_string());
 
     pool.spawn(format!("http inject_v1 for {peer_address:?}"), async move {
-        inject_v1_impl(auth, sender, peer_address, request, via_address, hostname).await
+        let result =
+            inject_v1_impl(auth, sender, peer_address, request, via_address, hostname).await;
+        drop(activity);
+        result
     })?
     .await?
 }
@@ -1297,12 +1339,17 @@ impl QueueDispatcher for HttpInjectionGeneratorDispatcher {
             None => Ok(false),
         }
     }
-    async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+    async fn attempt_connection(
+        &mut self,
+        dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<AttemptConnectionDisposition> {
         if self.connection.is_none() {
             self.connection
                 .replace(dispatcher.metrics.wrap_connection(()));
+            Ok(AttemptConnectionDisposition::ConnectedNew)
+        } else {
+            Ok(AttemptConnectionDisposition::ReusedExisting)
         }
-        Ok(())
     }
     async fn have_more_connection_candidates(&mut self, _dispatcher: &mut Dispatcher) -> bool {
         false

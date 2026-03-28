@@ -1,11 +1,12 @@
+use bstr::ByteSlice;
 use nom::error::{ContextError, ErrorKind};
 use nom_locate::LocatedSpan;
 use std::fmt::{Debug, Write};
 
-pub(crate) type Span<'a> = LocatedSpan<&'a str>;
+pub(crate) type Span<'a> = LocatedSpan<&'a [u8]>;
 pub(crate) type IResult<'a, A, B> = nom::IResult<A, B, ParseError<Span<'a>>>;
 
-pub fn make_span(s: &'_ str) -> Span<'_> {
+pub fn make_span(s: &'_ [u8]) -> Span<'_> {
     Span::new(s)
 }
 
@@ -81,20 +82,22 @@ pub fn explain_nom(input: Span, err: nom::Err<ParseError<Span<'_>>>) -> String {
     match err {
         nom::Err::Error(e) => {
             let mut result = String::new();
-            for (i, (span, kind)) in e.errors.iter().enumerate() {
+            let mut lines_shown = vec![];
+
+            for (span, kind) in e.errors.iter() {
                 if input.is_empty() {
                     match kind {
                         ParseErrorKind::Char(c) => {
-                            write!(&mut result, "{i}: expected '{c}', got empty input\n\n")
+                            write!(&mut result, "Error expected '{c}', got empty input\n\n")
                         }
                         ParseErrorKind::Context(s) => {
-                            write!(&mut result, "{i}: in {s}, got empty input\n\n")
+                            write!(&mut result, "Error in {s}, got empty input\n\n")
                         }
                         ParseErrorKind::External { kind, reason } => {
-                            write!(&mut result, "{i}: {reason} {kind:?}, got empty input\n\n")
+                            write!(&mut result, "Error {reason} {kind:?}, got empty input\n\n")
                         }
                         ParseErrorKind::Nom(e) => {
-                            write!(&mut result, "{i}: in {e:?}, got empty input\n\n")
+                            write!(&mut result, "Error in {e:?}, got empty input\n\n")
                         }
                     }
                     .ok();
@@ -102,21 +105,33 @@ pub fn explain_nom(input: Span, err: nom::Err<ParseError<Span<'_>>>) -> String {
                 }
 
                 let line_number = span.location_line();
-                let line = std::str::from_utf8(span.get_line_beginning())
-                    .unwrap_or("<INVALID: line slice is not utf8!>");
+                let input_line = span.get_line_beginning();
                 // Remap \t in particular, because it can render as multiple
                 // columns and defeat the column number calculation provided
                 // by the Span type
-                let line: String = line
-                    .chars()
-                    .map(|c| match c {
+                let mut line = String::new();
+                for (start, end, c) in input_line.char_indices() {
+                    let c = match c {
                         '\t' => '\u{2409}',
                         '\r' => '\u{240d}',
                         '\n' => '\u{240a}',
-                        _ => c,
-                    })
-                    .collect();
+                        c => c,
+                    };
+
+                    if c == std::char::REPLACEMENT_CHARACTER {
+                        let bytes = &input_line[start..end];
+                        for b in bytes.iter() {
+                            line.push_str(&format!("\\x{b:02X}"));
+                        }
+                    } else {
+                        line.push(c);
+                    }
+                }
+
                 let column = span.get_utf8_column();
+
+                lines_shown.push(line_number);
+
                 let mut caret = " ".repeat(column.saturating_sub(1));
                 caret.push('^');
                 for _ in 1..span.fragment().len() {
@@ -128,7 +143,7 @@ pub fn explain_nom(input: Span, err: nom::Err<ParseError<Span<'_>>>) -> String {
                         if let Some(actual) = span.fragment().chars().next() {
                             write!(
                                 &mut result,
-                                "{i}: at line {line_number}:\n\
+                                "Error at line {line_number}:\n\
                                     {line}\n\
                                     {caret}\n\
                                     expected '{expected}', found {actual}\n\n",
@@ -136,7 +151,7 @@ pub fn explain_nom(input: Span, err: nom::Err<ParseError<Span<'_>>>) -> String {
                         } else {
                             write!(
                                 &mut result,
-                                "{i}: at line {line_number}:\n\
+                                "Error at line {line_number}:\n\
                                     {line}\n\
                                     {caret}\n\
                                     expected '{expected}', got end of input\n\n",
@@ -144,17 +159,12 @@ pub fn explain_nom(input: Span, err: nom::Err<ParseError<Span<'_>>>) -> String {
                         }
                     }
                     ParseErrorKind::Context(context) => {
-                        write!(
-                            &mut result,
-                            "{i}: at line {line_number}, in {context}:\n\
-                                {line}\n\
-                                {caret}\n\n",
-                        )
+                        write!(&mut result, "while parsing {context}\n")
                     }
-                    ParseErrorKind::External { kind, reason } => {
+                    ParseErrorKind::External { kind: _, reason } => {
                         write!(
                             &mut result,
-                            "{i}: at line {line_number}, {reason} {kind:?}:\n\
+                            "Error at line {line_number}, {reason}:\n\
                                 {line}\n\
                                 {caret}\n\n",
                         )
@@ -162,7 +172,7 @@ pub fn explain_nom(input: Span, err: nom::Err<ParseError<Span<'_>>>) -> String {
                     ParseErrorKind::Nom(nom_err) => {
                         write!(
                             &mut result,
-                            "{i}: at line {line_number}, in {nom_err:?}:\n\
+                            "Error at line {line_number}, in {nom_err:?}:\n\
                                 {line}\n\
                                 {caret}\n\n",
                         )

@@ -4,7 +4,7 @@
 message:increment_num_attempts()
 ```
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 This method increments the number of attempts recorded in the message.
 

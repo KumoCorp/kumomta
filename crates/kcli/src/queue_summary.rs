@@ -1,10 +1,7 @@
 use clap::Parser;
 use dns_resolver::MailExchanger;
-use futures::StreamExt;
-use kumo_api_types::{
-    BounceV1ListEntry, ReadyQueueStateResponse, SuspendReadyQueueV1ListEntry, SuspendV1ListEntry,
-};
-use kumo_prometheus::parser::Metric;
+use kumo_api_client::KumoApiClient;
+use kumo_api_types::ReadyQueueStateRequest;
 use lexicmp::natural_lexical_cmp;
 use message::message::QueueNameComponents;
 use num_format::{Locale, ToFormattedString};
@@ -143,31 +140,6 @@ impl ScheduledQueueMetrics {
     }
 }
 
-pub async fn get_metrics<T, F: FnMut(&Metric) -> Option<T>>(
-    endpoint: &Url,
-    mut filter_map: F,
-) -> anyhow::Result<Vec<T>> {
-    let mut parser = kumo_prometheus::parser::Parser::new();
-    let mut stream = crate::request_with_streaming_text_response(
-        reqwest::Method::GET,
-        endpoint.join("/metrics")?,
-        &(),
-    )
-    .await?;
-
-    let mut result = vec![];
-    while let Some(item) = stream.next().await {
-        let bytes = item?;
-        parser.push_bytes(bytes, false, |m| {
-            if let Some(r) = (filter_map)(&m) {
-                result.push(r);
-            }
-        })?;
-    }
-
-    Ok(result)
-}
-
 pub struct QueueMetricsParams {
     pub by_volume: bool,
 }
@@ -180,53 +152,55 @@ pub struct QueueMetrics {
 impl QueueMetrics {
     pub async fn obtain(endpoint: &Url, params: QueueMetricsParams) -> anyhow::Result<Self> {
         let mut ready = HashMap::new();
+        let client = KumoApiClient::new(endpoint.clone());
         let mut scheduled: HashMap<String, ScheduledQueueMetrics> = HashMap::new();
-        let _: Vec<()> = get_metrics(endpoint, |m| {
-            let name = m.name().as_str();
-            match name {
-                "connection_count"
-                | "total_messages_delivered"
-                | "total_messages_transfail"
-                | "ready_count" => {
-                    if let Some(service) = m.labels().get("service") {
-                        if let Some((_protocol, queue_name)) = service.split_once(":") {
-                            let value = m.value() as usize;
+        let _: Vec<()> = client
+            .get_metrics(|m| {
+                let name = m.name().as_str();
+                match name {
+                    "connection_count"
+                    | "total_messages_delivered"
+                    | "total_messages_transfail"
+                    | "ready_count" => {
+                        if let Some(service) = m.labels().get("service") {
+                            if let Some((_protocol, queue_name)) = service.split_once(":") {
+                                let value = m.value() as usize;
 
-                            let entry = ready
-                                .entry(queue_name.to_string())
-                                .or_insert_with(|| ReadyQueueMetrics::with_name(queue_name));
-                            match name {
-                                "connection_count" => {
-                                    entry.connection_count += value;
+                                let entry = ready
+                                    .entry(queue_name.to_string())
+                                    .or_insert_with(|| ReadyQueueMetrics::with_name(queue_name));
+                                match name {
+                                    "connection_count" => {
+                                        entry.connection_count += value;
+                                    }
+                                    "total_messages_delivered" => {
+                                        entry.delivered += value;
+                                    }
+                                    "total_messages_transfail" => {
+                                        entry.transfail += value;
+                                    }
+                                    "ready_count" => {
+                                        entry.queue_size += value;
+                                    }
+                                    _ => {}
                                 }
-                                "total_messages_delivered" => {
-                                    entry.delivered += value;
-                                }
-                                "total_messages_transfail" => {
-                                    entry.transfail += value;
-                                }
-                                "ready_count" => {
-                                    entry.queue_size += value;
-                                }
-                                _ => {}
                             }
                         }
                     }
-                }
-                "scheduled_count" => {
-                    if let Some(queue) = m.labels().get("queue") {
-                        let queue_size = m.value() as usize;
-                        let entry = scheduled
-                            .entry(queue.to_string())
-                            .or_insert_with(|| ScheduledQueueMetrics::with_name(queue));
-                        entry.queue_size += queue_size;
+                    "scheduled_count" => {
+                        if let Some(queue) = m.labels().get("queue") {
+                            let queue_size = m.value() as usize;
+                            let entry = scheduled
+                                .entry(queue.to_string())
+                                .or_insert_with(|| ScheduledQueueMetrics::with_name(queue));
+                            entry.queue_size += queue_size;
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
-            }
-            None
-        })
-        .await?;
+                None
+            })
+            .await?;
 
         let mut ready_metrics: Vec<ReadyQueueMetrics> = ready.into_values().collect();
 
@@ -259,33 +233,13 @@ impl QueueMetrics {
 
 impl QueueSummaryCommand {
     pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
-        let suspended_domains: Vec<SuspendV1ListEntry> = crate::request_with_json_response(
-            reqwest::Method::GET,
-            endpoint.join("/api/admin/suspend/v1")?,
-            &(),
-        )
-        .await?;
-
-        let bounced_domains: Vec<BounceV1ListEntry> = crate::request_with_json_response(
-            reqwest::Method::GET,
-            endpoint.join("/api/admin/bounce/v1")?,
-            &(),
-        )
-        .await?;
-
-        let suspended_sites: Vec<SuspendReadyQueueV1ListEntry> = crate::request_with_json_response(
-            reqwest::Method::GET,
-            endpoint.join("/api/admin/suspend-ready-q/v1")?,
-            &(),
-        )
-        .await?;
-
-        let ready_queue_states: ReadyQueueStateResponse = crate::request_with_json_response(
-            reqwest::Method::GET,
-            endpoint.join("/api/admin/ready-q-states/v1")?,
-            &(),
-        )
-        .await?;
+        let client = KumoApiClient::new(endpoint.clone());
+        let suspended_domains = client.admin_suspend_list_v1().await?;
+        let bounced_domains = client.admin_bounce_list_v1().await?;
+        let suspended_sites = client.admin_suspend_ready_q_list_v1().await?;
+        let ready_queue_states = client
+            .admin_ready_q_states_v1(&ReadyQueueStateRequest { queues: vec![] })
+            .await?;
 
         let mut metrics = QueueMetrics::obtain(
             endpoint,

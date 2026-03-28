@@ -1,5 +1,6 @@
 use clap::Parser;
-use kumo_api_types::{SuspendReadyQueueV1Request, SuspendV1Response};
+use kumo_api_client::KumoApiClient;
+use kumo_api_types::SuspendReadyQueueV1Request;
 use reqwest::Url;
 use std::time::Duration;
 
@@ -22,17 +23,15 @@ pub struct SuspendReadyQCommand {
 
 impl SuspendReadyQCommand {
     pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
-        let result: SuspendV1Response = crate::request_with_json_response(
-            reqwest::Method::POST,
-            endpoint.join("/api/admin/suspend-ready-q/v1")?,
-            &SuspendReadyQueueV1Request {
+        let client = KumoApiClient::new(endpoint.clone());
+        let result = client
+            .admin_suspend_ready_q_v1(&SuspendReadyQueueV1Request {
                 name: self.name.clone(),
                 reason: self.reason.clone(),
                 duration: self.duration,
                 expires: None,
-            },
-        )
-        .await?;
+            })
+            .await?;
 
         println!("{}", serde_json::to_string_pretty(&result)?);
 

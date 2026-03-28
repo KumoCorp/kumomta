@@ -1,13 +1,12 @@
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::{InsertReason, Queue, QueueManager};
-use crate::smtp_server::ShuttingDownError;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
 use humansize::{format_size, DECIMAL};
 use humantime::format_duration;
 use kumo_server_common::disk_space::{MinFree, MonitoredPath};
-use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription};
+use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription, ShuttingDownError};
 use kumo_server_memory::subscribe_to_memory_status_changes_async;
 use kumo_server_runtime::spawn;
 use message::Message;
@@ -408,7 +407,7 @@ impl SpoolManager {
 
         loop {
             let entry = tokio::select! {
-                _ = shutdown.shutting_down() => return Err(ShuttingDownError.into()),
+                _ = shutdown.shutting_down() => return Err(ShuttingDownError::new("spool_in_thread").into()),
                 entry = rx.recv_async() => { entry },
             }?;
 
@@ -512,8 +511,6 @@ impl SpoolManager {
     }
 
     pub async fn start_spool(&self, start_time: DateTime<Utc>) -> anyhow::Result<()> {
-        self.started.store(true, Ordering::SeqCst);
-
         let (tx, rx) = flume::bounded(1024);
         {
             let mut named = self.named.lock().await;
@@ -563,6 +560,10 @@ impl SpoolManager {
 
             Self::spawn_memory_monitor();
         }
+
+        // It is now safe for the various injection methods to attempt to
+        // store to the spool; both meta and data spools are assigned
+        self.started.store(true, Ordering::SeqCst);
 
         // Ensure that there are no more senders outstanding,
         // otherwise we'll deadlock ourselves in the loop below

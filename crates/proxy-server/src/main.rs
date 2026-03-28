@@ -7,6 +7,7 @@ use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use std::io::Write;
 use std::path::PathBuf;
 
+mod metrics;
 mod mod_proxy;
 mod proxy_handler;
 
@@ -34,6 +35,16 @@ struct Opt {
     #[arg(long, default_value = "full")]
     diag_format: DiagnosticFormat,
 
+    /// Instead of running the daemon, output the openapi spec json
+    /// to stdout
+    #[arg(long)]
+    dump_openapi_spec: bool,
+
+    /// Instead of running the daemon, output the list of metric metadata
+    /// to stdout.
+    #[arg(long)]
+    dump_metric_metadata: bool,
+
     // Legacy CLI options for backwards compatibility
     // These are mutually exclusive with --proxy-config
     /// [Legacy] Address(es) to listen on (e.g., "0.0.0.0:5000").
@@ -57,11 +68,12 @@ impl Opt {
             .context("failed to create temporary config file")?;
 
         writeln!(file, "local kumo = require 'kumo'")?;
+        writeln!(file, "local proxy = require 'proxy'")?;
         writeln!(file)?;
         writeln!(file, "kumo.on('proxy_init', function()")?;
 
         for listen_addr in &self.listen {
-            writeln!(file, "  kumo.start_proxy_listener {{")?;
+            writeln!(file, "  proxy.start_proxy_listener {{")?;
             writeln!(file, "    listen = '{}',", listen_addr)?;
             writeln!(file, "    timeout = '{} seconds',", self.timeout_seconds)?;
             if self.no_splice {
@@ -79,6 +91,18 @@ impl Opt {
 
 fn main() -> anyhow::Result<()> {
     let opts = Opt::parse();
+
+    if opts.dump_openapi_spec {
+        let router_and_docs = crate::mod_proxy::make_router();
+        println!("{}", router_and_docs.docs.to_pretty_json()?);
+        return Ok(());
+    }
+
+    if opts.dump_metric_metadata {
+        let data = kumo_prometheus::export_metadata();
+        println!("{}", serde_json::to_string_pretty(&data)?);
+        return Ok(());
+    }
 
     // Validate that we have either a config file or legacy listen options
     if opts.proxy_config.is_none() && opts.listen.is_empty() {

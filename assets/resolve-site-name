@@ -69,8 +69,12 @@ OPTIONS:
     }
   end
 
-  local mx = kumo.dns.lookup_mx(domain)
-  print(mx.site_name)
+  local site_name = domain
+  local ok, mx = pcall(kumo.dns.lookup_mx, domain)
+  if ok then
+    site_name = mx.site_name
+  end
+  print(site_name)
 end)
 EOT
 

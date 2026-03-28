@@ -381,3 +381,75 @@ async fn proxy_optional_auth_client_offers_auth() -> anyhow::Result<()> {
     daemon.stop().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn proxy_end_to_end_unplumbed() -> anyhow::Result<()> {
+    let mut daemon = DaemonWithProxy::spawn(
+        ProxyArgs {
+            proxy_config: Some("proxy_with_auth.lua".to_string()),
+            env: vec![],
+        },
+        vec![],
+    )
+    .await
+    .context("DaemonWithProxy::spawn")?;
+    let sink_port = daemon.kumod.sink.listener("smtp").port();
+    let proxy_port = daemon.proxy.listener("proxy").port();
+
+    eprintln!("sending message through proxy");
+    let mut client = daemon
+        .kumod
+        .smtp_client()
+        .await
+        .context("make smtp_client")?;
+
+    let response = MailGenParams {
+        recip: Some("user@unplumbed.example.com"),
+        ..Default::default()
+    }
+    .send(&mut client)
+    .await
+    .context("send message")?;
+
+    eprintln!("response: {response:?}");
+    anyhow::ensure!(response.code == 250, "expected 250, got {}", response.code);
+
+    daemon
+        .kumod
+        .wait_for_source_summary(
+            |summary| summary.get(&TransientFailure).copied().unwrap_or(0) >= 1,
+            Duration::from_secs(5),
+        )
+        .await;
+
+    daemon.stop().await?;
+
+    let logs = daemon.kumod.source.collect_logs().await?;
+    let transient: Vec<String> = logs
+        .into_iter()
+        .filter_map(|r| match r.kind {
+            TransientFailure => Some(
+                format!("{:#?}", r.response)
+                    .replace(&format!(":{proxy_port}"), ":PROXYPORT")
+                    .replace(&format!(":{sink_port}"), ":PORT")
+                    .replace(&format!(": {sink_port}"), ": PORT"),
+            ),
+            _ => None,
+        })
+        .collect();
+    eprintln!("{transient:#?}");
+    k9::snapshot!(
+        &transient,
+        r#"
+[
+    "Response {
+    code: 400,
+    enhanced_code: None,
+    content: "KumoMTA internal: failed to connect to any candidate hosts: All failures are related to the proxy server having an unplumbed source address. Are the network interfaces provisioned correctly on the proxy? connect to 127.0.0.1:PORT and read initial banner: failed to perform proxy handshake with 127.0.0.1:PROXYPORT Socks5 { server: 127.0.0.1:PROXYPORT, source: 9.9.9.9, destination: 127.0.0.1:PORT, username_and_password: None }: The proxy server failed to bind 9.9.9.9 via Socks5 { server: 127.0.0.1:PROXYPORT, source: 9.9.9.9, destination: 127.0.0.1:PORT, username_and_password: None }: SocksV5Response { status: ServerFailure, host: Ipv4([0, 0, 0, 0]), port: 0 }",
+    command: None,
+}",
+]
+"#
+    );
+    Ok(())
+}

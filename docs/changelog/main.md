@@ -1,66 +1,83 @@
 # Unreleased Changes in The Mainline
 
 ## Breaking Changes
- * The `rfc5321_rustls_config` cache has been renamed to `rustls_client_config`.
-   If you have a policy that tunes this cache via
-   [kumo.set_lruttl_cache_capacity](../reference/kumo/set_lruttl_cache_capacity.md),
-   you will need to update the cache name.
+ * DKIM verification no longer implicitly generates a policy failure if
+   the From: domain doesn't match the DKIM signature.  It was an overly
+   restrictive non-standard check that was carried over from when we
+   imported that DKIM dependency.  If you require such a policy, you can
+   iterate over the authentication results that are returned by 
+   `msg:dkim_verify()` and check the signatures and compare their
+   domains against the message and take whatever action is appropriate
+   to your policy.
+ * [address.user](../reference/address/user.md) now returns the *normalized
+   local part* rather than the raw local part.  This affects the uncommon
+   quoted local part form of an address, such as `"quoted"@example.com`.
+   This behavior also applies to the local part values that are used
+   to construct [Advanced Maildir
+   Paths](../reference/kumo/make_queue_config/protocol.md#advanced-maildir-path).
+ * Our MIME parser now accommodates non-conforming binary message
+   content that is neither ASCII nor UTF-8, such as message content encoded in
+   `shift-jis` without using appropriate MIME markup to indicate that encoding.
+   Such content is technically not relayable according to the SMTP RFCs but
+   is commonly produced and accepted in Japan.  For the most part this
+   change is transparent and has no downsides but it can result in various
+   methods on the `Message` and `MimePart` types returning binary strings
+   to lua where they were formerly guaranteed to be UTF-8.  Be aware that
+   [msg:check_fix_conformance](../reference/message/check_fix_conformance.md)
+   can be used with charset detection enabled to rewrite such a message
+   into conforming MIME.  If you need to relay this sort of content it is often
+   undesirable to rewrite it so you will need to take appropriate care in your
+   policy to decide when to preserve, fix or reject this content.
+ * When all connection attempts fail due to unplumbed IPs (either local, or via
+   kumo-proxy), or are due to failure to connect to a proxy, we now summarize
+   this and the resulting transient failure will include a string like `All
+   failures are related to the proxy server having an unplumbed source
+   address`, `All failures are related to proxy connection issues` or `All
+   failures are related to having an unplumbed source address`.  If you
+   have automation rules that depend on the precise formatting of these
+   sorts of failures, you should review and revise them accordingly.
+   Note that it is not possible to detect unplumbed IPs via HA Proxy
+   due to limitations of the HA Proxy protocol.
 
 ## Other Changes and Enhancements
- * Enhanced [Access Control](../reference/access_control.md) subsystem,
-   supported by a new Authentication, Authorization and Accounting (AAA) module
-   exposed to lua as [kumo.aaa](../reference/kumo.aaa/index.md).
- * The `Handlebars` template dialect now runs with recursive lookup
-   for improved compatibility with other handlebars implementations.
- * `msg:check_fix_conformance()` can now detect and attempt to fix issues where
-   the charset is invalid for parts that use transfer-encoding, by applying
-   any charset detection options, falling back to UTF-8.
- * The lua HTTP `Request` object now supports AWS V4 signatures via a new
-   [request:aws_sign_v4](../reference/kumo.http/Request.md#requestaws_sign_v4params)
-   method.  Thanks to @AdityaAudi! #458
- * The [HTTP Injection API](../reference/http/kumod/api_inject_v1_post.md) and [MIME
-   Builder API](../reference/kumo.mimepart/builder.md) now support creating
-   messages with [AMP
-   HTML](https://amp.dev/documentation/guides-and-tutorials/email/learn/email-spec/amp-email-structure)
-   parts.
-   [mimepart:get_simple_structure()](../reference/mimepart/get_simple_structure.md)
-   also supports AMP HTML parts.
- * Improved the context shown in error messages produced by the HTTP injection
-   API
- * Kumo Proxy:
-     * Now optionally supports configuration via a proxy policy lua script.
-     * Optional support for TLS and mutual TLS when using a proxy policy script,
-       however, kumod itself doesn't currently support using TLS for SOCKS5.
-     * Optional support for RFC 1929 authentication
-     * Use [kumo.start_proxy_listener](../reference/kumo/start_proxy_listener/index.md)
-       function to configure a SOCKS5 proxy server
-     * Many thanks to @vietcgi! #459
- * New [kumo.xfer.xfer](../reference/kumo.xfer/xfer.md) function to enable
-   per-message transfer between nodes, which is useful in combination with the
-   [requeue_message](../reference/events/requeue_message.md) event.
+
+ * queue helper: certain misconfigurations are now detected at startup,
+   improving error discovery.
  * New
-   [message:increment_num_attempts](../reference/message/increment_num_attempts.md)
-   method for advanced message manipulation.
+   [ip_lookup_strategy](../reference/kumo/make_egress_path/ip_lookup_strategy.md)
+   option controlling how `A`/`AAAA` lookups are performed when
+   resolving MX hosts.  Since this option is set in the egress path, it means
+   that you can control resolution on a per-source basis if you wish.
+
+ * memoize and the lruttl cache layer will now consider a pending populate
+   that has taken longer than the populate timeout to have been abandoned,
+   once a subsequent lookup is initiated.  This may cause pre-existing waiters to
+   awake and report the cache lookup as failed, but will unblock future
+   lookups.  In addition, we now bound the number of retries in this sort
+   of internal inconsistency state to 10, which may cause errors to be
+   reported earlier and/or more frequently than in prior versions, but should
+   result in less of an overall bottleneck in the triggering scenario.
+
+ * [kumo.serde.json_encode_pretty](../reference/kumo.serde/json_encode_pretty.md)
+   now outputs keys of json objects in sorted order.  This means that utilities
+   such as `resolve-shaping-domain` will now output keys in sorted order as well.
+
+ * [kumo.encode.charset_encode](../reference/kumo.encode/charset_encode.md) and
+   [kumo.encode.charset_decode](../reference/kumo.encode/charset_decode.md) string
+   charset encoding/decoding functions for advanced use cases.
 
 ## Fixes
 
- * An SPF record containing U+200B (zero width space) could cause
-   SPF record parsing to panic and the service to crash
- * MIME part body extraction did not always consider the charset for text parts
- * Errors raised while dispatching
-   [should_enqueue_log_record](../reference/events/should_enqueue_log_record.md)
-   were not logged to the diagnostic log.
- * Rebuilding (eg: for conformance fixing via `msg:check_fix_conformance()`, or
-   as part of the post-HTTP injection fixup) a header like `From:
-   "something\n\tthat wraps lines" <user@example.com>` would produce an invalid
-   rendition of that header.
- * Setting `content.headers["To"]` in the HTTP injection API would result in
-   two `To` headers being generated in the message; one for the per-recipient
-   `To` header, and one for the specified `content.headers["To"]` value.  This
-   has been fixed; the behavior now is to use the `content.headers["To"]`
-   header and not to emit a per-recipient `To` header in this situation.
- * When setting a custom `To` header to a template string (e.g., `content.headers["To"] = "{{ to }}"`)
-   in the HTTP injection API, if the template variable has no corresponding
-   substitution data, the template renders as an empty string. The injection
-   API now detects this condition and falls back to generating the per-recipient
-   `To` header to ensure all messages have a valid `To` header.
+ * sources helper didn't allow creating empty egress pools
+ * RFC5965 and RFC3464 parsing now strips enclosing angle brackets from envelope
+   address fields in the ARF/OOB message.
+ * smtp server: invalid addresses passed to MAIL FROM or RCPT TO would result
+   in a 421 response instead of the more appropriate 501 permanent failure
+   response. #495
+ * smtp server: uncommon quoted local parts containing the `@` sign are now
+   accepted by the envelope address parser. #495
+ * HTTP injection API: a templatized custom `To` header (for example
+   `content.headers["To"] = "{{ to }}"`) with no substitution data for the placeholder (for example: `to`)
+   used to expand to an empty value. That case is now detected and the
+   per-recipient mailbox is applied instead so the message still has a valid
+   `To` header.

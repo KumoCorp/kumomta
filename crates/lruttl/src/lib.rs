@@ -1,8 +1,10 @@
 use crate::metrics::*;
 use dashmap::DashMap;
+use kumo_prometheus::prometheus::{IntCounter, IntGauge};
 use kumo_server_memory::subscribe_to_memory_status_changes_async;
+pub use linkme;
 use parking_lot::Mutex;
-use prometheus::{IntCounter, IntGauge};
+pub use pastey as paste;
 use scopeguard::defer;
 use std::borrow::Borrow;
 use std::collections::HashMap;
@@ -13,7 +15,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Weak};
 use tokio::sync::Semaphore;
 use tokio::time::{timeout_at, Duration, Instant};
-pub use {linkme, pastey as paste};
 
 mod metrics;
 
@@ -353,6 +354,9 @@ pub static LRUTTL_VIVIFY: [fn() -> CacheDefinition];
 macro_rules! optional_doc {
     ($doc:expr) => {
         Some($doc.trim())
+    };
+    ($($doc:expr)+) => {
+        Some(concat!($($doc,)+).trim())
     };
     () => {
         None
@@ -714,13 +718,18 @@ impl<
         item
     }
 
-    fn clone_item_state(&self, name: &K) -> (ItemState<V>, Instant) {
+    fn clone_item_state(
+        &self,
+        name: &K,
+        deadline: Instant,
+        timeout_duration: Duration,
+    ) -> (ItemState<V>, Instant) {
         let mut is_new = false;
         let mut entry = self.inner.cache.entry(name.clone()).or_insert_with(|| {
             is_new = true;
             Item {
                 item: ItemState::Pending(Arc::new(Semaphore::new(1))),
-                expiration: Instant::now() + Duration::from_secs(60),
+                expiration: deadline,
                 last_tick: self.inc_tick().into(),
             }
         });
@@ -729,6 +738,24 @@ impl<
             ItemState::Pending(sema) => {
                 if sema.is_closed() {
                     entry.value_mut().item = ItemState::Pending(Arc::new(Semaphore::new(1)));
+                } else {
+                    let now = Instant::now();
+                    if now >= entry.expiration {
+                        // Exceeded deadline without closing the semaphore.
+                        // Perhaps there is some blocking issue preventing progress?
+                        // Force it into an error state to help unclog the rest of
+                        // the system
+                        tracing::warn!(
+                            "{} semaphore for {name:?} remains open, \
+                            but the lookup state has not been satisfied within the \
+                            populate deadline. Assuming that something is stuck and \
+                            making the now-active caller responsible for populating \
+                            this entry",
+                            self.inner.name
+                        );
+                        entry.value_mut().item = ItemState::Pending(Arc::new(Semaphore::new(1)));
+                        entry.value_mut().expiration = now + timeout_duration;
+                    }
                 }
             }
             ItemState::Refreshing {
@@ -762,6 +789,7 @@ impl<
                 if now >= entry.expiration {
                     // Expired; we will need to fetch it
                     entry.value_mut().item = ItemState::Pending(Arc::new(Semaphore::new(1)));
+                    entry.value_mut().expiration = now + timeout_duration;
                 }
             }
         }
@@ -802,8 +830,10 @@ impl<
         let deadline = start + timeout_duration;
 
         // Note: the lookup call increments lookup_counter and miss_counter
-        'retry: loop {
-            let (stale_value, sema) = match self.clone_item_state(name) {
+        const MAX_ATTEMPTS: usize = 10;
+        'retry: for _ in 0..MAX_ATTEMPTS {
+            let (stale_value, sema) = match self.clone_item_state(name, deadline, timeout_duration)
+            {
                 (ItemState::Present(item), expiration) => {
                     return Ok(ItemLookup {
                         item,
@@ -865,7 +895,7 @@ impl<
 
             // While we slept, someone else may have satisfied
             // the lookup; check it
-            let current_sema = match self.clone_item_state(name) {
+            let current_sema = match self.clone_item_state(name, deadline, timeout_duration) {
                 (ItemState::Present(item), expiration) => {
                     return Ok(ItemLookup {
                         item,
@@ -961,6 +991,11 @@ impl<
                 }
             }
         }
+
+        return Err(Arc::new(anyhow::anyhow!(
+            "{} lookup for {name:?} failed after {MAX_ATTEMPTS} attempts",
+            self.inner.name
+        )));
     }
 }
 

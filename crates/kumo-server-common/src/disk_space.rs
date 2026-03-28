@@ -1,7 +1,7 @@
 use anyhow::Context;
 use human_bytes::human_bytes;
+use kumo_prometheus::declare_metric;
 use num_format::{Locale, ToFormattedString};
-use prometheus::IntGaugeVec;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -13,38 +13,38 @@ use std::time::Duration;
 static OVER_LIMIT: AtomicBool = AtomicBool::new(false);
 static PATHS: LazyLock<Mutex<Vec<MonitoredPath>>> = LazyLock::new(Default::default);
 static MONITOR: Once = Once::new();
-static FREE_INODES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    prometheus::register_int_gauge_vec!(
+
+declare_metric! {
+/// number of available inodes in a monitored location
+static FREE_INODES: IntGaugeVec(
         "disk_free_inodes",
-        "number of available inodes in a monitored location",
         &["name"]
-    )
-    .unwrap()
-});
-static FREE_INODES_PCT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    prometheus::register_int_gauge_vec!(
+    );
+}
+
+declare_metric! {
+/// percentage of available inodes in a monitored location
+static FREE_INODES_PCT: IntGaugeVec(
         "disk_free_inodes_percent",
-        "percentage of available inodes in a monitored location",
         &["name"]
-    )
-    .unwrap()
-});
-static FREE_SPACE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    prometheus::register_int_gauge_vec!(
+    );
+}
+
+declare_metric! {
+/// number of available bytes in a monitored location
+static FREE_SPACE: IntGaugeVec(
         "disk_free_bytes",
-        "number of available bytes in a monitored location",
         &["name"]
-    )
-    .unwrap()
-});
-static FREE_SPACE_PCT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    prometheus::register_int_gauge_vec!(
+    );
+}
+
+declare_metric! {
+/// percentage of available bytes in a monitored location
+static FREE_SPACE_PCT: IntGaugeVec(
         "disk_free_percent",
-        "percentage of available bytes in a monitored location",
         &["name"]
-    )
-    .unwrap()
-});
+    );
+}
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, Deserialize)]
 #[serde(try_from = "serde_json::Value")]

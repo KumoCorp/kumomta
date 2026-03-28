@@ -1,5 +1,6 @@
 use clap::{ArgGroup, Parser};
-use kumo_api_types::{SuspendV1Request, SuspendV1Response};
+use kumo_api_client::KumoApiClient;
+use kumo_api_types::SuspendV1Request;
 use reqwest::Url;
 use std::time::Duration;
 
@@ -60,10 +61,9 @@ impl SuspendCommand {
             );
         }
 
-        let result: SuspendV1Response = crate::request_with_json_response(
-            reqwest::Method::POST,
-            endpoint.join("/api/admin/suspend/v1")?,
-            &SuspendV1Request {
+        let client = KumoApiClient::new(endpoint.clone());
+        let result = client
+            .admin_suspend_v1(&SuspendV1Request {
                 campaign: self.campaign.clone(),
                 domain: self.domain.clone(),
                 tenant: self.tenant.clone(),
@@ -71,9 +71,8 @@ impl SuspendCommand {
                 duration: self.duration,
                 expires: None,
                 queue_names: self.queue.clone(),
-            },
-        )
-        .await?;
+            })
+            .await?;
 
         println!("{}", serde_json::to_string_pretty(&result)?);
 

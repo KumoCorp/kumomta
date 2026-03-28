@@ -20,5 +20,5 @@ transiently fail; the sending side will retry it according to its retry
 schedule.
 
 The `auth_info` parameter is an [AuthInfo](../kumo.aaa/auth_info.md) object
-that can be used to implement more granular access policies. {{since('dev',
+that can be used to implement more granular access policies. {{since('2026.03.04-bb93ecb1',
 inline=True)}}

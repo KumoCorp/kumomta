@@ -5,7 +5,9 @@ use crate::{
     ARCAuthenticationResults, AddressList, AuthenticationResults, MailParsingError, Mailbox,
     MailboxList, MessageID, MimeParameters, Result, SharedString,
 };
+use bstr::{BStr, BString};
 use chrono::{DateTime, FixedOffset};
+use std::borrow::Cow;
 use std::str::FromStr;
 
 bitflags::bitflags! {
@@ -121,12 +123,11 @@ impl<'a> Header<'a> {
         let name = name.into();
         let value = value.into();
 
-        let value = if value.is_ascii() {
-            kumo_wrap::wrap(&value)
-        } else {
-            crate::rfc5322_parser::qp_encode(&value)
-        }
-        .into();
+        let value: SharedString = match value.to_str() {
+            Ok(value) if value.is_ascii() => kumo_wrap::wrap_bytes(value).into(),
+            Ok(value) => crate::rfc5322_parser::qp_encode(value.as_bytes()).into(),
+            Err(_) => kumo_wrap::wrap_bytes(value.as_bytes()).into(),
+        };
 
         Self {
             name,
@@ -165,12 +166,20 @@ impl<'a> Header<'a> {
         String::from_utf8_lossy(&out).to_string()
     }
 
-    pub fn get_name(&self) -> &str {
-        &self.name
+    pub fn get_name(&self) -> &BStr {
+        BStr::new(self.name.as_bytes())
     }
 
-    pub fn get_raw_value(&self) -> &str {
-        &self.value
+    pub fn get_name_lossy(&self) -> Cow<'_, str> {
+        String::from_utf8_lossy(self.name.as_bytes())
+    }
+
+    pub fn get_raw_value(&self) -> &BStr {
+        BStr::new(self.value.as_bytes())
+    }
+
+    pub fn get_raw_value_string(&self) -> Result<&str> {
+        self.value.to_str().map_err(|_| MailParsingError::EightBit)
     }
 
     pub fn as_content_transfer_encoding(&self) -> Result<MimeParameters> {
@@ -215,7 +224,7 @@ impl<'a> Header<'a> {
         Parser::parse_msg_id_header_list(self.get_raw_value())
     }
 
-    pub fn as_unstructured(&self) -> Result<String> {
+    pub fn as_unstructured(&self) -> Result<BString> {
         Parser::parse_unstructured_header(self.get_raw_value())
     }
 
@@ -228,7 +237,8 @@ impl<'a> Header<'a> {
     }
 
     pub fn as_date(&self) -> Result<DateTime<FixedOffset>> {
-        DateTime::parse_from_rfc2822(self.get_raw_value()).map_err(MailParsingError::ChronoError)
+        DateTime::parse_from_rfc2822(self.get_raw_value_string()?)
+            .map_err(MailParsingError::ChronoError)
     }
 
     pub fn parse_headers<S>(header_block: S) -> Result<HeaderParseResult<'a>>
@@ -418,7 +428,7 @@ impl<'a> Header<'a> {
 
         macro_rules! hdr {
             ($header_name:literal, $func_name:ident, encode) => {
-                if name.eq_ignore_ascii_case($header_name) {
+                if name.eq_ignore_ascii_case($header_name.as_bytes()) {
                     let value = self.$func_name().map_err(|err| {
                         MailParsingError::HeaderParse(format!(
                             "rebuilding '{name}' header: {err:#}"
@@ -428,7 +438,7 @@ impl<'a> Header<'a> {
                 }
             };
             ($header_name:literal, unstructured) => {
-                if name.eq_ignore_ascii_case($header_name) {
+                if name.eq_ignore_ascii_case($header_name.as_bytes()) {
                     let value = self.as_unstructured().map_err(|err| {
                         MailParsingError::HeaderParse(format!(
                             "rebuilding '{name}' header: {err:#}"
@@ -566,7 +576,7 @@ Ok(
     fn assign_mailbox() {
         let mut sender = Header::with_name_value("Sender", "");
         sender.assign(Mailbox {
-            name: Some("John Smith".to_string()),
+            name: Some("John Smith".into()),
             address: AddrSpec::new("john.smith", "example.com"),
         });
         assert_eq!(
@@ -575,7 +585,7 @@ Ok(
         );
 
         sender.assign(Mailbox {
-            name: Some("John \"the smith\" Smith".to_string()),
+            name: Some("John \"the smith\" Smith".into()),
             address: AddrSpec::new("john.smith", "example.com"),
         });
         assert_eq!(
@@ -589,7 +599,7 @@ Ok(
         let sender = Header::new(
             "Sender",
             Mailbox {
-                name: Some("John".to_string()),
+                name: Some("John".into()),
                 address: AddrSpec::new("john.smith", "example.com"),
             },
         );
@@ -601,7 +611,7 @@ Ok(
         let sender = Header::new(
             "Sender",
             Mailbox {
-                name: Some("John".to_string()),
+                name: Some("John".into()),
                 address: AddrSpec::new("john smith", "example.com"),
             },
         );
@@ -616,7 +626,7 @@ Ok(
         let sender = Header::new(
             "Sender",
             Mailbox {
-                name: Some("André Pirard".to_string()),
+                name: Some("André Pirard".into()),
                 address: AddrSpec::new("andre", "example.com"),
             },
         );

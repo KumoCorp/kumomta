@@ -1,3 +1,4 @@
+use bstr::ByteSlice;
 use config::{from_lua_value, get_or_create_sub_module};
 use kumo_template::TemplateDialect;
 use mlua::Lua;
@@ -121,12 +122,11 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     string_mod.set(
         "wrap",
         lua.create_function(
-            move |_, (text, soft, hard): (String, Option<usize>, Option<usize>)| {
+            move |lua, (text, soft, hard): (mlua::String, Option<usize>, Option<usize>)| {
                 let soft = soft.unwrap_or(75);
                 let hard = hard.unwrap_or(900);
-                Ok(kumo_wrap::wrap_impl(&text, soft, hard)
-                    .trim_end()
-                    .to_string())
+                let bytes = kumo_wrap::wrap_impl(&*text.as_bytes(), soft, hard);
+                lua.create_string(bytes.trim_end())
             },
         )?,
     )?;

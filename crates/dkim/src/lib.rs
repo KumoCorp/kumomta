@@ -255,7 +255,6 @@ async fn verify_email_header<'a>(
 
 /// Run the DKIM verification on the email providing an existing resolver
 pub async fn verify_email_with_resolver<'a>(
-    from_domain: &str,
     email: &'a ParsedEmail<'a>,
     resolver: &dyn Resolver,
 ) -> Result<Vec<AuthenticationResult>, DKIMError> {
@@ -270,17 +269,20 @@ pub async fn verify_email_with_resolver<'a>(
             break;
         }
 
-        let value = h.get_raw_value();
-        match DKIMHeader::parse(value) {
+        match h
+            .get_raw_value_string()
+            .map_err(Into::into)
+            .and_then(DKIMHeader::parse)
+        {
             Ok(v) => {
                 dkim_headers.push(v);
             }
             Err(err) => {
                 results.push(AuthenticationResult {
-                    method: "dkim".to_string(),
+                    method: "dkim".into(),
                     method_version: None,
-                    result: "permerror".to_string(),
-                    reason: Some(format!("{err}")),
+                    result: "permerror".into(),
+                    reason: Some(format!("{err}").into()),
                     props: BTreeMap::new(),
                 });
             }
@@ -316,35 +318,20 @@ pub async fn verify_email_with_resolver<'a>(
         let signing_domain = dkim_header.get_required_tag("d");
         let mut props = BTreeMap::new();
 
-        props.insert("header.d".to_string(), signing_domain.to_string());
-        props.insert("header.i".to_string(), format!("@{signing_domain}"));
-        props.insert(
-            "header.a".to_string(),
-            dkim_header.get_required_tag("a").to_string(),
-        );
-        props.insert(
-            "header.s".to_string(),
-            dkim_header.get_required_tag("s").to_string(),
-        );
+        props.insert("header.d".into(), signing_domain.into());
+        props.insert("header.i".into(), format!("@{signing_domain}").into());
+        props.insert("header.a".into(), dkim_header.get_required_tag("a").into());
+        props.insert("header.s".into(), dkim_header.get_required_tag("s").into());
 
         let b_tag = compute_header_b(dkim_header.get_required_tag("b"), &dkim_headers);
-        props.insert("header.b".to_string(), b_tag);
+        props.insert("header.b".into(), b_tag.into());
 
         let mut reason = None;
         let result =
             match verify_email_header(resolver, DKIM_SIGNATURE_HEADER_NAME, dkim_header, email)
                 .await
             {
-                Ok(()) => {
-                    if signing_domain.eq_ignore_ascii_case(from_domain) {
-                        "pass"
-                    } else {
-                        let why = "mail-from-mismatch-signing-domain".to_string();
-                        reason.replace(why.clone());
-                        props.insert("policy.dkim-rules".to_string(), why);
-                        "policy"
-                    }
-                }
+                Ok(()) => "pass",
                 Err(err) => {
                     reason.replace(format!("{err}"));
                     match err.status() {
@@ -355,10 +342,10 @@ pub async fn verify_email_with_resolver<'a>(
             };
 
         results.push(AuthenticationResult {
-            method: "dkim".to_string(),
+            method: "dkim".into(),
             method_version: None,
-            result: result.to_string(),
-            reason,
+            result: result.into(),
+            reason: reason.map(Into::into),
             props,
         });
     }
@@ -368,14 +355,13 @@ pub async fn verify_email_with_resolver<'a>(
 
 /// Run the DKIM verification on the email
 pub async fn verify_email<'a>(
-    from_domain: &str,
     email: &'a ParsedEmail<'a>,
 ) -> Result<Vec<AuthenticationResult>, DKIMError> {
     let resolver = HickoryResolver::new().map_err(|err| {
         DKIMError::UnknownInternalError(format!("failed to create DNS resolver: {}", err))
     })?;
 
-    verify_email_with_resolver(from_domain, email, &resolver).await
+    verify_email_with_resolver(email, &resolver).await
 }
 
 #[cfg(test)]
@@ -508,7 +494,8 @@ Joe."#
             .iter_named(DKIM_SIGNATURE_HEADER_NAME)
             .next()
             .unwrap()
-            .get_raw_value();
+            .get_raw_value_string()
+            .unwrap();
 
         const DKIM_BRISBANE: &str = r#"
 $ORIGIN brisbane._domainkey.football.example.com
@@ -563,7 +550,8 @@ Joe.
             .iter_named(DKIM_SIGNATURE_HEADER_NAME)
             .next()
             .unwrap()
-            .get_raw_value();
+            .get_raw_value_string()
+            .unwrap();
 
         let resolver =
             TestResolver::default().with_txt(NEW_ENGLAND_DKIM.0, NEW_ENGLAND_DKIM.1.to_owned());

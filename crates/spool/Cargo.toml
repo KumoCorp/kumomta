@@ -14,8 +14,9 @@ duration-serde = {path="../duration-serde"}
 flume = {workspace=true}
 getrandom = {workspace=true}
 jwalk = {workspace=true}
+kumo-prometheus = {path="../kumo-prometheus"}
 libc = {workspace=true}
-prometheus = {workspace=true}
+linkme.workspace = true
 rocksdb = {workspace=true, optional=true}
 serde = {workspace=true}
 serde_json = {workspace=true}

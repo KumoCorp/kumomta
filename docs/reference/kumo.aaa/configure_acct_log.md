@@ -5,7 +5,7 @@ tags:
 
 # kumo.aaa.configure_acct_log
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 ```lua
 kumo.on('init', function()

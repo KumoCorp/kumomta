@@ -1,0 +1,39 @@
+Subject: Undeliverable mail: [Bulk Mail] the subject
+From: "Mail Delivery Subsystem" <MAILER-DAEMON@example.com>
+To: <bounce+2d998f.371096-redacted=redacted.com@example.com>
+Date: Fri, 13 Mar 2026 14:10:48 -0400
+X-MAPI-Message-Class: REPORT.IPM.Note.NDR
+MIME-Version: 1.0
+Content-Type: multipart/report;boundary="_===828463430====tls02.example.com===_"; report-type="delivery-status"
+
+
+--_===828463430====tls02.example.com===_
+Content-Type: text/plain; charset="utf-8"
+
+Failed to deliver to 'redacted@example.com'
+SMTP module(domain example-com.mail.eo.outlook.com:25) reports:
+ host example-com.mail.eo.outlook.com:25 says:
+ 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [XXX.namprd05.prod.outlook.com 2026-03-13T18:10:42.797Z XXX]
+
+
+--_===828463430====tls02.example.com===_
+Content-Type: message/delivery-status
+
+Reporting-MTA: dns; tls02.example.com
+
+Original-Recipient: rfc822;<redacted@example.com>
+Final-Recipient: rfc822;<redacted@example.com>
+Action: failed
+Status: 5.0.0
+Remote-MTA: dns; example-com.mail.eo.outlook.com:25
+Diagnostic-Code: smtp;host example-com.mail.eo.outlook.com:25 says:
+ 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [XXX.namprd05.prod.outlook.com 2026-03-13T18:10:42.797Z XXX]
+
+--_===828463430====tls02.example.com===_
+Content-Type: text/rfc822-headers
+
+Subject: [Bulk Mail] the subject
+From: INFO <info@email.example.com>
+To: redacted@example.com
+
+--_===828463430====tls02.example.com===_--

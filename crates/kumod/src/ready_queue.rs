@@ -1,5 +1,7 @@
 use crate::delivery_metrics::{DeliveryMetrics, ReadyCountBundle};
-use crate::egress_source::EgressSource;
+use crate::egress_source::{
+    err_match_anyhow, BindError, ConnectError, EgressSource, ProxyBindError,
+};
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_suspend_ready_q_v1::{
     AdminSuspendReadyQEntry, AdminSuspendReadyQEntryRef,
@@ -15,7 +17,7 @@ use crate::queue::{
     QueueManager, QueueState,
 };
 use crate::smtp_dispatcher::{OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
-use crate::smtp_server::{DeferredSmtpInjectionDispatcher, ShuttingDownError};
+use crate::smtp_server::DeferredSmtpInjectionDispatcher;
 use crate::spool::SpoolManager;
 use crate::xfer::XferDispatcher;
 use anyhow::Context;
@@ -28,8 +30,9 @@ use dns_resolver::MailExchanger;
 use kumo_api_types::egress_path::{
     ConfigRefreshStrategy, EgressPathConfig, MemoryReductionPolicy, WakeupStrategy,
 };
+use kumo_prometheus::declare_metric;
 use kumo_server_common::config_handle::ConfigHandle;
-use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
+use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription, ShuttingDownError};
 use kumo_server_memory::{
     get_headroom, memory_status, subscribe_to_memory_status_changes_async, MemoryStatus,
 };
@@ -37,12 +40,11 @@ use kumo_server_runtime::{get_named_runtime, spawn, Runtime};
 use message::message::{MessageList, QueueNameComponents};
 use message::Message;
 use parking_lot::FairMutex;
-use prometheus::Histogram;
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::Serialize;
 use std::fmt::Debug;
 use std::future::Future;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use throttle::limit::{LimitLease, LimitSpecWithDuration};
@@ -72,13 +74,10 @@ pub static GET_EGRESS_PATH_CONFIG_SIG: Single(
 ) -> EgressPathConfig;
 }
 
-static INSERT_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "ready_queue_insert_latency",
-        "latency of ReadyQueue::insert operations",
-    )
-    .unwrap()
-});
+declare_metric! {
+/// latency of ReadyQueue::insert operations
+static INSERT_LATENCY: Histogram("ready_queue_insert_latency");
+}
 
 const ONE_MINUTE: Duration = Duration::from_secs(60);
 const AGE_OUT_INTERVAL: Duration = Duration::from_secs(10 * 60);
@@ -147,6 +146,7 @@ pub struct Fifo {
     count: ReadyCountBundle,
     capacity: AtomicUsize,
     num_reserved: AtomicUsize,
+    closed: AtomicBool,
 }
 
 impl Fifo {
@@ -156,6 +156,7 @@ impl Fifo {
             list: FairMutex::new(MessageList::new()),
             capacity: AtomicUsize::new(capacity),
             num_reserved: AtomicUsize::new(0),
+            closed: AtomicBool::new(false),
         }
     }
 
@@ -452,6 +453,7 @@ impl ReadyQueueManager {
             ));
             let notify_dispatcher = Arc::new(Notify::new());
             let next_config_refresh = Instant::now() + path_config.refresh_interval;
+            let protocol = queue_config.borrow().protocol.clone();
 
             Arc::new(ReadyQueue {
                 name: name.clone(),
@@ -464,6 +466,7 @@ impl ReadyQueueManager {
                 num_connections: Arc::new(AtomicUsize::new(0)),
                 path_config: ConfigHandle::new(path_config),
                 queue_config: queue_config.clone(),
+                protocol,
                 egress_source,
                 metrics,
                 activity,
@@ -643,13 +646,23 @@ impl ReadyQueueManager {
             if queue.reapable(&last_notify, &suspend) {
                 if MANAGER
                     .queues
-                    .remove_if(&name, |_k, _q| queue.reapable(&last_notify, &suspend))
+                    .remove_if(&name, |_k, q| {
+                        Arc::ptr_eq(&q, &queue) && queue.reapable(&last_notify, &suspend)
+                    })
                     .is_some()
                 {
                     tracing::debug!("reaping site {name}");
+                    queue.ready.closed.store(true, Ordering::Relaxed);
 
                     queue
                         .reinsert_ready_queue("reap", InsertReason::ReadyQueueWasReaped.into())
+                        .await;
+                    return Ok(());
+                } else if ReadyQueueManager::get_by_name(&name).is_none() {
+                    // Likely removed due to the protocol changing; we have nothing more
+                    // to do, so perform a final sweep and we're complete
+                    queue
+                        .reinsert_ready_queue("reaped", InsertReason::ReadyQueueWasReaped.into())
                         .await;
                     return Ok(());
                 }
@@ -667,6 +680,36 @@ impl ReadyQueueManager {
             } else if queue.activity.is_shutting_down() {
                 let n = queue.connections.lock().len();
                 tracing::debug!("{name}: waiting for {n} connections to close before reaping");
+            } else {
+                let reap_now = !queue.is_canonical() || queue.protocol_changed();
+
+                if reap_now && !shutting_down {
+                    tracing::debug!("{name}: I am no longer the canonical ready queue");
+                    // Ensure that we're no longer linked
+                    MANAGER
+                        .queues
+                        .remove_if(&name, |_k, q| Arc::ptr_eq(&q, &queue));
+                    // Mark this instance as closed; this will cause any dispatchers
+                    // to close themselves out when we wake them on the line
+                    // following this next one
+                    queue.ready.closed.store(true, Ordering::Relaxed);
+                    // wake up dispatchers; they will notice that the fifo is closed
+                    // and wind themselves down
+                    queue.wakeup_all_dispatchers();
+
+                    // Flag to our control loop that we're in shut down mode now
+                    shutting_down = true;
+                    // compute a reasonable deadline for forcing termination
+                    let path_config = queue.path_config.borrow();
+                    let duration = path_config.system_shutdown_timeout.unwrap_or_else(|| {
+                        path_config.client_timeouts.total_message_send_duration()
+                    });
+                    force_reap_deadline.replace(tokio::time::Instant::now() + duration);
+                    tracing::debug!("{name}: reap deadline in {duration:?}");
+
+                    // Now we'll continue to loop as though we're in whole-server shutdown,
+                    // and we'll self reap "as usual".
+                }
             }
         }
     }
@@ -693,6 +736,7 @@ pub struct ReadyQueue {
     activity: Activity,
     consecutive_connection_failures: Arc<AtomicUsize>,
     path_config: ConfigHandle<EgressPathConfig>,
+    protocol: DeliveryProto,
     queue_config: ConfigHandle<QueueConfig>,
     egress_pool: String,
     egress_source: EgressSource,
@@ -715,6 +759,10 @@ impl ReadyQueue {
                 None
             }
         }
+    }
+
+    fn wakeup_maintainer(&self) {
+        self.notify_maintainer.notify_one();
     }
 
     pub fn wakeup_all_dispatchers(&self) {
@@ -913,7 +961,20 @@ impl ReadyQueue {
         connections.len()
     }
 
-    async fn maintain(&self, suspend: &Option<AdminSuspendReadyQEntryRef>) {
+    /// Returns true if this ReadyQueue instance is the canonical instance.
+    /// The canonical instance is the one currently managed by the manager
+    /// mapping.
+    fn is_canonical(self: &Arc<Self>) -> bool {
+        ReadyQueueManager::get_by_name(&self.name)
+            .map(|q| Arc::ptr_eq(&q, &self))
+            .unwrap_or(false)
+    }
+
+    fn protocol_changed(self: &Arc<Self>) -> bool {
+        self.protocol != self.queue_config.borrow().protocol
+    }
+
+    async fn maintain(self: &Arc<Self>, suspend: &Option<AdminSuspendReadyQEntryRef>) {
         // Prune completed connection tasks and obtain the number of connections
         let current_connection_count = {
             let mut connections = self.connections.lock();
@@ -947,6 +1008,13 @@ impl ReadyQueue {
                 .expect("failed to spawn save_if_needed_and_log");
             }
 
+            return;
+        }
+
+        if !self.is_canonical() || self.protocol_changed() {
+            self.reinsert_ready_queue("non canonical", InsertReason::ProtocolChanged.into())
+                .await;
+            self.wakeup_all_dispatchers();
             return;
         }
 
@@ -1094,19 +1162,21 @@ impl ReadyQueue {
     }
 
     fn reapable(
-        &self,
+        self: &Arc<Self>,
         last_change: &Instant,
         suspend: &Option<AdminSuspendReadyQEntryRef>,
     ) -> bool {
         let ideal = self.ideal_connection_count(suspend);
         ideal == 0
             && self.connections.lock().is_empty()
-            && ((last_change.elapsed() >= AGE_OUT_INTERVAL) | self.activity.is_shutting_down())
+            && ((last_change.elapsed() >= AGE_OUT_INTERVAL)
+                || self.activity.is_shutting_down()
+                || !self.is_canonical())
             && self.ready_count() == 0
     }
 
     async fn perform_config_refresh_if_due(
-        &self,
+        self: Arc<Self>,
         now: Instant,
         epoch: &ConfigEpoch,
         epoch_changed: bool,
@@ -1131,7 +1201,7 @@ impl ReadyQueue {
         }
     }
 
-    async fn perform_config_refresh(&self, epoch: &ConfigEpoch) {
+    async fn perform_config_refresh(self: Arc<Self>, epoch: &ConfigEpoch) {
         *self.config_epoch.lock() = *epoch;
         tracing::trace!("perform_config_refresh for {}", self.name);
 
@@ -1143,6 +1213,27 @@ impl ReadyQueue {
         .await
         {
             Ok(ReadyQueueConfig { path_config, .. }) => {
+                if self.protocol != self.queue_config.borrow().protocol {
+                    // This can happen if eg: the smtp protocol has its mx_list changed.
+                    // In this situation it is very important that we stop trying to
+                    // service the ready queue with an existing maintainer, as the
+                    // ready queue has what amounts to cached copies of data in its
+                    // `queue_name_for_config_change_purposes_only` and `queue_config`
+                    // fields: the former name may no longer be the correct canonical
+                    // name for the current protocol settings, and the latter is a
+                    // derivative of the former.
+                    // We remove this ready queue instance from the manager and wake it
+                    // up so that it can manage winding down any current connections.
+                    tracing::trace!("{}: protocol changed, will replace ready queue", self.name);
+                    if let Some((_name, removed)) = MANAGER
+                        .queues
+                        .remove_if(&self.name, |_name, q| Arc::ptr_eq(&self, &q))
+                    {
+                        removed.wakeup_maintainer();
+                    }
+                    return;
+                }
+
                 if path_config != **self.path_config.borrow() {
                     let max_ready = path_config.max_ready;
 
@@ -1183,6 +1274,14 @@ impl Drop for ReadyQueue {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum AttemptConnectionDisposition {
+    ConnectedNew,
+    ReusedExisting,
+    PeerClosedConnectionNeedNewSession,
+    PeerClosedConnectionContinueSession,
+}
+
 #[async_trait]
 pub trait QueueDispatcher: Debug + Send {
     async fn deliver_message(
@@ -1191,7 +1290,10 @@ pub trait QueueDispatcher: Debug + Send {
         dispatcher: &mut Dispatcher,
     ) -> anyhow::Result<()>;
 
-    async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()>;
+    async fn attempt_connection(
+        &mut self,
+        dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<AttemptConnectionDisposition>;
     async fn have_more_connection_candidates(&mut self, dispatcher: &mut Dispatcher) -> bool;
 
     async fn close_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<bool>;
@@ -1399,7 +1501,59 @@ impl Dispatcher {
         }
 
         let mut connection_failures = vec![];
-        let mut num_opportunistic_tls_failures = 0;
+
+        #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+        enum ConnectionFailureKind {
+            OpportunisticInsecureTlsHandshakeError,
+            UnplumbedSource,
+            ProxyConnect,
+            ProxyUnplumbedSource,
+            Other,
+        }
+
+        impl ConnectionFailureKind {
+            fn classify(err: &anyhow::Error) -> Self {
+                if err_match_anyhow::<OpportunisticInsecureTlsHandshakeError>(err).is_some() {
+                    Self::OpportunisticInsecureTlsHandshakeError
+                } else if let Some(bind) = err_match_anyhow::<BindError>(err) {
+                    if bind.is_unplumbed() {
+                        Self::UnplumbedSource
+                    } else {
+                        Self::Other
+                    }
+                } else if let Some(conn) = err_match_anyhow::<ConnectError>(err) {
+                    if conn.is_proxy {
+                        Self::ProxyConnect
+                    } else {
+                        Self::Other
+                    }
+                } else if err_match_anyhow::<ProxyBindError>(err).is_some() {
+                    Self::ProxyUnplumbedSource
+                } else {
+                    Self::Other
+                }
+            }
+
+            fn all_same(v: &[ConnectionFailureKind]) -> Option<Self> {
+                let mut item = None;
+                tracing::info!("all_same: {v:#?}");
+                for i in v.iter() {
+                    item = match item.take() {
+                        None => Some(*i),
+                        Some(o) => {
+                            if o != *i {
+                                return None;
+                            }
+                            Some(o)
+                        }
+                    };
+                }
+
+                item
+            }
+        }
+
+        let mut connection_failure_classifications = vec![];
         let mut shutting_down = ShutdownSubcription::get();
 
         loop {
@@ -1434,78 +1588,122 @@ impl Dispatcher {
                 }
             };
 
-            if let Err(err) = result {
-                if OpportunisticInsecureTlsHandshakeError::is_match_anyhow(&err) {
-                    num_opportunistic_tls_failures += 1;
-                }
-                connection_failures.push(format!("{err:#}"));
-                if !queue_dispatcher
-                    .have_more_connection_candidates(&mut dispatcher)
-                    .await
-                {
-                    for msg in dispatcher.msgs.drain(..) {
-                        let summary = if num_opportunistic_tls_failures == connection_failures.len()
-                        {
-                            "All failures are related to OpportunisticInsecure STARTTLS. \
-                             Consider setting enable_tls=Disabled for this site. "
-                        } else {
-                            ""
+            match result {
+                Err(err) => {
+                    connection_failure_classifications.push(ConnectionFailureKind::classify(&err));
+                    connection_failures.push(format!("{err:#}"));
+                    if !queue_dispatcher
+                        .have_more_connection_candidates(&mut dispatcher)
+                        .await
+                    {
+                        let summary = match ConnectionFailureKind::all_same(
+                            &connection_failure_classifications,
+                        ) {
+                            Some(ConnectionFailureKind::OpportunisticInsecureTlsHandshakeError) => {
+                                "All failures are related to OpportunisticInsecure STARTTLS. \
+                                 Consider setting enable_tls=Disabled for this site. "
+                            }
+                            Some(ConnectionFailureKind::UnplumbedSource) => {
+                                "All failures are related to having an unplumbed source address. \
+                                 Are the network interfaces provisioned correctly? "
+                            }
+                            Some(ConnectionFailureKind::ProxyUnplumbedSource) => {
+                                "All failures are related to the proxy server \
+                                 having an unplumbed source address. \
+                                 Are the network interfaces provisioned correctly on the proxy? "
+                            }
+                            Some(ConnectionFailureKind::ProxyConnect) => {
+                                "All failures are related to proxy connection issues. \
+                                 Is the proxy infrastructure online and healthy? "
+                            }
+                            Some(ConnectionFailureKind::Other) | None => "",
                         };
 
-                        let response = Response {
-                            code: 400,
-                            enhanced_code: None,
-                            content: format!(
-                                "KumoMTA internal: \
+                        for msg in dispatcher.msgs.drain(..) {
+                            let response = Response {
+                                code: 400,
+                                enhanced_code: None,
+                                content: format!(
+                                    "KumoMTA internal: \
                                      failed to connect to any candidate \
                                      hosts: {summary}{}",
-                                connection_failures.join(", ")
-                            ),
-                            command: None,
-                        };
+                                    connection_failures.join(", ")
+                                ),
+                                command: None,
+                            };
 
-                        log_disposition(LogDisposition {
-                            kind: RecordType::TransientFailure,
-                            msg: msg.clone(),
-                            site: &dispatcher.name,
-                            peer_address: None,
-                            response: response.clone(),
-                            egress_pool: Some(&dispatcher.egress_pool),
-                            egress_source: Some(&dispatcher.egress_source.name),
-                            relay_disposition: None,
-                            delivery_protocol: Some(&dispatcher.delivery_protocol),
-                            tls_info: None,
-                            source_address: None,
-                            provider: dispatcher.path_config.borrow().provider_name.as_deref(),
-                            session_id: Some(dispatcher.session_id),
-                            recipient_list: None,
-                        })
-                        .await;
-                        QueueManager::requeue_message(
-                            msg,
-                            IncrementAttempts::Yes,
-                            None,
-                            response,
-                            InsertReason::LoggedTransientFailure.into(),
-                        )
-                        .await?;
-                        dispatcher.metrics.inc_transfail();
-                    }
+                            log_disposition(LogDisposition {
+                                kind: RecordType::TransientFailure,
+                                msg: msg.clone(),
+                                site: &dispatcher.name,
+                                peer_address: None,
+                                response: response.clone(),
+                                egress_pool: Some(&dispatcher.egress_pool),
+                                egress_source: Some(&dispatcher.egress_source.name),
+                                relay_disposition: None,
+                                delivery_protocol: Some(&dispatcher.delivery_protocol),
+                                tls_info: None,
+                                source_address: None,
+                                provider: dispatcher.path_config.borrow().provider_name.as_deref(),
+                                session_id: Some(dispatcher.session_id),
+                                recipient_list: None,
+                            })
+                            .await;
+                            QueueManager::requeue_message(
+                                msg,
+                                IncrementAttempts::Yes,
+                                None,
+                                response,
+                                InsertReason::LoggedTransientFailure.into(),
+                            )
+                            .await?;
+                            dispatcher.metrics.inc_transfail();
+                        }
 
-                    if consecutive_connection_failures.fetch_add(1, Ordering::SeqCst)
-                        > dispatcher
-                            .path_config
-                            .borrow()
-                            .consecutive_connection_failures_before_delay
-                    {
-                        dispatcher.delay_ready_queue().await;
+                        if consecutive_connection_failures.fetch_add(1, Ordering::SeqCst)
+                            > dispatcher
+                                .path_config
+                                .borrow()
+                                .consecutive_connection_failures_before_delay
+                        {
+                            dispatcher.delay_ready_queue().await;
+                        }
+                        dispatcher.release_leases().await;
+                        return Err(err);
                     }
-                    dispatcher.release_leases().await;
-                    return Err(err);
+                    tracing::debug!("{err:#}");
+                    // Try the next candidate MX address
+                    continue;
                 }
-                tracing::debug!("{err:#}");
-                // Try the next candidate MX address
-                continue;
+                Ok(
+                    AttemptConnectionDisposition::ReusedExisting
+                    | AttemptConnectionDisposition::ConnectedNew,
+                ) => {
+                    // fall through to below logic to do the send
+                }
+                Ok(AttemptConnectionDisposition::PeerClosedConnectionNeedNewSession) => {
+                    tracing::debug!(
+                        "{} Peer closed the connection, will make new session",
+                        dispatcher.name
+                    );
+                    dispatcher.release_leases().await;
+                    queue_dispatcher.close_connection(&mut dispatcher).await?;
+                    // Push the message(s) batch into the ready queue so that they
+                    // can be immediately tried in another session
+                    dispatcher
+                        .reinsert_ready_queue(InsertReason::PeerClosedConnection.into())
+                        .await;
+                    return Ok(());
+                }
+                Ok(AttemptConnectionDisposition::PeerClosedConnectionContinueSession) => {
+                    tracing::debug!(
+                        "{} Peer closed the connection, continue with session",
+                        dispatcher.name
+                    );
+                    // We don't have a current connection, so continue around
+                    // the loop to try to open a new one
+                    continue;
+                }
             }
 
             connection_failures.clear();
@@ -1646,15 +1844,10 @@ impl Dispatcher {
             msg.data().await?;
         }
 
-        let activity = match Activity::get_opt(format!(
+        let activity = Activity::get(format!(
             "ready_queue Dispatcher deliver_message {}",
             self.name
-        )) {
-            Some(a) => a,
-            None => {
-                return Err(ShuttingDownError.into());
-            }
-        };
+        ))?;
 
         self.delivered_this_connection += self.msgs.len();
 
@@ -2076,7 +2269,7 @@ impl Dispatcher {
                             return Ok(!self.msgs.is_empty());
                         }
                         Ok(_) => {
-                            if self.activity.is_shutting_down() {
+                            if self.activity.is_shutting_down() || self.ready.closed.load(Ordering::Relaxed) {
                                 return Ok(false);
                             }
                             if let Some(suspend) = self.get_suspension() {

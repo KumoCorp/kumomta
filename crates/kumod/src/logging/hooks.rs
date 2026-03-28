@@ -5,13 +5,13 @@ use anyhow::Context;
 use config::{declare_event, load_config};
 use flume::Receiver;
 pub use kumo_log_types::*;
+use kumo_prometheus::declare_metric;
 use kumo_template::{Template, TemplateEngine};
 use message::{EnvelopeAddress, Message};
-use prometheus::CounterVec;
 use serde::Deserialize;
 use spool::SpoolId;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use tokio::sync::{Semaphore, TryAcquireError};
 
 declare_event! {
@@ -22,14 +22,13 @@ pub static SHOULD_ENQ_LOG_RECORD_SIG: Multiple(
 ) -> bool;
 }
 
-static HOOK_BACKLOG_COUNT: LazyLock<CounterVec> = LazyLock::new(|| {
-    prometheus::register_counter_vec!(
-        "log_hook_backlog_count",
-        "how many times processing of a log event hit the back_pressure in a hook",
-        &["logger"]
-    )
-    .unwrap()
-});
+declare_metric! {
+/// how many times processing of a log event hit the back_pressure in a hook
+static HOOK_BACKLOG_COUNT: CounterVec(
+    "log_hook_backlog_count",
+    &["logger"]
+);
+}
 
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
@@ -176,11 +175,12 @@ impl LogHookState {
 
         LOGGING_RUNTIME.spawn("log-hook".to_string(), async move {
             let result: anyhow::Result<()> = async move {
-                let mut lua_config = load_config().await?;
+                let mut lua_config = load_config().await.context("load_config")?;
 
                 let enqueue: bool = lua_config
                     .async_call_callback(&SHOULD_ENQ_LOG_RECORD_SIG, (msg.clone(), name))
-                    .await?;
+                    .await
+                    .context("async_call_callback")?;
                 lua_config.put();
 
                 // Release permit before we insert, as insertion itself can generate
@@ -189,11 +189,13 @@ impl LogHookState {
                 drop(permit);
 
                 if enqueue {
-                    let queue_name = msg.get_queue_name().await?;
+                    let queue_name = msg.get_queue_name().await.context("get_queue_name")?;
                     if !deferred_spool {
-                        msg.save(None).await?;
+                        msg.save(None).await.context("save")?;
                     }
-                    QueueManager::insert(&queue_name, msg, InsertReason::Received.into()).await?;
+                    QueueManager::insert(&queue_name, msg, InsertReason::Received.into())
+                        .await
+                        .context("insert")?;
                 }
                 Ok(())
             }

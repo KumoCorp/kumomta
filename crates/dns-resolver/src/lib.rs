@@ -7,9 +7,10 @@ pub use hickory_resolver::Name;
 use kumo_address::host::HostAddress;
 use kumo_address::host_or_socket::HostOrSocketAddress;
 use kumo_log_types::ResolvedAddress;
+use kumo_prometheus::declare_metric;
 use lruttl::declare_cache;
 use rand::prelude::SliceRandom;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv6Addr};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -47,7 +48,7 @@ static IPV6_CACHE: LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>::new("dns_resolver_ip
 }
 declare_cache! {
 /// Caches domain name to the combined set of ipv4 and ipv6 records
-static IP_CACHE: LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>::new("dns_resolver_ip", 1024);
+static IP_CACHE: LruCacheWithTtl<(Name, IpLookupStrategy), Arc<Vec<IpAddr>>>::new("dns_resolver_ip", 1024);
 }
 
 /// Maximum number of concurrent mx resolves permitted
@@ -61,42 +62,41 @@ static MX_TIMEOUT_MS: AtomicUsize = AtomicUsize::new(5000);
 /// 5 minutes in ms
 static MX_NEGATIVE_TTL: AtomicUsize = AtomicUsize::new(300 * 1000);
 
-static MX_IN_PROGRESS: LazyLock<prometheus::IntGauge> = LazyLock::new(|| {
-    prometheus::register_int_gauge!(
-        "dns_mx_resolve_in_progress",
-        "number of MailExchanger::resolve calls currently in progress"
-    )
-    .unwrap()
-});
-static MX_SUCCESS: LazyLock<prometheus::IntCounter> = LazyLock::new(|| {
-    prometheus::register_int_counter!(
-        "dns_mx_resolve_status_ok",
-        "total number of successful MailExchanger::resolve calls"
-    )
-    .unwrap()
-});
-static MX_FAIL: LazyLock<prometheus::IntCounter> = LazyLock::new(|| {
-    prometheus::register_int_counter!(
-        "dns_mx_resolve_status_fail",
-        "total number of failed MailExchanger::resolve calls"
-    )
-    .unwrap()
-});
-static MX_CACHED: LazyLock<prometheus::IntCounter> = LazyLock::new(|| {
-    prometheus::register_int_counter!(
-        "dns_mx_resolve_cache_hit",
-        "total number of MailExchanger::resolve calls satisfied by level 1 cache"
-    )
-    .unwrap()
-});
-static MX_QUERIES: LazyLock<prometheus::IntCounter> = LazyLock::new(|| {
-    prometheus::register_int_counter!(
-        "dns_mx_resolve_cache_miss",
-        "total number of MailExchanger::resolve calls that resulted in an \
-        MX DNS request to the next level of cache"
-    )
-    .unwrap()
-});
+declare_metric! {
+/// number of `MailExchanger::resolve` calls currently in progress.
+static MX_IN_PROGRESS: IntGauge("dns_mx_resolve_in_progress");
+}
+
+declare_metric! {
+/// Total number of successful `MailExchanger::resolve` calls
+static MX_SUCCESS: IntCounter(
+        "dns_mx_resolve_status_ok");
+}
+
+declare_metric! {
+/// Total number of failed `MailExchanger::resolve` calls.
+///
+/// Spikes may indicate an issue with your DNS configuration
+/// or infrastructure, or may simply indicate that the traffic
+/// is destined for bogus addresses.
+static MX_FAIL: IntCounter("dns_mx_resolve_status_fail");
+}
+
+declare_metric! {
+/// Total number of MailExchanger::resolve calls satisfied by level 1 cache.
+///
+/// Redundant with the newer [lruttl_hit_count{cache_name="dns_resolver_mx"}](lruttl_hit_count.md)
+/// metric.
+static MX_CACHED: IntCounter("dns_mx_resolve_cache_hit");
+}
+
+declare_metric! {
+/// Total number of MailExchanger::resolve calls that resulted in an MX DNS request to the next level of cache
+///
+/// Redundant with the newer [lruttl_miss_count{cache_name="dns_resolver_mx"}](lruttl_miss_count.md)
+/// metric.
+static MX_QUERIES: IntCounter("dns_mx_resolve_cache_miss");
+}
 
 fn default_resolver() -> impl Resolver {
     #[cfg(feature = "default-unbound")]
@@ -314,6 +314,7 @@ impl DomainClassification {
 pub async fn resolve_a_or_aaaa(
     domain_name: &str,
     resolver: Option<&dyn Resolver>,
+    strategy: IpLookupStrategy,
 ) -> anyhow::Result<Vec<ResolvedAddress>> {
     if domain_name.starts_with('[') {
         // It's a literal address, no DNS lookup necessary
@@ -366,7 +367,7 @@ pub async fn resolve_a_or_aaaa(
         }
     }
 
-    match ip_lookup(domain_name, resolver).await {
+    match ip_lookup(domain_name, resolver, strategy).await {
         Ok((addrs, _expires)) => {
             let addrs = addrs
                 .iter()
@@ -496,7 +497,7 @@ impl MailExchanger {
     /// order; the first one to try is the last element.
     /// smtp_dispatcher.rs relies on this ordering, as it will pop
     /// off candidates until it has exhausted its connection plan.
-    pub async fn resolve_addresses(&self) -> ResolvedMxAddresses {
+    pub async fn resolve_addresses(&self, strategy: IpLookupStrategy) -> ResolvedMxAddresses {
         let mut result = vec![];
 
         for hosts in self.by_pref.values().rev() {
@@ -525,7 +526,7 @@ impl MailExchanger {
                     continue;
                 }
 
-                match ip_lookup(mx_host, None).await {
+                match ip_lookup(mx_host, None, strategy).await {
                     Err(err) => {
                         tracing::error!("failed to resolve {mx_host}: {err:#}");
                         continue;
@@ -630,36 +631,83 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
     Ok((records, mx_lookup.expires))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, Hash)]
+#[repr(u8)]
+pub enum IpLookupStrategy {
+    /// Only query for A (Ipv4) records
+    Ipv4Only,
+    /// Only query for AAAA (Ipv6) records
+    Ipv6Only,
+    /// Query for A and AAAA in parallel
+    #[default]
+    Ipv4AndIpv6,
+    /// Query for Ipv6 if that fails, query for Ipv4
+    Ipv6ThenIpv4,
+    /// Query for Ipv4 if that fails, query for Ipv6 (default)
+    Ipv4ThenIpv6,
+}
+
 pub async fn ip_lookup(
     key: &str,
     resolver: Option<&dyn Resolver>,
+    strategy: IpLookupStrategy,
 ) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
 
     if resolver.is_none() {
-        if let Some(lookup) = IP_CACHE.lookup(&key_fq) {
+        if let Some(lookup) = IP_CACHE.lookup(&(key_fq.clone(), strategy)) {
             return Ok((lookup.item, lookup.expiration.into()));
         }
     }
 
-    let (v4, v6) = tokio::join!(ipv4_lookup(key, resolver), ipv6_lookup(key, resolver));
+    let (v4, v6) = match strategy {
+        IpLookupStrategy::Ipv4AndIpv6 => {
+            let (v4, v6) = tokio::join!(ipv4_lookup(key, resolver), ipv6_lookup(key, resolver));
+            (Some(v4), Some(v6))
+        }
+        IpLookupStrategy::Ipv4Only => (Some(ipv4_lookup(key, resolver).await), None),
+        IpLookupStrategy::Ipv6Only => (None, Some(ipv6_lookup(key, resolver).await)),
+        IpLookupStrategy::Ipv6ThenIpv4 => {
+            let v6 = ipv6_lookup(key, resolver).await;
+            match v6 {
+                Ok((addrs, exp)) if addrs.is_empty() => (
+                    Some(ipv4_lookup(key, resolver).await),
+                    Some(Ok((addrs, exp))),
+                ),
+                Err(err) => (Some(ipv4_lookup(key, resolver).await), Some(Err(err))),
+                Ok(res) => (None, Some(Ok(res))),
+            }
+        }
+        IpLookupStrategy::Ipv4ThenIpv6 => {
+            let v4 = ipv4_lookup(key, resolver).await;
+            match v4 {
+                Ok((addrs, exp)) if addrs.is_empty() => (
+                    Some(Ok((addrs, exp))),
+                    Some(ipv6_lookup(key, resolver).await),
+                ),
+                Err(err) => (Some(Err(err)), Some(ipv6_lookup(key, resolver).await)),
+                Ok(res) => (Some(Ok(res)), None),
+            }
+        }
+    };
 
     let mut results = vec![];
     let mut errors = vec![];
     let mut expires = None;
 
     match v4 {
-        Ok((addrs, exp)) => {
+        Some(Ok((addrs, exp))) => {
             expires.replace(exp);
             for a in addrs.iter() {
                 results.push(*a);
             }
         }
-        Err(err) => errors.push(err),
+        Some(Err(err)) => errors.push(err),
+        None => {}
     }
 
     match v6 {
-        Ok((addrs, exp)) => {
+        Some(Ok((addrs, exp))) => {
             let exp = match expires.take() {
                 Some(existing) => exp.min(existing),
                 None => exp,
@@ -670,7 +718,8 @@ pub async fn ip_lookup(
                 results.push(*a);
             }
         }
-        Err(err) => errors.push(err),
+        Some(Err(err)) => errors.push(err),
+        None => {}
     }
 
     if results.is_empty() && !errors.is_empty() {
@@ -681,7 +730,9 @@ pub async fn ip_lookup(
     let exp = expires.take().unwrap_or_else(Instant::now);
 
     if resolver.is_none() {
-        IP_CACHE.insert(key_fq, addr.clone(), exp.into()).await;
+        IP_CACHE
+            .insert((key_fq, strategy), addr.clone(), exp.into())
+            .await;
     }
     Ok((addr, exp))
 }
@@ -853,7 +904,9 @@ MailExchanger {
 "#
         );
         k9::snapshot!(
-            v4_loopback.resolve_addresses().await,
+            v4_loopback
+                .resolve_addresses(IpLookupStrategy::default())
+                .await,
             r#"
 Addresses(
     [
@@ -889,7 +942,9 @@ MailExchanger {
 "#
         );
         k9::snapshot!(
-            v6_loopback_non_conforming.resolve_addresses().await,
+            v6_loopback_non_conforming
+                .resolve_addresses(IpLookupStrategy::default())
+                .await,
             r#"
 Addresses(
     [
@@ -925,7 +980,9 @@ MailExchanger {
 "#
         );
         k9::snapshot!(
-            v6_loopback.resolve_addresses().await,
+            v6_loopback
+                .resolve_addresses(IpLookupStrategy::default())
+                .await,
             r#"
 Addresses(
     [
@@ -1066,7 +1123,7 @@ MailExchanger {
         // We expect the addresses within a given preference level to
         // be randomized, because that is what resolve_addresses does.
         k9::snapshot!(
-            gmail.resolve_addresses().await,
+            gmail.resolve_addresses(IpLookupStrategy::default()).await,
             r#"
 Addresses(
     [

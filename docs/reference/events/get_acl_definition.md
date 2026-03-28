@@ -9,7 +9,7 @@ tags:
 kumo.on('get_acl_definition', function(resource) end)
 ```
 
-{{since('dev')}}
+{{since('2026.03.04-bb93ecb1')}}
 
 This event is called when the system is performing an authorization check.  Its
 purpose is to provide the definition of an Access Control List (ACL) for the

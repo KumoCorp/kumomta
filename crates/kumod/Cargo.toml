@@ -11,6 +11,7 @@ axum = {workspace=true, features=["ws"]}
 axum-client-ip = {workspace=true}
 axum-server = {workspace=true, features=["tls-rustls"]}
 bounce-classify = {path="../bounce-classify"}
+bstr.workspace = true
 chrono = {workspace=true, default-features=false, features=["serde"]}
 cidr-map = {path="../cidr-map"}
 clap = {workspace=true, features=["derive"]}
@@ -47,16 +48,15 @@ maildir = {path="../maildir"}
 mailparsing = {path="../mailparsing"}
 memchr = {workspace=true}
 message = {path="../message"}
-metrics = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mod-dns-resolver = {path="../mod-dns-resolver"}
+mod-time = {path="../mod-time"}
 mta-sts = {path="../mta-sts"}
 nix = {workspace=true, features=["resource", "user"]}
 num-format.workspace = true
 openssl.workspace = true
 parking_lot = {workspace=true}
 ppp = {workspace=true}
-prometheus = {workspace=true}
 rand = {workspace=true}
 reqwest = {workspace=true, default-features=false, features=["rustls-tls"]}
 rfc5321 = {path="../rfc5321"}

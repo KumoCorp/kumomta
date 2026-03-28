@@ -10,6 +10,7 @@ pub struct XferProtocol {
     // TODO: support multiple, as well as resolving the hostname
     // to multiple candidates so that we can immediately retry
     // transient issues on subsequent candidates
+    #[schema(examples("http://127.0.0.1:8000", "https://host.name:8008"))]
     pub target: Url,
 }
 

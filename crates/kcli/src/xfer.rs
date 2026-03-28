@@ -1,5 +1,6 @@
 use clap::{ArgGroup, Parser};
-use kumo_api_types::xfer::{XferProtocol, XferV1Request, XferV1Response};
+use kumo_api_client::KumoApiClient;
+use kumo_api_types::xfer::{XferProtocol, XferV1Request};
 use reqwest::Url;
 
 #[derive(Debug, Parser)]
@@ -112,10 +113,9 @@ impl XferCommand {
             );
         }
 
-        let _result: XferV1Response = crate::request_with_json_response(
-            reqwest::Method::POST,
-            endpoint.join("/api/admin/xfer/v1")?,
-            &XferV1Request {
+        let client = KumoApiClient::new(endpoint.clone());
+        let _result = client
+            .admin_xfer_v1(&XferV1Request {
                 campaign: self.campaign.clone(),
                 domain: self.domain.clone(),
                 routing_domain: self.routing_domain.clone(),
@@ -125,9 +125,8 @@ impl XferCommand {
                 protocol: XferProtocol {
                     target: self.target.clone(),
                 },
-            },
-        )
-        .await?;
+            })
+            .await?;
 
         eprintln!("NOTE: Xfer always runs asynchronously");
 

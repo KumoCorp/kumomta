@@ -1,3 +1,4 @@
+use bstr::ByteSlice;
 use config::{
     any_err, decorate_callback_name, from_lua_value, get_or_create_module, load_config,
     serialize_options, CallbackSignature,
@@ -45,6 +46,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         mod_memoize::register,
         mod_mimepart::register,
         mod_mpsc::register,
+        mod_nats::register,
         mod_uuid::register,
         kumo_api_types::shaping::register,
         regex_set_map::register,
@@ -192,13 +194,19 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             }
 
             match item {
-                Value::String(s) => match s.to_str() {
-                    Ok(s) => output.push_str(&s),
-                    Err(_) => {
-                        let item = s.to_string_lossy();
-                        output.push_str(&item);
+                Value::String(s) => {
+                    let bytes = s.as_bytes();
+                    for (start, end, c) in bytes.char_indices() {
+                        if c == std::char::REPLACEMENT_CHARACTER {
+                            let c_slice = &bytes[start..end];
+                            for &b in c_slice.iter() {
+                                output.push_str(&format!("\\x{b:02X}"));
+                            }
+                        } else {
+                            output.push(c);
+                        }
                     }
-                },
+                }
                 item => match item.to_string() {
                     Ok(s) => output.push_str(&s),
                     Err(_) => output.push_str(&format!("{item:?}")),
@@ -365,6 +373,21 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             kumo_server_memory::set_soft_limit(limit);
             Ok(())
         })?,
+    )?;
+
+    kumo_mod.set(
+        "get_memory_hard_limit",
+        lua.create_function(move |_, _: ()| Ok(kumo_server_memory::get_hard_limit()))?,
+    )?;
+
+    kumo_mod.set(
+        "get_memory_soft_limit",
+        lua.create_function(move |_, _: ()| Ok(kumo_server_memory::get_soft_limit()))?,
+    )?;
+
+    kumo_mod.set(
+        "get_memory_low_thresh",
+        lua.create_function(move |_, _: ()| Ok(kumo_server_memory::get_low_memory_thresh()))?,
     )?;
 
     kumo_mod.set(
