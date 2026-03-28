@@ -1,6 +1,5 @@
 use bstr::ByteSlice;
 use config::{from_lua_value, get_or_create_sub_module};
-use bstr::ByteSlice;
 use kumo_template::TemplateDialect;
 use mlua::Lua;
 
