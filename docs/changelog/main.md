@@ -28,6 +28,16 @@
    into conforming MIME.  If you need to relay this sort of content it is often
    undesirable to rewrite it so you will need to take appropriate care in your
    policy to decide when to preserve, fix or reject this content.
+ * When all connection attempts fail due to unplumbed IPs (either local, or via
+   kumo-proxy), or are due to failure to connect to a proxy, we now summarize
+   this and the resulting transient failure will include a string like `All
+   failures are related to the proxy server having an unplumbed source
+   address`, `All failures are related to proxy connection issues` or `All
+   failures are related to having an unplumbed source address`.  If you
+   have automation rules that depend on the precise formatting of these
+   sorts of failures, you should review and revise them accordingly.
+   Note that it is not possible to detect unplumbed IPs via HA Proxy
+   due to limitations of the HA Proxy protocol.
 
 ## Other Changes and Enhancements
 
