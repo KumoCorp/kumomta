@@ -15,6 +15,19 @@
    This behavior also applies to the local part values that are used
    to construct [Advanced Maildir
    Paths](../reference/kumo/make_queue_config/protocol.md#advanced-maildir-path).
+ * Our MIME parser now accommodates non-conforming binary message
+   content that is neither ASCII nor UTF-8, such as message content encoded in
+   `shift-jis` without using appropriate MIME markup to indicate that encoding.
+   Such content is technically not relayable according to the SMTP RFCs but
+   is commonly produced and accepted in Japan.  For the most part this
+   change is transparent and has no downsides but it can result in various
+   methods on the `Message` and `MimePart` types returning binary strings
+   to lua where they were formerly guaranteed to be UTF-8.  Be aware that
+   [msg:check_fix_conformance](../reference/message/check_fix_conformance.md)
+   can be used with charset detection enabled to rewrite such a message
+   into conforming MIME.  If you need to relay this sort of content it is often
+   undesirable to rewrite it so you will need to take appropriate care in your
+   policy to decide when to preserve, fix or reject this content.
 
 ## Other Changes and Enhancements
 
