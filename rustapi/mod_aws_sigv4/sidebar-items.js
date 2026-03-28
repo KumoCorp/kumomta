@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["register","sign_request"],"struct":["SigV4Request","SigV4Response"]};
