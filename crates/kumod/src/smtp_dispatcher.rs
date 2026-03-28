@@ -130,20 +130,6 @@ pub struct OpportunisticInsecureTlsHandshakeError {
     pub label: String,
 }
 
-impl OpportunisticInsecureTlsHandshakeError {
-    pub fn is_match_anyhow(err: &anyhow::Error) -> bool {
-        Self::is_match(err.root_cause())
-    }
-
-    pub fn is_match(err: &(dyn std::error::Error + 'static)) -> bool {
-        if let Some(cause) = err.source() {
-            return Self::is_match(cause);
-        } else {
-            err.downcast_ref::<Self>().is_some()
-        }
-    }
-}
-
 impl SmtpDispatcher {
     pub async fn init(
         dispatcher: &mut Dispatcher,

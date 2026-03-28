@@ -204,14 +204,14 @@ jobs:
             type=ref,event=pr
       - name: Login to GHCR
         if: ${{ github.event_name != 'pull_request' }}
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: https://ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build Image
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           push: ${{ github.event_name != 'pull_request' }}
           platforms: ${{ inputs.docker_platform }}

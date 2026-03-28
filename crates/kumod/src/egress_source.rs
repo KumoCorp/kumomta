@@ -75,6 +75,48 @@ pub struct EgressSource {
 
 impl LuaUserData for EgressSource {}
 
+#[derive(thiserror::Error, Debug)]
+#[error("bind {source_ip:?} for {source_name} failed: {error:#} while attempting to connect to {connect_context}")]
+pub struct BindError {
+    pub source_ip: IpAddr,
+    pub error: std::io::Error,
+    pub connect_context: String,
+    pub source_name: String,
+}
+
+impl BindError {
+    pub fn is_unplumbed(&self) -> bool {
+        matches!(self.error.kind(), std::io::ErrorKind::AddrNotAvailable)
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+#[error("{reason}")]
+pub struct ConnectError {
+    pub is_proxy: bool,
+    pub reason: String,
+}
+
+#[derive(thiserror::Error, Debug)]
+#[error("{reason}")]
+pub struct ProxyBindError {
+    pub reason: String,
+}
+
+pub fn err_match_anyhow<T: std::error::Error + 'static>(err: &anyhow::Error) -> Option<&T> {
+    err_match(err.root_cause())
+}
+
+pub fn err_match<'a, T: std::error::Error + 'static>(
+    err: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a T> {
+    if let Some(cause) = err.source() {
+        err_match(cause)
+    } else {
+        err.downcast_ref::<T>()
+    }
+}
+
 impl EgressSource {
     pub async fn resolve(name: &str, config: &mut LuaConfig) -> anyhow::Result<Self> {
         SOURCES
@@ -197,11 +239,6 @@ impl EgressSource {
 
         if let Some(source) = self.source_address {
             if let Err(err) = socket.bind(SocketAddr::new(source, 0)) {
-                let error = format!(
-                    "bind {source:?} for source:{source_name} failed: {err:#} \
-                    while attempting to connect to {connect_context}"
-                );
-
                 declare_metric! {
                     /// How many times that directly binding a source address has failed.
                     ///
@@ -212,7 +249,13 @@ impl EgressSource {
                 }
 
                 FAILED_BIND.inc();
-                anyhow::bail!("{error}");
+                return Err(BindError {
+                    source_ip: source,
+                    error: err,
+                    connect_context,
+                    source_name: source_name.to_string(),
+                }
+                .into());
             }
         }
 
@@ -224,14 +267,22 @@ impl EgressSource {
             {
                 Err(_) => {
                     inc_failed_proxy_connection_attempts(is_proxy);
-                    anyhow::bail!(
-                        "timeout after {timeout_duration:?} \
-                         while connecting to {transport_context}"
-                    );
+                    return Err(ConnectError {
+                        is_proxy,
+                        reason: format!(
+                            "timeout after {timeout_duration:?} \
+                             while connecting to {transport_context}"
+                        ),
+                    }
+                    .into());
                 }
                 Ok(Err(err)) => {
                     inc_failed_proxy_connection_attempts(is_proxy);
-                    anyhow::bail!("failed to connect to {transport_context}: {err:#}");
+                    return Err(ConnectError {
+                        is_proxy,
+                        reason: format!("failed to connect to {transport_context}: {err:#}"),
+                    }
+                    .into());
                 }
                 Ok(Ok(stream)) => stream,
             };
@@ -956,7 +1007,15 @@ impl<'a> ProxyProto<'a> {
                     SocksV5RequestStatus::Success => {
                         tracing::debug!("SOCKS5: bind response: {bind_status:?}");
                     }
-                    _ => anyhow::bail!("failed to bind {source:?} via {self:?}: {bind_status:?}"),
+                    _ => {
+                        return Err(ProxyBindError {
+                            reason: format!(
+                                "The proxy server failed to bind {source:?} \
+                                 via {self:?}: {bind_status:?}"
+                            ),
+                        }
+                        .into())
+                    }
                 }
 
                 tracing::debug!("SOCKS5: requesting connect to {dest_host:?}:{dest_port}");

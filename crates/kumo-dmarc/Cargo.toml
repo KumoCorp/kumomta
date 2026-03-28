@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+bstr.workspace = true
 chrono = {workspace=true}
 dns-resolver = {path="../dns-resolver"}
 instant-xml = {workspace=true}

@@ -1,4 +1,5 @@
 use crate::hash::LimitHasher;
+use bstr::ByteSlice;
 use memchr::memmem::Finder;
 use std::sync::LazyLock;
 
@@ -23,7 +24,7 @@ impl Type {
         }
     }
 
-    pub(crate) fn canon_header_into(&self, key: &str, value: &[u8], out: &mut Vec<u8>) {
+    pub(crate) fn canon_header_into(&self, key: &[u8], value: &[u8], out: &mut Vec<u8>) {
         match self {
             Self::Simple => canonicalize_header_simple(key, value, out),
             Self::Relaxed => canonicalize_header_relaxed(key, value, out),
@@ -136,16 +137,16 @@ fn body_relaxed(mut body: &[u8], hasher: &mut LimitHasher) {
 }
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-3.4.1
-fn canonicalize_header_simple(key: &str, value: &[u8], out: &mut Vec<u8>) {
-    out.extend_from_slice(key.as_bytes());
+fn canonicalize_header_simple(key: &[u8], value: &[u8], out: &mut Vec<u8>) {
+    out.extend_from_slice(key);
     out.extend_from_slice(b": ");
     out.extend_from_slice(value);
     out.extend_from_slice(b"\r\n");
 }
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-3.4.2
-fn canonicalize_header_relaxed(key: &str, value: &[u8], out: &mut Vec<u8>) {
-    let key = key.to_lowercase();
+fn canonicalize_header_relaxed(key: &[u8], value: &[u8], out: &mut Vec<u8>) {
+    let key = key.to_ascii_lowercase();
     let key = key.trim_end();
 
     out.extend_from_slice(key.as_bytes());
@@ -201,7 +202,7 @@ mod tests {
 
     fn header_relaxed(key: &str, value: &[u8]) -> Vec<u8> {
         let mut result = vec![];
-        canonicalize_header_relaxed(key, value, &mut result);
+        canonicalize_header_relaxed(key.as_bytes(), value, &mut result);
         result
     }
 

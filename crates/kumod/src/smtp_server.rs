@@ -376,7 +376,7 @@ impl TraceHeaders {
 
         let value = BASE64.encode(serde_json::to_string(&object)?.as_bytes());
         message
-            .prepend_header(Some(&self.header_name), &value)
+            .prepend_header(Some(&self.header_name), value.as_bytes())
             .await?;
 
         Ok(())
@@ -1861,7 +1861,19 @@ impl SmtpServerSession {
                         .await?;
                         continue;
                     }
-                    let address = EnvelopeAddress::parse(&address.to_string())?;
+                    let address = match EnvelopeAddress::parse(&address.to_string()) {
+                        Ok(address) => address,
+                        Err(err) => {
+                            self.write_response(
+                                501,
+                                format!("5.1.7 Invalid sender address syntax: {err}"),
+                                Some(line),
+                                RejectDisconnect::If421,
+                            )
+                            .await?;
+                            continue;
+                        }
+                    };
                     if let Err(rej) = self
                         .call_callback::<(), _, _>(
                             "smtp_server_mail_from",
@@ -1901,7 +1913,19 @@ impl SmtpServerSession {
                         .await?;
                         continue;
                     }
-                    let address = EnvelopeAddress::parse(&address.to_string())?;
+                    let address = match EnvelopeAddress::parse(&address.to_string()) {
+                        Ok(address) => address,
+                        Err(err) => {
+                            self.write_response(
+                                501,
+                                format!("5.1.3 Invalid recipient address syntax: {err}"),
+                                Some(line),
+                                RejectDisconnect::If421,
+                            )
+                            .await?;
+                            continue;
+                        }
+                    };
 
                     let sender = self.state.as_ref().unwrap().sender.clone();
                     let relay_disposition = self.check_relaying(&sender, &address).await?;
@@ -2090,7 +2114,13 @@ impl SmtpServerSession {
                 Ok(Command::XClient(params)) => {
                     self.process_xclient(&params).await?;
                 }
-                Ok(Command::Vrfy(_) | Command::Expn(_) | Command::Help(_) | Command::Lhlo(_)) => {
+                Ok(
+                    Command::Vrfy(_)
+                    | Command::Expn(_)
+                    | Command::Help(_)
+                    | Command::Lhlo(_)
+                    | Command::RawLine(_),
+                ) => {
                     self.write_response(
                         502,
                         format!("5.5.1 Command unimplemented"),

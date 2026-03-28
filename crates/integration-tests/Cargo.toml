@@ -8,6 +8,7 @@ anyhow = {workspace=true}
 async-nats = {workspace=true}
 axum = {workspace=true}
 axum-server = {workspace=true}
+bstr.workspace = true
 chrono = {workspace=true, default-features=false, features=["std", "clock"]}
 dns-resolver = {path="../dns-resolver"}
 futures.workspace = true

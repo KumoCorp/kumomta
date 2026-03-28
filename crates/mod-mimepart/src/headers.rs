@@ -1,4 +1,5 @@
 use crate::PartRef;
+use bstr::BString;
 use config::{SerdeWrappedValue, any_err};
 use mailparsing::{
     AddressList, Header, HeaderMap, MailParsingError, Mailbox, MailboxList, MessageID,
@@ -22,7 +23,7 @@ impl HeaderMapRef {
 struct HeaderIterInner {
     part: PartRef,
     idx: usize,
-    name: Option<String>,
+    name: Option<mlua::String>,
 }
 
 impl UserData for HeaderMapRef {
@@ -37,23 +38,31 @@ impl UserData for HeaderMapRef {
             lua.create_string(&out)
         });
 
-        methods.add_method("append", |_lua, this, (name, value): (String, String)| {
-            this.0
-                .mutate(|part| {
-                    part.headers_mut().append_header(&name, value);
-                    Ok(())
-                })
-                .map_err(any_err)
-        });
+        methods.add_method(
+            "append",
+            |_lua, this, (name, value): (String, mlua::String)| {
+                this.0
+                    .mutate(|part| {
+                        part.headers_mut()
+                            .append_header(&name, BString::new(value.as_bytes().to_vec()));
+                        Ok(())
+                    })
+                    .map_err(any_err)
+            },
+        );
 
-        methods.add_method("prepend", |_lua, this, (name, value): (String, String)| {
-            this.0
-                .mutate(|part| {
-                    part.headers_mut().prepend(&name, value);
-                    Ok(())
-                })
-                .map_err(any_err)
-        });
+        methods.add_method(
+            "prepend",
+            |_lua, this, (name, value): (String, mlua::String)| {
+                this.0
+                    .mutate(|part| {
+                        part.headers_mut()
+                            .prepend(&name, BString::new(value.as_bytes().to_vec()));
+                        Ok(())
+                    })
+                    .map_err(any_err)
+            },
+        );
 
         methods.add_method("remove_all_named", |_lua, this, name: String| {
             this.0
@@ -72,7 +81,7 @@ impl UserData for HeaderMapRef {
                 .map(|hdr| HeaderWrap(hdr.to_owned())))
         });
 
-        methods.add_method("iter", |lua, this, name: Option<String>| {
+        methods.add_method("iter", |lua, this, name: Option<mlua::String>| {
             let mut iter = HeaderIterInner {
                 part: this.0.clone(),
                 idx: 0,
@@ -91,7 +100,10 @@ impl UserData for HeaderMapRef {
                         let matched = iter
                             .name
                             .as_ref()
-                            .map(|name| hdr.get_name().eq_ignore_ascii_case(name))
+                            .map(|name| {
+                                hdr.get_name()
+                                    .eq_ignore_ascii_case(name.as_bytes().as_ref())
+                            })
                             .unwrap_or(true);
 
                         if matched {
@@ -124,22 +136,22 @@ impl UserData for HeaderMapRef {
 
         fn setter_unstructured<APPLY>(
             apply: APPLY,
-        ) -> impl Fn(&Lua, &HeaderMapRef, String) -> mlua::Result<()>
+        ) -> impl Fn(&Lua, &HeaderMapRef, mlua::String) -> mlua::Result<()>
         where
-            APPLY: Fn(&mut HeaderMap, &str) -> Result<(), MailParsingError>,
+            APPLY: Fn(&mut HeaderMap, &[u8]) -> Result<(), MailParsingError>,
         {
-            move |_lua, this, value: String| {
+            move |_lua, this, value: mlua::String| {
                 this.0
-                    .mutate(|part| Ok(apply(part.headers_mut(), &value)?))
+                    .mutate(|part| Ok(apply(part.headers_mut(), &value.as_bytes())?))
                     .map_err(any_err)
             }
         }
 
         fn getter_unstructured<GET>(
             get: GET,
-        ) -> impl Fn(&Lua, &HeaderMapRef, ()) -> mlua::Result<Option<String>>
+        ) -> impl Fn(&Lua, &HeaderMapRef, ()) -> mlua::Result<Option<BString>>
         where
-            GET: Fn(&HeaderMap) -> Result<Option<String>, MailParsingError>,
+            GET: Fn(&HeaderMap) -> Result<Option<BString>, MailParsingError>,
         {
             move |_lua, this, ()| {
                 let part = this.0.resolve().map_err(any_err)?;
@@ -335,8 +347,8 @@ impl UserData for HeaderMapRef {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MimeParams {
-    pub value: String,
-    pub parameters: BTreeMap<String, String>,
+    pub value: BString,
+    pub parameters: BTreeMap<BString, BString>,
 }
 
 impl From<MimeParameters> for MimeParams {
@@ -440,7 +452,7 @@ impl UserData for HeaderWrap {
         fields.add_field_method_get("value", |lua, this| {
             let name = this.0.get_name();
             for (candidate, getter) in NAME_GETTER {
-                if candidate.eq_ignore_ascii_case(name) {
+                if candidate.as_bytes().eq_ignore_ascii_case(name) {
                     return (getter)(lua, &this.0);
                 }
             }

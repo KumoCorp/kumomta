@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow.workspace = true
+bstr.workspace = true
 config = {path="../config"}
 mailparsing = {path="../mailparsing"}
 mlua = {workspace=true, features=["vendored", "macros", "lua54", "async", "send", "serialize"]}

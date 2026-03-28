@@ -6,7 +6,7 @@
 #
 # To make changes at runtime you must load your own ACL file via
 # your policy configuration. Consult the docs at:
-# <https://docs.kumomta.com/reference/events/get_acl_definition.md>
+# <https://docs.kumomta.com/reference/events/get_acl_definition>
 # for information on how to do that.
 
 ## KumoMTA HTTP Listener ACL rules -----------------------------------
