@@ -19,6 +19,7 @@ client = [
 
 [dependencies]
 anyhow = {workspace=true}
+bstr.workspace = true
 data-encoding = {workspace=true}
 duration-serde = {path="../duration-serde"}
 hickory-proto = {workspace=true, optional=true}
@@ -28,9 +29,10 @@ libc = {workspace=true}
 linkme.workspace = true
 lruttl = {path="../lruttl", optional=true}
 memchr = {workspace=true}
+nom.workspace = true
+nom-utils = {path="../nom-utils"}
 openssl = {workspace=true, optional=true}
-pest = {workspace=true}
-pest_derive = {workspace=true}
+pastey.workspace = true
 rustls = {workspace=true}
 rustls-pemfile = { workspace = true }
 rustls-platform-verifier = {workspace=true,optional=true}
@@ -40,3 +42,6 @@ tokio = {workspace=true, features=["full"], optional=true}
 tokio-rustls = {workspace=true, optional=true}
 tokio-openssl = {workspace=true, optional=true}
 tracing = {workspace=true, optional=true}
+
+[dev-dependencies]
+k9.workspace = true

@@ -1,9 +1,18 @@
 use bstr::{BStr, ByteSlice};
-use nom::error::{ContextError, ErrorKind};
-use nom::Input;
+use hickory_resolver::Name;
+use nom::branch::alt;
+use nom::bytes::complete::{take_while1, take_while_m_n};
+use nom::combinator::{map_res, opt, recognize};
+use nom::error::{context, ContextError, ErrorKind, FromExternalError, ParseError as _};
+use nom::multi::{many0, many1};
+use nom::sequence::pair;
+use nom::{Input, Parser as _};
 use nom_locate::LocatedSpan;
-use std::fmt::{Debug, Write};
+use std::fmt::{self, Debug, Write};
+use std::hash::Hash;
 use std::marker::PhantomData;
+use std::net::{Ipv4Addr, Ipv6Addr};
+use std::str::FromStr;
 
 pub type Span<'a> = LocatedSpan<&'a [u8]>;
 pub type IResult<'a, A, B> = nom::IResult<A, B, ParseError<Span<'a>>>;
@@ -18,6 +27,15 @@ pub fn make_span(s: &'_ [u8]) -> Span<'_> {
 pub fn tag<E>(tag: &'static str) -> TagParser<E> {
     TagParser {
         tag,
+        no_case: false,
+        e: PhantomData,
+    }
+}
+
+pub fn tag_no_case<E>(tag: &'static str) -> TagParser<E> {
+    TagParser {
+        tag,
+        no_case: true,
         e: PhantomData,
     }
 }
@@ -25,6 +43,7 @@ pub fn tag<E>(tag: &'static str) -> TagParser<E> {
 /// Struct to support displaying better errors for tag()
 pub struct TagParser<E> {
     tag: &'static str,
+    no_case: bool,
     e: PhantomData<E>,
 }
 
@@ -46,7 +65,13 @@ where
 
         let tag_len = self.tag.input_len();
 
-        match i.compare(self.tag) {
+        let compare_result = if self.no_case {
+            i.compare_no_case(self.tag)
+        } else {
+            i.compare(self.tag)
+        };
+
+        match compare_result {
             CompareResult::Ok => Ok((i.take_from(tag_len), OM::Output::bind(|| i.take(tag_len)))),
             CompareResult::Incomplete => Err(Err::Error(OM::Error::bind(|| {
                 Error::from_external_error(
@@ -250,5 +275,233 @@ pub fn explain_nom(input: Span, err: nom::Err<ParseError<Span<'_>>>) -> String {
             result
         }
         _ => format!("{err:#}"),
+    }
+}
+
+/// See the following RFCs:
+/// * <https://datatracker.ietf.org/doc/html/rfc6531#section-3.3>
+/// * <https://datatracker.ietf.org/doc/html/rfc6532#section-3.1>
+/// * <https://datatracker.ietf.org/doc/html/rfc3629#section-4>
+/// which define a bunch of ABNF, but then caps it off with:
+/// > The authoritative definition of UTF-8 is in [UNICODE].  This
+/// > grammar is believed to describe the same thing Unicode describes, but
+/// > does not claim to be authoritative.  Implementors are urged to rely
+/// > on the authoritative source, rather than on this ABNF.
+pub fn utf8_non_ascii(input: Span) -> IResult<Span, Span> {
+    use nom::Err;
+
+    match input.char_indices().next() {
+        Some((start, end, c)) => {
+            let len = end - start;
+            if c as u32 <= 0x7f {
+                // It's ASCII, therefore doesn't match as utf8_non_ascii
+                return Err(Err::Error(ParseError::from_error_kind(
+                    input,
+                    ErrorKind::Fail,
+                )));
+            }
+            let slice = &input[start..end];
+            if c == std::char::REPLACEMENT_CHARACTER {
+                let mut verify = [0u8; 4];
+                if slice != c.encode_utf8(&mut verify).as_bytes() {
+                    // The original sequence wasn't REPLACEMENT_CHARACTER,
+                    // therefore the input is not valid UTF-8
+                    return Err(Err::Error(ParseError::from_error_kind(
+                        input,
+                        ErrorKind::Fail,
+                    )));
+                }
+            }
+            // slice is the first UTF-8 character in the input
+            Ok((input.take_from(len), input.take(len)))
+        }
+        None => {
+            // There's no input, therefore we cannot match
+            Err(Err::Error(ParseError::from_error_kind(
+                input,
+                ErrorKind::Eof,
+            )))
+        }
+    }
+}
+
+fn snum(input: Span) -> IResult<Span, Span> {
+    take_while_m_n(1, 3, |c: u8| c.is_ascii_digit()).parse(input)
+}
+
+pub fn ipv4_address(input: Span) -> IResult<Span, Ipv4Addr> {
+    context(
+        "ipv4_address",
+        map_res(
+            recognize((snum, tag("."), snum, tag("."), snum, tag("."), snum)),
+            |matched| {
+                let v4str = std::str::from_utf8(&matched).expect("can only be ascii");
+                v4str.parse().map_err(|err| {
+                    nom::Err::Error(ParseError::from_external_error(
+                        input,
+                        ErrorKind::Fail,
+                        format!("invalid ipv4_address: {err}"),
+                    ))
+                })
+            },
+        ),
+    )
+    .parse(input)
+}
+
+pub fn ipv6_address(input: Span) -> IResult<Span, Ipv6Addr> {
+    context(
+        "ipv6_address",
+        map_res(
+            take_while1(|c: u8| c.is_ascii_hexdigit() || c == b':' || c == b'.'),
+            |matched: Span| {
+                let v6str = std::str::from_utf8(&matched).expect("can only be ascii");
+                v6str.parse().map_err(|err| {
+                    nom::Err::Error(ParseError::from_external_error(
+                        input,
+                        ErrorKind::Fail,
+                        format!("invalid ipv6_address: {err}"),
+                    ))
+                })
+            },
+        ),
+    )
+    .parse(input)
+}
+
+/// A validated DNS domain name, stored in normalized (ASCII/punycode) form.
+/// The original wire-format string (which may have been a UTF-8 U-label)
+/// is not preserved; only the IDNA-normalized A-label form is kept.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct DomainString(String);
+
+impl fmt::Display for DomainString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl DomainString {
+    pub fn name(&self) -> Name {
+        Name::from_str_relaxed(&self.0)
+            .expect("cannot construct DomainString with an invalid domain name")
+    }
+
+    /// Returns a reference to the normalized (ASCII/punycode) domain string.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl FromStr for DomainString {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let name = Name::from_str_relaxed(s)?;
+        Ok(Self(name.to_ascii()))
+    }
+}
+
+impl From<DomainString> for Name {
+    fn from(val: DomainString) -> Self {
+        val.name()
+    }
+}
+
+impl From<&DomainString> for Name {
+    fn from(val: &DomainString) -> Self {
+        val.name()
+    }
+}
+
+/// `let-dig = ALPHA / DIGIT / UTF8-non-ASCII`
+fn let_dig(input: Span) -> IResult<Span, Span> {
+    recognize(alt((
+        take_while_m_n(1, 1, |c: u8| c.is_ascii_alphanumeric()),
+        utf8_non_ascii,
+    )))
+    .parse(input)
+}
+
+/// `ldh-str = *( ALPHA / DIGIT / "-" / UTF8-non-ASCII )`  (one or more)
+///
+/// As an extension to the mail RFCs, we allow for underscore
+/// in domain names, as those are a commonly deployed name, despite it
+/// being in violation of the DNS RFCs.
+fn ldh_str(input: Span) -> IResult<Span, Span> {
+    recognize(many1(alt((
+        take_while_m_n(1, 1, |c: u8| {
+            c.is_ascii_alphanumeric() || c == b'-' || c == b'_'
+        }),
+        utf8_non_ascii,
+    ))))
+    .parse(input)
+}
+
+/// `sub-domain = let-dig [ ldh-str ]`
+fn sub_domain(input: Span) -> IResult<Span, Span> {
+    recognize(pair(let_dig, opt(ldh_str))).parse(input)
+}
+
+/// `domain = sub-domain *( "." sub-domain )`
+pub fn domain_name(input: Span) -> IResult<Span, DomainString> {
+    context(
+        "domain-name",
+        map_res(
+            recognize(pair(sub_domain, many0(pair(tag("."), sub_domain)))),
+            |matched: Span| match std::str::from_utf8(&matched) {
+                Ok(s) => s.parse().map_err(|err| {
+                    nom::Err::Error(ParseError::from_external_error(
+                        input,
+                        ErrorKind::Fail,
+                        format!("invalid domain name: {err}"),
+                    ))
+                }),
+                Err(err) => Err(nom::Err::Error(ParseError::from_external_error(
+                    input,
+                    ErrorKind::Fail,
+                    format!("invalid domain name: {err}"),
+                ))),
+            },
+        ),
+    )
+    .parse(input)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ipv4_parse() {
+        // ipv4_address should parse valid IPv4 addresses
+        let (_, addr) = ipv4_address(make_span(b"192.168.1.1")).unwrap();
+        k9::assert_equal!(addr, Ipv4Addr::new(192, 168, 1, 1));
+    }
+
+    #[test]
+    fn test_ipv6_parse() {
+        // ipv6_address should parse valid IPv6 addresses,
+        // and different representations of the same address should be equal
+        let (_, v6a) = ipv6_address(make_span(b"2001:0db8:0000:0000:0000:0000:0000:0001")).unwrap();
+        let (_, v6b) = ipv6_address(make_span(b"2001:db8::1")).unwrap();
+        k9::assert_equal!(v6a, v6b);
+    }
+
+    #[test]
+    fn test_domain_string_partial_eq() {
+        // DomainString should compare equal if they normalize to the same domain
+        let d1 = DomainString::from_str("EXAMPLE.COM").unwrap();
+        let d2 = DomainString::from_str("example.com").unwrap();
+
+        assert_eq!(d1, d2);
+    }
+
+    #[test]
+    fn test_domain_string_partial_eq_idna() {
+        // DomainString should compare equal after IDNA normalization
+        let d1 = DomainString::from_str("münchen.de").unwrap();
+        let d2 = DomainString::from_str("xn--mnchen-3ya.de").unwrap();
+
+        assert_eq!(d1, d2);
     }
 }

@@ -4,7 +4,7 @@ use config::any_err;
 use mailparsing::{Address, AddressList, EncodeHeaderValue, Mailbox};
 #[cfg(feature = "impl")]
 use mlua::{FromLua, MetaMethod, UserData, UserDataFields, UserDataMethods};
-use rfc5321::{EnvelopeAddress as EnvelopeAddress5321, ForwardPath, ReversePath};
+use rfc5321::parser::{EnvelopeAddress as EnvelopeAddress5321, ForwardPath, ReversePath};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Eq)]
@@ -97,14 +97,14 @@ impl TryInto<EnvelopeAddress> for &Address {
 }
 
 impl TryInto<ForwardPath> for EnvelopeAddress {
-    type Error = String;
+    type Error = &'static str;
     fn try_into(self) -> Result<ForwardPath, Self::Error> {
         self.0.try_into()
     }
 }
 
 impl TryInto<ReversePath> for EnvelopeAddress {
-    type Error = String;
+    type Error = &'static str;
     fn try_into(self) -> Result<ReversePath, Self::Error> {
         self.0.try_into()
     }
@@ -113,6 +113,14 @@ impl TryInto<ReversePath> for EnvelopeAddress {
 impl From<ForwardPath> for EnvelopeAddress {
     fn from(fp: ForwardPath) -> EnvelopeAddress {
         EnvelopeAddress(fp.into())
+    }
+}
+
+impl TryFrom<ReversePath> for EnvelopeAddress {
+    type Error = &'static str;
+
+    fn try_from(reverse_path: ReversePath) -> Result<Self, Self::Error> {
+        EnvelopeAddress5321::try_from(reverse_path).map(EnvelopeAddress)
     }
 }
 
@@ -348,12 +356,11 @@ mod test {
         k9::snapshot!(
             EnvelopeAddress::parse("user@example.com:2025").unwrap_err(),
             "
- --> 1:17
-  |
-1 | user@example.com:2025
-  |                 ^---
-  |
-  = expected EOI, alpha, digit, or utf8_non_ascii
+Error at line 1, in Eof:
+user@example.com:2025
+                ^____
+
+
 "
         );
     }

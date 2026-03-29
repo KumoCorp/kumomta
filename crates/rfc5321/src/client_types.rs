@@ -1,4 +1,4 @@
-use crate::Command;
+use crate::parser::{Command, MaybePartialCommand};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -268,7 +268,7 @@ impl Response {
     /// a separate connection
     pub fn was_due_to_message(&self) -> bool {
         if let Some(command) = &self.command {
-            if let Ok(cmd) = Command::parse(command) {
+            if let Ok(MaybePartialCommand::Full(cmd)) = Command::parse(command) {
                 return match cmd {
                     Command::MailFrom { .. }
                     | Command::RcptTo { .. }
@@ -285,7 +285,7 @@ impl Response {
                     | Command::Noop(_)
                     | Command::Help(_)
                     | Command::Auth { .. }
-                    | Command::RawLine(_)
+                    | Command::Unknown(_)
                     | Command::XClient(_) => false,
                 };
             }

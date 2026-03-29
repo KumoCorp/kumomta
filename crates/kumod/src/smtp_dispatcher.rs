@@ -20,9 +20,10 @@ use kumo_server_runtime::spawn;
 use message::message::QueueNameComponents;
 use message::Message;
 use mta_sts::policy::PolicyMode;
+use rfc5321::parser::{ForwardPath, ReversePath};
 use rfc5321::{
-    ClientError, EnhancedStatusCode, ForwardPath, IsTooManyRecipients, Response, ReversePath,
-    SmtpClient, TlsInformation, TlsOptions, TlsStatus,
+    ClientError, EnhancedStatusCode, IsTooManyRecipients, Response, SmtpClient, TlsInformation,
+    TlsOptions, TlsStatus,
 };
 use serde::{Deserialize, Serialize};
 use spool::SpoolId;
@@ -793,7 +794,7 @@ impl SmtpDispatcher {
                         // be busted by the failed handshake and never succeed
                         tokio::time::timeout(
                             tokio::time::Duration::from_secs(2),
-                            client.send_command(&rfc5321::Command::Quit),
+                            client.send_command(&rfc5321::parser::Command::Quit),
                         )
                         .await
                         .ok();
@@ -990,7 +991,10 @@ impl SmtpDispatcher {
 impl QueueDispatcher for SmtpDispatcher {
     async fn close_connection(&mut self, _dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
         if let Some(mut client) = self.client.take() {
-            client.send_command(&rfc5321::Command::Quit).await.ok();
+            client
+                .send_command(&rfc5321::parser::Command::Quit)
+                .await
+                .ok();
             // Close out this dispatcher and let the maintainer spawn
             // a new connection
             Ok(true)
@@ -1042,10 +1046,12 @@ impl QueueDispatcher for SmtpDispatcher {
             .sender()
             .await?
             .try_into()
-            .map_err(|err| anyhow::anyhow!("{err}"))?;
+            .map_err(|err: &str| anyhow::anyhow!("{err}"))?;
         let mut recipients: Vec<ForwardPath> = vec![];
         for recip in msg.recipient_list().await? {
-            let recip: ForwardPath = recip.try_into().map_err(|err| anyhow::anyhow!("{err:#}"))?;
+            let recip: ForwardPath = recip
+                .try_into()
+                .map_err(|err: &str| anyhow::anyhow!("{err:#}"))?;
             recips_this_txn.insert(
                 (spool_id, recip.clone()),
                 1 + self
@@ -1108,7 +1114,7 @@ impl QueueDispatcher for SmtpDispatcher {
             if recipients_this_batch.len() < path_config.max_recipients_per_batch {
                 recipients_this_batch.push(recip);
             } else {
-                revised_recipient_list.push(recip.into());
+                revised_recipient_list.push(message::EnvelopeAddress::from(recip));
                 // The excess is ready to go immediately
                 retry_immediately = true;
             }
@@ -1183,7 +1189,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             detail: 2,
                         }),
                         content: reason.clone(),
-                        command: command.as_ref().map(|c| c.encode()),
+                        command: command.as_ref().map(|c| c.encode().to_string()),
                     });
                 }
             }
@@ -1300,7 +1306,7 @@ impl QueueDispatcher for SmtpDispatcher {
             };
 
             if record_type == RecordType::TransientFailure {
-                revised_recipient_list.push(recipient.clone().into());
+                revised_recipient_list.push(message::EnvelopeAddress::from(recipient.clone()));
             }
             if record_type != RecordType::Delivery && overall_response.is_none() {
                 overall_response.replace(response.clone());

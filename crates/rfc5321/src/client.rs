@@ -1,11 +1,11 @@
 #![allow(clippy::result_large_err)]
 use crate::client_types::*;
-use crate::{
-    AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Domain, EsmtpParameter, ForwardPath,
-    ReversePath,
-};
+use crate::parser::{Command, Domain, EsmtpParameter, ForwardPath, ReversePath};
+use crate::{AsyncReadAndWrite, BoxedAsyncReadAndWrite};
+use bstr::ByteSlice;
 use hickory_proto::rr::rdata::TLSA;
 use memchr::memmem::Finder;
+use nom_utils::DomainString;
 use openssl::x509::{X509Ref, X509};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -86,12 +86,15 @@ impl ClientError {
             | Self::ReadError {
                 command: Some(command),
                 ..
-            } => Some(command.encode()),
+            } => Some(command.encode().to_string()),
             Self::TimeOutRequest { commands, .. } | Self::WriteError { commands, .. }
                 if !commands.is_empty() =>
             {
-                let commands: Vec<String> = commands.into_iter().map(|cmd| cmd.encode()).collect();
-                Some(commands.join(""))
+                let s: String = commands
+                    .iter()
+                    .map(|cmd| cmd.encode().to_string())
+                    .collect();
+                Some(s)
             }
             _ => None,
         }
@@ -460,7 +463,7 @@ impl SmtpClient {
                 .map_err(ClientError::MalformedResponseLine)?;
         }
 
-        let response = response_builder.build(command.map(|cmd| cmd.encode()));
+        let response = response_builder.build(command.map(|cmd| cmd.encode().to_string()));
 
         tracing::trace!("{}: {response:?}", self.hostname);
 
@@ -526,25 +529,29 @@ impl SmtpClient {
             .sum();
 
         let mut lines: Vec<String> = vec![];
-        let mut all = String::new();
+        let mut all: Vec<u8> = vec![];
         for cmd in commands {
             let line = cmd.encode();
-            all.push_str(&line);
-            lines.push(line);
+            all.extend_from_slice(&line);
+            lines.push(line.to_string());
         }
-        tracing::trace!("send->{}: (PIPELINE) {all}", self.hostname);
+        tracing::trace!(
+            "send->{}: (PIPELINE) {}",
+            self.hostname,
+            all.as_bstr().escape_bytes()
+        );
         if self.socket.is_some() {
             if let Some(tracer) = &self.tracer {
                 // Send the lines individually to the tracer, so that we
                 // don't break --terse mode
-                for line in lines {
-                    WriteTracer::trace(tracer, &line);
+                for line in &lines {
+                    WriteTracer::trace(tracer, line);
                 }
             }
         }
         self.write_all_with_timeout(
             total_timeout,
-            all.as_bytes(),
+            &all,
             || ClientError::TimeOutRequest {
                 duration: total_timeout,
                 commands: commands.to_vec(),
@@ -562,14 +569,14 @@ impl SmtpClient {
         tracing::trace!("send->{}: {line}", self.hostname);
         if self.socket.is_some() {
             if let Some(tracer) = &self.tracer {
-                WriteTracer::trace(tracer, &line);
+                WriteTracer::trace(tracer, &line.to_string());
             }
         }
 
         let timeout_duration = command.client_timeout_request(&self.timeouts);
         self.write_all_with_timeout(
             timeout_duration,
-            line.as_bytes(),
+            &line,
             || ClientError::TimeOutRequest {
                 duration: timeout_duration,
                 commands: vec![command.clone()],
@@ -681,7 +688,11 @@ impl SmtpClient {
         ehlo_name: &str,
     ) -> Result<&HashMap<String, EsmtpCapability>, ClientError> {
         let response = self
-            .send_command(&Command::Lhlo(Domain::Name(ehlo_name.to_string())))
+            .send_command(&Command::Lhlo(Domain::DomainName(
+                ehlo_name
+                    .parse::<DomainString>()
+                    .map_err(|_| ClientError::InvalidDnsName(ehlo_name.to_string()))?,
+            )))
             .await?;
         self.ehlo_common(response)
     }
@@ -691,7 +702,11 @@ impl SmtpClient {
         ehlo_name: &str,
     ) -> Result<&HashMap<String, EsmtpCapability>, ClientError> {
         let response = self
-            .send_command(&Command::Ehlo(Domain::Name(ehlo_name.to_string())))
+            .send_command(&Command::Ehlo(Domain::DomainName(
+                ehlo_name
+                    .parse::<DomainString>()
+                    .map_err(|_| ClientError::InvalidDnsName(ehlo_name.to_string()))?,
+            )))
             .await?;
         self.ehlo_common(response)
     }
@@ -1189,7 +1204,7 @@ pub fn subject_name(cert: &X509Ref) -> Vec<String> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{MailPath, Mailbox};
+    use crate::parser::{EnvelopeAddress, MailPath, Mailbox, ReversePath};
 
     #[test]
     fn test_stuffing() {
@@ -1370,13 +1385,14 @@ mod test {
                 "{:#}",
                 ClientError::TimeOutResponse {
                     command: Some(Command::MailFrom {
-                        address: ReversePath::Path(MailPath {
-                            at_domain_list: vec![],
-                            mailbox: Mailbox {
-                                local_part: "user".to_string(),
-                                domain: Domain::Name("host".to_string())
-                            }
-                        }),
+                        address: {
+                            let EnvelopeAddress::Path(p) =
+                                EnvelopeAddress::parse("user@host").unwrap()
+                            else {
+                                panic!("expected Path")
+                            };
+                            ReversePath::Path(p)
+                        },
                         parameters: vec![],
                     }),
                     duration: Duration::from_secs(10),

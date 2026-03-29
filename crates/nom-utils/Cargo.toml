@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 bstr.workspace = true
+hickory-resolver.workspace = true
 nom = {workspace=true}
 nom_locate = {workspace=true}
 
