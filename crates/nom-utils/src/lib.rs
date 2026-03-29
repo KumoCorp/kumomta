@@ -3,8 +3,8 @@ use nom::error::{ContextError, ErrorKind};
 use nom_locate::LocatedSpan;
 use std::fmt::{Debug, Write};
 
-pub(crate) type Span<'a> = LocatedSpan<&'a [u8]>;
-pub(crate) type IResult<'a, A, B> = nom::IResult<A, B, ParseError<Span<'a>>>;
+pub type Span<'a> = LocatedSpan<&'a [u8]>;
+pub type IResult<'a, A, B> = nom::IResult<A, B, ParseError<Span<'a>>>;
 
 pub fn make_span(s: &'_ [u8]) -> Span<'_> {
     Span::new(s)

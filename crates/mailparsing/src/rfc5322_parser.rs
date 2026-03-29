@@ -1,5 +1,4 @@
 use crate::headermap::EncodeHeaderValue;
-use crate::nom_utils::{explain_nom, make_context_error, make_span, IResult, ParseError, Span};
 use crate::{MailParsingError, Result, SharedString};
 use bstr::{BStr, BString, ByteSlice, ByteVec};
 use charset_normalizer_rs::Encoding;
@@ -10,6 +9,7 @@ use nom::error::context;
 use nom::multi::{many0, many1, separated_list1};
 use nom::sequence::{delimited, preceded, separated_pair, terminated};
 use nom::{Compare, Input, Parser as _};
+use nom_utils::{explain_nom, make_context_error, make_span, IResult, ParseError, Span};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::Debug;
