@@ -4897,11 +4897,15 @@ name = "mod-filesystem"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "config",
  "filenamegen",
  "linkme",
  "lruttl",
  "mlua",
+ "mod-time",
+ "serde",
+ "tempfile",
  "tokio",
 ]
 
