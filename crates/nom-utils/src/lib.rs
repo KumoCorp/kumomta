@@ -1,13 +1,80 @@
-use bstr::ByteSlice;
+use bstr::{BStr, ByteSlice};
 use nom::error::{ContextError, ErrorKind};
+use nom::Input;
 use nom_locate::LocatedSpan;
 use std::fmt::{Debug, Write};
+use std::marker::PhantomData;
 
 pub type Span<'a> = LocatedSpan<&'a [u8]>;
 pub type IResult<'a, A, B> = nom::IResult<A, B, ParseError<Span<'a>>>;
 
 pub fn make_span(s: &'_ [u8]) -> Span<'_> {
     Span::new(s)
+}
+
+/// Like nom::bytes::complete::tag, except that we print what the tag
+/// was expecting if there was an error.
+/// I feel like this should be the default behavior TBH.
+pub fn tag<E>(tag: &'static str) -> TagParser<E> {
+    TagParser {
+        tag,
+        e: PhantomData,
+    }
+}
+
+/// Struct to support displaying better errors for tag()
+pub struct TagParser<E> {
+    tag: &'static str,
+    e: PhantomData<E>,
+}
+
+/// All this fuss to show what we expected for the TagParser impl
+impl<I, Error: nom::error::ParseError<I> + nom::error::FromExternalError<I, String>> nom::Parser<I>
+    for TagParser<Error>
+where
+    I: nom::Input + nom::Compare<&'static str> + nom::AsBytes,
+{
+    type Output = I;
+    type Error = Error;
+
+    fn process<OM: nom::OutputMode>(
+        &mut self,
+        i: I,
+    ) -> nom::PResult<OM, I, Self::Output, Self::Error> {
+        use nom::error::ErrorKind;
+        use nom::{CompareResult, Err, Mode};
+
+        let tag_len = self.tag.input_len();
+
+        match i.compare(self.tag) {
+            CompareResult::Ok => Ok((i.take_from(tag_len), OM::Output::bind(|| i.take(tag_len)))),
+            CompareResult::Incomplete => Err(Err::Error(OM::Error::bind(|| {
+                Error::from_external_error(
+                    i,
+                    ErrorKind::Fail,
+                    format!(
+                        "expected \"{}\" but ran out of input",
+                        self.tag.escape_debug()
+                    ),
+                )
+            }))),
+
+            CompareResult::Error => {
+                let available = i.take(i.input_len().min(tag_len));
+                Err(Err::Error(OM::Error::bind(|| {
+                    Error::from_external_error(
+                        i,
+                        ErrorKind::Fail,
+                        format!(
+                            "expected \"{}\" but found {:?}",
+                            self.tag.escape_debug(),
+                            BStr::new(available.as_bytes())
+                        ),
+                    )
+                })))
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
