@@ -473,7 +473,7 @@ struct Compiled<'a> {
     attached: Vec<MimePart<'a>>,
 }
 
-impl<'a>  Compiled<'a> {
+impl<'a> Compiled<'a> {
     pub fn expand_for_recip(
         &self,
         recip: &Recipient,

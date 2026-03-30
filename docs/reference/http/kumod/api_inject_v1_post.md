@@ -212,7 +212,6 @@ This is an object value, with the following properties:
     |--------|-------|
     |The per-recipient `To` header will not be generated|{{since('2026.03.04-bb93ecb1', inline=True)}}|
     |Two `To` headers will be generated|All previous versions|
-    
 
   * `substitutions` - optional `object`. When using templating, this is the map of placeholder
     name to replacement value that should be used by
