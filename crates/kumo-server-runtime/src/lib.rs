@@ -1,7 +1,10 @@
 use anyhow::Context;
 use kumo_prometheus::declare_metric;
 use parking_lot::Mutex;
-use std::collections::{BTreeMap, HashMap};
+#[cfg(target_os = "linux")]
+use std::collections::BTreeMap;
+use std::collections::HashMap;
+#[cfg(target_os = "linux")]
 use std::fmt::Write;
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -56,6 +59,7 @@ struct RuntimeInner {
     name_prefix: String,
 }
 
+#[cfg(target_os = "linux")]
 fn runtimes_by_name() -> BTreeMap<String, Runtime> {
     RUNTIMES
         .lock()
@@ -65,7 +69,7 @@ fn runtimes_by_name() -> BTreeMap<String, Runtime> {
 }
 
 #[cfg(not(target_os = "linux"))]
-pub async fn dump_all_runtimes(timeout_duration: Duration) -> String {
+pub async fn dump_all_runtimes(_timeout_duration: Duration) -> String {
     "Runtime state dumping is not supported on this system".into()
 }
 

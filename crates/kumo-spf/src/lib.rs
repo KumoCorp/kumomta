@@ -1,10 +1,11 @@
 use crate::record::Record;
 use crate::spec::MacroSpec;
+use bstr::{BString, ByteSlice};
 use dns_resolver::{DnsError, Resolver};
 use hickory_resolver::proto::rr::RecordType;
 use hickory_resolver::Name;
 use instant_xml::{FromXml, ToXml};
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -17,8 +18,9 @@ use record::Qualifier;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Clone, Copy, Eq, FromXml, PartialEq, ToXml)]
+#[derive(Debug, Clone, Copy, Eq, FromXml, PartialEq, ToXml, Serialize, Deserialize)]
 #[xml(scalar, rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
 pub enum SpfDisposition {
     /// A result of "none" means either (a) no syntactically valid DNS domain
     /// name was extracted from the SMTP session that could be used as the
@@ -68,9 +70,18 @@ impl SpfDisposition {
     }
 }
 
-impl Serialize for SpfDisposition {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.as_str())
+impl From<BString> for SpfDisposition {
+    fn from(value: BString) -> Self {
+        match value.to_lowercase().as_slice() {
+            b"none" => Self::None,
+            b"neutral" => Self::Neutral,
+            b"pass" => Self::Pass,
+            b"fail" => Self::Fail,
+            b"softfail" => Self::SoftFail,
+            b"temperror" => Self::TempError,
+            b"permerror" => Self::PermError,
+            _ => Self::None,
+        }
     }
 }
 
