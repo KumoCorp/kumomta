@@ -1,7 +1,6 @@
 use crate::kumod::{generate_message_text, DaemonWithMaildirOptions, MailGenParams};
 use anyhow::Context;
 use kumo_api_types::TraceSmtpV1Payload::Callback;
-use kumo_log_types::RecordType::TransientFailure;
 use std::time::Duration;
 
 #[tokio::test]

@@ -5,14 +5,17 @@ edition = "2021"
 
 [dependencies]
 bstr.workspace = true
-chrono = {workspace=true}
-dns-resolver = {path="../dns-resolver"}
-instant-xml = {workspace=true}
+chrono = { workspace = true }
+dns-resolver = { path = "../dns-resolver" }
+instant-xml = { workspace = true }
 kumo-spf = { path = "../kumo-spf" }
-psl = {workspace=true}
-serde = {workspace=true}
-rand = {workspace=true}
+mailparsing = { path = "../mailparsing" }
+psl = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true }
+uuid = { workspace = true, features = ["v4", "fast-rng"] }
 
 [dev-dependencies]
-k9 = {workspace=true}
-tokio = {workspace = true, features = ["full", "tracing"]}
+k9 = { workspace = true }
+tokio = { workspace = true, features = ["full", "tracing"] }
