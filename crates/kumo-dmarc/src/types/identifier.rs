@@ -1,8 +1,9 @@
 use instant_xml::ToXml;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Eq, PartialEq, ToXml)]
+#[derive(Debug, Eq, PartialEq, ToXml, Serialize, Deserialize, Clone)]
 pub struct Identifier {
-    envelope_to: Option<String>,
-    envelope_from: String,
-    header_from: String,
+    pub(crate) envelope_to: Vec<String>,
+    pub(crate) envelope_from: Vec<String>,
+    pub(crate) header_from: String,
 }
