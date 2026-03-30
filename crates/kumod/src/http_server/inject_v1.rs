@@ -473,7 +473,7 @@ struct Compiled<'a> {
     attached: Vec<MimePart<'a>>,
 }
 
-impl<'a> Compiled<'a> {
+impl<'a>  Compiled<'a> {
     pub fn expand_for_recip(
         &self,
         recip: &Recipient,
@@ -488,6 +488,15 @@ impl<'a> Compiled<'a> {
         if let Some(name) = &recip.name {
             subst.insert("name".to_string(), name.to_string().into());
         }
+
+        let to_mailbox = Address::Mailbox(Mailbox {
+            name: recip.name.clone().map(Into::into),
+            address: AddrSpec::parse(&recip.email)?,
+        });
+        subst.insert(
+            "to_header".to_string(),
+            to_mailbox.encode_value().to_string().into(),
+        );
 
         for (k, v) in &recip.substitutions {
             subst.insert(k.clone(), v.clone());
@@ -537,16 +546,9 @@ impl<'a> Compiled<'a> {
                     id += 1;
                 }
 
-                let mut need_to = true;
-
                 #[allow(clippy::for_kv_map)]
                 for (name, _value) in headers {
                     let expanded = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
-
-                    if need_to && name.eq_ignore_ascii_case("to") && expanded.len() > 0 {
-                        need_to = false;
-                    }
-
                     id += 1;
                     builder.push(mailparsing::Header::new_unstructured(
                         name.to_string(),
@@ -554,11 +556,10 @@ impl<'a> Compiled<'a> {
                     ));
                 }
 
-                if need_to {
-                    builder.set_to(Address::Mailbox(Mailbox {
-                        name: recip.name.clone().map(Into::into),
-                        address: AddrSpec::parse(&recip.email)?,
-                    }))?;
+                for (name, value) in Self::default_headers(recip)? {
+                    if !headers.keys().any(|k| k.eq_ignore_ascii_case(&name)) {
+                        builder.push(mailparsing::Header::new_unstructured(name, value));
+                    }
                 }
 
                 for part in &self.attached {
@@ -568,6 +569,21 @@ impl<'a> Compiled<'a> {
                 Ok(builder.build()?.to_message_string())
             }
         }
+    }
+
+    /// Returns per-recipient default headers that should be present
+    /// in every message. These are applied only when the user has not
+    /// provided them explicitly via content.headers.
+    fn default_headers(recip: &Recipient) -> anyhow::Result<Vec<(String, String)>> {
+        let to_mailbox = Address::Mailbox(Mailbox {
+            name: recip.name.clone().map(Into::into),
+            address: AddrSpec::parse(&recip.email)?,
+        });
+
+        Ok(vec![(
+            "To".to_string(),
+            to_mailbox.encode_value().to_string(),
+        )])
     }
 }
 
@@ -1869,14 +1885,18 @@ Some(
     }
 
     #[tokio::test]
-    async fn test_builder_to_header_with_no_substitution_data() {
+    async fn test_builder_default_to_header_per_recipient() {
+        // Tests that when no To header is provided in content.headers,
+        // default_headers generates a per-recipient To from email+name.
         let mut request = InjectV1Request {
             envelope_sender: "noreply@example.com".to_string(),
-            recipients: vec![Recipient {
-                email: "user@example.com".to_string(),
-                name: Some("James Smythe".to_string()),
-                substitutions: HashMap::new(),
-            }],
+            recipients: vec![
+                Recipient {
+                    email: "user@example.com".to_string(),
+                    name: Some("James Smythe".to_string()),
+                    substitutions: HashMap::new(),
+                }
+            ],
             substitutions: HashMap::new(),
             content: Content::Builder {
                 text_body: Some("I am the plain text, {{ name }}. 😀".to_string()),
@@ -1888,9 +1908,7 @@ Some(
                     name: Some("Sender Name".to_string()),
                 }),
                 reply_to: None,
-                headers: [("To".to_string(), "{{ to }}".to_string())]
-                    .into_iter()
-                    .collect(),
+                headers: BTreeMap::new(),
                 attachments: vec![],
             },
             deferred_spool: true,
@@ -1901,6 +1919,8 @@ Some(
 
         request.normalize().unwrap();
         let compiled = request.compile().unwrap();
+
+        // Recipient: gets default To from their own email+name
         let generated = compiled
             .expand_for_recip(
                 &request.recipients[0],
@@ -1908,12 +1928,8 @@ Some(
                 &request.content,
             )
             .unwrap();
-
-        println!("{generated}");
         let parsed = MimePart::parse(generated.as_str()).unwrap();
-        println!("{parsed:?}");
         let structure = parsed.simplified_structure().unwrap();
-        eprintln!("{structure:?}");
 
         k9::snapshot!(
             structure.headers.to().unwrap(),
@@ -1937,10 +1953,14 @@ Some(
 )
 "#
         );
+
     }
 
     #[tokio::test]
-    async fn test_builder_to_header_two_recipients_substitution_varies_for_to() {
+    async fn test_builder_to_header_substitution_override() {
+        // Tests explicit `To: {{ to_header }}` in content.headers where:
+        // - Recipient 0: no override, gets the pre-defined default
+        // - Recipient 1: overrides `to_header` via substitutions
         let mut request = InjectV1Request {
             envelope_sender: "noreply@example.com".to_string(),
             recipients: vec![
@@ -1953,7 +1973,7 @@ Some(
                     email: "second@example.com".to_string(),
                     name: Some("Second User".to_string()),
                     substitutions: [(
-                        "to".to_string(),
+                        "to_header".to_string(),
                         Value::String("custom.to@example.com".to_string()),
                     )]
                     .into_iter()
@@ -1971,7 +1991,7 @@ Some(
                     name: Some("Sender Name".to_string()),
                 }),
                 reply_to: None,
-                headers: [("To".to_string(), "{{ to }}".to_string())]
+                headers: [("To".to_string(), "{{ to_header }}".to_string())]
                     .into_iter()
                     .collect(),
                 attachments: vec![],
@@ -1985,6 +2005,7 @@ Some(
         request.normalize().unwrap();
         let compiled = request.compile().unwrap();
 
+        // Recipient 0: no override, to_header renders to pre-defined default
         let generated0 = compiled
             .expand_for_recip(
                 &request.recipients[0],
@@ -2018,6 +2039,7 @@ Some(
 "#
         );
 
+        // Recipient 1: overrides to_header with custom value
         let generated1 = compiled
             .expand_for_recip(
                 &request.recipients[1],

@@ -76,8 +76,8 @@
    response. #495
  * smtp server: uncommon quoted local parts containing the `@` sign are now
    accepted by the envelope address parser. #495
- * HTTP injection API: a templatized custom `To` header (for example
-   `content.headers["To"] = "{{ to }}"`) with no substitution data for the placeholder (for example: `to`)
-   used to expand to an empty value. That case is now detected and the
-   per-recipient mailbox is applied instead so the message still has a valid
-   `To` header.
+ * HTTP injection API: a `to_header` template substitution is now
+   pre-defined with the default `To` header value that would be generated
+   for the recipient. You can use `{{ to_header }}` in your `To` header
+   template and optionally override `to_header` in the per-recipient
+   substitutions for recipients where you want a different value.
