@@ -212,6 +212,13 @@ This is an object value, with the following properties:
     |--------|-------|
     |The per-recipient `To` header will not be generated|{{since('2026.03.04-bb93ecb1', inline=True)}}|
     |Two `To` headers will be generated|All previous versions|
+    
+    **Note:**
+        If you use a templatized custom `To` header (e.g., 
+        `content.headers["To"] = "{{ to }}"`) but do not provide the corresponding
+        substitution data, kumomta will fall back to generating the
+        per-recipient `To` header to ensure the message has a valid `To` header.
+        This fallback behavior is available in {{since('dev', inline=True)}}.
 
   * `substitutions` - optional `object`. When using templating, this is the map of placeholder
     name to replacement value that should be used by
