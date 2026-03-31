@@ -1,5 +1,6 @@
-use crate::kumod::{DaemonWithMaildir, MailGenParams};
+use crate::kumod::DaemonWithMaildir;
 use anyhow::Context;
+use rfc5321::Command;
 
 #[tokio::test]
 async fn no_ports_in_rcpt_domain() -> anyhow::Result<()> {
@@ -10,32 +11,35 @@ async fn no_ports_in_rcpt_domain() -> anyhow::Result<()> {
     eprintln!("sending message");
     let mut client = daemon.smtp_client().await.context("make smtp_client")?;
 
-    let err = MailGenParams {
-        recip: Some("someone@example.com:2025"),
-        ..Default::default()
-    }
-    .send(&mut client)
-    .await
-    .unwrap_err();
+    client
+        .send_command(&Command::MailFrom {
+            address: "sender@example.com".try_into().unwrap(),
+            parameters: vec![],
+        })
+        .await?;
+    let resp = client
+        .send_command(&Command::RawLine(
+            "RCPT TO:<sender@example.com:2025>".into(),
+        ))
+        .await?;
+
     k9::snapshot!(
-        err,
+        resp,
         r#"
-Rejected(
-    Response {
-        code: 501,
-        enhanced_code: None,
-        content: "Syntax error in command or arguments:  --> 1:29
+Response {
+    code: 501,
+    enhanced_code: None,
+    content: "Syntax error in command or arguments:  --> 1:28
   |
-1 | RCPT TO:<someone@example.com:2025>
-  |                             ^---
+1 | RCPT TO:<sender@example.com:2025>
+  |                            ^---
   |
   = expected alpha, digit, or utf8_non_ascii",
-        command: Some(
-            "RCPT TO:<someone@example.com:2025>\r
+    command: Some(
+        "RCPT TO:<sender@example.com:2025>\r
 ",
-        ),
-    },
-)
+    ),
+}
 "#
     );
 

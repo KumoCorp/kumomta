@@ -1,4 +1,5 @@
 use crate::kumod::{DaemonWithMaildir, MailGenParams};
+use bstr::ByteSlice;
 use k9::assert_equal;
 use kumo_log_types::RecordType::{Delivery, Reception};
 use std::time::Duration;
@@ -61,7 +62,7 @@ async fn tls_info_log() -> anyhow::Result<()> {
         .as_unstructured()
         .unwrap();
     println!("trace: {trace}");
-    assert!(trace.contains(&format!(
+    assert!(trace.contains_str(&format!(
         "with ESMTPS ({}:{})",
         reception.tls_protocol_version.as_ref().unwrap(),
         reception.tls_cipher.as_ref().unwrap()

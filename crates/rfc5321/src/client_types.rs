@@ -285,6 +285,7 @@ impl Response {
                     | Command::Noop(_)
                     | Command::Help(_)
                     | Command::Auth { .. }
+                    | Command::RawLine(_)
                     | Command::XClient(_) => false,
                 };
             }

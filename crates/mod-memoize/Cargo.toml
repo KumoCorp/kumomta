@@ -11,6 +11,7 @@ duration-serde = {path="../duration-serde"}
 kumo-prometheus = {path="../kumo-prometheus"}
 linkme.workspace = true
 lruttl = {path="../lruttl"}
+test-log.workspace = true
 tokio = {workspace=true, features=["sync"]}
 tracing.workspace = true
 mlua = {workspace=true, features=["vendored", "lua54", "async", "macros", "send", "serialize"]}

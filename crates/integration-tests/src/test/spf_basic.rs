@@ -1,4 +1,5 @@
 use crate::kumod::{generate_message_text, KumoDaemon, MailGenParams};
+use bstr::ByteSlice;
 use rfc5321::{ClientError, Response};
 use std::time::Duration;
 
@@ -71,30 +72,30 @@ async fn spf_basic() -> anyhow::Result<()> {
         let from = headers.from().unwrap().unwrap().0;
         let results = headers.authentication_results().unwrap().unwrap().results;
         eprintln!("{results:#?}");
-        match from[0].address.domain.as_str() {
-            "example.com" => {
+        match from[0].address.domain.as_slice() {
+            b"example.com" => {
                 assert_eq!(results.len(), 1);
                 assert_eq!(results[0].result, "none");
                 assert_eq!(results[0].method, "spf");
                 assert_eq!(
-                    results[0].reason.as_deref().unwrap(),
+                    results[0].reason.as_ref().unwrap().as_bstr(),
                     "no SPF records found for example.com"
                 );
                 assert_eq!(
-                    results[0].props.get("smtp.mailfrom").unwrap(),
+                    results[0].props.get("smtp.mailfrom".as_bytes()).unwrap(),
                     "sender@example.com"
                 );
             }
-            "allowed.localhost" => {
+            b"allowed.localhost" => {
                 assert_eq!(results.len(), 1);
                 assert_eq!(results[0].result, "pass");
                 assert_eq!(results[0].method, "spf");
                 assert_eq!(
-                    results[0].reason.as_deref().unwrap(),
+                    results[0].reason.as_ref().unwrap().as_bstr(),
                     "matched 'all' directive"
                 );
                 assert_eq!(
-                    results[0].props.get("smtp.mailfrom").unwrap(),
+                    results[0].props.get("smtp.mailfrom".as_bytes()).unwrap(),
                     "foo@allowed.localhost"
                 );
             }

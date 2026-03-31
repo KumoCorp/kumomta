@@ -5,6 +5,7 @@ use crate::logging::hooks::{LogHookParams, LogHookState};
 use anyhow::Context;
 use chrono::format::{Item, StrftimeItems};
 use chrono::{DateTime, FixedOffset, Local, Utc};
+use bstr::ByteSlice;
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
 use flume::{bounded, Sender, TrySendError};
 pub use kumo_log_types::*;
@@ -637,10 +638,10 @@ impl Logger {
             let mut all_headers: HashMap<String, (String, Vec<Value>)> = HashMap::new();
             for (name, value) in msg.get_all_headers().await.unwrap_or_else(|_| vec![]) {
                 all_headers
-                    .entry(name.to_ascii_lowercase())
-                    .or_insert_with(|| (name.to_string(), vec![]))
+                    .entry(name.to_ascii_lowercase().to_str_lossy().into())
+                    .or_insert_with(|| (name.to_str_lossy().into(), vec![]))
                     .1
-                    .push(value.into());
+                    .push(value.to_str_lossy().into());
             }
 
             fn capture_header(

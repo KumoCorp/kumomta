@@ -153,7 +153,8 @@ impl MailEntry {
         let received = headers.get_first("Received");
         match received {
             Some(v) => v
-                .get_raw_value()
+                .get_raw_value_string()
+                .map_err(MailEntryError::from)?
                 .rsplit(';')
                 .nth(0)
                 .ok_or(MailEntryError::DateError("Unable to split Received header"))

@@ -5,7 +5,6 @@ use crate::http_server::admin_trace_smtp_client_v1::{
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::{IncrementAttempts, InsertReason, QueueManager, QueueState};
 use crate::ready_queue::{AttemptConnectionDisposition, Dispatcher, QueueDispatcher};
-use crate::smtp_server::ShuttingDownError;
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
@@ -16,7 +15,7 @@ use dns_resolver::{has_colon_port, resolve_a_or_aaaa, IpLookupStrategy, Resolved
 use kumo_address::socket::SocketAddress;
 use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls};
 use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
-use kumo_server_lifecycle::ShutdownSubcription;
+use kumo_server_lifecycle::{ShutdownSubcription, ShuttingDownError};
 use kumo_server_runtime::spawn;
 use message::message::QueueNameComponents;
 use message::Message;
@@ -129,20 +128,6 @@ pub struct OpportunisticInsecureTlsHandshakeError {
     pub error: ClientError,
     pub address: String,
     pub label: String,
-}
-
-impl OpportunisticInsecureTlsHandshakeError {
-    pub fn is_match_anyhow(err: &anyhow::Error) -> bool {
-        Self::is_match(err.root_cause())
-    }
-
-    pub fn is_match(err: &(dyn std::error::Error + 'static)) -> bool {
-        if let Some(cause) = err.source() {
-            return Self::is_match(cause);
-        } else {
-            err.downcast_ref::<Self>().is_some()
-        }
-    }
 }
 
 impl SmtpDispatcher {
@@ -425,7 +410,7 @@ impl SmtpDispatcher {
                     tokio::select! {
                         _ = tokio::time::sleep(delay) => {},
                         _ = shutdown.shutting_down() => {
-                            return Err(ShuttingDownError.into());
+                            return Err(ShuttingDownError::new("waiting for max_connection_rate").into());
                         }
                     };
                 } else {
@@ -548,7 +533,7 @@ impl SmtpDispatcher {
         self.source_address.take();
         let (mut client, source_address) = tokio::select! {
             _ = shutdown.shutting_down() => {
-                return Err(ShuttingDownError.into());
+                return Err(ShuttingDownError::new("waiting for new connection").into());
             }
             result = make_connection => { result? },
         }

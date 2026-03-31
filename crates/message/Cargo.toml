@@ -10,6 +10,7 @@ impl = ["dep:kumo-dkim", "dep:data-loader", "data-loader/impl", "dep:lruttl", "d
 [dependencies]
 anyhow = {workspace=true}
 bitflags = {workspace=true}
+bstr.workspace = true
 kumo-dkim = {path="../dkim", optional=true}
 charset-normalizer-rs.workspace = true
 config = {path="../config"}

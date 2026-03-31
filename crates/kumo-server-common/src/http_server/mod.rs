@@ -183,6 +183,7 @@ impl RouterAndDocs {
         add_handlers!(
             bump_config_epoch,
             memory_stats,
+            task_dump,
             report_metrics,
             report_metrics_json,
             set_diagnostic_log_filter_v1,
@@ -464,6 +465,41 @@ async fn machine_info(State(state): State<AppState>) -> Result<Json<MachineInfoV
 async fn bump_config_epoch() -> Result<(), AppError> {
     config::epoch::bump_current_epoch();
     Ok(())
+}
+
+#[derive(Deserialize)]
+struct TaskDumpParams {
+    #[serde(default)]
+    timeout: Option<u64>,
+}
+
+/// Returns a dump of the runtime task state.
+///
+/// {{since('dev')}}
+///
+/// The output is not machine parseable and may change without notice
+/// between versions of kumomta.
+///
+/// Capturing the dump is very expensive and can take several seconds.
+/// Capturing a dump is not guaranteed to succeed.
+///
+/// At the time of writing, capturing a dump can cause a subsequent
+/// graceful shutdown to get stuck, unless you repeatedly trigger
+/// this API endpoint a few more times to "clock through" the shutdown
+/// process and enable it to complete successfully.
+#[utoipa::path(
+    get,
+    tag="debugging",
+    path="/api/admin/task-dump",
+    responses(
+        (status=200, description="data was returned")
+    ),
+)]
+async fn task_dump(Query(params): Query<TaskDumpParams>) -> String {
+    kumo_server_runtime::dump_all_runtimes(tokio::time::Duration::from_secs(
+        params.timeout.unwrap_or(5),
+    ))
+    .await
 }
 
 /// Returns information about the system memory usage in an unstructured

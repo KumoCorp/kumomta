@@ -2,6 +2,8 @@ use crate::client_types::SmtpClientTimeouts;
 use pest::iterators::{Pair, Pairs};
 use pest::Parser as _;
 use pest_derive::*;
+use std::borrow::Cow;
+use std::str::FromStr;
 use std::time::Duration;
 
 #[derive(Parser)]
@@ -30,6 +32,22 @@ impl Parser {
             Rule::noop => Self::parse_noop(result.into_inner()),
             Rule::auth => Self::parse_auth(result.into_inner()),
             Rule::xclient => Self::parse_xclient(result.into_inner()),
+            _ => Err(format!("unexpected {result:?}")),
+        }
+    }
+
+    pub fn parse_envelope_address(text: &str) -> Result<EnvelopeAddress, String> {
+        let result = Parser::parse(Rule::parse_envelope_address, text)
+            .map_err(|err| format!("{err:#}"))?
+            .next()
+            .unwrap();
+        match result.as_rule() {
+            Rule::path | Rule::path_no_angles => {
+                let path = Self::parse_path(result)?;
+                Ok(EnvelopeAddress::Path(path))
+            }
+            Rule::postmaster_no_angles | Rule::postmaster => Ok(EnvelopeAddress::Postmaster),
+            Rule::null_sender_no_angles | Rule::null_sender => Ok(EnvelopeAddress::Null),
             _ => Err(format!("unexpected {result:?}")),
         }
     }
@@ -211,6 +229,10 @@ impl Parser {
     }
 }
 
+pub fn parse_envelope_address(text: &str) -> Result<EnvelopeAddress, String> {
+    Parser::parse_envelope_address(text)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReversePath {
     Path(MailPath),
@@ -229,21 +251,10 @@ impl ReversePath {
 impl TryFrom<&str> for ReversePath {
     type Error = String;
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        if s.is_empty() {
-            Ok(Self::NullSender)
-        } else {
-            let fields: Vec<&str> = s.split('@').collect();
-            if fields.len() == 2 {
-                Ok(Self::Path(MailPath {
-                    at_domain_list: vec![],
-                    mailbox: Mailbox {
-                        local_part: fields[0].to_string(),
-                        domain: Domain::name(fields[1])?,
-                    },
-                }))
-            } else {
-                Err(format!("{s} has the wrong number of @ signs"))
-            }
+        match s.parse::<EnvelopeAddress>()? {
+            EnvelopeAddress::Postmaster => Err("cannot send from postmaster".to_string()),
+            EnvelopeAddress::Null => Ok(Self::NullSender),
+            EnvelopeAddress::Path(p) => Ok(Self::Path(p)),
         }
     }
 }
@@ -275,23 +286,10 @@ impl ForwardPath {
 impl TryFrom<&str> for ForwardPath {
     type Error = String;
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        if s.is_empty() {
-            Err("cannot send to null sender".to_string())
-        } else if s.eq_ignore_ascii_case("postmaster") {
-            Ok(Self::Postmaster)
-        } else {
-            let fields: Vec<&str> = s.split('@').collect();
-            if fields.len() == 2 {
-                Ok(Self::Path(MailPath {
-                    at_domain_list: vec![],
-                    mailbox: Mailbox {
-                        local_part: fields[0].to_string(),
-                        domain: Domain::name(fields[1])?,
-                    },
-                }))
-            } else {
-                Err(format!("{s} has the wrong number of @ signs"))
-            }
+        match s.parse::<EnvelopeAddress>()? {
+            EnvelopeAddress::Postmaster => Ok(Self::Postmaster),
+            EnvelopeAddress::Null => Err("cannot send to null sender".to_string()),
+            EnvelopeAddress::Path(p) => Ok(Self::Path(p)),
         }
     }
 }
@@ -302,6 +300,46 @@ impl ToString for ForwardPath {
             Self::Path(p) => p.to_string(),
             Self::Postmaster => "postmaster".to_string(),
         }
+    }
+}
+
+impl TryInto<ForwardPath> for EnvelopeAddress {
+    type Error = String;
+    fn try_into(self) -> Result<ForwardPath, Self::Error> {
+        match self {
+            EnvelopeAddress::Null => Err("cannot send to null sender".to_string()),
+            EnvelopeAddress::Postmaster => Ok(ForwardPath::Postmaster),
+            EnvelopeAddress::Path(p) => Ok(ForwardPath::Path(p)),
+        }
+    }
+}
+
+impl TryInto<ReversePath> for EnvelopeAddress {
+    type Error = String;
+    fn try_into(self) -> Result<ReversePath, Self::Error> {
+        match self {
+            EnvelopeAddress::Null => Ok(ReversePath::NullSender),
+            EnvelopeAddress::Postmaster => Err("cannot send from postmaster".to_string()),
+            EnvelopeAddress::Path(p) => Ok(ReversePath::Path(p)),
+        }
+    }
+}
+
+impl Into<EnvelopeAddress> for ForwardPath {
+    fn into(self) -> EnvelopeAddress {
+        match self {
+            ForwardPath::Postmaster => EnvelopeAddress::Postmaster,
+            ForwardPath::Path(p) => EnvelopeAddress::Path(p),
+        }
+    }
+}
+
+impl Into<EnvelopeAddress> for &Mailbox {
+    fn into(self) -> EnvelopeAddress {
+        EnvelopeAddress::Path(MailPath {
+            at_domain_list: vec![],
+            mailbox: self.clone(),
+        })
     }
 }
 
@@ -331,11 +369,26 @@ impl ToString for MailPath {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Hash)]
 pub struct Mailbox {
-    pub local_part: String,
+    /// Note that the local_part may be a quoted_string.
+    /// The convention here is to preserve the quoted string as-is,
+    /// so that we can simply concatenate it with domain when
+    /// producing the full mailbox string
+    // FIXME: inconsistent with AddrSpec!
+    // TODO: Should integrate/unify both of these types where possible.
+    // Probably should migrate this parser from pest to nom to facilitate that.
+    pub(crate) local_part: String,
     pub domain: Domain,
 }
+
+impl PartialEq for Mailbox {
+    fn eq(&self, other: &Self) -> bool {
+        self.domain == other.domain && self.local_part() == other.local_part()
+    }
+}
+
+impl Eq for Mailbox {}
 
 impl Mailbox {
     pub fn is_ascii(&self) -> bool {
@@ -347,12 +400,47 @@ impl Mailbox {
             Domain::Tagged { tag, literal } => tag.is_ascii() && literal.is_ascii(),
         }
     }
+
+    /// Returns the normalized local part.
+    /// Normalization removes any quoting from the local part,
+    /// so that `"\f\o\o"` and `"foo"` will both be returned
+    /// as `foo` and will compare as equal
+    pub fn local_part<'a>(&'a self) -> Cow<'a, str> {
+        if self.local_part.starts_with('"') {
+            let mut result = String::new();
+            let mut iter = self.local_part.chars();
+            iter.next(); // skip initial quote
+            while let Some(c) = iter.next() {
+                match c {
+                    '\\' => match iter.next() {
+                        Some(c) => {
+                            result.push(c);
+                        }
+                        None => {
+                            result.push('\\');
+                        }
+                    },
+                    '"' => {
+                        // Probably the final closing quote.
+                        // Should be impossible/illegal otherwise
+                        continue;
+                    }
+                    c => {
+                        result.push(c);
+                    }
+                }
+            }
+            Cow::Owned(result)
+        } else {
+            Cow::Borrowed(&self.local_part)
+        }
+    }
 }
 
 impl ToString for Mailbox {
     fn to_string(&self) -> String {
         let domain = self.domain.to_string();
-        format!("{}@{}", self.local_part, domain)
+        format!("{}@{domain}", self.local_part)
     }
 }
 
@@ -380,6 +468,45 @@ impl ToString for Domain {
             Self::V4(addr) => format!("[{addr}]"),
             Self::V6(addr) => format!("[IPv6:{addr}]"),
             Self::Tagged { tag, literal } => format!("[{tag}:{literal}]"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(try_from = "String", into = "String")]
+pub enum EnvelopeAddress {
+    Null,
+    Postmaster,
+    Path(MailPath),
+}
+
+impl TryFrom<String> for EnvelopeAddress {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, String> {
+        crate::parser::parse_envelope_address(&s)
+    }
+}
+
+impl FromStr for EnvelopeAddress {
+    type Err = String;
+    fn from_str(input: &str) -> Result<Self, String> {
+        crate::parser::parse_envelope_address(input)
+    }
+}
+
+impl Into<String> for EnvelopeAddress {
+    fn into(self) -> String {
+        self.to_string()
+    }
+}
+
+impl ToString for EnvelopeAddress {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Null => String::new(),
+            Self::Postmaster => "postmaster".to_string(),
+            Self::Path(path) => path.to_string(),
         }
     }
 }
@@ -516,6 +643,8 @@ pub enum Command {
         initial_response: Option<String>,
     },
     XClient(Vec<XClientParameter>),
+    /// For testing non-conforming inputs
+    RawLine(String),
 }
 
 impl Command {
@@ -579,6 +708,9 @@ impl Command {
                 }
                 format!("XCLIENT{s}\r\n")
             }
+            Self::RawLine(line) => {
+                format!("{line}\r\n")
+            }
         }
     }
 
@@ -597,6 +729,7 @@ impl Command {
             }
             Self::Auth { .. } => timeouts.auth_timeout,
             Self::XClient { .. } => timeouts.auth_timeout, // FIXME: xclient specific timeout
+            Self::RawLine(_) => timeouts.mail_from_timeout, // No good option for this TBH.
         }
     }
 
@@ -1001,6 +1134,65 @@ mod test {
                 },
             ])
         );
+    }
+
+    #[test]
+    fn mailbox() {
+        assert_eq!(
+            Mailbox {
+                local_part: "user".to_string(),
+                domain: Domain::Name("example.com".to_string())
+            }
+            .to_string(),
+            "user@example.com"
+        );
+
+        let info_at = MailPath {
+            at_domain_list: vec![],
+            mailbox: Mailbox {
+                local_part: "\"info@\"".to_string(),
+                domain: Domain::Name("example.com".to_string()),
+            },
+        };
+        assert_eq!(
+            EnvelopeAddress::from_str("\"info@\"@example.com").unwrap(),
+            EnvelopeAddress::Path(info_at.clone())
+        );
+        assert_eq!(info_at.to_string(), "\"info@\"@example.com");
+
+        assert_eq!(
+            EnvelopeAddress::from_str("postmaster").unwrap(),
+            EnvelopeAddress::Postmaster
+        );
+        assert_eq!(
+            EnvelopeAddress::from_str("").unwrap(),
+            EnvelopeAddress::Null
+        );
+
+        assert_eq!(EnvelopeAddress::Null.to_string(), "");
+        assert_eq!(EnvelopeAddress::Postmaster.to_string(), "postmaster");
+        assert_eq!(
+            EnvelopeAddress::Path(info_at).to_string(),
+            "\"info@\"@example.com"
+        );
+
+        // Equality is based on normalized local part
+        let foo1 = EnvelopeAddress::from_str("foo@example.com").unwrap();
+        let foo2 = EnvelopeAddress::from_str("\"foo\"@example.com").unwrap();
+        let foo3 = EnvelopeAddress::from_str("\"f\\oo\"@example.com").unwrap();
+
+        assert_eq!(foo1, foo2);
+        assert_eq!(foo2, foo3);
+        assert_eq!(foo1, foo3);
+
+        let EnvelopeAddress::Path(foo3) = foo3 else {
+            panic!("Should be a Path");
+        };
+
+        assert_eq!(foo3.mailbox.local_part(), "foo");
+
+        // Unbalanced quotes are illegal and don't parse
+        EnvelopeAddress::from_str("\"foo@example.com").unwrap_err();
     }
 }
 

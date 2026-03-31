@@ -1,5 +1,7 @@
 use crate::delivery_metrics::{DeliveryMetrics, ReadyCountBundle};
-use crate::egress_source::EgressSource;
+use crate::egress_source::{
+    err_match_anyhow, BindError, ConnectError, EgressSource, ProxyBindError,
+};
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_suspend_ready_q_v1::{
     AdminSuspendReadyQEntry, AdminSuspendReadyQEntryRef,
@@ -15,7 +17,7 @@ use crate::queue::{
     QueueManager, QueueState,
 };
 use crate::smtp_dispatcher::{OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
-use crate::smtp_server::{DeferredSmtpInjectionDispatcher, ShuttingDownError};
+use crate::smtp_server::DeferredSmtpInjectionDispatcher;
 use crate::spool::SpoolManager;
 use crate::xfer::XferDispatcher;
 use anyhow::Context;
@@ -30,7 +32,7 @@ use kumo_api_types::egress_path::{
 };
 use kumo_prometheus::declare_metric;
 use kumo_server_common::config_handle::ConfigHandle;
-use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
+use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription, ShuttingDownError};
 use kumo_server_memory::{
     get_headroom, memory_status, subscribe_to_memory_status_changes_async, MemoryStatus,
 };
@@ -1499,7 +1501,59 @@ impl Dispatcher {
         }
 
         let mut connection_failures = vec![];
-        let mut num_opportunistic_tls_failures = 0;
+
+        #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+        enum ConnectionFailureKind {
+            OpportunisticInsecureTlsHandshakeError,
+            UnplumbedSource,
+            ProxyConnect,
+            ProxyUnplumbedSource,
+            Other,
+        }
+
+        impl ConnectionFailureKind {
+            fn classify(err: &anyhow::Error) -> Self {
+                if err_match_anyhow::<OpportunisticInsecureTlsHandshakeError>(err).is_some() {
+                    Self::OpportunisticInsecureTlsHandshakeError
+                } else if let Some(bind) = err_match_anyhow::<BindError>(err) {
+                    if bind.is_unplumbed() {
+                        Self::UnplumbedSource
+                    } else {
+                        Self::Other
+                    }
+                } else if let Some(conn) = err_match_anyhow::<ConnectError>(err) {
+                    if conn.is_proxy {
+                        Self::ProxyConnect
+                    } else {
+                        Self::Other
+                    }
+                } else if err_match_anyhow::<ProxyBindError>(err).is_some() {
+                    Self::ProxyUnplumbedSource
+                } else {
+                    Self::Other
+                }
+            }
+
+            fn all_same(v: &[ConnectionFailureKind]) -> Option<Self> {
+                let mut item = None;
+                tracing::info!("all_same: {v:#?}");
+                for i in v.iter() {
+                    item = match item.take() {
+                        None => Some(*i),
+                        Some(o) => {
+                            if o != *i {
+                                return None;
+                            }
+                            Some(o)
+                        }
+                    };
+                }
+
+                item
+            }
+        }
+
+        let mut connection_failure_classifications = vec![];
         let mut shutting_down = ShutdownSubcription::get();
 
         loop {
@@ -1536,23 +1590,36 @@ impl Dispatcher {
 
             match result {
                 Err(err) => {
-                    if OpportunisticInsecureTlsHandshakeError::is_match_anyhow(&err) {
-                        num_opportunistic_tls_failures += 1;
-                    }
+                    connection_failure_classifications.push(ConnectionFailureKind::classify(&err));
                     connection_failures.push(format!("{err:#}"));
                     if !queue_dispatcher
                         .have_more_connection_candidates(&mut dispatcher)
                         .await
                     {
-                        for msg in dispatcher.msgs.drain(..) {
-                            let summary =
-                                if num_opportunistic_tls_failures == connection_failures.len() {
-                                    "All failures are related to OpportunisticInsecure STARTTLS. \
-                             Consider setting enable_tls=Disabled for this site. "
-                                } else {
-                                    ""
-                                };
+                        let summary = match ConnectionFailureKind::all_same(
+                            &connection_failure_classifications,
+                        ) {
+                            Some(ConnectionFailureKind::OpportunisticInsecureTlsHandshakeError) => {
+                                "All failures are related to OpportunisticInsecure STARTTLS. \
+                                 Consider setting enable_tls=Disabled for this site. "
+                            }
+                            Some(ConnectionFailureKind::UnplumbedSource) => {
+                                "All failures are related to having an unplumbed source address. \
+                                 Are the network interfaces provisioned correctly? "
+                            }
+                            Some(ConnectionFailureKind::ProxyUnplumbedSource) => {
+                                "All failures are related to the proxy server \
+                                 having an unplumbed source address. \
+                                 Are the network interfaces provisioned correctly on the proxy? "
+                            }
+                            Some(ConnectionFailureKind::ProxyConnect) => {
+                                "All failures are related to proxy connection issues. \
+                                 Is the proxy infrastructure online and healthy? "
+                            }
+                            Some(ConnectionFailureKind::Other) | None => "",
+                        };
 
+                        for msg in dispatcher.msgs.drain(..) {
                             let response = Response {
                                 code: 400,
                                 enhanced_code: None,
@@ -1777,15 +1844,10 @@ impl Dispatcher {
             msg.data().await?;
         }
 
-        let activity = match Activity::get_opt(format!(
+        let activity = Activity::get(format!(
             "ready_queue Dispatcher deliver_message {}",
             self.name
-        )) {
-            Some(a) => a,
-            None => {
-                return Err(ShuttingDownError.into());
-            }
-        };
+        ))?;
 
         self.delivered_this_connection += self.msgs.len();
 

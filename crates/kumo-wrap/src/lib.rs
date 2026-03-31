@@ -1,6 +1,13 @@
+use bstr::{BStr, ByteVec};
+
+pub const SOFT_WIDTH: usize = 75;
+pub const HARD_WIDTH: usize = 900;
+
 pub fn wrap(value: &str) -> String {
-    const SOFT_WIDTH: usize = 75;
-    const HARD_WIDTH: usize = 900;
+    String::from_utf8(wrap_impl(value, SOFT_WIDTH, HARD_WIDTH)).expect("utf8-in, utf8-out")
+}
+
+pub fn wrap_bytes(value: impl AsRef<BStr>) -> Vec<u8> {
     wrap_impl(value, SOFT_WIDTH, HARD_WIDTH)
 }
 
@@ -9,14 +16,18 @@ pub fn wrap(value: &str) -> String {
 /// algorithm that tries to fill up to the desired width, allowing
 /// for overflow if there is a word that is too long to fit in
 /// the header, but breaking after a hard limit threshold.
-pub fn wrap_impl(value: &str, soft_width: usize, hard_width: usize) -> String {
-    let mut result = String::new();
-    let mut line = String::new();
+pub fn wrap_impl(value: impl AsRef<BStr>, soft_width: usize, hard_width: usize) -> Vec<u8> {
+    let value: &BStr = value.as_ref();
+    let mut result: Vec<u8> = vec![];
+    let mut line: Vec<u8> = vec![];
 
-    for word in value.split_ascii_whitespace() {
+    for word in value.split(|&b| b.is_ascii_whitespace()) {
+        if word.len() == 0 {
+            continue;
+        }
         if line.len() + word.len() < soft_width {
             if !line.is_empty() {
-                line.push(' ');
+                line.push(b' ');
             }
             line.push_str(word);
             continue;
@@ -28,7 +39,7 @@ pub fn wrap_impl(value: &str, soft_width: usize, hard_width: usize) -> String {
         if !line.is_empty() {
             if !result.is_empty() {
                 // There's an existing line, start a new one, indented
-                result.push('\t');
+                result.push(b'\t');
             }
             result.push_str(&line);
             result.push_str("\r\n");
@@ -39,11 +50,11 @@ pub fn wrap_impl(value: &str, soft_width: usize, hard_width: usize) -> String {
         if word.len() <= hard_width {
             line.push_str(word);
         } else {
-            for c in word.chars() {
+            for &c in word.iter() {
                 line.push(c);
                 if line.len() >= hard_width {
                     if !result.is_empty() {
-                        result.push('\t');
+                        result.push(b'\t');
                     }
                     result.push_str(&line);
                     result.push_str("\r\n");
@@ -56,7 +67,7 @@ pub fn wrap_impl(value: &str, soft_width: usize, hard_width: usize) -> String {
 
     if !line.is_empty() {
         if !result.is_empty() {
-            result.push('\t');
+            result.push(b'\t');
         }
         result.push_str(&line);
     }
@@ -74,6 +85,7 @@ mod test {
             ("foo", "foo"),
             ("hi there", "hi there"),
             ("hello world", "hello\r\n\tworld"),
+            ("hello world ", "hello\r\n\tworld"),
             (
                 "hello world foo bar baz woot woot",
                 "hello\r\n\tworld foo\r\n\tbar baz\r\n\twoot woot",
@@ -86,7 +98,7 @@ mod test {
             let wrapped = wrap_impl(input, 10, 15);
             k9::assert_equal!(
                 wrapped,
-                expect,
+                expect.as_bytes(),
                 "input: '{input}' should produce '{expect}'"
             );
         }

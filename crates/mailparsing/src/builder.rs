@@ -86,7 +86,7 @@ impl<'a> MessageBuilder<'a> {
                 "multipart/alternative",
                 vec![t?, amp?, h?],
                 if self.stable_content {
-                    Some("ma-boundary")
+                    Some(b"ma-boundary")
                 } else {
                     None
                 },
@@ -97,7 +97,7 @@ impl<'a> MessageBuilder<'a> {
                 "multipart/alternative",
                 vec![first?, second?],
                 if self.stable_content {
-                    Some("ma-boundary")
+                    Some(b"ma-boundary")
                 } else {
                     None
                 },
@@ -124,7 +124,7 @@ impl<'a> MessageBuilder<'a> {
                 "multipart/related",
                 parts,
                 if self.stable_content {
-                    Some("mr-boundary")
+                    Some(b"mr-boundary")
                 } else {
                     None
                 },
@@ -141,7 +141,7 @@ impl<'a> MessageBuilder<'a> {
                 "multipart/mixed",
                 parts,
                 if self.stable_content {
-                    Some("mm-boundary")
+                    Some(b"mm-boundary")
                 } else {
                     None
                 },
@@ -304,7 +304,7 @@ Content-Transfer-Encoding: quoted-printable\r
             b"hello",
             Some(&AttachmentOptions {
                 content_id: None,
-                file_name: Some("日本語の添付.txt".to_string()),
+                file_name: Some("日本語の添付.txt".into()),
                 inline: false,
             }),
         )

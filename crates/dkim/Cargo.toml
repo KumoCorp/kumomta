@@ -11,6 +11,7 @@ readme = "README.md"
 license = "MIT"
 
 [dependencies]
+bstr.workspace = true
 chrono = { workspace = true, default-features = false, features = ["clock", "std"] }
 data-encoding = {workspace=true}
 dns-resolver = {path="../dns-resolver"}
@@ -19,7 +20,7 @@ foreign-types = {workspace=true}
 indexmap = {workspace=true}
 mailparsing = { path="../mailparsing" }
 memchr = {workspace=true}
-nom = {workspace=true}
+nom.workspace = true
 openssl = { workspace=true }
 openssl-sys = { workspace=true }
 sha-1 = { workspace=true, features = ["oid"] }

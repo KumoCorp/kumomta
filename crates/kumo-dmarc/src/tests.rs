@@ -340,7 +340,7 @@ async fn evaluate_ip<'a>(
     for dkim_domain in dkim_domains {
         if let Some(dkim_domain) = dkim_domain {
             let mut map = BTreeMap::new();
-            map.insert("header.d".to_string(), dkim_domain.to_string());
+            map.insert("header.d".into(), dkim_domain.to_string().into());
 
             dkim_vec.push(map);
         } else {

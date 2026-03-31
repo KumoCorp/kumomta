@@ -9,6 +9,7 @@ members = [
   "crates/kumo-address",
   "crates/kumo-api-client",
   "crates/kumo-chrono-helper",
+  "crates/kumo-counter-series",
   "crates/kumo-dmarc",
   "crates/kumo-machine-info",
   "crates/kumo-prometheus",
@@ -18,6 +19,7 @@ members = [
   "crates/kumo-wrap",
   "crates/kumod",
   "crates/mailparsing",
+  "crates/nom-utils",
   "crates/mod-aws-sigv4",
   "crates/mod-file-type",
   "crates/mod-mimepart",
@@ -67,6 +69,7 @@ axum-streams = {version="0.23", features=["text"]}
 backtrace = "0.3"
 bitflags = "2.11"
 bitstring = "0.2"
+bstr = {version="1.12", features=["serde"]}
 bytes = "1.0"
 camino = "1.1"
 caps = "0.5"
@@ -152,8 +155,8 @@ minijinja-contrib = {version="2.7.0",features=["datetime", "pycompat", "rand", "
 mlua = "0.11"
 mockito = "1.6.1"
 nix = "0.30"
-nom = "7.1.0"
-nom_locate = "4.1"
+nom = "8.0.0"
+nom_locate = "5.0"
 notify = "8"
 nucleo-matcher = "0.3"
 num_cpus = "1.16.0"
@@ -203,7 +206,7 @@ sysinfo = { version = "0.38", default-features = false, features = ["system"] }
 tabout = "0.3"
 tempfile = "3.10"
 test-log = {version="0.2", features = ["trace"]}
-testcontainers-modules = { version = "0.13", default-features = false }
+testcontainers-modules = { version = "0.15", default-features = false }
 textwrap = "0.16"
 thiserror = "2"
 tikv-jemallocator = {version="0.5", features=["background_threads", "stats"]}

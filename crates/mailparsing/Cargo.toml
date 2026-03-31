@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 bitflags = {workspace=true}
+bstr.workspace = true
 charset-normalizer-rs.workspace = true
 chrono = {workspace=true, default-features=false, features=["std", "clock"]}
 data-encoding = {workspace=true}
@@ -13,6 +14,7 @@ kumo-wrap = {path="../kumo-wrap"}
 memchr = {workspace=true}
 nom = {workspace=true}
 nom_locate = {workspace=true}
+nom-utils = {path="../nom-utils"}
 pastey = {workspace=true}
 quoted_printable = {workspace=true}
 serde = {workspace=true}

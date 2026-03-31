@@ -43,21 +43,37 @@ kumo.on('get_listener_domain', function(domain, listener, conn_meta)
 end)
 
 kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
+  local pool = 'proxy_pool'
+  if domain == 'unplumbed.example.com' then
+    pool = 'unplumbed_pool'
+  end
+
   return kumo.make_queue_config {
     protocol = {
       smtp = {
         mx_list = { 'localhost:' .. SINK_PORT },
       },
     },
-    egress_pool = 'proxy_pool',
+    egress_pool = pool,
   }
 end)
+
+local POOLS = {
+  proxy_pool = {
+    source = 'proxy_pool',
+    source_address = '127.0.0.1',
+  },
+  unplumbed_pool = {
+    source = 'unplumbed_pool',
+    source_address = '9.9.9.9',
+  },
+}
 
 kumo.on('get_egress_pool', function(pool_name)
   return kumo.make_egress_pool {
     name = pool_name,
     entries = {
-      { name = 'proxy_source' },
+      { name = POOLS[pool_name].source },
     },
   }
 end)
@@ -66,7 +82,7 @@ kumo.on('get_egress_source', function(source_name)
   local params = {
     name = source_name,
     socks5_proxy_server = PROXY_SERVER,
-    socks5_proxy_source_address = '127.0.0.1',
+    socks5_proxy_source_address = POOLS[source_name].source_address,
   }
 
   -- Add authentication if provided
@@ -83,6 +99,7 @@ end)
 kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
   return kumo.make_egress_path {
     enable_tls = 'Disabled',
+    ip_lookup_strategy = 'Ipv4Only',
     prohibited_hosts = {},
   }
 end)
