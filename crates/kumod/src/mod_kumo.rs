@@ -284,14 +284,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             Some(report) => {
                 let recip = EnvelopeAddress::parse(&log_record.sender)
                     .context("log_record is somehow an invalid EnvelopeAddress")?;
-                let body = report.to_message_string();
+                let body = report.to_message_bytes();
 
                 let msg = Message::new_dirty(
                     SpoolId::new(),
                     EnvelopeAddress::null_sender(),
                     vec![recip],
                     serde_json::json!({}),
-                    Arc::new(body.as_bytes().to_vec().into_boxed_slice()),
+                    Arc::new(body.into_boxed_slice()),
                 )?;
                 Ok(Some(msg))
             }

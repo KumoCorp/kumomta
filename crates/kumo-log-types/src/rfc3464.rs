@@ -783,7 +783,7 @@ mod test {
         let report_msg = Report::generate(&params, Some(&original_msg), &log)
             .unwrap()
             .unwrap();
-        let report_eml = report_msg.to_message_string();
+        let report_eml = BString::from(report_msg.to_message_bytes());
         k9::snapshot!(
             &report_eml,
             r#"
@@ -914,7 +914,7 @@ Subject: Hello!
         let report_msg = Report::generate(&params, Some(&original_msg), &log)
             .unwrap()
             .unwrap();
-        let report_eml = report_msg.to_message_string();
+        let report_eml = BString::from(report_msg.to_message_bytes());
         k9::snapshot!(
             &report_eml,
             r#"
@@ -1047,7 +1047,7 @@ Subject: Hello!
         let report_msg = Report::generate(&params, Some(&original_msg), &log)
             .unwrap()
             .unwrap();
-        let report_eml = report_msg.to_message_string();
+        let report_eml = BString::from(report_msg.to_message_bytes());
         k9::snapshot!(
             &report_eml,
             r#"
@@ -1185,7 +1185,7 @@ hello there
         let report_msg = Report::generate(&params, Some(&original_msg), &log)
             .unwrap()
             .unwrap();
-        let report_eml = report_msg.to_message_string();
+        let report_eml = BString::from(report_msg.to_message_bytes());
         k9::snapshot!(
             &report_eml,
             r#"

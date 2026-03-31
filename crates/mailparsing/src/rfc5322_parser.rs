@@ -2767,7 +2767,7 @@ Some(
         );
 
         k9::snapshot!(
-            msg.rebuild(None).unwrap().to_message_string(),
+            BString::from(msg.rebuild(None).unwrap().to_message_bytes()),
             r#"
 Content-Type: text/plain;\r
 \tcharset="us-ascii"\r

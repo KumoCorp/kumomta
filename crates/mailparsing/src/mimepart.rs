@@ -647,10 +647,10 @@ impl<'a> MimePart<'a> {
 
     /// Convenience method wrapping write_message that returns
     /// the formatted message as a standalone string
-    pub fn to_message_string(&self) -> String {
+    pub fn to_message_bytes(&self) -> Vec<u8> {
         let mut out = vec![];
         self.write_message(&mut out).unwrap();
-        String::from_utf8_lossy(&out).to_string()
+        out
     }
 
     pub fn replace_text_body(
@@ -1306,7 +1306,7 @@ mod test {
         );
 
         let part = MimePart::parse(message).unwrap();
-        k9::assert_equal!(message, part.to_message_string());
+        k9::assert_equal!(message.as_bytes(), part.to_message_bytes());
         assert_eq!(part.raw_body(), "I am the body");
         k9::snapshot!(
             part.body(),
@@ -1320,7 +1320,7 @@ Ok(
         );
 
         k9::snapshot!(
-            part.rebuild(None).unwrap().to_message_string(),
+            BString::from(part.rebuild(None).unwrap().to_message_bytes()),
             r#"
 Content-Type: text/plain;\r
 \tcharset="us-ascii"\r
@@ -1367,7 +1367,7 @@ I am the body\r
         );
 
         let part = MimePart::parse(message).unwrap();
-        k9::assert_equal!(message, part.to_message_string());
+        k9::assert_equal!(message.as_bytes(), part.to_message_bytes());
         assert_eq!(part.raw_body(), "aGVsbG8K\n");
         k9::snapshot!(
             part.body(),
@@ -1382,7 +1382,7 @@ Ok(
         );
 
         k9::snapshot!(
-            part.rebuild(None).unwrap().to_message_string(),
+            BString::from(part.rebuild(None).unwrap().to_message_bytes()),
             r#"
 Content-Type: text/plain;\r
 \tcharset="us-ascii"\r
@@ -1422,7 +1422,7 @@ hello=0A\r
 
         let part = MimePart::parse(message).unwrap();
 
-        k9::assert_equal!(message, part.to_message_string());
+        k9::assert_equal!(message.as_bytes(), part.to_message_bytes());
 
         let children = part.child_parts();
         k9::assert_equal!(children.len(), 2);
@@ -1475,7 +1475,7 @@ Ok(
         );
 
         let mut part = MimePart::parse(message).unwrap();
-        k9::assert_equal!(message, part.to_message_string());
+        k9::assert_equal!(message.as_bytes(), part.to_message_bytes());
         fn munge(part: &mut MimePart) {
             let headers = part.headers_mut();
             headers.push(Header::with_name_value("X-Woot", "Hello"));
@@ -1484,7 +1484,7 @@ Ok(
         }
         munge(&mut part);
 
-        let re_encoded = part.to_message_string();
+        let re_encoded = BString::from(part.to_message_bytes());
         k9::snapshot!(
             re_encoded,
             r#"
@@ -1520,7 +1520,7 @@ After the final boundary stuff gets ignored.\r
 
         eprintln!("part with html removed is:\n{part:#?}");
 
-        let re_encoded = part.to_message_string();
+        let re_encoded = BString::from(part.to_message_bytes());
         k9::snapshot!(
             re_encoded,
             r#"
@@ -1546,7 +1546,7 @@ After the final boundary stuff gets ignored.\r
     #[test]
     fn replace_text_body() {
         let mut part = MimePart::new_text_plain("Hello 👻\r\n").unwrap();
-        let encoded = part.to_message_string();
+        let encoded = BString::from(part.to_message_bytes());
         k9::snapshot!(
             &encoded,
             r#"
@@ -1561,7 +1561,7 @@ SGVsbG8g8J+Ruw0K\r
 
         part.replace_text_body("text/plain", "Hello 🚀\r\n")
             .unwrap();
-        let encoded = part.to_message_string();
+        let encoded = BString::from(part.to_message_bytes());
         k9::snapshot!(
             &encoded,
             r#"
@@ -1581,7 +1581,7 @@ SGVsbG8g8J+agA0K\r
 
         let part = MimePart::new_text_plain(input_text).unwrap();
 
-        let encoded = part.to_message_string();
+        let encoded = BString::from(part.to_message_bytes());
         k9::snapshot!(
             &encoded,
             r#"
@@ -1598,7 +1598,7 @@ t's see how that turns out!\r
         );
 
         let parsed_part = MimePart::parse(encoded.clone()).unwrap();
-        k9::assert_equal!(encoded.as_str(), parsed_part.to_message_string().as_str());
+        k9::assert_equal!(encoded, parsed_part.to_message_bytes());
         k9::assert_equal!(part.body().unwrap(), DecodedBody::Text(input_text.into()));
         k9::snapshot!(
             parsed_part.simplified_structure_pointers(),
@@ -1644,7 +1644,7 @@ Ok(
         )
         .unwrap();
         k9::snapshot!(
-            msg.to_message_string(),
+            BString::from(msg.to_message_bytes()),
             r#"
 Content-Type: multipart/mixed;\r
 \tboundary="my-boundary"\r
@@ -1852,7 +1852,7 @@ Ok(
         let rebuilt = part.rebuild(None).unwrap();
 
         k9::snapshot!(
-            rebuilt.to_message_string(),
+            BString::from(rebuilt.to_message_bytes()),
             r#"
 Content-Type: multipart/mixed;\r
 \tboundary="8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3"\r
@@ -1912,8 +1912,8 @@ Hello";
             "Message has conformance issues: MISSING_MESSAGE_ID_HEADER"
         );
 
-        let rebuilt = msg
-            .check_fix_conformance(
+        let rebuilt = BString::from(
+            msg.check_fix_conformance(
                 MessageConformance::MISSING_MESSAGE_ID_HEADER,
                 MessageConformance::MISSING_MESSAGE_ID_HEADER,
                 CheckFixSettings {
@@ -1923,7 +1923,8 @@ Hello";
             )
             .unwrap()
             .unwrap()
-            .to_message_string();
+            .to_message_bytes(),
+        );
 
         k9::snapshot!(
             rebuilt,
@@ -1947,8 +1948,8 @@ Hello this is a really long line Hello this is a really long line \
 Hello this is a really long line Hello this is a really long line
 ";
         let msg = MimePart::parse(DOUBLE_ANGLE_AND_LONG_LINE).unwrap();
-        let rebuilt = msg
-            .check_fix_conformance(
+        let rebuilt = BString::from(
+            msg.check_fix_conformance(
                 MessageConformance::MISSING_COLON_VALUE,
                 MessageConformance::MISSING_MESSAGE_ID_HEADER | MessageConformance::LINE_TOO_LONG,
                 CheckFixSettings {
@@ -1958,7 +1959,8 @@ Hello this is a really long line Hello this is a really long line
             )
             .unwrap()
             .unwrap()
-            .to_message_string();
+            .to_message_bytes(),
+        );
 
         k9::snapshot!(
             rebuilt,
@@ -1987,15 +1989,16 @@ y long line=0A\r
         "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nX-Header: another value\r\nFrom :Someone@somewhere\r\n\r\nBody";
 
         let msg = MimePart::parse(MULTI_HEADER_CONTENT).unwrap();
-        let rebuilt = msg
-            .check_fix_conformance(
+        let rebuilt = BString::from(
+            msg.check_fix_conformance(
                 MessageConformance::default(),
                 MessageConformance::MISSING_MIME_VERSION,
                 CheckFixSettings::default(),
             )
             .unwrap()
             .unwrap()
-            .to_message_string();
+            .to_message_bytes(),
+        );
         k9::snapshot!(
             rebuilt,
             r#"
@@ -2011,15 +2014,16 @@ Body
         );
 
         let msg = MimePart::parse(MULTI_HEADER_CONTENT).unwrap();
-        let rebuilt = msg
-            .check_fix_conformance(
+        let rebuilt = BString::from(
+            msg.check_fix_conformance(
                 MessageConformance::default(),
                 MessageConformance::MISSING_MIME_VERSION | MessageConformance::NAME_ENDS_WITH_SPACE,
                 CheckFixSettings::default(),
             )
             .unwrap()
             .unwrap()
-            .to_message_string();
+            .to_message_bytes(),
+        );
         k9::snapshot!(
             rebuilt,
             r#"

@@ -169,9 +169,9 @@ impl UserData for PartRef {
             Ok(result)
         });
 
-        methods.add_meta_method(MetaMethod::ToString, move |_lua, this, ()| {
+        methods.add_meta_method(MetaMethod::ToString, move |lua, this, ()| {
             let root = this.root_part.lock();
-            Ok(root.to_message_string())
+            lua.create_string(root.to_message_bytes())
         });
 
         methods.add_method("rebuild", move |_lua, this, ()| {

@@ -200,3 +200,13 @@ impl<'a> IntoSharedString<'a> for &'a [u8] {
         }
     }
 }
+
+impl<'a> IntoSharedString<'a> for BString {
+    fn into_shared_string(self) -> (SharedString<'a>, MessageConformance) {
+        let bytes: Vec<u8> = self.into();
+        match std::str::from_utf8(&bytes) {
+            Ok(_) => (bytes.into(), MessageConformance::default()),
+            Err(_) => (bytes.into(), MessageConformance::NEEDS_TRANSFER_ENCODING),
+        }
+    }
+}
