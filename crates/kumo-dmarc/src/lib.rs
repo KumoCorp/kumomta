@@ -28,7 +28,7 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-const DMARC_REPORT_LOG_FILEPATH: &'static str = "/tmp/example.log";
+const DMARC_REPORT_LOG_FILEPATH: &'static str = "/var/log/kumomta/dmarc.log";
 
 pub struct CheckHostParams {
     /// Domain of the sender in the "From:"
