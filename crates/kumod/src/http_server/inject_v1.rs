@@ -546,8 +546,13 @@ impl<'a> Compiled<'a> {
                     id += 1;
                 }
 
+                let mut need_to = true;
+
                 #[allow(clippy::for_kv_map)]
                 for (name, _value) in headers {
+                    if need_to && name.eq_ignore_ascii_case("to") {
+                        need_to = false;
+                    }
                     let expanded = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
                     id += 1;
                     builder.push(mailparsing::Header::new_unstructured(
@@ -556,10 +561,8 @@ impl<'a> Compiled<'a> {
                     ));
                 }
 
-                for (name, value) in Self::default_headers(recip)? {
-                    if !headers.keys().any(|k| k.eq_ignore_ascii_case(&name)) {
-                        builder.push(mailparsing::Header::new_unstructured(name, value));
-                    }
+                if need_to {
+                    builder.set_to(to_mailbox)?;
                 }
 
                 for part in &self.attached {
@@ -571,20 +574,6 @@ impl<'a> Compiled<'a> {
         }
     }
 
-    /// Returns per-recipient default headers that should be present
-    /// in every message. These are applied only when the user has not
-    /// provided them explicitly via content.headers.
-    fn default_headers(recip: &Recipient) -> anyhow::Result<Vec<(String, String)>> {
-        let to_mailbox = Address::Mailbox(Mailbox {
-            name: recip.name.clone().map(Into::into),
-            address: AddrSpec::parse(&recip.email)?,
-        });
-
-        Ok(vec![(
-            "To".to_string(),
-            to_mailbox.encode_value().to_string(),
-        )])
-    }
 }
 
 impl InjectV1Request {
@@ -1887,7 +1876,7 @@ Some(
     #[tokio::test]
     async fn test_builder_default_to_header_per_recipient() {
         // Tests that when no To header is provided in content.headers,
-        // default_headers generates a per-recipient To from email+name.
+        // a per-recipient To is generated from email+name.
         let mut request = InjectV1Request {
             envelope_sender: "noreply@example.com".to_string(),
             recipients: vec![
