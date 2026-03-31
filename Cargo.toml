@@ -9,6 +9,7 @@ members = [
   "crates/kumo-address",
   "crates/kumo-api-client",
   "crates/kumo-chrono-helper",
+  "crates/kumo-counter-series",
   "crates/kumo-dmarc",
   "crates/kumo-machine-info",
   "crates/kumo-prometheus",
@@ -18,6 +19,7 @@ members = [
   "crates/kumo-wrap",
   "crates/kumod",
   "crates/mailparsing",
+  "crates/nom-utils",
   "crates/mod-aws-sigv4",
   "crates/mod-file-type",
   "crates/mod-mimepart",
@@ -204,7 +206,7 @@ sysinfo = { version = "0.38", default-features = false, features = ["system"] }
 tabout = "0.3"
 tempfile = "3.10"
 test-log = {version="0.2", features = ["trace"]}
-testcontainers-modules = { version = "0.13", default-features = false }
+testcontainers-modules = { version = "0.15", default-features = false }
 textwrap = "0.16"
 thiserror = "2"
 tikv-jemallocator = {version="0.5", features=["background_threads", "stats"]}

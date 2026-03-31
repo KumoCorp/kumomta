@@ -2,6 +2,7 @@
 mod arc;
 mod auth_deliver;
 mod auth_deliver_invalid_password;
+#[cfg(target_os = "linux")]
 mod bad_source_address;
 mod broken_first_choice_mx;
 mod disconnect_in_data;
