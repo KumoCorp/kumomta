@@ -80,3 +80,7 @@
    response. #495
  * smtp server: uncommon quoted local parts containing the `@` sign are now
    accepted by the envelope address parser. #495
+ * smtp client: when using client certificates with rustls, we did not load
+   or propagate intermediate certificates from the supplied certificate data,
+   which could lead to the peer failing to verify the client certificate.
+   Thanks to @kayozaki! #496
