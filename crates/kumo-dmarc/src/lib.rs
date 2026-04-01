@@ -15,10 +15,10 @@ use chrono::{DateTime, Utc};
 use dns_resolver::Resolver;
 use mailparsing::AuthenticationResult;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::SystemTime;
 use uuid::Uuid;
@@ -30,7 +30,7 @@ mod tests;
 
 const DMARC_REPORT_LOG_FILEPATH: &'static str = "/var/log/kumomta/dmarc.log";
 
-pub struct CheckHostParams {
+pub struct DmarcPassContext {
     /// Domain of the sender in the "From:"
     pub from_domain: String,
 
@@ -40,7 +40,7 @@ pub struct CheckHostParams {
     pub mail_from_domain: Option<String>,
 
     /// The envelope to
-    pub recipient_list: Vec<String>,
+    pub recipient_domain_list: Vec<String>,
 
     /// The source IP address
     pub received_from: String,
@@ -55,12 +55,12 @@ pub struct CheckHostParams {
     pub reporting_info: Option<ReportingInfo>,
 }
 
-impl CheckHostParams {
+impl DmarcPassContext {
     pub async fn check(self, resolver: &dyn Resolver) -> DispositionWithContext {
         let Self {
             from_domain,
             mail_from_domain,
-            recipient_list,
+            recipient_domain_list: recipient_list,
             received_from,
             dkim_results,
             spf_result,
@@ -193,10 +193,12 @@ impl<'a> DmarcContext<'a> {
         sender_domain_alignment: SenderDomainAlignment,
         error: &str,
     ) -> std::io::Result<()> {
-        let source_ip = match self.received_from.parse() {
-            Ok(source_ip) => source_ip,
-            Err(_) => Ipv4Addr::new(127, 0, 0, 1).into(),
-        };
+        let source_ip = self
+            .received_from
+            .parse()
+            .map_err(|x: std::net::AddrParseError| {
+                std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, x.to_string())
+            })?;
 
         if let Some(reporting_info) = self.reporting_info {
             let error_record = ErrorRecord {
@@ -242,41 +244,52 @@ impl<'a> DmarcContext<'a> {
                 .open(DMARC_REPORT_LOG_FILEPATH)?;
 
             writeln!(f, "{result}")?;
-
-            // self.aggregate().await;
         }
 
         Ok(())
     }
 
-    pub async fn aggregate(&self) -> std::io::Result<()> {
-        let mut output = vec![];
+    pub async fn aggregate(&self) -> anyhow::Result<()> {
+        let mut input_records = vec![];
         let file = File::open(DMARC_REPORT_LOG_FILEPATH)?;
         let lines = BufReader::new(file).lines();
 
         for line in lines.map_while(Result::ok) {
-            output.push(serde_json::from_str::<ErrorRecord>(&line)?);
+            let result: anyhow::Result<ErrorRecord> = serde_json::from_str::<ErrorRecord>(&line)
+                .map_err(|error| {
+                    anyhow::Error::new(error).context(format!(
+                        "Failed to decode a line from the DMARC report file \
+           {DMARC_REPORT_LOG_FILEPATH}. \
+           The line was: {line}. \
+           Is the file corrupt?"
+                    ))
+                })
+                .into();
+
+            input_records.push(result?);
         }
 
-        let mut errors_grouped_by_email: HashMap<String, HashMap<IpAddr, Vec<ErrorRecord>>> =
+        let mut errors_grouped_by_email: HashMap<String, BTreeMap<IpAddr, Vec<ErrorRecord>>> =
             HashMap::new();
 
-        'outer: for record in output {
-            for (email, group) in errors_grouped_by_email.iter_mut() {
-                if email == &record.email {
-                    group
+        for record in input_records {
+            let entry = errors_grouped_by_email.entry(record.email.clone());
+            let record_source_ip = record.source_ip.clone();
+
+            entry
+                .and_modify(|entry| {
+                    entry
                         .entry(record.source_ip)
                         .and_modify(|x| x.push(record.clone()))
-                        .or_insert_with(|| vec![record]);
-                    continue 'outer;
-                }
-            }
+                        .or_insert_with(|| vec![record.clone()]);
+                })
+                .or_insert({
+                    let mut new_group = BTreeMap::new();
 
-            let mut new_group = HashMap::new();
+                    new_group.insert(record_source_ip, vec![record]);
 
-            let record_email = record.email.clone();
-            new_group.insert(record.source_ip.clone(), vec![record]);
-            errors_grouped_by_email.insert(record_email, new_group);
+                    new_group
+                });
         }
 
         for (email, errors_grouped_by_ip) in errors_grouped_by_email.iter_mut() {
@@ -284,24 +297,29 @@ impl<'a> DmarcContext<'a> {
             let mut record = vec![];
 
             //we know this is safe to do because for this list to be present, we will have found it earlier
-            let (_, first_records) = errors_grouped_by_ip.iter().next().unwrap();
+            let (_, first_records) = errors_grouped_by_ip
+                .iter()
+                .next()
+                .expect("guaranteed to not be empty by the logic above");
 
-            let version = first_records[0].version.clone();
-            let org_name = first_records[0].org_name.clone();
+            let first_record = &first_records[0];
+
+            let version = first_record.version.clone();
+            let org_name = first_record.org_name.clone();
             let email = email.clone();
-            let extra_contact_info = first_records[0].extra_contact_info.clone();
+            let extra_contact_info = first_record.extra_contact_info.clone();
 
-            let mut date_range = DateRange::new(first_records[0].when, first_records[0].when);
+            let mut date_range = DateRange::new(first_record.when, first_record.when);
 
             let report_id = Uuid::new_v4().to_string();
 
-            let domain = first_records[0].domain.clone();
-            let align_dkim = first_records[0].align_dkim;
-            let align_spf = first_records[0].align_spf;
-            let policy = first_records[0].policy;
-            let subdomain_policy = first_records[0].subdomain_policy;
-            let rate = first_records[0].rate;
-            let report_failure = first_records[0].report_failure;
+            let domain = first_record.domain.clone();
+            let align_dkim = first_record.align_dkim;
+            let align_spf = first_record.align_spf;
+            let policy = first_record.policy;
+            let subdomain_policy = first_record.subdomain_policy;
+            let rate = first_record.rate;
+            let report_failure = first_record.report_failure;
 
             for (ip, error_group_for_ip) in errors_grouped_by_ip.iter_mut() {
                 let row = Row {
@@ -326,13 +344,8 @@ impl<'a> DmarcContext<'a> {
                 for group_error in error_group_for_ip.iter() {
                     errors.push(group_error.error.clone());
 
-                    if date_range.begin > group_error.when {
-                        date_range.begin = group_error.when;
-                    }
-
-                    if date_range.end < group_error.when {
-                        date_range.end = group_error.when;
-                    }
+                    date_range.begin = std::cmp::min(date_range.begin, group_error.when);
+                    date_range.end = std::cmp::max(date_range.end, group_error.when);
 
                     results
                         .identifiers

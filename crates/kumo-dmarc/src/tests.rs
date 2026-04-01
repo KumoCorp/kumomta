@@ -340,7 +340,7 @@ async fn evaluate_ip<'a>(
     let mut dkim_vec = vec![];
 
     let spf_result = AuthenticationResult {
-        method: BString::new("spf".as_bytes().to_vec()),
+        method: "spf".into(),
         method_version: None,
         result: BString::default(),
         reason: None,
@@ -349,7 +349,7 @@ async fn evaluate_ip<'a>(
 
     for dkim_domain in dkim_domains {
         let mut authentication_result = AuthenticationResult {
-            method: BString::new("dkim".as_bytes().to_vec()),
+            method: "dkim".into(),
             method_version: None,
             result: BString::default(),
             reason: None,
@@ -357,10 +357,9 @@ async fn evaluate_ip<'a>(
         };
 
         if let Some(dkim_domain) = dkim_domain {
-            authentication_result.props.insert(
-                BString::new(b"header.d".to_vec()),
-                BString::new(dkim_domain.as_bytes().to_owned()),
-            );
+            authentication_result
+                .props
+                .insert("header.d".into(), dkim_domain.to_string().into());
 
             dkim_vec.push(authentication_result);
         } else {

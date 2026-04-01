@@ -98,10 +98,6 @@ function mod.check(msg, config)
 
   local dmarc_auth_result = nil
   if config.dmarc and config.dkim and config.spf then
-    local dkim_auth_results = msg:dkim_verify(config.resolver)
-    local spf_disp = kumo.spf.check_msg(msg, config.resolver)
-    spf_auth_result = spf_disp.result
-
     local dmarc_disp = kumo.dmarc.check_msg(
       msg,
       false,

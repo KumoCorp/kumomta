@@ -3770,6 +3770,7 @@ dependencies = [
 name = "kumo-dmarc"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bstr",
  "chrono",
  "dns-resolver",

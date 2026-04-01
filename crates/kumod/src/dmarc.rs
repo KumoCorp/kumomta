@@ -1,6 +1,6 @@
 use bstr::BString;
-use config::{any_err, get_or_create_sub_module, serialize_options};
-use kumo_dmarc::{CheckHostParams, Disposition, ReportingInfo};
+use config::{any_err, get_or_create_sub_module, serialize_options, SerdeWrappedValue};
+use kumo_dmarc::{Disposition, DmarcPassContext, ReportingInfo};
 use mailparsing::AuthenticationResult;
 use message::Message;
 use mlua::{Lua, LuaSerdeExt, UserDataRef};
@@ -33,10 +33,10 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
             ): (
                 UserDataRef<Message>,
                 bool,
-                mlua::Value,
-                mlua::Value,
+                SerdeWrappedValue<Vec<AuthenticationResult>>,
+                SerdeWrappedValue<AuthenticationResult>,
                 Option<String>,
-                mlua::Value,
+                Option<SerdeWrappedValue<ReportingInfo>>,
             )| async move {
                 let resolver = get_resolver_instance(&opt_resolver_name).map_err(any_err)?;
 
@@ -45,7 +45,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
 
                 let mail_from_domain = msg_sender.ok().map(|x| x.domain().to_string());
 
-                let recipient_list = msg
+                let mut recipient_domain_list = msg
                     .recipient_list()
                     .await
                     .map(|x| {
@@ -54,6 +54,8 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                             .collect::<Vec<String>>()
                     })
                     .unwrap_or_default();
+
+                recipient_domain_list.dedup();
 
                 // From:
                 let from_domain = if let Ok(Some(from)) = msg.get_address_header("From").await {
@@ -92,10 +94,9 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                     ));
                 };
 
-                let dkim_results: Vec<AuthenticationResult> =
-                    config::from_lua_value(&lua, dkim_results)?;
+                let dkim_results: Vec<AuthenticationResult> = dkim_results.0;
 
-                let spf_result: AuthenticationResult = config::from_lua_value(&lua, spf_result)?;
+                let spf_result: AuthenticationResult = spf_result.0;
 
                 let received_from = spf_result
                     .props
@@ -104,10 +105,8 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                     .unwrap_or_default();
 
                 let reporting_info = if use_reporting {
-                    if let Ok(reporting_info) =
-                        config::from_lua_value::<ReportingInfo>(&lua, opt_reporting_info)
-                    {
-                        Some(reporting_info)
+                    if let Some(reporting_info) = opt_reporting_info {
+                        Some(reporting_info.0)
                     } else {
                         return Err(mlua::Error::external(RejectError {
                             code: 400,
@@ -119,10 +118,10 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                     None
                 };
 
-                let result = CheckHostParams {
+                let result = DmarcPassContext {
                     from_domain,
                     mail_from_domain,
-                    recipient_list,
+                    recipient_domain_list,
                     received_from: received_from.to_string(),
                     dkim_results,
                     spf_result,
