@@ -70,6 +70,13 @@
    [kumo.string.ends_with](../reference/string/ends_with.md). Thanks to
    @kayozaki! #498
 
+ * Queue Helper: `queue_module:setup_with_options` has a new optional
+   `invalidate_with_epoch` boolean parameter that will set the underlying
+   `queue_helper_data` cache to be invalidated when the [config
+   epoch](../reference/configuration.md#config-epoch) is bumped.  This option
+   allows you to achieve lower latency configuration updates in exchange for
+   higher CPU overhead around the time of the configuration update.
+
 ## Fixes
 
  * sources helper didn't allow creating empty egress pools
