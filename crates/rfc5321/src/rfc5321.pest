@@ -46,7 +46,7 @@ at_domain = { "@" ~ domain }
 
 // Helper for use outside of the client when parsing addresses
 envelope_address = { path | postmaster | null_sender | path_no_angles }
-parse_envelope_address = _{ SOI ~ (path | postmaster | null_sender | postmaster_no_angles| path_no_angles | null_sender_no_angles) ~ EOI }
+parse_envelope_address = _{ SOI ~ (path | postmaster | null_sender | path_no_angles | postmaster_no_angles | null_sender_no_angles) ~ EOI }
 
 forward_path = { path | postmaster | path_no_angles }
 reverse_path = { path | null_sender | path_no_angles }

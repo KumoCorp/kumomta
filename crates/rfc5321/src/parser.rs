@@ -1194,6 +1194,82 @@ mod test {
         // Unbalanced quotes are illegal and don't parse
         EnvelopeAddress::from_str("\"foo@example.com").unwrap_err();
     }
+
+    #[test]
+    fn parse_envelope_address_with_angles() {
+        assert_eq!(
+            parse_envelope_address("<user@example.com>").unwrap(),
+            EnvelopeAddress::Path(MailPath {
+                at_domain_list: vec![],
+                mailbox: Mailbox {
+                    local_part: "user".to_string(),
+                    domain: Domain::Name("example.com".to_string())
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn parse_envelope_address_without_angles() {
+        assert_eq!(
+            parse_envelope_address("user@example.com").unwrap(),
+            EnvelopeAddress::Path(MailPath {
+                at_domain_list: vec![],
+                mailbox: Mailbox {
+                    local_part: "user".to_string(),
+                    domain: Domain::Name("example.com".to_string())
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn parse_envelope_address_postmaster_with_angles() {
+        assert_eq!(
+            parse_envelope_address("<postmaster>").unwrap(),
+            EnvelopeAddress::Postmaster
+        );
+        assert_eq!(
+            parse_envelope_address("<POSTMASTER>").unwrap(),
+            EnvelopeAddress::Postmaster
+        );
+    }
+
+    #[test]
+    fn parse_envelope_address_postmaster_no_angles() {
+        assert_eq!(
+            parse_envelope_address("postmaster").unwrap(),
+            EnvelopeAddress::Postmaster
+        );
+        assert_eq!(
+            parse_envelope_address("PostMaster").unwrap(),
+            EnvelopeAddress::Postmaster
+        );
+    }
+
+    #[test]
+    fn parse_envelope_address_postmaster_with_domain() {
+        assert_eq!(
+            parse_envelope_address("postmaster@example.com").unwrap(),
+            EnvelopeAddress::Path(MailPath {
+                at_domain_list: vec![],
+                mailbox: Mailbox {
+                    local_part: "postmaster".to_string(),
+                    domain: Domain::Name("example.com".to_string())
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn parse_envelope_address_null_sender() {
+        assert_eq!(parse_envelope_address("<>").unwrap(), EnvelopeAddress::Null);
+    }
+
+    #[test]
+    fn parse_envelope_address_null_sender_no_angles() {
+        assert_eq!(parse_envelope_address("").unwrap(), EnvelopeAddress::Null);
+    }
 }
 
 /* ABNF from RFC 5321
