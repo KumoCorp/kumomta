@@ -1,10 +1,14 @@
 use anyhow::anyhow;
+#[cfg(unix)]
 use chrono::{DateTime, Utc};
 use config::{get_or_create_module, get_or_create_sub_module};
-use mlua::{IntoLua, Lua, LuaSerdeExt, Value};
+use mlua::prelude::LuaUserData;
+use mlua::{Lua, UserDataFields};
+#[cfg(unix)]
 use mod_time::Time;
-use serde::Serialize;
-use std::time::SystemTime;
+use std::fs::Metadata;
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
 use tokio::time::{Duration, Instant};
 
 mod file;
@@ -12,14 +16,48 @@ mod file;
 const GLOB_CACHE_CAPACITY: usize = 32;
 const DEFAULT_CACHE_TTL: f32 = 60.;
 
-#[derive(Serialize)]
-struct FileStat {
-    path: String,
-    is_file: bool,
-    is_dir: bool,
-    is_symlink: bool,
-    len: u64,
-    readonly: bool,
+struct MetadataWrapper(Metadata);
+
+macro_rules! add_metadata_field {
+    ($fields:expr, $name:expr, $method:ident) => {
+        $fields.add_field_method_get($name, |_, this| Ok(this.0.$method()));
+    };
+}
+
+impl LuaUserData for MetadataWrapper {
+    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
+        add_metadata_field!(fields, "is_file", is_file);
+        add_metadata_field!(fields, "is_dir", is_dir);
+        add_metadata_field!(fields, "is_symlink", is_symlink);
+        add_metadata_field!(fields, "len", len); // can be used on non-unix platform
+        fields.add_field_method_get("readonly", |_, this| Ok(this.0.permissions().readonly()));
+
+        #[cfg(unix)]
+        {
+            add_metadata_field!(fields, "dev", dev);
+            add_metadata_field!(fields, "ino", ino);
+            add_metadata_field!(fields, "mode", mode);
+            add_metadata_field!(fields, "nlink", nlink);
+            add_metadata_field!(fields, "uid", uid);
+            add_metadata_field!(fields, "gid", gid);
+            add_metadata_field!(fields, "rdev", rdev);
+            add_metadata_field!(fields, "size", size);
+            fields.add_field_method_get("atime", |lua, this| {
+                let atime_secs = this.0.atime();
+                system_time_to_lua_time(lua, Some(atime_secs))
+            });
+            fields.add_field_method_get("mtime", |lua, this| {
+                let mtime_secs = this.0.mtime();
+                system_time_to_lua_time(lua, Some(mtime_secs))
+            });
+            fields.add_field_method_get("ctime", |lua, this| {
+                let ctime_secs = this.0.ctime();
+                system_time_to_lua_time(lua, Some(ctime_secs))
+            });
+            add_metadata_field!(fields, "blksize", blksize);
+            add_metadata_field!(fields, "blocks", blocks);
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -44,7 +82,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     fs_mod.set("read_dir", lua.create_async_function(read_dir)?)?;
     fs_mod.set("glob", lua.create_async_function(cached_glob)?)?;
     fs_mod.set("uncached_glob", lua.create_async_function(uncached_glob)?)?;
-    fs_mod.set("stat", lua.create_async_function(stat)?)?;
+    fs_mod.set(
+        "metadata_for_path",
+        lua.create_async_function(metadata_for_path)?,
+    )?;
+    fs_mod.set(
+        "symlink_metadata_for_path",
+        lua.create_async_function(symlink_metadata_for_path)?,
+    )?;
     Ok(())
 }
 
@@ -97,51 +142,26 @@ async fn uncached_glob(
     glob(pattern, path).await
 }
 
-async fn stat(lua: Lua, path: String) -> mlua::Result<mlua::Table> {
+async fn metadata_for_path(_lua: Lua, path: String) -> mlua::Result<MetadataWrapper> {
     let metadata = tokio::fs::metadata(&path)
         .await
         .map_err(mlua::Error::external)?;
-
-    let file_type = metadata.file_type();
-    let perms = metadata.permissions();
-
-    let stat = FileStat {
-        path,
-        is_file: file_type.is_file(),
-        is_dir: file_type.is_dir(),
-        is_symlink: file_type.is_symlink(),
-        len: metadata.len(),
-        readonly: perms.readonly(),
-    };
-
-    match lua.to_value(&stat)? {
-        Value::Table(table) => {
-            table.set(
-                "mtime",
-                system_time_to_lua_time(&lua, metadata.modified().ok())?,
-            )?;
-            table.set(
-                "atime",
-                system_time_to_lua_time(&lua, metadata.accessed().ok())?,
-            )?;
-            table.set(
-                "ctime",
-                system_time_to_lua_time(&lua, metadata.created().ok())?,
-            )?;
-            Ok(table)
-        }
-        _ => Err(mlua::Error::external("failed to serialize file metadata")),
-    }
+    Ok(MetadataWrapper(metadata))
 }
 
-fn system_time_to_lua_time(lua: &Lua, time: Option<SystemTime>) -> mlua::Result<Value> {
-    match time {
-        Some(t) => {
-            let dt: DateTime<Utc> = t.into();
-            Time::from(dt).into_lua(lua)
-        }
-        None => Ok(Value::Nil),
-    }
+async fn symlink_metadata_for_path(_lua: Lua, path: String) -> mlua::Result<MetadataWrapper> {
+    let metadata = tokio::fs::symlink_metadata(&path)
+        .await
+        .map_err(mlua::Error::external)?;
+    Ok(MetadataWrapper(metadata))
+}
+
+#[cfg(unix)]
+fn system_time_to_lua_time(_lua: &Lua, epoch_secs: Option<i64>) -> mlua::Result<Option<Time>> {
+    Ok(epoch_secs.map(|secs| {
+        let dt = DateTime::<Utc>::from_timestamp(secs, 0).unwrap();
+        Time::from(dt)
+    }))
 }
 
 async fn glob(pattern: String, path: Option<String>) -> mlua::Result<Vec<String>> {
@@ -172,60 +192,139 @@ mod test {
     use std::io::Write;
 
     #[tokio::test]
-    async fn test_basic_operation() -> anyhow::Result<()> {
-        let lua = Lua::new();
-        register(&lua)?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_stat_file() -> anyhow::Result<()> {
+    async fn test_metadata_file() -> anyhow::Result<()> {
         let mut tmp = tempfile::NamedTempFile::new()?;
         tmp.write_all(b"hello world")?;
         let path = tmp.path().to_str().unwrap().to_string();
 
         let lua = Lua::new();
-        let table = stat(lua.clone(), path.clone()).await?;
+        register(&lua)?;
 
-        let got_path: String = table.get("path")?;
-        let is_file: bool = table.get("is_file")?;
-        let is_dir: bool = table.get("is_dir")?;
-        let is_symlink: bool = table.get("is_symlink")?;
-        let len: u64 = table.get("len")?;
-        let ctime: mlua::Value = table.get("ctime")?;
+        lua.globals().set("path", path)?;
+        lua.load(
+            r#"
+local kumo = require 'kumo'
+local meta = kumo.fs.metadata_for_path(path)
+assert(meta.is_file)
+assert(not meta.is_dir)
+assert(not meta.is_symlink)
+assert(meta.len == 11)
 
-        assert_eq!(got_path, path);
-        assert!(is_file);
-        assert!(!is_dir);
-        assert!(!is_symlink);
-        assert_eq!(len, 11);
-        assert!(!matches!(ctime, mlua::Value::Nil), "ctime is missing");
+if meta.size ~= nil then
+    assert(meta.size == 11)
+end
+
+if meta.ino ~= nil then
+    assert(meta.ino > 0)
+end
+
+if meta.dev ~= nil then
+    assert(meta.dev > 0)
+end
+
+if meta.mode ~= nil then
+    assert(meta.mode > 0)
+end
+"#,
+        )
+        .exec_async()
+        .await?;
+
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_metadata_symlink() -> anyhow::Result<()> {
+        let tmp_dir = tempfile::tempdir()?;
+        let target = tmp_dir.path().join("target.txt");
+        let link = tmp_dir.path().join("link.txt");
+
+        std::fs::write(&target, b"hello world")?;
+        std::os::unix::fs::symlink(&target, &link)?;
+
+        let lua = Lua::new();
+        register(&lua)?;
+
+        let link_path = link.to_str().unwrap().to_string();
+        lua.globals().set("path", link_path)?;
+        lua.load(
+            r#"
+local kumo = require 'kumo'
+local meta = kumo.fs.metadata_for_path(path)
+assert(meta.is_file)
+assert(not meta.is_dir)
+assert(not meta.is_symlink) -- this is false cause metadata_for_path follows symlinks
+assert(meta.size == 11)
+assert(meta.len == 11)
+
+local symlink_meta = kumo.fs.symlink_metadata_for_path(path)
+assert(not symlink_meta.is_file)
+assert(not symlink_meta.is_dir)
+assert(symlink_meta.is_symlink)
+"#,
+        )
+        .exec_async()
+        .await?;
+
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_stat_directory() -> anyhow::Result<()> {
+    async fn test_metadata_directory() -> anyhow::Result<()> {
         let tmp_dir = tempfile::tempdir()?;
         let path = tmp_dir.path().to_str().unwrap().to_string();
 
         let lua = Lua::new();
-        let table = stat(lua.clone(), path.clone()).await?;
+        register(&lua)?;
 
-        let is_file: bool = table.get("is_file")?;
-        let is_dir: bool = table.get("is_dir")?;
-        let is_symlink: bool = table.get("is_symlink")?;
+        lua.globals().set("path", path)?;
+        lua.load(
+            r#"
+local kumo = require 'kumo'
+local meta = kumo.fs.metadata_for_path(path)
+assert(not meta.is_file)
+assert(meta.is_dir)
+assert(not meta.is_symlink)
+assert(meta.len > 0)
 
-        assert!(!is_file);
-        assert!(is_dir);
-        assert!(!is_symlink);
+if meta.size ~= nil then
+    assert(meta.size > 0)
+end
+
+if meta.ino ~= nil then
+    assert(meta.ino > 0)
+end
+
+if meta.dev ~= nil then
+    assert(meta.dev > 0)
+end
+
+if meta.mode ~= nil then
+    assert(meta.mode > 0)
+end
+"#,
+        )
+        .exec_async()
+        .await?;
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_stat_not_found() -> anyhow::Result<()> {
+    async fn test_metadata_not_found() -> anyhow::Result<()> {
         let lua = Lua::new();
-        let result = stat(lua, "/nonexistent/path/that/does/not/exist".to_string()).await;
-        assert!(result.is_err());
+        register(&lua)?;
+        lua.globals().set("path", "this/path/does/not/exist")?;
+        lua.load(
+            r#"
+local kumo = require 'kumo'
+local ok, meta = pcall(kumo.fs.metadata_for_path, path)
+assert(not ok)
+assert(string.match(tostring(meta), "No such file or directory"))
+"#,
+        )
+        .exec_async()
+        .await?;
         Ok(())
     }
 }
