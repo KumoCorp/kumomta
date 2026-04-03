@@ -62,7 +62,7 @@ async fn test_checkpoint_resume_one_at_a_time() {
             .unwrap_or_else(|| panic!("expected a batch on iteration {i}"))
             .unwrap_or_else(|e| panic!("expected Ok batch on iteration {i}: {e}"));
         k9::assert_equal!(batch.len(), 1);
-        all_records.push(batch[0].clone());
+        all_records.push(batch.as_ref()[0].clone());
 
         tailer.as_mut().close().await.unwrap();
     }
@@ -125,7 +125,7 @@ async fn test_multiple_files_in_order() {
             batch = tailer.next() => {
                 match batch {
                     Some(Ok(records)) => {
-                        all_records.extend(records);
+                        all_records.extend(records.as_ref().iter().cloned());
                         if all_records.len() >= 4 {
                             break;
                         }
@@ -190,7 +190,7 @@ async fn test_checkpoint_across_multiple_files() {
             .unwrap_or_else(|| panic!("expected batch on iteration {i}"))
             .unwrap_or_else(|e| panic!("error on iteration {i}: {e}"));
         k9::assert_equal!(batch.len(), 1);
-        all_records.push(batch[0].clone());
+        all_records.push(batch.as_ref()[0].clone());
 
         tailer.as_mut().close().await.unwrap();
     }
@@ -234,7 +234,7 @@ async fn test_close_advances_checkpoint_past_consumed_batch() {
         .await
         .expect("should yield a batch")
         .expect("batch should be Ok");
-    k9::assert_equal!(first, vec![r#"{"n":1}"#.to_string()]);
+    k9::assert_equal!(first.as_ref(), &[r#"{"n":1}"#.to_string()]);
 
     tailer.as_mut().close().await.unwrap();
 
@@ -254,7 +254,7 @@ async fn test_close_advances_checkpoint_past_consumed_batch() {
         .await
         .expect("should yield a batch")
         .expect("batch should be Ok");
-    k9::assert_equal!(second, vec![r#"{"n":2}"#.to_string()]);
+    k9::assert_equal!(second.as_ref(), &[r#"{"n":2}"#.to_string()]);
 
     tailer2.as_mut().close().await.unwrap();
 }
@@ -291,7 +291,7 @@ async fn test_drop_without_close_does_not_advance_checkpoint() {
             .await
             .expect("should yield a batch")
             .expect("batch should be Ok");
-        k9::assert_equal!(first, vec![r#"{"n":1}"#.to_string()]);
+        k9::assert_equal!(first.as_ref(), &[r#"{"n":1}"#.to_string()]);
 
         // tailer is dropped here without calling close()
     }
@@ -314,7 +314,7 @@ async fn test_drop_without_close_does_not_advance_checkpoint() {
         .await
         .expect("should yield a batch")
         .expect("batch should be Ok");
-    k9::assert_equal!(second, vec![r#"{"n":1}"#.to_string()]);
+    k9::assert_equal!(second.as_ref(), &[r#"{"n":1}"#.to_string()]);
 
     tailer2.as_mut().close().await.unwrap();
 }
@@ -361,7 +361,7 @@ async fn test_tail_starts_from_latest_segment() {
             batch = tailer.next() => {
                 match batch {
                     Some(Ok(records)) => {
-                        all_records.extend(records);
+                        all_records.extend(records.as_ref().iter().cloned());
                         if all_records.len() >= 2 {
                             break;
                         }

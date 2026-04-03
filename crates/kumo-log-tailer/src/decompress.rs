@@ -7,6 +7,13 @@ use zstd_safe::{DCtx, InBuffer, OutBuffer};
 #[error("{}", zstd_safe::get_error_name(*.0))]
 pub struct ZStdError(pub usize);
 
+/// A line extracted from the decompressed stream, along with its
+/// byte offset in the decompressed data.
+pub struct DecompressedLine {
+    pub text: String,
+    pub byte_offset: u64,
+}
+
 /// State for incremental zstd decompression and line extraction from a single file.
 pub struct FileDecompressor {
     file: BufReader<std::fs::File>,
@@ -23,9 +30,13 @@ pub struct FileDecompressor {
     /// Equals skip_before + number of lines actually returned to caller.
     pub lines_consumed: usize,
     /// Buffered lines that have been extracted but not yet consumed.
-    pending_lines: VecDeque<String>,
+    pending_lines: VecDeque<DecompressedLine>,
     /// Whether we've seen EOF on the compressed input.
     saw_eof: bool,
+    /// Cumulative byte offset in the decompressed stream.
+    /// Tracks the position of `line_start` relative to the start
+    /// of the decompressed output.
+    decompressed_offset: u64,
 }
 
 impl FileDecompressor {
@@ -55,6 +66,7 @@ impl FileDecompressor {
             lines_consumed: 0,
             pending_lines: VecDeque::new(),
             saw_eof: false,
+            decompressed_offset: 0,
         })
     }
 
@@ -66,7 +78,7 @@ impl FileDecompressor {
     /// - `Ok(Some(line))` — a complete line was extracted.
     /// - `Ok(None)` — no more data available right now. The caller should check
     ///   if the file is done or retry later.
-    pub fn next_line(&mut self, skip_before: usize) -> anyhow::Result<Option<String>> {
+    pub fn next_line(&mut self, skip_before: usize) -> anyhow::Result<Option<DecompressedLine>> {
         // Return a buffered line if available
         if let Some(line) = self.pending_lines.pop_front() {
             self.lines_consumed += 1;
@@ -116,12 +128,19 @@ impl FileDecompressor {
             while let Some(idx) =
                 memchr::memchr(b'\n', &self.out_buffer[self.line_start..self.out_pos])
             {
+                let line_byte_offset = self.decompressed_offset;
                 if self.lines_decompressed >= skip_before {
                     let this_line = &self.out_buffer[self.line_start..self.line_start + idx];
                     let line = String::from_utf8_lossy(this_line).into_owned();
-                    self.pending_lines.push_back(line);
+                    self.pending_lines.push_back(DecompressedLine {
+                        text: line,
+                        byte_offset: line_byte_offset,
+                    });
                 }
-                self.line_start += idx + 1;
+                // Advance past the line content + newline
+                let consumed = idx + 1;
+                self.decompressed_offset += consumed as u64;
+                self.line_start += consumed;
                 self.lines_decompressed += 1;
             }
 

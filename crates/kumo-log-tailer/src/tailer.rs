@@ -1,3 +1,4 @@
+use crate::batch::LogBatch;
 use crate::checkpoint::CheckpointData;
 use crate::decompress::FileDecompressor;
 use camino::Utf8PathBuf;
@@ -253,7 +254,7 @@ impl CloseHandle {
 pub struct LogTailer {
     close_handle: CloseHandle,
     _watcher: Box<dyn Watcher + Send>,
-    stream: std::pin::Pin<Box<dyn Stream<Item = anyhow::Result<Vec<String>>> + Send>>,
+    stream: std::pin::Pin<Box<dyn Stream<Item = anyhow::Result<LogBatch>> + Send>>,
 }
 
 impl LogTailer {
@@ -272,7 +273,7 @@ impl LogTailer {
 }
 
 impl Stream for LogTailer {
-    type Item = anyhow::Result<Vec<String>>;
+    type Item = anyhow::Result<LogBatch>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -348,7 +349,7 @@ fn make_stream(
     shared: Arc<TailerShared>,
     pos_file: Arc<tokio::sync::Mutex<Option<Utf8PathBuf>>>,
     pos_line: Arc<std::sync::atomic::AtomicUsize>,
-) -> impl Stream<Item = anyhow::Result<Vec<String>>> + Send {
+) -> impl Stream<Item = anyhow::Result<LogBatch>> + Send {
     async_stream::try_stream! {
         let mut last_processed: Option<Utf8PathBuf> = None;
         let mut checkpoint = initial_checkpoint;
@@ -419,7 +420,7 @@ fn make_stream(
                         }
                     }
 
-                    let mut batch = Vec::new();
+                    let mut batch = LogBatch::new(path.clone());
                     let mut hit_eof = false;
                     let batch_deadline = tokio::time::Instant::now() + max_batch_latency;
 
@@ -431,7 +432,7 @@ fn make_stream(
 
                         match decomp.next_line(skip_lines) {
                             Ok(Some(line)) => {
-                                batch.push(line);
+                                batch.push(line.text, line.byte_offset);
                                 if batch.len() >= max_batch_size {
                                     break;
                                 }
@@ -467,7 +468,7 @@ fn make_stream(
                                 loop {
                                     match decomp.next_line(skip_lines) {
                                         Ok(Some(line)) => {
-                                            batch.push(line);
+                                            batch.push(line.text, line.byte_offset);
                                             if batch.len() >= max_batch_size {
                                                 break;
                                             }
