@@ -28,6 +28,7 @@ zstd-safe = { workspace = true }
 
 [dev-dependencies]
 k9 = { workspace = true }
+serde_json = { workspace = true }
 tempfile = { workspace = true }
 tokio = { version = "1.32", features = ["full"] }
 zstd = { workspace = true }

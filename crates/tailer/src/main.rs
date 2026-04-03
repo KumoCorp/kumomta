@@ -59,8 +59,8 @@ async fn main() -> anyhow::Result<()> {
 
     while let Some(result) = tailer.next().await {
         let batch = result?;
-        for line in batch.as_ref() {
-            println!("{line}");
+        for record in batch.records() {
+            println!("{record}");
         }
     }
 

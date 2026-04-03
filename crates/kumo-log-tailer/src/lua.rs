@@ -33,12 +33,10 @@ impl LuaLogTailer {
                 let mut guard = stream.lock().await;
                 match guard.next().await {
                     Some(Ok(batch)) => {
-                        let values: Vec<serde_json::Value> =
-                            (&batch).try_into().map_err(any_err)?;
                         let table = lua.create_table()?;
                         let options = config::serialize_options();
-                        for (i, value) in values.into_iter().enumerate() {
-                            let lua_value = lua.to_value_with(&value, options)?;
+                        for (i, value) in batch.records().iter().enumerate() {
+                            let lua_value = lua.to_value_with(value, options)?;
                             table.raw_set(i + 1, lua_value)?;
                         }
                         Ok(mlua::Value::Table(table))

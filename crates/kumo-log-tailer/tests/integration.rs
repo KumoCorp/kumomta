@@ -1,6 +1,7 @@
 use camino::Utf8PathBuf;
 use futures::StreamExt;
 use kumo_log_tailer::{LogBatch, LogTailerConfig};
+use serde_json::json;
 use std::io::Write;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -62,13 +63,16 @@ async fn test_checkpoint_resume_one_at_a_time() {
             .unwrap_or_else(|| panic!("expected a batch on iteration {i}"))
             .unwrap_or_else(|e| panic!("expected Ok batch on iteration {i}: {e}"));
         k9::assert_equal!(batch.len(), 1);
-        all_records.push(batch.as_ref()[0].clone());
+        all_records.push(batch.records()[0].clone());
 
         tailer.as_mut().close().await.unwrap();
     }
 
     // Verify we got all records exactly once, in order
-    let expected: Vec<String> = records.iter().map(|s| s.to_string()).collect();
+    let expected: Vec<serde_json::Value> = records
+        .iter()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
     k9::assert_equal!(all_records, expected);
 
     // One more tailer should yield no records from the completed file
@@ -125,7 +129,7 @@ async fn test_multiple_files_in_order() {
             batch = tailer.next() => {
                 match batch {
                     Some(Ok(records)) => {
-                        all_records.extend(records.as_ref().iter().cloned());
+                        all_records.extend(records.records().iter().cloned());
                         if all_records.len() >= 4 {
                             break;
                         }
@@ -143,10 +147,10 @@ async fn test_multiple_files_in_order() {
     k9::assert_equal!(
         all_records,
         vec![
-            r#"{"file":"a","n":1}"#.to_string(),
-            r#"{"file":"b","n":1}"#.to_string(),
-            r#"{"file":"b","n":2}"#.to_string(),
-            r#"{"file":"c","n":1}"#.to_string(),
+            json!({"file": "a", "n": 1}),
+            json!({"file": "b", "n": 1}),
+            json!({"file": "b", "n": 2}),
+            json!({"file": "c", "n": 1}),
         ]
     );
 }
@@ -190,16 +194,16 @@ async fn test_checkpoint_across_multiple_files() {
             .unwrap_or_else(|| panic!("expected batch on iteration {i}"))
             .unwrap_or_else(|e| panic!("error on iteration {i}: {e}"));
         k9::assert_equal!(batch.len(), 1);
-        all_records.push(batch.as_ref()[0].clone());
+        all_records.push(batch.records()[0].clone());
 
         tailer.as_mut().close().await.unwrap();
     }
 
-    let expected: Vec<String> = vec![
-        r#"{"id":1}"#.to_string(),
-        r#"{"id":2}"#.to_string(),
-        r#"{"id":3}"#.to_string(),
-        r#"{"id":4}"#.to_string(),
+    let expected = vec![
+        json!({"id":1}),
+        json!({"id":2}),
+        json!({"id":3}),
+        json!({"id":4}),
     ];
     k9::assert_equal!(all_records, expected);
 }
@@ -234,7 +238,7 @@ async fn test_close_advances_checkpoint_past_consumed_batch() {
         .await
         .expect("should yield a batch")
         .expect("batch should be Ok");
-    k9::assert_equal!(first.as_ref(), &[r#"{"n":1}"#.to_string()]);
+    k9::assert_equal!(first.records(), &[json!({"n": 1})]);
 
     tailer.as_mut().close().await.unwrap();
 
@@ -254,7 +258,7 @@ async fn test_close_advances_checkpoint_past_consumed_batch() {
         .await
         .expect("should yield a batch")
         .expect("batch should be Ok");
-    k9::assert_equal!(second.as_ref(), &[r#"{"n":2}"#.to_string()]);
+    k9::assert_equal!(second.records(), &[json!({"n": 2})]);
 
     tailer2.as_mut().close().await.unwrap();
 }
@@ -291,7 +295,7 @@ async fn test_drop_without_close_does_not_advance_checkpoint() {
             .await
             .expect("should yield a batch")
             .expect("batch should be Ok");
-        k9::assert_equal!(first.as_ref(), &[r#"{"n":1}"#.to_string()]);
+        k9::assert_equal!(first.records(), &[json!({"n": 1})]);
 
         // tailer is dropped here without calling close()
     }
@@ -314,7 +318,7 @@ async fn test_drop_without_close_does_not_advance_checkpoint() {
         .await
         .expect("should yield a batch")
         .expect("batch should be Ok");
-    k9::assert_equal!(second.as_ref(), &[r#"{"n":1}"#.to_string()]);
+    k9::assert_equal!(second.records(), &[json!({"n": 1})]);
 
     tailer2.as_mut().close().await.unwrap();
 }
@@ -361,7 +365,7 @@ async fn test_tail_starts_from_latest_segment() {
             batch = tailer.next() => {
                 match batch {
                     Some(Ok(records)) => {
-                        all_records.extend(records.as_ref().iter().cloned());
+                        all_records.extend(records.records().iter().cloned());
                         if all_records.len() >= 2 {
                             break;
                         }
@@ -379,10 +383,7 @@ async fn test_tail_starts_from_latest_segment() {
     // Should only contain records from seg-002, not seg-001
     k9::assert_equal!(
         all_records,
-        vec![
-            r#"{"seg":2,"n":1}"#.to_string(),
-            r#"{"seg":2,"n":2}"#.to_string(),
-        ]
+        vec![json!({"seg": 2, "n": 1}), json!({"seg": 2, "n": 2})]
     );
 
     // Tail mode must NOT have created any checkpoint file.
@@ -449,12 +450,12 @@ async fn test_batch_spans_multiple_segments() {
     // All 4 records should be in a single batch
     k9::assert_equal!(batch.len(), 4);
     k9::assert_equal!(
-        batch.as_ref(),
+        batch.records(),
         &[
-            r#"{"seg":1,"n":1}"#.to_string(),
-            r#"{"seg":1,"n":2}"#.to_string(),
-            r#"{"seg":2,"n":1}"#.to_string(),
-            r#"{"seg":2,"n":2}"#.to_string(),
+            json!({"seg": 1, "n": 1}),
+            json!({"seg": 1, "n": 2}),
+            json!({"seg": 2, "n": 1}),
+            json!({"seg": 2, "n": 2}),
         ]
     );
 
@@ -500,18 +501,15 @@ async fn test_batch_size_constrains_across_segments() {
     let batch1 = next_batch_with_timeout(&mut tailer).await;
     k9::assert_equal!(batch1.len(), 2);
     k9::assert_equal!(
-        batch1.as_ref(),
-        &[
-            r#"{"seg":1,"n":1}"#.to_string(),
-            r#"{"seg":1,"n":2}"#.to_string(),
-        ]
+        batch1.records(),
+        &[json!({"seg": 1, "n": 1}), json!({"seg": 1, "n": 2}),]
     );
     k9::assert_equal!(batch1.file_names().len(), 1);
 
     // Second batch: the remaining record from seg-002
     let batch2 = next_batch_with_timeout(&mut tailer).await;
     k9::assert_equal!(batch2.len(), 1);
-    k9::assert_equal!(batch2.as_ref(), &[r#"{"seg":2,"n":1}"#.to_string()]);
+    k9::assert_equal!(batch2.records(), &[json!({"seg": 2, "n": 1})]);
     k9::assert_equal!(batch2.file_names().len(), 1);
 
     let seg2 = log_dir.join("seg-002.zst");
@@ -552,12 +550,8 @@ async fn test_partial_batch_flushed_by_latency() {
     // Should have yielded all 3 records as a partial batch
     k9::assert_equal!(batch.len(), 3);
     k9::assert_equal!(
-        batch.as_ref(),
-        &[
-            r#"{"n":1}"#.to_string(),
-            r#"{"n":2}"#.to_string(),
-            r#"{"n":3}"#.to_string(),
-        ]
+        batch.records(),
+        &[json!({"n": 1}), json!({"n": 2}), json!({"n": 3}),]
     );
 
     // The batch should have been yielded after roughly the latency
@@ -598,10 +592,7 @@ async fn test_partial_batch_from_done_file_yields_immediately() {
 
     // Should have yielded the 2 records without waiting
     k9::assert_equal!(batch.len(), 2);
-    k9::assert_equal!(
-        batch.as_ref(),
-        &[r#"{"n":1}"#.to_string(), r#"{"n":2}"#.to_string(),]
-    );
+    k9::assert_equal!(batch.records(), &[json!({"n": 1}), json!({"n": 2})]);
 
     // Should return quickly, well before the 10s latency timer
     assert!(

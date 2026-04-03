@@ -429,7 +429,7 @@ fn make_stream(
 
                     match d.next_line(skip_lines) {
                         Ok(Some(line)) => {
-                            batch.push(line.text, path, line.byte_offset);
+                            batch.push(&line.text, path, line.byte_offset)?;
                             if batch.len() >= max_batch_size {
                                 break 'fill;
                             }
@@ -488,7 +488,7 @@ fn make_stream(
                                     d.reset_eof();
                                     match d.next_line(skip_lines) {
                                         Ok(Some(line)) => {
-                                            batch.push(line.text, path, line.byte_offset);
+                                            batch.push(&line.text, path, line.byte_offset)?;
                                             if batch.len() >= max_batch_size {
                                                 break 'fill;
                                             }
