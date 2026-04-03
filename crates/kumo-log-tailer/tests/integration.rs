@@ -1,6 +1,6 @@
 use camino::Utf8PathBuf;
 use futures::StreamExt;
-use kumo_log_tailer::{LogBatch, LogTailerConfig};
+use kumo_log_tailer::{LogBatch, LogTailer, LogTailerConfig};
 use serde_json::json;
 use std::io::Write;
 use std::time::Duration;
@@ -411,8 +411,6 @@ async fn next_batch_with_timeout(tailer: &mut std::pin::Pin<&mut LogTailer>) -> 
         }
     }
 }
-
-use kumo_log_tailer::LogTailer;
 
 /// Verify that a single batch can contain records from multiple segment
 /// files when the batch size is large enough to span both.
