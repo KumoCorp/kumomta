@@ -1,0 +1,320 @@
+use camino::Utf8PathBuf;
+use futures::StreamExt;
+use kumo_log_tailer::LogTailerConfig;
+use std::io::Write;
+use std::time::Duration;
+use tempfile::TempDir;
+
+/// Helper: create a zstd-compressed JSONL file with the given records.
+/// If `mark_done` is true, sets the file to readonly (simulating writer completion).
+fn write_zstd_log(dir: &std::path::Path, filename: &str, records: &[&str], mark_done: bool) {
+    let path = dir.join(filename);
+    let mut encoder = zstd::Encoder::new(std::fs::File::create(&path).unwrap(), 3).unwrap();
+    for record in records {
+        writeln!(encoder, "{record}").unwrap();
+    }
+    encoder.finish().unwrap();
+
+    if mark_done {
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(true);
+        std::fs::set_permissions(&path, perms).unwrap();
+    }
+}
+
+fn utf8_dir(dir: &TempDir) -> Utf8PathBuf {
+    Utf8PathBuf::try_from(dir.path().to_path_buf()).unwrap()
+}
+
+#[tokio::test]
+async fn test_checkpoint_resume_one_at_a_time() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    let records = vec![
+        r#"{"id":1}"#,
+        r#"{"id":2}"#,
+        r#"{"id":3}"#,
+        r#"{"id":4}"#,
+        r#"{"id":5}"#,
+    ];
+
+    write_zstd_log(dir.path(), "segment-001.zst", &records, true);
+
+    let mut all_records = Vec::new();
+
+    // Read one record at a time, closing and reopening with checkpoint
+    for i in 0..5 {
+        let tailer = LogTailerConfig::new(log_dir.clone())
+            .pattern("*.zst")
+            .max_batch_size(1)
+            .max_batch_latency(Duration::from_millis(50))
+            .checkpoint_name("test-cp")
+            .build()
+            .await
+            .unwrap();
+
+        tokio::pin!(tailer);
+
+        let batch = tailer.next().await;
+        let batch = batch
+            .unwrap_or_else(|| panic!("expected a batch on iteration {i}"))
+            .unwrap_or_else(|e| panic!("expected Ok batch on iteration {i}: {e}"));
+        k9::assert_equal!(batch.len(), 1);
+        all_records.push(batch[0].clone());
+
+        tailer.as_mut().close().await.unwrap();
+    }
+
+    // Verify we got all records exactly once, in order
+    let expected: Vec<String> = records.iter().map(|s| s.to_string()).collect();
+    k9::assert_equal!(all_records, expected);
+
+    // One more tailer should yield no records from the completed file
+    // (it should just wait). Close it immediately.
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .pattern("*.zst")
+        .max_batch_size(1)
+        .max_batch_latency(Duration::from_millis(50))
+        .checkpoint_name("test-cp")
+        .build()
+        .await
+        .unwrap();
+
+    // close immediately; should get None
+    tailer.close().await.unwrap();
+    tokio::pin!(tailer);
+    let result = tailer.next().await;
+    k9::assert_equal!(result.is_none(), true);
+}
+
+#[tokio::test]
+async fn test_multiple_files_in_order() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    write_zstd_log(dir.path(), "aaa.zst", &[r#"{"file":"a","n":1}"#], true);
+    write_zstd_log(
+        dir.path(),
+        "bbb.zst",
+        &[r#"{"file":"b","n":1}"#, r#"{"file":"b","n":2}"#],
+        true,
+    );
+    write_zstd_log(dir.path(), "ccc.zst", &[r#"{"file":"c","n":1}"#], true);
+
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .pattern("*.zst")
+        .max_batch_size(100)
+        .max_batch_latency(Duration::from_millis(100))
+        .build()
+        .await
+        .unwrap();
+
+    tokio::pin!(tailer);
+
+    // Collect all records from completed files
+    let mut all_records = Vec::new();
+    // We expect to get batches covering all 4 records from 3 files.
+    // The tailer may yield them in one or more batches.
+    let timeout = tokio::time::sleep(Duration::from_secs(5));
+    tokio::pin!(timeout);
+
+    loop {
+        tokio::select! {
+            batch = tailer.next() => {
+                match batch {
+                    Some(Ok(records)) => {
+                        all_records.extend(records);
+                        if all_records.len() >= 4 {
+                            break;
+                        }
+                    }
+                    Some(Err(e)) => panic!("unexpected error: {e}"),
+                    None => break,
+                }
+            }
+            _ = &mut timeout => {
+                panic!("timed out waiting for records; got {} so far", all_records.len());
+            }
+        }
+    }
+
+    k9::assert_equal!(
+        all_records,
+        vec![
+            r#"{"file":"a","n":1}"#.to_string(),
+            r#"{"file":"b","n":1}"#.to_string(),
+            r#"{"file":"b","n":2}"#.to_string(),
+            r#"{"file":"c","n":1}"#.to_string(),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn test_checkpoint_across_multiple_files() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    write_zstd_log(
+        dir.path(),
+        "seg-001.zst",
+        &[r#"{"id":1}"#, r#"{"id":2}"#],
+        true,
+    );
+    write_zstd_log(
+        dir.path(),
+        "seg-002.zst",
+        &[r#"{"id":3}"#, r#"{"id":4}"#],
+        true,
+    );
+
+    let mut all_records = Vec::new();
+
+    // Read one at a time across two files
+    for i in 0..4 {
+        let tailer = LogTailerConfig::new(log_dir.clone())
+            .pattern("*.zst")
+            .max_batch_size(1)
+            .max_batch_latency(Duration::from_millis(50))
+            .checkpoint_name("multi-cp")
+            .build()
+            .await
+            .unwrap();
+
+        tokio::pin!(tailer);
+
+        let batch = tailer
+            .next()
+            .await
+            .unwrap_or_else(|| panic!("expected batch on iteration {i}"))
+            .unwrap_or_else(|e| panic!("error on iteration {i}: {e}"));
+        k9::assert_equal!(batch.len(), 1);
+        all_records.push(batch[0].clone());
+
+        tailer.as_mut().close().await.unwrap();
+    }
+
+    let expected: Vec<String> = vec![
+        r#"{"id":1}"#.to_string(),
+        r#"{"id":2}"#.to_string(),
+        r#"{"id":3}"#.to_string(),
+        r#"{"id":4}"#.to_string(),
+    ];
+    k9::assert_equal!(all_records, expected);
+}
+
+/// Verify that close() after reading one record advances the checkpoint
+/// so the next tailer sees the *next* record, not the same one.
+#[tokio::test]
+async fn test_close_advances_checkpoint_past_consumed_batch() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    write_zstd_log(
+        dir.path(),
+        "data.zst",
+        &[r#"{"n":1}"#, r#"{"n":2}"#, r#"{"n":3}"#],
+        true,
+    );
+
+    // First tailer: read one record, then close
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .pattern("*.zst")
+        .max_batch_size(1)
+        .max_batch_latency(Duration::from_millis(50))
+        .checkpoint_name("advance-cp")
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+
+    let first = tailer
+        .next()
+        .await
+        .expect("should yield a batch")
+        .expect("batch should be Ok");
+    k9::assert_equal!(first, vec![r#"{"n":1}"#.to_string()]);
+
+    tailer.as_mut().close().await.unwrap();
+
+    // Second tailer with same checkpoint: should see record 2, not record 1
+    let tailer2 = LogTailerConfig::new(log_dir.clone())
+        .pattern("*.zst")
+        .max_batch_size(1)
+        .max_batch_latency(Duration::from_millis(50))
+        .checkpoint_name("advance-cp")
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer2);
+
+    let second = tailer2
+        .next()
+        .await
+        .expect("should yield a batch")
+        .expect("batch should be Ok");
+    k9::assert_equal!(second, vec![r#"{"n":2}"#.to_string()]);
+
+    tailer2.as_mut().close().await.unwrap();
+}
+
+/// Verify that dropping a tailer *without* calling close() does NOT
+/// advance the checkpoint. Reopening with the same checkpoint should
+/// re-read the same record.
+#[tokio::test]
+async fn test_drop_without_close_does_not_advance_checkpoint() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    write_zstd_log(
+        dir.path(),
+        "data.zst",
+        &[r#"{"n":1}"#, r#"{"n":2}"#, r#"{"n":3}"#],
+        true,
+    );
+
+    // First tailer: read one record, then drop without close
+    {
+        let tailer = LogTailerConfig::new(log_dir.clone())
+            .pattern("*.zst")
+            .max_batch_size(1)
+            .max_batch_latency(Duration::from_millis(50))
+            .checkpoint_name("drop-cp")
+            .build()
+            .await
+            .unwrap();
+        tokio::pin!(tailer);
+
+        let first = tailer
+            .next()
+            .await
+            .expect("should yield a batch")
+            .expect("batch should be Ok");
+        k9::assert_equal!(first, vec![r#"{"n":1}"#.to_string()]);
+
+        // tailer is dropped here without calling close()
+    }
+
+    // Second tailer with same checkpoint: should see record 1 again
+    // because the checkpoint was never advanced (no close, and the
+    // deferred checkpoint write hadn't been flushed).
+    let tailer2 = LogTailerConfig::new(log_dir.clone())
+        .pattern("*.zst")
+        .max_batch_size(1)
+        .max_batch_latency(Duration::from_millis(50))
+        .checkpoint_name("drop-cp")
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer2);
+
+    let second = tailer2
+        .next()
+        .await
+        .expect("should yield a batch")
+        .expect("batch should be Ok");
+    k9::assert_equal!(second, vec![r#"{"n":1}"#.to_string()]);
+
+    tailer2.as_mut().close().await.unwrap();
+}

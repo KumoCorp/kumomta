@@ -3787,6 +3787,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-log-tailer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "camino",
+ "filenamegen",
+ "futures",
+ "k9",
+ "memchr",
+ "notify",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "zstd",
+ "zstd-safe",
+]
+
+[[package]]
 name = "kumo-log-types"
 version = "0.1.0"
 dependencies = [
