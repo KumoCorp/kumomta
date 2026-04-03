@@ -238,6 +238,11 @@ impl CloseHandle {
         self.shared.close_notify.notify_waiters();
         Ok(())
     }
+
+    /// Return the path of the log segment currently being read, if any.
+    pub async fn current_file(&self) -> Option<Utf8PathBuf> {
+        self.current_file_path.lock().await.clone()
+    }
 }
 
 /// An async Stream that yields batches of log records from zstd-compressed
