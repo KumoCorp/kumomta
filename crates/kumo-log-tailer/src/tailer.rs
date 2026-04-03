@@ -239,7 +239,6 @@ impl CloseHandle {
         self.shared.close_notify.notify_waiters();
         Ok(())
     }
-
 }
 
 /// An async Stream that yields batches of log records from zstd-compressed

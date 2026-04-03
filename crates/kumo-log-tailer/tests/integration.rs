@@ -517,3 +517,95 @@ async fn test_batch_size_constrains_across_segments() {
     let seg2 = log_dir.join("seg-002.zst");
     k9::assert_equal!(batch2.file_name_for_line(0), &seg2);
 }
+
+/// Verify that a partial batch (fewer records than max_batch_size) is
+/// yielded after max_batch_latency expires when the file is still
+/// being written to (not yet marked readonly).
+#[tokio::test]
+async fn test_partial_batch_flushed_by_latency() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    // Write a file with 3 records but do NOT mark it done.
+    // The tailer will read the 3 records, hit EOF, and wait for more
+    // data.  After max_batch_latency it should yield a partial batch.
+    write_zstd_log(
+        dir.path(),
+        "seg-001.zst",
+        &[r#"{"n":1}"#, r#"{"n":2}"#, r#"{"n":3}"#],
+        false, // not done
+    );
+
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .pattern("*.zst")
+        .max_batch_size(100) // much larger than available records
+        .max_batch_latency(Duration::from_millis(200))
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+
+    let start = tokio::time::Instant::now();
+    let batch = next_batch_with_timeout(&mut tailer).await;
+    let elapsed = start.elapsed();
+
+    // Should have yielded all 3 records as a partial batch
+    k9::assert_equal!(batch.len(), 3);
+    k9::assert_equal!(
+        batch.as_ref(),
+        &[
+            r#"{"n":1}"#.to_string(),
+            r#"{"n":2}"#.to_string(),
+            r#"{"n":3}"#.to_string(),
+        ]
+    );
+
+    // The batch should have been yielded after roughly the latency
+    // period, not immediately (it waited for more data).
+    assert!(
+        elapsed >= Duration::from_millis(150),
+        "expected to wait for latency timer, but elapsed was {elapsed:?}"
+    );
+}
+
+/// Verify that a partial batch from a completed file is yielded
+/// immediately without waiting for the latency timer.
+#[tokio::test]
+async fn test_partial_batch_from_done_file_yields_immediately() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    // Write a completed file with fewer records than max_batch_size.
+    write_zstd_log(
+        dir.path(),
+        "seg-001.zst",
+        &[r#"{"n":1}"#, r#"{"n":2}"#],
+        true, // done
+    );
+
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .pattern("*.zst")
+        .max_batch_size(100)
+        .max_batch_latency(Duration::from_secs(10)) // very long
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+
+    let start = tokio::time::Instant::now();
+    let batch = next_batch_with_timeout(&mut tailer).await;
+    let elapsed = start.elapsed();
+
+    // Should have yielded the 2 records without waiting
+    k9::assert_equal!(batch.len(), 2);
+    k9::assert_equal!(
+        batch.as_ref(),
+        &[r#"{"n":1}"#.to_string(), r#"{"n":2}"#.to_string(),]
+    );
+
+    // Should return quickly, well before the 10s latency timer
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "expected immediate yield for done file, but elapsed was {elapsed:?}"
+    );
+}
