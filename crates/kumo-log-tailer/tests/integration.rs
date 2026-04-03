@@ -1,6 +1,6 @@
 use camino::Utf8PathBuf;
 use futures::StreamExt;
-use kumo_log_tailer::LogTailerConfig;
+use kumo_log_tailer::{LogBatch, LogTailerConfig};
 use std::io::Write;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -395,4 +395,125 @@ async fn test_tail_starts_from_latest_segment() {
         .collect();
     dir_entries.sort();
     k9::assert_equal!(dir_entries, vec!["seg-001.zst", "seg-002.zst"]);
+}
+
+/// Helper to collect exactly one batch from a tailer with a timeout.
+async fn next_batch_with_timeout(tailer: &mut std::pin::Pin<&mut LogTailer>) -> LogBatch {
+    let timeout = tokio::time::sleep(Duration::from_secs(5));
+    tokio::pin!(timeout);
+    tokio::select! {
+        batch = tailer.next() => {
+            batch.expect("expected a batch").expect("batch should be Ok")
+        }
+        _ = &mut timeout => {
+            panic!("timed out waiting for a batch");
+        }
+    }
+}
+
+use kumo_log_tailer::LogTailer;
+
+/// Verify that a single batch can contain records from multiple segment
+/// files when the batch size is large enough to span both.
+#[tokio::test]
+async fn test_batch_spans_multiple_segments() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    // Two small completed segments: 2 records + 2 records = 4 total.
+    // With batch_size=10 they should all land in one batch.
+    write_zstd_log(
+        dir.path(),
+        "seg-001.zst",
+        &[r#"{"seg":1,"n":1}"#, r#"{"seg":1,"n":2}"#],
+        true,
+    );
+    write_zstd_log(
+        dir.path(),
+        "seg-002.zst",
+        &[r#"{"seg":2,"n":1}"#, r#"{"seg":2,"n":2}"#],
+        true,
+    );
+
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .pattern("*.zst")
+        .max_batch_size(10)
+        .max_batch_latency(Duration::from_millis(100))
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+
+    let batch = next_batch_with_timeout(&mut tailer).await;
+
+    // All 4 records should be in a single batch
+    k9::assert_equal!(batch.len(), 4);
+    k9::assert_equal!(
+        batch.as_ref(),
+        &[
+            r#"{"seg":1,"n":1}"#.to_string(),
+            r#"{"seg":1,"n":2}"#.to_string(),
+            r#"{"seg":2,"n":1}"#.to_string(),
+            r#"{"seg":2,"n":2}"#.to_string(),
+        ]
+    );
+
+    // The batch should reference two distinct segment files
+    k9::assert_equal!(batch.file_names().len(), 2);
+
+    // First two lines come from seg-001, last two from seg-002
+    let seg1 = log_dir.join("seg-001.zst");
+    let seg2 = log_dir.join("seg-002.zst");
+    k9::assert_equal!(batch.file_name_for_line(0), &seg1);
+    k9::assert_equal!(batch.file_name_for_line(1), &seg1);
+    k9::assert_equal!(batch.file_name_for_line(2), &seg2);
+    k9::assert_equal!(batch.file_name_for_line(3), &seg2);
+}
+
+/// Verify that max_batch_size still constrains the batch even when
+/// multiple segments are available. Records beyond the limit should
+/// appear in subsequent batches.
+#[tokio::test]
+async fn test_batch_size_constrains_across_segments() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    // Three records across two segments, but batch size is 2.
+    write_zstd_log(
+        dir.path(),
+        "seg-001.zst",
+        &[r#"{"seg":1,"n":1}"#, r#"{"seg":1,"n":2}"#],
+        true,
+    );
+    write_zstd_log(dir.path(), "seg-002.zst", &[r#"{"seg":2,"n":1}"#], true);
+
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .pattern("*.zst")
+        .max_batch_size(2)
+        .max_batch_latency(Duration::from_millis(100))
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+
+    // First batch: exactly 2 records (the limit), all from seg-001
+    let batch1 = next_batch_with_timeout(&mut tailer).await;
+    k9::assert_equal!(batch1.len(), 2);
+    k9::assert_equal!(
+        batch1.as_ref(),
+        &[
+            r#"{"seg":1,"n":1}"#.to_string(),
+            r#"{"seg":1,"n":2}"#.to_string(),
+        ]
+    );
+    k9::assert_equal!(batch1.file_names().len(), 1);
+
+    // Second batch: the remaining record from seg-002
+    let batch2 = next_batch_with_timeout(&mut tailer).await;
+    k9::assert_equal!(batch2.len(), 1);
+    k9::assert_equal!(batch2.as_ref(), &[r#"{"seg":2,"n":1}"#.to_string()]);
+    k9::assert_equal!(batch2.file_names().len(), 1);
+
+    let seg2 = log_dir.join("seg-002.zst");
+    k9::assert_equal!(batch2.file_name_for_line(0), &seg2);
 }

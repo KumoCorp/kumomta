@@ -240,10 +240,6 @@ impl CloseHandle {
         Ok(())
     }
 
-    /// Return the path of the log segment currently being read, if any.
-    pub async fn current_file(&self) -> Option<Utf8PathBuf> {
-        self.current_file_path.lock().await.clone()
-    }
 }
 
 /// An async Stream that yields batches of log records from zstd-compressed
@@ -392,148 +388,150 @@ fn make_stream(
             }
             checkpoint.take();
 
-            for path in &plan {
-                if shared.closed.load(Ordering::SeqCst) {
-                    break 'outer;
-                }
+            let mut plan_index = 0;
+            let mut decomp: Option<FileDecompressor> = None;
+            let mut current_path: Option<&Utf8PathBuf> = None;
 
+            // Open the first file in the plan
+            if let Some(path) = plan.get(plan_index) {
                 let path_std = path.as_std_path().to_owned();
-                let mut decomp = FileDecompressor::open(&path_std)?;
-
-                // Update shared position so close() can checkpoint
+                decomp = Some(FileDecompressor::open(&path_std)?);
+                current_path = Some(path);
                 {
                     let mut pf = pos_file.lock().await;
                     *pf = Some(path.clone());
                 }
-                pos_line.store(decomp.lines_consumed, std::sync::atomic::Ordering::SeqCst);
+                pos_line.store(0, std::sync::atomic::Ordering::SeqCst);
+            }
 
-                loop {
+            while decomp.is_some() {
+                if shared.closed.load(Ordering::SeqCst) {
+                    break 'outer;
+                }
+
+                // Flush pending checkpoint from the prior yield.
+                if let Some((ref cp_file, cp_line)) = pending_checkpoint.take() {
+                    if let Some(cp_path) = &shared.checkpoint_path {
+                        save_checkpoint_sync(cp_path, cp_file, cp_line);
+                    }
+                }
+
+                let mut batch = LogBatch::new();
+                let batch_deadline = tokio::time::Instant::now() + max_batch_latency;
+
+                // Fill the batch, potentially spanning multiple files
+                'fill: loop {
                     if shared.closed.load(Ordering::SeqCst) {
                         break 'outer;
                     }
 
-                    // Flush pending checkpoint from the prior yield.
-                    // At this point the caller has consumed the previous batch.
-                    if let Some((ref cp_file, cp_line)) = pending_checkpoint.take() {
-                        if let Some(cp_path) = &shared.checkpoint_path {
-                            save_checkpoint_sync(cp_path, cp_file, cp_line);
-                        }
-                    }
+                    let d = decomp.as_mut().expect("checked above");
+                    let path = current_path.expect("set with decomp");
 
-                    let mut batch = LogBatch::new(path.clone());
-                    let mut hit_eof = false;
-                    let batch_deadline = tokio::time::Instant::now() + max_batch_latency;
-
-                    // Fill the batch
-                    loop {
-                        if shared.closed.load(Ordering::SeqCst) {
-                            break 'outer;
-                        }
-
-                        match decomp.next_line(skip_lines) {
-                            Ok(Some(line)) => {
-                                batch.push(line.text, line.byte_offset);
-                                if batch.len() >= max_batch_size {
-                                    break;
-                                }
-                            }
-                            Ok(None) => {
-                                // EOF — no more data right now
-                                hit_eof = true;
-                                break;
-                            }
-                            Err(e) => {
-                                Err(e)?;
+                    match d.next_line(skip_lines) {
+                        Ok(Some(line)) => {
+                            batch.push(line.text, path, line.byte_offset);
+                            if batch.len() >= max_batch_size {
+                                break 'fill;
                             }
                         }
-                    }
+                        Ok(None) => {
+                            // EOF on current file
+                            if is_file_done(path) {
+                                if d.has_partial_data() {
+                                    Err(anyhow::anyhow!(
+                                        "unexpected EOF for {} with partial line data remaining",
+                                        path
+                                    ))?;
+                                }
+                                // Record checkpoint for end of this file
+                                pos_line.store(d.lines_consumed, std::sync::atomic::Ordering::SeqCst);
+                                pending_checkpoint = Some((path.clone(), d.lines_consumed));
+                                last_processed = Some(path.clone());
+                                skip_lines = 0;
 
-                    if !batch.is_empty() {
-                        // If we hit EOF and batch is partial, wait for more
-                        // data up to max_batch_latency (unless file is done)
-                        if hit_eof && batch.len() < max_batch_size && !is_file_done(path) {
-                            // Wait for more data up to the batch deadline
-                            loop {
-                                let remaining = batch_deadline.saturating_duration_since(tokio::time::Instant::now());
-                                if remaining.is_zero() {
-                                    break;
+                                // Advance to the next file in the plan
+                                plan_index += 1;
+                                if let Some(next_path) = plan.get(plan_index) {
+                                    let path_std = next_path.as_std_path().to_owned();
+                                    decomp = Some(FileDecompressor::open(&path_std)?);
+                                    current_path = Some(next_path);
+                                    {
+                                        let mut pf = pos_file.lock().await;
+                                        *pf = Some(next_path.clone());
+                                    }
+                                    pos_line.store(0, std::sync::atomic::Ordering::SeqCst);
+                                    // Continue filling the batch from the next file
+                                    continue 'fill;
+                                } else {
+                                    // No more files in plan
+                                    decomp = None;
+                                    current_path = None;
+                                    break 'fill;
                                 }
-                                tokio::select! {
-                                    _ = shared.close_notify.notified() => break 'outer,
-                                    _ = tokio::time::sleep(remaining.min(retry_delay)) => {},
-                                    _ = fs_notify.notified() => {},
-                                }
-                                // Reset EOF so we can try reading more
-                                decomp.reset_eof();
+                            }
+
+                            // File not done yet; if batch has data, try waiting
+                            if !batch.is_empty() {
+                                // Wait for more data up to batch deadline
                                 loop {
-                                    match decomp.next_line(skip_lines) {
+                                    let remaining = batch_deadline.saturating_duration_since(
+                                        tokio::time::Instant::now(),
+                                    );
+                                    if remaining.is_zero() {
+                                        break 'fill;
+                                    }
+                                    tokio::select! {
+                                        _ = shared.close_notify.notified() => break 'outer,
+                                        _ = tokio::time::sleep(remaining.min(retry_delay)) => {},
+                                        _ = fs_notify.notified() => {},
+                                    }
+                                    d.reset_eof();
+                                    match d.next_line(skip_lines) {
                                         Ok(Some(line)) => {
-                                            batch.push(line.text, line.byte_offset);
+                                            batch.push(line.text, path, line.byte_offset);
                                             if batch.len() >= max_batch_size {
-                                                break;
+                                                break 'fill;
                                             }
                                         }
                                         Ok(None) => {
                                             if is_file_done(path) {
-                                                hit_eof = true;
+                                                break;
                                             }
-                                            break;
+                                            // Still not done, keep waiting
                                         }
                                         Err(e) => Err(e)?,
                                     }
                                 }
-                                if batch.len() >= max_batch_size || (hit_eof && is_file_done(path)) {
-                                    break;
-                                }
+                                break 'fill;
                             }
-                        }
 
-                        // Update shared position; defer checkpoint write
-                        // until the next iteration, after the caller has
-                        // consumed this batch.
-                        pos_line.store(decomp.lines_consumed, std::sync::atomic::Ordering::SeqCst);
-                        pending_checkpoint = Some((path.clone(), decomp.lines_consumed));
-
-                        skip_lines = 0;
-                        yield batch;
-
-                        if hit_eof && is_file_done(path) {
-                            if decomp.has_partial_data() {
-                                Err(anyhow::anyhow!(
-                                    "unexpected EOF for {} with partial line data remaining",
-                                    path
-                                ))?;
+                            // Empty batch, file not done — wait for more data
+                            tokio::select! {
+                                _ = shared.close_notify.notified() => break 'outer,
+                                _ = tokio::time::sleep(retry_delay) => {},
+                                _ = fs_notify.notified() => {},
                             }
-                            last_processed = Some(path.clone());
-                            break; // Move to next file
+                            d.reset_eof();
                         }
-                        // Not EOF or file not done, continue reading this file
-                        continue;
+                        Err(e) => {
+                            Err(e)?;
+                        }
                     }
+                }
 
-                    // Empty batch at EOF
-                    if hit_eof {
-                        if is_file_done(path) {
-                            if decomp.has_partial_data() {
-                                Err(anyhow::anyhow!(
-                                    "unexpected EOF for {} with partial line data remaining",
-                                    path
-                                ))?;
-                            }
-                            last_processed = Some(path.clone());
-                            skip_lines = 0;
-                            break; // Move to next file
-                        }
-
-                        // File not done, wait for more data
-                        tokio::select! {
-                            _ = shared.close_notify.notified() => break 'outer,
-                            _ = tokio::time::sleep(retry_delay) => {},
-                            _ = fs_notify.notified() => {},
-                        }
-                        // Reset EOF flag for retry
-                        decomp.reset_eof();
+                if !batch.is_empty() {
+                    // Update shared position for close() checkpoint
+                    if let Some(d) = &decomp {
+                        let path = current_path.expect("set with decomp");
+                        pos_line.store(d.lines_consumed, std::sync::atomic::Ordering::SeqCst);
+                        pending_checkpoint = Some((path.clone(), d.lines_consumed));
                     }
+                    // else: decomp is None means we consumed through end of plan;
+                    // pending_checkpoint was already set when the last file finished.
+
+                    skip_lines = 0;
+                    yield batch;
                 }
             }
         }

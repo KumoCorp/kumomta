@@ -1,42 +1,50 @@
 use camino::Utf8PathBuf;
 
-/// Metadata about a single line within a [`LogBatch`].
-#[derive(Debug, Clone)]
-pub struct LineInfo {
-    /// The byte offset of this line within the decompressed stream
-    /// of the segment file.
-    pub byte_offset: u64,
-}
-
 /// A batch of log records yielded by the tailer stream.
 ///
-/// Contains the raw line strings along with metadata about which
-/// segment file they came from and the byte offset of each line.
+/// A batch may contain records from multiple segment files when a
+/// file boundary is crossed while filling the batch.
 #[derive(Debug, Clone)]
 pub struct LogBatch {
-    /// The path of the segment file these records were read from.
-    segment: Utf8PathBuf,
-    /// The raw log lines.
+    /// The lines that comprise the batch.
     lines: Vec<String>,
-    /// Per-line metadata (byte offset, etc.), parallel to `lines`.
-    line_info: Vec<LineInfo>,
+    /// The list of unique segment file names that were
+    /// the source of data for the lines.
+    file_names: Vec<Utf8PathBuf>,
+    /// The indices of this vec correspond to the indices of `lines`.
+    /// The elements in the vec are the indices into `file_names`
+    /// of the file name from which the line was read.
+    line_to_file_name: Vec<usize>,
+    /// The indices of this vec correspond to the indices of `lines`.
+    /// The elements in the vec are the byte offset within the
+    /// decompressed stream of the start of that line.
+    byte_offsets: Vec<u64>,
 }
 
 impl LogBatch {
-    /// Create a new empty batch for the given segment file.
-    pub fn new(segment: Utf8PathBuf) -> Self {
+    /// Create a new empty batch.
+    pub fn new() -> Self {
         Self {
-            segment,
             lines: Vec::new(),
-            line_info: Vec::new(),
+            file_names: Vec::new(),
+            line_to_file_name: Vec::new(),
+            byte_offsets: Vec::new(),
         }
     }
 
-    /// Add a line to the batch along with its byte offset in the
-    /// decompressed stream.
-    pub fn push(&mut self, line: String, byte_offset: u64) {
+    /// Add a line to the batch along with the segment it was read from
+    /// and its byte offset in the decompressed stream.
+    pub fn push(&mut self, line: String, segment: &Utf8PathBuf, byte_offset: u64) {
+        let file_idx = match self.file_names.iter().rposition(|f| f == segment) {
+            Some(idx) => idx,
+            None => {
+                self.file_names.push(segment.clone());
+                self.file_names.len() - 1
+            }
+        };
         self.lines.push(line);
-        self.line_info.push(LineInfo { byte_offset });
+        self.line_to_file_name.push(file_idx);
+        self.byte_offsets.push(byte_offset);
     }
 
     /// The number of records in this batch.
@@ -49,15 +57,27 @@ impl LogBatch {
         self.lines.is_empty()
     }
 
-    /// The path of the segment file these records were read from.
-    pub fn segment(&self) -> &Utf8PathBuf {
-        &self.segment
+    /// The list of unique segment file names that contributed lines
+    /// to this batch.
+    pub fn file_names(&self) -> &[Utf8PathBuf] {
+        &self.file_names
     }
 
-    /// Per-line metadata, parallel to the lines returned by
-    /// [`AsRef<[String]>`].
-    pub fn line_info(&self) -> &[LineInfo] {
-        &self.line_info
+    /// Return the segment file name for the line at `index`.
+    pub fn file_name_for_line(&self, index: usize) -> &Utf8PathBuf {
+        &self.file_names[self.line_to_file_name[index]]
+    }
+
+    /// Return the byte offset in the decompressed stream for the line
+    /// at `index`.
+    pub fn byte_offset_for_line(&self, index: usize) -> u64 {
+        self.byte_offsets[index]
+    }
+}
+
+impl Default for LogBatch {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -71,18 +91,18 @@ impl TryFrom<&LogBatch> for Vec<serde_json::Value> {
     type Error = anyhow::Error;
 
     fn try_from(batch: &LogBatch) -> anyhow::Result<Self> {
-        let segment = batch.segment();
         batch
             .lines
             .iter()
-            .zip(batch.line_info.iter())
-            .map(|(line, info)| {
+            .enumerate()
+            .map(|(i, line)| {
                 serde_json::from_str(line).map_err(|err| {
                     anyhow::anyhow!(
-                        "Failed to parse a line from {segment} (byte offset {}) \
+                        "Failed to parse a line from {} (byte offset {}) \
                          as json: {err}. Is the file corrupt? You may need to move \
                          the file aside to make progress",
-                        info.byte_offset
+                        batch.file_name_for_line(i),
+                        batch.byte_offset_for_line(i)
                     )
                 })
             })
