@@ -318,3 +318,81 @@ async fn test_drop_without_close_does_not_advance_checkpoint() {
 
     tailer2.as_mut().close().await.unwrap();
 }
+
+/// Verify that `tail(true)` skips older segments and starts reading
+/// from the most recent one.  Also verify that tail mode does not
+/// create a checkpoint file.
+#[tokio::test]
+async fn test_tail_starts_from_latest_segment() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    // Two completed segments; the tailer should skip the first.
+    write_zstd_log(
+        dir.path(),
+        "seg-001.zst",
+        &[r#"{"seg":1,"n":1}"#, r#"{"seg":1,"n":2}"#],
+        true,
+    );
+    write_zstd_log(
+        dir.path(),
+        "seg-002.zst",
+        &[r#"{"seg":2,"n":1}"#, r#"{"seg":2,"n":2}"#],
+        true,
+    );
+
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .pattern("*.zst")
+        .max_batch_size(100)
+        .max_batch_latency(Duration::from_millis(100))
+        .tail(true)
+        .build()
+        .await
+        .unwrap();
+
+    tokio::pin!(tailer);
+
+    let mut all_records = Vec::new();
+    let timeout = tokio::time::sleep(Duration::from_secs(5));
+    tokio::pin!(timeout);
+
+    loop {
+        tokio::select! {
+            batch = tailer.next() => {
+                match batch {
+                    Some(Ok(records)) => {
+                        all_records.extend(records);
+                        if all_records.len() >= 2 {
+                            break;
+                        }
+                    }
+                    Some(Err(e)) => panic!("unexpected error: {e}"),
+                    None => break,
+                }
+            }
+            _ = &mut timeout => {
+                panic!("timed out waiting for records; got {} so far", all_records.len());
+            }
+        }
+    }
+
+    // Should only contain records from seg-002, not seg-001
+    k9::assert_equal!(
+        all_records,
+        vec![
+            r#"{"seg":2,"n":1}"#.to_string(),
+            r#"{"seg":2,"n":2}"#.to_string(),
+        ]
+    );
+
+    // Tail mode must NOT have created any checkpoint file.
+    // Since no checkpoint_name was set, no file should exist.
+    // Check that the directory contains only our two log segments.
+    let mut dir_entries: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    dir_entries.sort();
+    k9::assert_equal!(dir_entries, vec!["seg-001.zst", "seg-002.zst"]);
+}

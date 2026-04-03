@@ -29,6 +29,10 @@ pub struct LogTailerConfig {
     /// native watchers are unreliable (e.g., network filesystems, some
     /// container runtimes).
     pub poll_watcher: Option<Duration>,
+    /// If true, ignore any existing checkpoint and start tailing from
+    /// the most recent log segment. Subsequent segments will be
+    /// processed in order as they appear.
+    pub tail: bool,
 }
 
 impl LogTailerConfig {
@@ -41,6 +45,7 @@ impl LogTailerConfig {
             max_batch_latency: Duration::from_secs(1),
             checkpoint_name: None,
             poll_watcher: None,
+            tail: false,
         }
     }
 
@@ -69,6 +74,31 @@ impl LogTailerConfig {
         self
     }
 
+    pub fn tail(mut self, enable: bool) -> Self {
+        self.tail = enable;
+        self
+    }
+
+    /// Find the most recent log segment and return a synthetic checkpoint
+    /// pointing to line 0 of that file, so the tailer starts there.
+    fn resolve_tail_checkpoint(&self) -> anyhow::Result<Option<CheckpointData>> {
+        let glob = Glob::new(&self.pattern)?;
+        let mut files = vec![];
+        for path in glob.walk(&self.directory) {
+            let path = self
+                .directory
+                .join(Utf8PathBuf::try_from(path).map_err(|e| anyhow::anyhow!("{e}"))?);
+            if path.is_file() {
+                files.push(path);
+            }
+        }
+        files.sort();
+        Ok(files.last().map(|f| CheckpointData {
+            file: f.to_string(),
+            line: 0,
+        }))
+    }
+
     /// Build the tailer. Loads the checkpoint (if any) and sets up
     /// the filesystem watcher.
     pub async fn build(self) -> anyhow::Result<LogTailer> {
@@ -77,7 +107,11 @@ impl LogTailerConfig {
             .as_ref()
             .map(|name| self.directory.join(format!(".{name}")));
 
-        let checkpoint = if let Some(cp_path) = &checkpoint_path {
+        let checkpoint = if self.tail {
+            // When tailing, ignore any saved checkpoint and start from
+            // the most recent segment.
+            self.resolve_tail_checkpoint()?
+        } else if let Some(cp_path) = &checkpoint_path {
             CheckpointData::load(cp_path).await?
         } else {
             None

@@ -7907,13 +7907,10 @@ dependencies = [
  "anyhow",
  "camino",
  "clap",
- "filenamegen",
- "memchr",
- "notify",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "zstd-safe",
+ "futures",
+ "humantime",
+ "kumo-log-tailer",
+ "tokio",
 ]
 
 [[package]]
