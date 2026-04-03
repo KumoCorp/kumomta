@@ -127,6 +127,19 @@ impl LogTailerConfig {
     /// Build the tailer. Loads the checkpoint (if any) and sets up
     /// the filesystem watcher.
     pub async fn build(self) -> anyhow::Result<LogTailer> {
+        self.build_with_filter(None::<fn(&serde_json::Value) -> anyhow::Result<bool>>)
+            .await
+    }
+
+    /// Build the tailer with an optional record filter.
+    ///
+    /// If provided, the filter is called for each parsed JSON record.
+    /// Records for which the filter returns `false` are silently
+    /// discarded and do not count toward the batch size.
+    pub async fn build_with_filter<F>(self, filter: Option<F>) -> anyhow::Result<LogTailer>
+    where
+        F: Fn(&serde_json::Value) -> anyhow::Result<bool> + Send + 'static,
+    {
         let checkpoint_path = self
             .checkpoint_name
             .as_ref()
@@ -179,6 +192,11 @@ impl LogTailerConfig {
         let current_file_path = Arc::new(tokio::sync::Mutex::new(None));
         let current_line_number = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
+        let filter: Box<dyn Fn(&serde_json::Value) -> anyhow::Result<bool> + Send> = match filter {
+            Some(f) => Box::new(f),
+            None => Box::new(|_: &serde_json::Value| Ok(true)),
+        };
+
         let stream = make_stream(
             self.directory,
             self.pattern,
@@ -189,6 +207,7 @@ impl LogTailerConfig {
             shared.clone(),
             current_file_path.clone(),
             current_line_number.clone(),
+            filter,
         );
 
         Ok(LogTailer {
@@ -344,6 +363,7 @@ fn make_stream(
     shared: Arc<TailerShared>,
     pos_file: Arc<tokio::sync::Mutex<Option<Utf8PathBuf>>>,
     pos_line: Arc<std::sync::atomic::AtomicUsize>,
+    filter: Box<dyn Fn(&serde_json::Value) -> anyhow::Result<bool> + Send>,
 ) -> impl Stream<Item = anyhow::Result<LogBatch>> + Send {
     async_stream::try_stream! {
         let mut last_processed: Option<Utf8PathBuf> = None;
@@ -429,7 +449,7 @@ fn make_stream(
 
                     match d.next_line(skip_lines) {
                         Ok(Some(line)) => {
-                            batch.push(&line.text, path, line.byte_offset)?;
+                            batch.push(&line.text, path, line.byte_offset, Some(&*filter))?;
                             if batch.len() >= max_batch_size {
                                 break 'fill;
                             }
@@ -488,7 +508,7 @@ fn make_stream(
                                     d.reset_eof();
                                     match d.next_line(skip_lines) {
                                         Ok(Some(line)) => {
-                                            batch.push(&line.text, path, line.byte_offset)?;
+                                            batch.push(&line.text, path, line.byte_offset, Some(&*filter))?;
                                             if batch.len() >= max_batch_size {
                                                 break 'fill;
                                             }

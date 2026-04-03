@@ -61,16 +61,35 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     tailer_mod.set(
         "new",
-        lua.create_async_function(|_lua, cfg: SerdeWrappedValue<LogTailerConfig>| async move {
-            let cfg = cfg.0;
-            let tailer = cfg.build().await.map_err(any_err)?;
-            let close_handle = tailer.close_handle();
+        lua.create_async_function(
+            |lua,
+             (cfg, lua_filter): (SerdeWrappedValue<LogTailerConfig>, Option<mlua::Function>)| async move {
+                let cfg = cfg.0;
 
-            Ok(LuaLogTailer {
-                stream: Arc::new(Mutex::new(Box::pin(tailer))),
-                close_handle,
-            })
-        })?,
+                let filter = match lua_filter {
+                    Some(func) => {
+                        let lua = lua.clone();
+                        let filter_fn =
+                            move |value: &serde_json::Value| -> anyhow::Result<bool> {
+                                let options = config::serialize_options();
+                                let lua_value = lua.to_value_with(value, options)?;
+                                let result: bool = func.call(lua_value.clone())?;
+                                Ok(result)
+                            };
+                        Some(filter_fn)
+                    }
+                    None => None,
+                };
+
+                let tailer = cfg.build_with_filter(filter).await.map_err(any_err)?;
+                let close_handle = tailer.close_handle();
+
+                Ok(LuaLogTailer {
+                    stream: Arc::new(Mutex::new(Box::pin(tailer))),
+                    close_handle,
+                })
+            },
+        )?,
     )?;
 
     Ok(())
