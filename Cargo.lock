@@ -969,6 +969,9 @@ name = "camino"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e629a66d692cb9ff1a1c664e41771b3dcaf961985a9774c0eb0bd1b51cf60a48"
+dependencies = [
+ "serde_core",
+]
 
 [[package]]
 name = "caps"
@@ -3793,10 +3796,13 @@ dependencies = [
  "anyhow",
  "async-stream",
  "camino",
+ "config",
+ "duration-serde",
  "filenamegen",
  "futures",
  "k9",
  "memchr",
+ "mlua",
  "notify",
  "serde",
  "serde_json",
@@ -3892,6 +3898,7 @@ dependencies = [
  "human_bytes",
  "k9",
  "kumo-api-types",
+ "kumo-log-tailer",
  "kumo-machine-info",
  "kumo-prometheus",
  "kumo-server-lifecycle",

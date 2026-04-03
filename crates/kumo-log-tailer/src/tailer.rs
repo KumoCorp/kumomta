@@ -5,34 +5,58 @@ use filenamegen::Glob;
 use futures::Stream;
 use notify::event::{CreateKind, ModifyKind};
 use notify::{Event, EventKind, Watcher};
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Notify;
 
 /// Configuration for constructing a [`LogTailer`].
+#[derive(Deserialize, Serialize)]
 pub struct LogTailerConfig {
     /// The directory containing zstd-compressed JSONL log files.
     pub directory: Utf8PathBuf,
     /// Glob pattern for matching log filenames. Defaults to `"*"`.
+    #[serde(default = "default_pattern")]
     pub pattern: String,
     /// Maximum number of records per batch.
+    #[serde(default = "default_max_batch_size")]
     pub max_batch_size: usize,
     /// Maximum time to wait for a partial batch to fill before yielding it.
+    #[serde(default = "default_max_batch_latency", with = "duration_serde")]
     pub max_batch_latency: Duration,
     /// If set, enables checkpoint persistence with this name.
     /// The checkpoint file will be stored as `.<name>` in the log directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checkpoint_name: Option<String>,
     /// If set, use a polling-based filesystem watcher with the given
     /// poll interval instead of the platform's native filesystem
     /// notification mechanism. This can be useful in environments where
     /// native watchers are unreliable (e.g., network filesystems, some
     /// container runtimes).
+    #[serde(
+        default,
+        with = "duration_serde",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub poll_watcher: Option<Duration>,
     /// If true, ignore any existing checkpoint and start tailing from
     /// the most recent log segment. Subsequent segments will be
     /// processed in order as they appear.
+    #[serde(default)]
     pub tail: bool,
+}
+
+fn default_pattern() -> String {
+    "*".to_string()
+}
+
+fn default_max_batch_size() -> usize {
+    100
+}
+
+fn default_max_batch_latency() -> Duration {
+    Duration::from_secs(1)
 }
 
 impl LogTailerConfig {
@@ -40,9 +64,9 @@ impl LogTailerConfig {
     pub fn new(directory: Utf8PathBuf) -> Self {
         Self {
             directory,
-            pattern: "*".to_string(),
-            max_batch_size: 100,
-            max_batch_latency: Duration::from_secs(1),
+            pattern: default_pattern(),
+            max_batch_size: default_max_batch_size(),
+            max_batch_latency: default_max_batch_latency(),
             checkpoint_name: None,
             poll_watcher: None,
             tail: false,
@@ -167,11 +191,13 @@ impl LogTailerConfig {
         );
 
         Ok(LogTailer {
-            shared,
+            close_handle: CloseHandle {
+                shared,
+                current_file_path,
+                current_line_number,
+            },
             _watcher: watcher,
             stream: Box::pin(stream),
-            current_file_path,
-            current_line_number,
         })
     }
 }
@@ -182,22 +208,22 @@ struct TailerShared {
     checkpoint_path: Option<Utf8PathBuf>,
 }
 
-/// An async Stream that yields batches of log records from zstd-compressed
-/// JSONL log files in a directory.
+/// A `Send + Sync` handle that can close a [`LogTailer`] from any context.
 ///
-/// Call [`LogTailer::close`] to write a final checkpoint and terminate the stream.
-pub struct LogTailer {
+/// Obtained via [`LogTailer::close_handle`].  Calling [`CloseHandle::close`]
+/// writes the final checkpoint (if enabled) and signals the stream to
+/// terminate.
+#[derive(Clone)]
+pub struct CloseHandle {
     shared: Arc<TailerShared>,
-    _watcher: Box<dyn Watcher + Send>,
-    stream: std::pin::Pin<Box<dyn Stream<Item = anyhow::Result<Vec<String>>> + Send>>,
     current_file_path: Arc<tokio::sync::Mutex<Option<Utf8PathBuf>>>,
     current_line_number: Arc<std::sync::atomic::AtomicUsize>,
 }
 
-impl LogTailer {
+impl CloseHandle {
     /// Immediately write the final checkpoint (if checkpointing is enabled)
-    /// and signal the stream to terminate. Any in-progress or subsequent
-    /// `poll_next` will return `None`.
+    /// and signal the stream to terminate.  Any in-progress or subsequent
+    /// `poll_next` on the associated [`LogTailer`] will return `None`.
     pub async fn close(&self) -> anyhow::Result<()> {
         if let Some(cp_path) = &self.shared.checkpoint_path {
             let path_guard = self.current_file_path.lock().await;
@@ -214,6 +240,32 @@ impl LogTailer {
     }
 }
 
+/// An async Stream that yields batches of log records from zstd-compressed
+/// JSONL log files in a directory.
+///
+/// Call [`LogTailer::close`] or use a [`CloseHandle`] to write a final
+/// checkpoint and terminate the stream.
+pub struct LogTailer {
+    close_handle: CloseHandle,
+    _watcher: Box<dyn Watcher + Send>,
+    stream: std::pin::Pin<Box<dyn Stream<Item = anyhow::Result<Vec<String>>> + Send>>,
+}
+
+impl LogTailer {
+    /// Obtain a [`CloseHandle`] that can close this tailer from another
+    /// task or context.  The handle is `Send + Sync`.
+    pub fn close_handle(&self) -> CloseHandle {
+        self.close_handle.clone()
+    }
+
+    /// Immediately write the final checkpoint (if checkpointing is enabled)
+    /// and signal the stream to terminate. Any in-progress or subsequent
+    /// `poll_next` will return `None`.
+    pub async fn close(&self) -> anyhow::Result<()> {
+        self.close_handle.close().await
+    }
+}
+
 impl Stream for LogTailer {
     type Item = anyhow::Result<Vec<String>>;
 
@@ -221,7 +273,7 @@ impl Stream for LogTailer {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        if self.shared.closed.load(Ordering::SeqCst) {
+        if self.close_handle.shared.closed.load(Ordering::SeqCst) {
             return std::task::Poll::Ready(None);
         }
         self.stream.as_mut().poll_next(cx)

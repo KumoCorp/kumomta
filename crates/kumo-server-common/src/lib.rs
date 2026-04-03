@@ -39,6 +39,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         mod_sqlite::register,
         mod_crypto::register,
         mod_smtp_response_normalize::register,
+        kumo_log_tailer::lua::register,
         mod_string::register,
         mod_time::register,
         mod_dns_resolver::register,
