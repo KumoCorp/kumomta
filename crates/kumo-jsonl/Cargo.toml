@@ -1,5 +1,5 @@
 [package]
-name = "kumo-log-tailer"
+name = "kumo-jsonl"
 version = "0.1.0"
 edition = "2021"
 

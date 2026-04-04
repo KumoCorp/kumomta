@@ -1,6 +1,6 @@
 use camino::Utf8PathBuf;
 use futures::StreamExt;
-use kumo_log_tailer::{
+use kumo_jsonl::{
     ConsumerConfig, LogBatch, LogTailer, LogTailerConfig, LogWriter, LogWriterConfig,
     MultiConsumerTailerConfig,
 };

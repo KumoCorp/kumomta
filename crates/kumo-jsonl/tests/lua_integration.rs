@@ -1,7 +1,7 @@
 #![cfg(feature = "lua")]
 
 use camino::Utf8PathBuf;
-use kumo_log_tailer::LogWriterConfig;
+use kumo_jsonl::LogWriterConfig;
 use mlua::Lua;
 use tempfile::TempDir;
 
@@ -21,7 +21,7 @@ fn write_segment(dir: &std::path::Path, records: &[&str]) {
 /// Run a lua script in a fresh Lua state with the tailer module registered.
 async fn run_lua(script: &str) -> mlua::Result<()> {
     let lua = Lua::new();
-    kumo_log_tailer::lua::register(&lua).unwrap();
+    kumo_jsonl::lua::register(&lua).unwrap();
     // Make the kumo module accessible as a global (normally done by
     // the kumomta config loader).
     let package: mlua::Table = lua.globals().get("package")?;

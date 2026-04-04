@@ -2,7 +2,7 @@ use anyhow::Context;
 use camino::Utf8PathBuf;
 use clap::Parser;
 use futures::StreamExt;
-use kumo_log_tailer::LogTailerConfig;
+use kumo_jsonl::LogTailerConfig;
 use std::time::Duration;
 
 /// Tail logs

@@ -3790,7 +3790,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kumo-log-tailer"
+name = "kumo-jsonl"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -3900,7 +3900,7 @@ dependencies = [
  "human_bytes",
  "k9",
  "kumo-api-types",
- "kumo-log-tailer",
+ "kumo-jsonl",
  "kumo-machine-info",
  "kumo-prometheus",
  "kumo-server-lifecycle",
@@ -7918,7 +7918,7 @@ dependencies = [
  "clap",
  "futures",
  "humantime",
- "kumo-log-tailer",
+ "kumo-jsonl",
  "tokio",
 ]
 
