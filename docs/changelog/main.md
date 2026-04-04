@@ -41,6 +41,18 @@
 
 ## Other Changes and Enhancements
 
+ * New [kumo.jsonl](../reference/kumo.jsonl/index.md) module providing
+   utilities for reading and writing zstd-compressed JSONL log segment files.
+   This is useful when you want to implement webhook delivery (or other
+   log-driven processing) **out of band** from the in-process
+   [log hook](../userguide/operation/webhooks.md) mechanism — for example,
+   to run a separate long-lived script that reads from the on-disk logs and
+   forwards them to an HTTP endpoint with independent checkpointing and retry
+   semantics.  See the
+   [Batched Webhook Example](../reference/kumo.jsonl/new_tailer.md#batched-webhook-example)
+   and the
+   [Per-Customer Webhook Example](../reference/kumo.jsonl/new_tailer.md#per-customer-webhook-example-with-main-parameters)
+   in the `kumo.jsonl.new_tailer` docs for worked examples.
  * queue helper: certain misconfigurations are now detected at startup,
    improving error discovery.
  * New
