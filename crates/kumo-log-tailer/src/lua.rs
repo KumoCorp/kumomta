@@ -246,11 +246,11 @@ fn make_rust_filter(
 // ---------------------------------------------------------------------------
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
-    let tailer_mod = get_or_create_sub_module(lua, "tailer")?;
+    let tailer_mod = get_or_create_sub_module(lua, "jsonl")?;
 
-    // kumo.tailer.new — single-consumer tailer
+    // kumo.jsonl.new_tailer — single-consumer tailer
     tailer_mod.set(
-        "new",
+        "new_tailer",
         lua.create_async_function(
             |lua,
              (cfg, lua_filter): (
@@ -270,10 +270,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         )?,
     )?;
 
-    // kumo.tailer.new_multi — multi-consumer tailer
+    // kumo.jsonl.new_multi_tailer — multi-consumer tailer
     //
     // Usage:
-    //   local tailer <close> = kumo.tailer.new_multi {
+    //   local tailer <close> = kumo.jsonl.new_multi_tailer {
     //     directory = '/var/log/kumomta',
     //     consumers = {
     //       { name = 'deliveries', checkpoint_name = 'cp-del',
@@ -291,7 +291,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     //     end
     //   end
     tailer_mod.set(
-        "new_multi",
+        "new_multi_tailer",
         lua.create_async_function(|lua, cfg_value: mlua::Value| async move {
             let cfg_table = match &cfg_value {
                 mlua::Value::Table(t) => t,
@@ -348,7 +348,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         })?,
     )?;
 
-    // kumo.tailer.new_writer — log file writer
+    // kumo.jsonl.new_writer — log file writer
     tailer_mod.set(
         "new_writer",
         lua.create_function(|lua, cfg: SerdeWrappedValue<LogWriterConfig>| {

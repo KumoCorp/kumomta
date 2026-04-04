@@ -31,7 +31,7 @@ async fn run_lua(script: &str) -> mlua::Result<()> {
     lua.load(script).exec_async().await
 }
 
-/// Test the single-consumer lua interface (kumo.tailer.new).
+/// Test the single-consumer lua interface (kumo.jsonl.new_tailer).
 #[tokio::test]
 async fn test_lua_single_consumer() {
     let dir = TempDir::new().unwrap();
@@ -48,7 +48,7 @@ async fn test_lua_single_consumer() {
 
     let script = format!(
         r#"
-        local tailer <close> = kumo.tailer.new {{
+        local tailer <close> = kumo.jsonl.new_tailer {{
             directory = '{log_dir}',
             
             max_batch_size = 100,
@@ -95,7 +95,7 @@ async fn test_lua_single_consumer_with_filter() {
 
     let script = format!(
         r#"
-        local tailer <close> = kumo.tailer.new(
+        local tailer <close> = kumo.jsonl.new_tailer(
             {{
                 directory = '{log_dir}',
                 
@@ -128,7 +128,7 @@ async fn test_lua_single_consumer_with_filter() {
     run_lua(&script).await.unwrap();
 }
 
-/// Test the multi-consumer lua interface (kumo.tailer.new_multi).
+/// Test the multi-consumer lua interface (kumo.jsonl.new_multi_tailer).
 #[tokio::test]
 async fn test_lua_multi_consumer() {
     let dir = TempDir::new().unwrap();
@@ -146,7 +146,7 @@ async fn test_lua_multi_consumer() {
 
     let script = format!(
         r#"
-        local tailer <close> = kumo.tailer.new_multi {{
+        local tailer <close> = kumo.jsonl.new_multi_tailer {{
             directory = '{log_dir}',
             
             consumers = {{
@@ -211,7 +211,7 @@ async fn test_lua_multi_consumer() {
     run_lua(&script).await.unwrap();
 }
 
-/// Test the writer lua interface (kumo.tailer.new_writer).
+/// Test the writer lua interface (kumo.jsonl.new_writer).
 #[tokio::test]
 async fn test_lua_writer() {
     let dir = TempDir::new().unwrap();
@@ -221,7 +221,7 @@ async fn test_lua_writer() {
     // then read them back and verify they are correct.
     let write_script = format!(
         r#"
-        local writer <close> = kumo.tailer.new_writer {{
+        local writer <close> = kumo.jsonl.new_writer {{
             log_dir = '{log_dir}',
         }}
 
@@ -234,7 +234,7 @@ async fn test_lua_writer() {
     // Read back and verify
     let read_script = format!(
         r#"
-        local tailer <close> = kumo.tailer.new {{
+        local tailer <close> = kumo.jsonl.new_tailer {{
             directory = '{log_dir}',
             max_batch_size = 100,
             max_batch_latency = '100ms',
@@ -271,7 +271,7 @@ async fn test_lua_writer_with_tz() {
 
     let script = format!(
         r#"
-        local writer <close> = kumo.tailer.new_writer {{
+        local writer <close> = kumo.jsonl.new_writer {{
             log_dir = '{log_dir}',
             tz = 'America/New_York',
         }}
