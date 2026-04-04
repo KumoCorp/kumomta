@@ -133,3 +133,66 @@ end
 
 tailer:close()
 ```
+
+## Batched Webhook Example
+
+The following example shows how to use `new_tailer` to read log records from
+disk and post them in batches to an HTTP endpoint, equivalent to the
+[batched webhook](../../userguide/operation/webhooks.md#batched-hooks)
+approach but driven from the log files rather than an in-process hook.
+
+Each batch is encoded as a JSON array and posted as the request body, for
+example: `[{"type": "Delivery", ...}, {"type": "Reception", ...}]`.
+
+Save the script below as e.g. `/path/to/webhook.lua` and run it as a
+standalone script:
+
+```console
+$ /opt/kumomta/sbin/kumod --script --policy /path/to/webhook.lua
+```
+
+```lua
+local kumo = require 'kumo'
+
+kumo.on('main', function()
+  local client = kumo.http.build_client {}
+
+  local tailer = kumo.jsonl.new_tailer {
+    directory = '/var/log/kumomta',
+    max_batch_size = 100,
+    max_batch_latency = '1s',
+    checkpoint_name = 'webhook-poster',
+  }
+
+  for batch in tailer:batches() do
+    -- Collect the records into a lua table, then JSON-encode
+    -- the whole array as the request body.
+    local payload = kumo.serde.json_encode(batch:records())
+
+    local response = client
+      :post('http://10.0.0.1:4242/log')
+      :header('Content-Type', 'application/json')
+      :body(payload)
+      :send()
+
+    if response:status_is_success() then
+      -- Only advance the checkpoint once we know the
+      -- remote endpoint accepted the batch.
+      batch:commit()
+    else
+      -- We did not commit, so the next run will retry this batch.
+      error(
+        string.format(
+          'webhook post failed: %d %s: %s',
+          response:status_code(),
+          response:status_reason(),
+          response:text()
+        )
+      )
+    end
+  end
+
+  tailer:close()
+  client:close()
+end)
+```
