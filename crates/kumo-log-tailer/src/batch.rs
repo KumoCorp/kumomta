@@ -1,11 +1,18 @@
 use camino::Utf8PathBuf;
 
+/// Callback that writes a checkpoint when invoked.
+type CommitFn = Box<dyn FnOnce() -> anyhow::Result<()> + Send>;
+
 /// A batch of log records yielded by the tailer stream.
 ///
 /// Each record is a parsed JSON value.  A batch may contain records
 /// from multiple segment files when a file boundary is crossed while
 /// filling the batch.
-#[derive(Debug, Clone)]
+///
+/// Call [`LogBatch::commit`] after processing the batch to advance
+/// the checkpoint.  If `commit` is not called the checkpoint remains
+/// at its prior position, so the records in this batch will be
+/// re-read on the next run.
 pub struct LogBatch {
     /// The parsed JSON records that comprise the batch.
     records: Vec<serde_json::Value>,
@@ -20,6 +27,9 @@ pub struct LogBatch {
     /// The elements in the vec are the byte offset within the
     /// decompressed stream of the start of that record.
     byte_offsets: Vec<u64>,
+    /// Callback that writes the checkpoint for this batch.
+    /// Set by the stream before yielding.  Consumed by `commit()`.
+    commit_fn: Option<CommitFn>,
 }
 
 impl LogBatch {
@@ -30,6 +40,7 @@ impl LogBatch {
             file_names: Vec::new(),
             line_to_file_name: Vec::new(),
             byte_offsets: Vec::new(),
+            commit_fn: None,
         }
     }
 
@@ -70,6 +81,23 @@ impl LogBatch {
         self.records.push(value);
         self.line_to_file_name.push(file_idx);
         self.byte_offsets.push(byte_offset);
+        Ok(())
+    }
+
+    /// Set the commit callback.  Called by the stream before yielding.
+    pub(crate) fn set_commit_fn(&mut self, f: CommitFn) {
+        self.commit_fn = Some(f);
+    }
+
+    /// Advance the checkpoint to the end of this batch.
+    ///
+    /// This confirms that the caller has successfully processed
+    /// the batch.  If checkpointing is not enabled, or if this
+    /// batch has already been committed, this is a no-op.
+    pub fn commit(&mut self) -> anyhow::Result<()> {
+        if let Some(f) = self.commit_fn.take() {
+            f()?;
+        }
         Ok(())
     }
 

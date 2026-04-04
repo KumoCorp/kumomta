@@ -189,9 +189,6 @@ impl LogTailerConfig {
             checkpoint_path,
         });
 
-        let current_file_path = Arc::new(tokio::sync::Mutex::new(None));
-        let current_line_number = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-
         let filter: Box<dyn Fn(&serde_json::Value) -> anyhow::Result<bool> + Send> = match filter {
             Some(f) => Box::new(f),
             None => Box::new(|_: &serde_json::Value| Ok(true)),
@@ -205,17 +202,11 @@ impl LogTailerConfig {
             checkpoint,
             fs_notify,
             shared.clone(),
-            current_file_path.clone(),
-            current_line_number.clone(),
             filter,
         );
 
         Ok(LogTailer {
-            close_handle: CloseHandle {
-                shared,
-                current_file_path,
-                current_line_number,
-            },
+            close_handle: CloseHandle { shared },
             _watcher: watcher,
             stream: Box::pin(stream),
         })
@@ -231,32 +222,22 @@ struct TailerShared {
 /// A `Send + Sync` handle that can close a [`LogTailer`] from any context.
 ///
 /// Obtained via [`LogTailer::close_handle`].  Calling [`CloseHandle::close`]
-/// writes the final checkpoint (if enabled) and signals the stream to
-/// terminate.
+/// signals the stream to terminate.
+///
+/// Note: `close` does **not** write a checkpoint.  Call
+/// [`LogBatch::commit`] on each batch you have finished processing
+/// to advance the checkpoint before closing.
 #[derive(Clone)]
 pub struct CloseHandle {
     shared: Arc<TailerShared>,
-    current_file_path: Arc<tokio::sync::Mutex<Option<Utf8PathBuf>>>,
-    current_line_number: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl CloseHandle {
-    /// Immediately write the final checkpoint (if checkpointing is enabled)
-    /// and signal the stream to terminate.  Any in-progress or subsequent
+    /// Signal the stream to terminate.  Any in-progress or subsequent
     /// `poll_next` on the associated [`LogTailer`] will return `None`.
-    pub async fn close(&self) -> anyhow::Result<()> {
-        if let Some(cp_path) = &self.shared.checkpoint_path {
-            let path_guard = self.current_file_path.lock().await;
-            if let Some(path) = path_guard.as_ref() {
-                let line = self
-                    .current_line_number
-                    .load(std::sync::atomic::Ordering::SeqCst);
-                CheckpointData::save(cp_path, path, line).await?;
-            }
-        }
+    pub fn close(&self) {
         self.shared.closed.store(true, Ordering::SeqCst);
         self.shared.close_notify.notify_waiters();
-        Ok(())
     }
 }
 
@@ -278,11 +259,14 @@ impl LogTailer {
         self.close_handle.clone()
     }
 
-    /// Immediately write the final checkpoint (if checkpointing is enabled)
-    /// and signal the stream to terminate. Any in-progress or subsequent
+    /// Signal the stream to terminate. Any in-progress or subsequent
     /// `poll_next` will return `None`.
-    pub async fn close(&self) -> anyhow::Result<()> {
-        self.close_handle.close().await
+    ///
+    /// Note: this does **not** write a checkpoint.  Call
+    /// [`LogBatch::commit`] on each batch you have finished processing
+    /// to advance the checkpoint before closing.
+    pub fn close(&self) {
+        self.close_handle.close();
     }
 }
 
@@ -361,8 +345,6 @@ fn make_stream(
     initial_checkpoint: Option<CheckpointData>,
     fs_notify: Arc<Notify>,
     shared: Arc<TailerShared>,
-    pos_file: Arc<tokio::sync::Mutex<Option<Utf8PathBuf>>>,
-    pos_line: Arc<std::sync::atomic::AtomicUsize>,
     filter: Box<dyn Fn(&serde_json::Value) -> anyhow::Result<bool> + Send>,
 ) -> impl Stream<Item = anyhow::Result<LogBatch>> + Send {
     async_stream::try_stream! {
@@ -370,9 +352,6 @@ fn make_stream(
         let mut checkpoint = initial_checkpoint;
         let mut skip_lines: usize;
         let retry_delay = Duration::from_millis(200);
-        // Deferred checkpoint: written at the start of the next iteration
-        // after the caller has consumed the yielded batch.
-        let mut pending_checkpoint: Option<(Utf8PathBuf, usize)> = None;
 
         'outer: loop {
             if shared.closed.load(Ordering::SeqCst) {
@@ -410,29 +389,18 @@ fn make_stream(
             let mut plan_index = 0;
             let mut decomp: Option<FileDecompressor> = None;
             let mut current_path: Option<&Utf8PathBuf> = None;
+            let mut last_lines_consumed: usize = 0;
 
             // Open the first file in the plan
             if let Some(path) = plan.get(plan_index) {
                 let path_std = path.as_std_path().to_owned();
                 decomp = Some(FileDecompressor::open(&path_std)?);
                 current_path = Some(path);
-                {
-                    let mut pf = pos_file.lock().await;
-                    *pf = Some(path.clone());
-                }
-                pos_line.store(0, std::sync::atomic::Ordering::SeqCst);
             }
 
             while decomp.is_some() {
                 if shared.closed.load(Ordering::SeqCst) {
                     break 'outer;
-                }
-
-                // Flush pending checkpoint from the prior yield.
-                if let Some((ref cp_file, cp_line)) = pending_checkpoint.take() {
-                    if let Some(cp_path) = &shared.checkpoint_path {
-                        save_checkpoint_sync(cp_path, cp_file, cp_line);
-                    }
                 }
 
                 let mut batch = LogBatch::new();
@@ -463,9 +431,7 @@ fn make_stream(
                                         path
                                     ))?;
                                 }
-                                // Record checkpoint for end of this file
-                                pos_line.store(d.lines_consumed, std::sync::atomic::Ordering::SeqCst);
-                                pending_checkpoint = Some((path.clone(), d.lines_consumed));
+                                last_lines_consumed = d.lines_consumed;
                                 last_processed = Some(path.clone());
                                 skip_lines = 0;
 
@@ -475,11 +441,6 @@ fn make_stream(
                                     let path_std = next_path.as_std_path().to_owned();
                                     decomp = Some(FileDecompressor::open(&path_std)?);
                                     current_path = Some(next_path);
-                                    {
-                                        let mut pf = pos_file.lock().await;
-                                        *pf = Some(next_path.clone());
-                                    }
-                                    pos_line.store(0, std::sync::atomic::Ordering::SeqCst);
                                     // Continue filling the batch from the next file
                                     continue 'fill;
                                 } else {
@@ -540,14 +501,30 @@ fn make_stream(
                 }
 
                 if !batch.is_empty() {
-                    // Update shared position for close() checkpoint
-                    if let Some(d) = &decomp {
-                        let path = current_path.expect("set with decomp");
-                        pos_line.store(d.lines_consumed, std::sync::atomic::Ordering::SeqCst);
-                        pending_checkpoint = Some((path.clone(), d.lines_consumed));
+                    // Determine the checkpoint position for this batch.
+                    // Use the current decompressor's position if still active,
+                    // otherwise use the last_processed file (end of plan).
+                    if let Some(cp_path) = &shared.checkpoint_path {
+                        let (cp_file, cp_line) = if let Some(d) = &decomp {
+                            let path = current_path.expect("set with decomp");
+                            (path.clone(), d.lines_consumed)
+                        } else if let Some(last) = &last_processed {
+                            // We've finished all files; the decompressor's
+                            // lines_consumed was captured in the last
+                            // iteration before decomp was set to None.
+                            // We need to track that. Let's use a variable.
+                            (last.clone(), last_lines_consumed)
+                        } else {
+                            // Should not happen: batch is non-empty but
+                            // no decomp and no last_processed.
+                            unreachable!("non-empty batch without a source");
+                        };
+                        let cp_path = cp_path.clone();
+                        batch.set_commit_fn(Box::new(move || {
+                            save_checkpoint_sync(&cp_path, &cp_file, cp_line);
+                            Ok(())
+                        }));
                     }
-                    // else: decomp is None means we consumed through end of plan;
-                    // pending_checkpoint was already set when the last file finished.
 
                     skip_lines = 0;
                     yield batch;

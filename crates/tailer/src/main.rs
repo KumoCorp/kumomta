@@ -58,10 +58,11 @@ async fn main() -> anyhow::Result<()> {
     tokio::pin!(tailer);
 
     while let Some(result) = tailer.next().await {
-        let batch = result?;
+        let mut batch = result?;
         for record in batch.records() {
             println!("{record}");
         }
+        batch.commit()?;
     }
 
     Ok(())

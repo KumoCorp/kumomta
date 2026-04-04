@@ -59,13 +59,14 @@ async fn test_checkpoint_resume_one_at_a_time() {
         tokio::pin!(tailer);
 
         let batch = tailer.next().await;
-        let batch = batch
+        let mut batch = batch
             .unwrap_or_else(|| panic!("expected a batch on iteration {i}"))
             .unwrap_or_else(|e| panic!("expected Ok batch on iteration {i}: {e}"));
         k9::assert_equal!(batch.len(), 1);
         all_records.push(batch.records()[0].clone());
+        batch.commit().unwrap();
 
-        tailer.as_mut().close().await.unwrap();
+        tailer.as_mut().close();
     }
 
     // Verify we got all records exactly once, in order
@@ -87,7 +88,7 @@ async fn test_checkpoint_resume_one_at_a_time() {
         .unwrap();
 
     // close immediately; should get None
-    tailer.close().await.unwrap();
+    tailer.close();
     tokio::pin!(tailer);
     let result = tailer.next().await;
     k9::assert_equal!(result.is_none(), true);
@@ -188,15 +189,16 @@ async fn test_checkpoint_across_multiple_files() {
 
         tokio::pin!(tailer);
 
-        let batch = tailer
+        let mut batch = tailer
             .next()
             .await
             .unwrap_or_else(|| panic!("expected batch on iteration {i}"))
             .unwrap_or_else(|e| panic!("error on iteration {i}: {e}"));
         k9::assert_equal!(batch.len(), 1);
         all_records.push(batch.records()[0].clone());
+        batch.commit().unwrap();
 
-        tailer.as_mut().close().await.unwrap();
+        tailer.as_mut().close();
     }
 
     let expected = vec![
@@ -208,10 +210,10 @@ async fn test_checkpoint_across_multiple_files() {
     k9::assert_equal!(all_records, expected);
 }
 
-/// Verify that close() after reading one record advances the checkpoint
+/// Verify that commit() after reading one record advances the checkpoint
 /// so the next tailer sees the *next* record, not the same one.
 #[tokio::test]
-async fn test_close_advances_checkpoint_past_consumed_batch() {
+async fn test_commit_advances_checkpoint_past_consumed_batch() {
     let dir = TempDir::new().unwrap();
     let log_dir = utf8_dir(&dir);
 
@@ -233,14 +235,15 @@ async fn test_close_advances_checkpoint_past_consumed_batch() {
         .unwrap();
     tokio::pin!(tailer);
 
-    let first = tailer
+    let mut first = tailer
         .next()
         .await
         .expect("should yield a batch")
         .expect("batch should be Ok");
     k9::assert_equal!(first.records(), &[json!({"n": 1})]);
+    first.commit().unwrap();
 
-    tailer.as_mut().close().await.unwrap();
+    tailer.as_mut().close();
 
     // Second tailer with same checkpoint: should see record 2, not record 1
     let tailer2 = LogTailerConfig::new(log_dir.clone())
@@ -253,21 +256,22 @@ async fn test_close_advances_checkpoint_past_consumed_batch() {
         .unwrap();
     tokio::pin!(tailer2);
 
-    let second = tailer2
+    let mut second = tailer2
         .next()
         .await
         .expect("should yield a batch")
         .expect("batch should be Ok");
     k9::assert_equal!(second.records(), &[json!({"n": 2})]);
+    second.commit().unwrap();
 
-    tailer2.as_mut().close().await.unwrap();
+    tailer2.as_mut().close();
 }
 
-/// Verify that dropping a tailer *without* calling close() does NOT
+/// Verify that dropping a batch *without* calling commit() does NOT
 /// advance the checkpoint. Reopening with the same checkpoint should
 /// re-read the same record.
 #[tokio::test]
-async fn test_drop_without_close_does_not_advance_checkpoint() {
+async fn test_drop_without_commit_does_not_advance_checkpoint() {
     let dir = TempDir::new().unwrap();
     let log_dir = utf8_dir(&dir);
 
@@ -297,12 +301,11 @@ async fn test_drop_without_close_does_not_advance_checkpoint() {
             .expect("batch should be Ok");
         k9::assert_equal!(first.records(), &[json!({"n": 1})]);
 
-        // tailer is dropped here without calling close()
+        // batch is dropped here without calling commit()
     }
 
     // Second tailer with same checkpoint: should see record 1 again
-    // because the checkpoint was never advanced (no close, and the
-    // deferred checkpoint write hadn't been flushed).
+    // because commit() was never called.
     let tailer2 = LogTailerConfig::new(log_dir.clone())
         .pattern("*.zst")
         .max_batch_size(1)
@@ -320,7 +323,7 @@ async fn test_drop_without_close_does_not_advance_checkpoint() {
         .expect("batch should be Ok");
     k9::assert_equal!(second.records(), &[json!({"n": 1})]);
 
-    tailer2.as_mut().close().await.unwrap();
+    tailer2.as_mut().close();
 }
 
 /// Verify that `tail(true)` skips older segments and starts reading
@@ -668,4 +671,41 @@ async fn test_late_arriving_file_native_watcher() {
 #[tokio::test]
 async fn test_late_arriving_file_poll_watcher() {
     late_arriving_file_impl(Some(Duration::from_millis(200))).await;
+}
+
+/// Verify that calling commit() on a batch from a tailer without
+/// a checkpoint configured is a harmless no-op.
+#[tokio::test]
+async fn test_commit_without_checkpoint_is_noop() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    write_zstd_log(dir.path(), "seg-001.zst", &[r#"{"n":1}"#], true);
+
+    // No checkpoint_name configured
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .pattern("*.zst")
+        .max_batch_size(10)
+        .max_batch_latency(Duration::from_millis(50))
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+
+    let mut batch = next_batch_with_timeout(&mut tailer).await;
+    k9::assert_equal!(batch.records(), &[json!({"n": 1})]);
+
+    // commit() should succeed (no-op) without error
+    batch.commit().unwrap();
+    // calling it again is also fine
+    batch.commit().unwrap();
+
+    // No checkpoint file should have been created
+    let mut dir_entries: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    dir_entries.sort();
+    k9::assert_equal!(dir_entries, vec!["seg-001.zst"]);
 }
