@@ -1,4 +1,7 @@
-use crate::{CloseHandle, ConsumerConfig, LogBatch, LogTailerConfig, MultiConsumerTailerConfig};
+use crate::{
+    CloseHandle, ConsumerConfig, LogBatch, LogTailerConfig, LogWriterConfig,
+    MultiConsumerTailerConfig,
+};
 use config::{any_err, from_lua_value, get_or_create_sub_module, SerdeWrappedValue};
 use futures::StreamExt;
 use mlua::{Lua, LuaSerdeExt, MetaMethod, UserData, UserDataMethods, UserDataRef, UserDataRefMut};
@@ -345,5 +348,61 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         })?,
     )?;
 
+    // kumo.tailer.new_writer — log file writer
+    tailer_mod.set(
+        "new_writer",
+        lua.create_function(|lua, cfg: SerdeWrappedValue<LogWriterConfig>| {
+            let _ = lua;
+            Ok(LuaLogWriter {
+                inner: Some(cfg.0.build()),
+            })
+        })?,
+    )?;
+
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// LuaLogWriter
+// ---------------------------------------------------------------------------
+
+/// Lua wrapper around [`crate::writer::LogWriter`].
+struct LuaLogWriter {
+    inner: Option<crate::writer::LogWriter>,
+}
+
+impl LuaLogWriter {
+    fn write_line(_lua: &Lua, this: &mut Self, line: String) -> mlua::Result<()> {
+        let writer = this
+            .inner
+            .as_mut()
+            .ok_or_else(|| mlua::Error::external("writer has been closed"))?;
+        writer.write_line(&line).map_err(any_err)
+    }
+
+    fn write_record(lua: &Lua, this: &mut Self, value: mlua::Value) -> mlua::Result<()> {
+        let writer = this
+            .inner
+            .as_mut()
+            .ok_or_else(|| mlua::Error::external("writer has been closed"))?;
+        // Convert lua value to serde_json::Value, then serialize to JSON string
+        let json_value: serde_json::Value = lua.from_value(value)?;
+        writer.write_value(&json_value).map_err(any_err)
+    }
+
+    fn close(_lua: &Lua, this: &mut Self, _: ()) -> mlua::Result<()> {
+        if let Some(mut writer) = this.inner.take() {
+            writer.close().map_err(any_err)?;
+        }
+        Ok(())
+    }
+}
+
+impl UserData for LuaLogWriter {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method_mut("write_line", Self::write_line);
+        methods.add_method_mut("write_record", Self::write_record);
+        methods.add_method_mut("close", Self::close);
+        methods.add_meta_method_mut(MetaMethod::Close, Self::close);
+    }
 }

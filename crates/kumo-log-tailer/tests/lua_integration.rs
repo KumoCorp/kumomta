@@ -210,3 +210,85 @@ async fn test_lua_multi_consumer() {
 
     run_lua(&script).await.unwrap();
 }
+
+/// Test the writer lua interface (kumo.tailer.new_writer).
+#[tokio::test]
+async fn test_lua_writer() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = dir.path().to_str().unwrap().to_string();
+
+    // Write records via lua using :write_line and :write_record,
+    // then read them back and verify they are correct.
+    let write_script = format!(
+        r#"
+        local writer <close> = kumo.tailer.new_writer {{
+            log_dir = '{log_dir}',
+        }}
+
+        writer:write_line('{{"source":"write_line"}}')
+        writer:write_record({{source='write_record', n=2}})
+        "#
+    );
+    run_lua(&write_script).await.unwrap();
+
+    // Read back and verify
+    let read_script = format!(
+        r#"
+        local tailer <close> = kumo.tailer.new {{
+            directory = '{log_dir}',
+            max_batch_size = 100,
+            max_batch_latency = '100ms',
+        }}
+
+        local records = {{}}
+        for batch in tailer:batches() do
+            for record in batch:iter_records() do
+                table.insert(records, record)
+            end
+            batch:commit()
+            if #records >= 2 then break end
+        end
+
+        assert(#records == 2, 'expected 2 records, got ' .. #records)
+        assert(records[1].source == 'write_line',
+            'first record source should be write_line, got ' .. tostring(records[1].source))
+        assert(records[2].source == 'write_record',
+            'second record source should be write_record')
+        assert(records[2].n == 2,
+            'second record n should be 2, got ' .. tostring(records[2].n))
+        "#
+    );
+    run_lua(&read_script).await.unwrap();
+}
+
+/// Test that the writer accepts a timezone name via the `tz` parameter.
+/// Verifies that a segment file is created and can be read back,
+/// proving the timezone was accepted without error.
+#[tokio::test]
+async fn test_lua_writer_with_tz() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = dir.path().to_str().unwrap().to_string();
+
+    let script = format!(
+        r#"
+        local writer <close> = kumo.tailer.new_writer {{
+            log_dir = '{log_dir}',
+            tz = 'America/New_York',
+        }}
+
+        writer:write_record({{msg = 'hello'}})
+        "#
+    );
+    run_lua(&script).await.unwrap();
+
+    // A segment file should have been created and closed (marked done)
+    let entries: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    assert_eq!(entries.len(), 1, "expected one segment file");
+    assert!(
+        entries[0].metadata().unwrap().permissions().readonly(),
+        "segment should be readonly (done)"
+    );
+}

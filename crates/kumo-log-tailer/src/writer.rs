@@ -1,35 +1,54 @@
 use camino::Utf8PathBuf;
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
+use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::time::Duration;
 use zstd::stream::write::Encoder;
 
 /// Configuration for constructing a [`LogWriter`].
+#[derive(Deserialize, Serialize)]
 pub struct LogWriterConfig {
     /// Directory where log segment files will be created.
     pub log_dir: Utf8PathBuf,
     /// Maximum number of uncompressed bytes written per segment
     /// before rolling to a new file.
+    #[serde(default = "default_max_file_size")]
     pub max_file_size: u64,
     /// Zstd compression level.
+    #[serde(default = "default_compression_level")]
     pub compression_level: i32,
     /// If set, the segment will be closed after this duration
     /// even if max_file_size has not been reached.
+    #[serde(
+        default,
+        with = "duration_serde",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_segment_duration: Option<Duration>,
     /// Optional suffix appended to segment file names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suffix: Option<String>,
     /// Timezone used when computing the segment file name.
     /// Defaults to UTC.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tz: Option<Tz>,
+}
+
+fn default_max_file_size() -> u64 {
+    128 * 1024 * 1024
+}
+
+fn default_compression_level() -> i32 {
+    3
 }
 
 impl LogWriterConfig {
     pub fn new(log_dir: Utf8PathBuf) -> Self {
         Self {
             log_dir,
-            max_file_size: 128 * 1024 * 1024,
-            compression_level: 3,
+            max_file_size: default_max_file_size(),
+            compression_level: default_compression_level(),
             max_segment_duration: None,
             suffix: None,
             tz: None,
