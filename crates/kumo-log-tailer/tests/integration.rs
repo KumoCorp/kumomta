@@ -598,3 +598,74 @@ async fn test_partial_batch_from_done_file_yields_immediately() {
         "expected immediate yield for done file, but elapsed was {elapsed:?}"
     );
 }
+
+/// Core logic for the late-arriving file test.  Parameterized by
+/// `poll_watcher` so it can be run with both the native and poll
+/// watcher backends.
+async fn late_arriving_file_impl(poll_watcher: Option<Duration>) {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    // Write the first segment and mark it done.
+    write_zstd_log(
+        dir.path(),
+        "seg-001.zst",
+        &[r#"{"n":1}"#, r#"{"n":2}"#],
+        true,
+    );
+
+    let mut config = LogTailerConfig::new(log_dir.clone())
+        .pattern("*.zst")
+        .max_batch_size(100)
+        .max_batch_latency(Duration::from_millis(100));
+    if let Some(interval) = poll_watcher {
+        config = config.poll_watcher(interval);
+    }
+    let tailer = config.build().await.unwrap();
+    tokio::pin!(tailer);
+
+    // Read the first batch — should contain both records from seg-001.
+    let batch1 = next_batch_with_timeout(&mut tailer).await;
+    k9::assert_equal!(batch1.records(), &[json!({"n": 1}), json!({"n": 2})]);
+
+    // Now the tailer is waiting for new files.  Give it a moment
+    // to enter the wait state, then write a second segment.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    write_zstd_log(
+        dir.path(),
+        "seg-002.zst",
+        &[r#"{"n":3}"#, r#"{"n":4}"#],
+        true,
+    );
+
+    // The tailer should discover the new file and yield its records.
+    let batch2 = next_batch_with_timeout(&mut tailer).await;
+    k9::assert_equal!(batch2.records(), &[json!({"n": 3}), json!({"n": 4})]);
+
+    // Verify no duplicates: collect everything and check order.
+    let mut all: Vec<serde_json::Value> = Vec::new();
+    all.extend(batch1.records().iter().cloned());
+    all.extend(batch2.records().iter().cloned());
+    k9::assert_equal!(
+        all,
+        vec![
+            json!({"n": 1}),
+            json!({"n": 2}),
+            json!({"n": 3}),
+            json!({"n": 4}),
+        ]
+    );
+}
+
+/// Late-arriving file discovered via the native filesystem watcher.
+#[tokio::test]
+async fn test_late_arriving_file_native_watcher() {
+    late_arriving_file_impl(None).await;
+}
+
+/// Late-arriving file discovered via the poll watcher.
+#[tokio::test]
+async fn test_late_arriving_file_poll_watcher() {
+    late_arriving_file_impl(Some(Duration::from_millis(200))).await;
+}
