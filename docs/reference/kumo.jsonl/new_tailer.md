@@ -156,40 +156,210 @@ local kumo = require 'kumo'
 
 kumo.on('main', function()
   local client = kumo.http.build_client {}
+  local max_retries = 5
+  local retry_delay_seconds = 2
 
-  local tailer = kumo.jsonl.new_tailer {
-    directory = '/var/log/kumomta',
-    max_batch_size = 100,
-    max_batch_latency = '1s',
-    checkpoint_name = 'webhook-poster',
-  }
-
-  for batch in tailer:batches() do
-    -- Collect the records into a lua table, then JSON-encode
-    -- the whole array as the request body.
-    local payload = kumo.serde.json_encode(batch:records())
-
-    local response = client
+  -- Perform the HTTP POST and return the response.
+  local function post_batch(payload)
+    return client
       :post('http://10.0.0.1:4242/log')
       :header('Content-Type', 'application/json')
       :body(payload)
       :send()
+  end
 
-    if response:status_is_success() then
-      -- Only advance the checkpoint once we know the
-      -- remote endpoint accepted the batch.
-      batch:commit()
-    else
-      -- We did not commit, so the next run will retry this batch.
-      error(
+  -- Encode the records as a JSON array, then post with retries.
+  -- Returns only if the post succeeded; raises an error otherwise,
+  -- leaving the batch uncommitted so the next run will retry it.
+  local function process_batch(records)
+    local payload = kumo.serde.json_encode(records)
+
+    for attempt = 1, max_retries do
+      local response = post_batch(payload)
+
+      if response:status_is_success() then
+        return
+      end
+
+      local status = response:status_code()
+      local disposition = string.format(
+        '%d %s: %s',
+        status,
+        response:status_reason(),
+        response:text()
+      )
+
+      -- 429 Too Many Requests and 5xx server errors are
+      -- transient and worth retrying.  4xx client errors
+      -- (other than 429) indicate a permanent problem with
+      -- the request itself and are not worth retrying.
+      local retryable = status == 429 or status >= 500
+      if not retryable or attempt == max_retries then
+        -- We did not commit, so the next run will retry this batch.
+        -- Sleep briefly before failing out so that a supervising
+        -- process does not restart us too quickly.
+        kumo.log_error(
+          string.format(
+            'webhook post failed (attempt %d/%d), giving up: %s',
+            attempt,
+            max_retries,
+            disposition
+          )
+        )
+        kumo.time.sleep(5)
+        error('webhook post failed: ' .. disposition)
+      end
+
+      -- Transient failure: wait before retrying.
+      kumo.log_error(
         string.format(
-          'webhook post failed: %d %s: %s',
-          response:status_code(),
-          response:status_reason(),
-          response:text()
+          'webhook post failed (attempt %d/%d), retrying in %ds: %s',
+          attempt,
+          max_retries,
+          retry_delay_seconds,
+          disposition
         )
       )
+      kumo.time.sleep(retry_delay_seconds)
     end
+  end
+
+  local tailer = kumo.jsonl.new_tailer(
+    {
+      directory = '/var/log/kumomta',
+      max_batch_size = 100,
+      max_batch_latency = '1s',
+      checkpoint_name = 'webhook-poster',
+    },
+    -- Only forward records for the 'customer-a' egress pool.
+    function(record)
+      return record.egress_pool == 'customer-a'
+    end
+  )
+
+  for batch in tailer:batches() do
+    process_batch(batch:records())
+    batch:commit()
+  end
+
+  tailer:close()
+  client:close()
+end)
+```
+
+## Per-Customer Webhook Example with `main` Parameters
+
+The `main` event receives any extra command-line arguments passed after `--`
+as parameters to the handler function.  This makes it straightforward to run
+one instance of the same script per customer, each operating independently
+with its own checkpoint and filter:
+
+```console
+$ /opt/kumomta/sbin/kumod --script --policy /path/to/webhook.lua -- customer-a
+$ /opt/kumomta/sbin/kumod --script --policy /path/to/webhook.lua -- customer-b
+$ /opt/kumomta/sbin/kumod --script --policy /path/to/webhook.lua -- customer-c
+```
+
+Each process reads only the records for its own pool, maintains its own
+checkpoint, and retries failures independently without affecting any other
+customer's delivery.  This is the robust alternative to the multi-consumer
+tailer approach described in
+[`kumo.jsonl.new_multi_tailer`](new_multi_tailer.md#per-customer-batched-webhook-example).
+
+```lua
+local kumo = require 'kumo'
+
+-- Map each customer (egress pool name) to their webhook endpoint.
+local endpoints = {
+  ['customer-a'] = 'http://customer-a.example.com/log',
+  ['customer-b'] = 'http://customer-b.example.com/log',
+  ['customer-c'] = 'http://customer-c.example.com/log',
+}
+
+kumo.on('main', function(pool_name)
+  local url = assert(
+    endpoints[pool_name],
+    string.format("unknown pool '%s'", pool_name)
+  )
+
+  local client = kumo.http.build_client {}
+  local max_retries = 5
+  local retry_delay_seconds = 2
+
+  local function post_batch(payload)
+    return client
+      :post(url)
+      :header('Content-Type', 'application/json')
+      :body(payload)
+      :send()
+  end
+
+  -- Returns only if the post succeeded; raises an error otherwise,
+  -- leaving the batch uncommitted so the next run will retry it.
+  local function process_batch(records)
+    local payload = kumo.serde.json_encode(records)
+
+    for attempt = 1, max_retries do
+      local response = post_batch(payload)
+
+      if response:status_is_success() then
+        return
+      end
+
+      local status = response:status_code()
+      local disposition = string.format(
+        '%d %s: %s',
+        status,
+        response:status_reason(),
+        response:text()
+      )
+
+      local retryable = status == 429 or status >= 500
+      if not retryable or attempt == max_retries then
+        kumo.log_error(
+          string.format(
+            'webhook post to %s failed (attempt %d/%d), giving up: %s',
+            url,
+            attempt,
+            max_retries,
+            disposition
+          )
+        )
+        kumo.time.sleep(5)
+        error('webhook post failed: ' .. disposition)
+      end
+
+      kumo.log_error(
+        string.format(
+          'webhook post to %s failed (attempt %d/%d), retrying in %ds: %s',
+          url,
+          attempt,
+          max_retries,
+          retry_delay_seconds,
+          disposition
+        )
+      )
+      kumo.time.sleep(retry_delay_seconds)
+    end
+  end
+
+  local tailer = kumo.jsonl.new_tailer(
+    {
+      directory = '/var/log/kumomta',
+      max_batch_size = 100,
+      max_batch_latency = '1s',
+      -- Each customer has its own independent checkpoint.
+      checkpoint_name = 'webhook-' .. pool_name,
+    },
+    -- Only process records belonging to this customer's egress pool.
+    function(record)
+      return record.egress_pool == pool_name
+    end
+  )
+
+  for batch in tailer:batches() do
+    process_batch(batch:records())
+    batch:commit()
   end
 
   tailer:close()

@@ -190,6 +190,11 @@ independently per customer, however, there is a tradeoff regarding
 error handling if just one of those consumers has a persistent issue;
 see the comments in the example below.
 
+If you need fully independent per-customer retry behaviour with no risk of
+dropping records, consider the alternative approach shown in
+[Per-Customer Webhook Example with `main` Parameters](new_tailer.md#per-customer-webhook-example-with-main-parameters),
+which runs one `kumo.jsonl.new_tailer` process per customer.
+
 Save the script as e.g. `/path/to/webhook.lua` and run it as a standalone
 script:
 
@@ -208,6 +213,82 @@ kumo.on('main', function()
     ['customer-c'] = 'http://customer-c.example.com/log',
   }
 
+  local client = kumo.http.build_client {}
+  local max_retries = 5
+  local retry_delay_seconds = 2
+
+  -- Perform the HTTP POST to the given url and return the response.
+  local function post_batch(url, payload)
+    return client
+      :post(url)
+      :header('Content-Type', 'application/json')
+      :body(payload)
+      :send()
+  end
+
+  -- Encode the records as a JSON array, then post to url with retries.
+  -- On unrecoverable failure, logs the error and commits anyway so that
+  -- the other consumers can continue to make progress; this means the
+  -- batch is dropped with no retry for this customer.
+  --
+  -- This is an inherent trade-off with the multi-consumer tailer: all
+  -- consumers share a single read position, so a failure on one cannot
+  -- block the others without stalling all consumers.
+  --
+  -- If you need robust per-consumer delivery with independent retry
+  -- behaviour that never drops records and never blocks other consumers,
+  -- run a separate kumo.jsonl.new_tailer (single-consumer) instance per
+  -- customer instead.
+  local function process_batch(url, records)
+    local payload = kumo.serde.json_encode(records)
+
+    for attempt = 1, max_retries do
+      local response = post_batch(url, payload)
+
+      if response:status_is_success() then
+        return
+      end
+
+      local status = response:status_code()
+      local disposition = string.format(
+        '%d %s: %s',
+        status,
+        response:status_reason(),
+        response:text()
+      )
+
+      -- 429 Too Many Requests and 5xx server errors are transient
+      -- and worth retrying. Other 4xx errors are not.
+      local retryable = status == 429 or status >= 500
+      if not retryable or attempt == max_retries then
+        -- Drop this batch and commit so other consumers are not stalled.
+        kumo.log_error(
+          string.format(
+            'webhook post to %s failed (attempt %d/%d), dropping batch: %s',
+            url,
+            attempt,
+            max_retries,
+            disposition
+          )
+        )
+        return
+      end
+
+      -- Transient failure: wait before retrying.
+      kumo.log_error(
+        string.format(
+          'webhook post to %s failed (attempt %d/%d), retrying in %ds: %s',
+          url,
+          attempt,
+          max_retries,
+          retry_delay_seconds,
+          disposition
+        )
+      )
+      kumo.time.sleep(retry_delay_seconds)
+    end
+  end
+
   -- Build one consumer per customer, filtering on egress_pool.
   local consumers = {}
   for name, _ in pairs(endpoints) do
@@ -223,8 +304,6 @@ kumo.on('main', function()
     })
   end
 
-  local client = kumo.http.build_client {}
-
   local tailer = kumo.jsonl.new_multi_tailer {
     directory = '/var/log/kumomta',
     consumers = consumers,
@@ -232,55 +311,9 @@ kumo.on('main', function()
 
   for batches in tailer:batches() do
     for _, batch in ipairs(batches) do
-      local name = batch:consumer_name()
-      local url = endpoints[name]
-
-      -- JSON-encode all records in this batch as an array.
-      local payload = kumo.serde.json_encode(batch:records())
-
-      local response = client
-        :post(url)
-        :header('Content-Type', 'application/json')
-        :body(payload)
-        :send()
-
-      if response:status_is_success() then
-        -- Advance this consumer's checkpoint only after the
-        -- remote endpoint has accepted the batch.
-        batch:commit()
-      else
-        -- Log the failure and commit anyway so that the other
-        -- consumers can continue to make progress.  This means
-        -- this particular batch is dropped with no retry for
-        -- this customer; the records will not be re-sent.
-        -- You might consider doing a limited number of retries
-        -- with a small and bounded delay/backoff between them
-        -- here, or logging this situation to a different log
-        -- before continuing, as alternative strategies.
-        --
-        -- This is an inherent trade-off with the multi-consumer
-        -- tailer: if we don't commit here but try to continue
-        -- then we won't allow the other batches to make progress
-        -- until the error condition is resolved.  That means
-        -- that an error condition for one consumer can potentially
-        -- impact delivering records to another.
-        --
-        -- If you need robust per-consumer delivery with
-        -- independent retry behaviour that never drops records
-        -- and never blocks other consumers, run a separate
-        -- kumo.jsonl.new_tailer (single-consumer) instance per
-        -- customer instead.
-        kumo.log_error(
-          string.format(
-            'webhook post to %s failed: %d %s: %s (batch dropped)',
-            url,
-            response:status_code(),
-            response:status_reason(),
-            response:text()
-          )
-        )
-        batch:commit()
-      end
+      local url = endpoints[batch:consumer_name()]
+      process_batch(url, batch:records())
+      batch:commit()
     end
   end
 
