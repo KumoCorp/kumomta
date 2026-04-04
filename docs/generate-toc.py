@@ -464,6 +464,10 @@ TOC = [
                 "reference/kumo.fs",
             ),
             Gen(
+                "module: kumo.jsonl",
+                "reference/kumo.jsonl",
+            ),
+            Gen(
                 "module: kumo.http",
                 "reference/kumo.http",
             ),
