@@ -14,6 +14,8 @@ type CommitFn = Box<dyn FnOnce() -> anyhow::Result<()> + Send>;
 /// at its prior position, so the records in this batch will be
 /// re-read on the next run.
 pub struct LogBatch {
+    /// The name of the consumer this batch belongs to.
+    consumer_name: String,
     /// The parsed JSON records that comprise the batch.
     records: Vec<serde_json::Value>,
     /// The list of unique segment file names that were
@@ -33,9 +35,15 @@ pub struct LogBatch {
 }
 
 impl LogBatch {
-    /// Create a new empty batch.
+    /// Create a new empty batch with a default consumer name.
     pub fn new() -> Self {
+        Self::with_consumer_name(String::new())
+    }
+
+    /// Create a new empty batch for the named consumer.
+    pub fn with_consumer_name(name: String) -> Self {
         Self {
+            consumer_name: name,
             records: Vec::new(),
             file_names: Vec::new(),
             line_to_file_name: Vec::new(),
@@ -84,9 +92,33 @@ impl LogBatch {
         Ok(())
     }
 
+    /// Add a pre-parsed JSON value to the batch.
+    pub(crate) fn push_value(
+        &mut self,
+        value: serde_json::Value,
+        segment: &Utf8PathBuf,
+        byte_offset: u64,
+    ) {
+        let file_idx = match self.file_names.iter().rposition(|f| f == segment) {
+            Some(idx) => idx,
+            None => {
+                self.file_names.push(segment.clone());
+                self.file_names.len() - 1
+            }
+        };
+        self.records.push(value);
+        self.line_to_file_name.push(file_idx);
+        self.byte_offsets.push(byte_offset);
+    }
+
     /// Set the commit callback.  Called by the stream before yielding.
     pub(crate) fn set_commit_fn(&mut self, f: CommitFn) {
         self.commit_fn = Some(f);
+    }
+
+    /// The name of the consumer this batch belongs to.
+    pub fn consumer_name(&self) -> &str {
+        &self.consumer_name
     }
 
     /// Advance the checkpoint to the end of this batch.

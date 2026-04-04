@@ -7,4 +7,7 @@ pub mod tailer;
 
 pub use batch::LogBatch;
 pub use checkpoint::CheckpointData;
-pub use tailer::{CloseHandle, LogTailer, LogTailerConfig};
+pub use tailer::{
+    CloseHandle, ConsumerConfig, LogTailer, LogTailerConfig, MultiConsumerTailer,
+    MultiConsumerTailerConfig,
+};

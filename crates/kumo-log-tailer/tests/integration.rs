@@ -709,3 +709,96 @@ async fn test_commit_without_checkpoint_is_noop() {
     dir_entries.sort();
     k9::assert_equal!(dir_entries, vec!["seg-001.zst"]);
 }
+
+/// Test multi-consumer mode with differing max_batch_latency.
+///
+/// Consumer "fast" has a short latency (200ms) and consumer "slow"
+/// has a long latency (10s).  With a writable (not-done) file
+/// containing 3 records, the fast consumer should yield its batch
+/// after ~200ms while the slow consumer's batch is NOT yet ready.
+/// On a subsequent iteration the slow consumer's batch should also
+/// be yielded (because the file is then marked done, flushing all).
+use kumo_log_tailer::{ConsumerConfig, MultiConsumerTailerConfig};
+
+#[tokio::test]
+async fn test_multi_consumer_differing_latency() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    // Write a file that is NOT done so the tailer must rely on
+    // batch latency to decide when to yield.
+    write_zstd_log(
+        dir.path(),
+        "seg-001.zst",
+        &[r#"{"n":1}"#, r#"{"n":2}"#, r#"{"n":3}"#],
+        false, // not done
+    );
+
+    let fast = ConsumerConfig::new("fast")
+        .max_batch_size(100)
+        .max_batch_latency(Duration::from_millis(200));
+
+    let slow = ConsumerConfig::new("slow")
+        .max_batch_size(100)
+        .max_batch_latency(Duration::from_secs(10));
+
+    let config = MultiConsumerTailerConfig::new(log_dir.clone(), vec![fast, slow]).pattern("*.zst");
+
+    let tailer = config.build().await.unwrap();
+    tokio::pin!(tailer);
+
+    // First yield: only the fast consumer's batch should be ready
+    // (its 200ms latency expires), while the slow consumer (10s)
+    // is still accumulating.
+    let start = tokio::time::Instant::now();
+    let timeout = tokio::time::sleep(Duration::from_secs(5));
+    tokio::pin!(timeout);
+
+    let batches1 = tokio::select! {
+        b = tailer.next() => b.expect("expected batches").expect("should be Ok"),
+        _ = &mut timeout => panic!("timed out waiting for first yield"),
+    };
+    let elapsed = start.elapsed();
+
+    // Should have waited roughly the fast latency, not the slow one
+    assert!(
+        elapsed >= Duration::from_millis(150),
+        "yielded too quickly: {elapsed:?}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "waited too long (slow consumer leaked): {elapsed:?}"
+    );
+
+    // Only the fast consumer should be in this yield
+    k9::assert_equal!(batches1.len(), 1);
+    k9::assert_equal!(batches1[0].consumer_name(), "fast");
+    k9::assert_equal!(
+        batches1[0].records(),
+        &[json!({"n": 1}), json!({"n": 2}), json!({"n": 3})]
+    );
+
+    // Now mark the file as done so the slow consumer's batch
+    // gets flushed on the next iteration.
+    let seg = dir.path().join("seg-001.zst");
+    let mut perms = std::fs::metadata(&seg).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(true);
+    std::fs::set_permissions(&seg, perms).unwrap();
+
+    let timeout2 = tokio::time::sleep(Duration::from_secs(5));
+    tokio::pin!(timeout2);
+
+    let batches2 = tokio::select! {
+        b = tailer.next() => b.expect("expected batches").expect("should be Ok"),
+        _ = &mut timeout2 => panic!("timed out waiting for second yield"),
+    };
+
+    // The slow consumer's batch should now be yielded
+    k9::assert_equal!(batches2.len(), 1);
+    k9::assert_equal!(batches2[0].consumer_name(), "slow");
+    k9::assert_equal!(
+        batches2[0].records(),
+        &[json!({"n": 1}), json!({"n": 2}), json!({"n": 3})]
+    );
+}
