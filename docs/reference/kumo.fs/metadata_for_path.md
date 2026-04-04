@@ -7,18 +7,16 @@ tags:
 # kumo.fs.metadata_for_path
 
 ```lua
-kumo.fs.metadata_for_path(path)
-kumo.fs.symlink_metadata_for_path(path)
+kumo.fs.metadata_for_path(PATH)
 ```
 
 {{since('dev')}}
 
-This function returns the file or directory attributes. Available attributes are as below.
+This function returns the file or directory attributes.
+If PATH is a symbolic link, this function will traverse symbolic links and retrieves metadata of the destination file or directory.
+Available attributes are as below.
+
 Not all attributes are guaranteed to be retrievable as they may be platform dependent.
-
-metadata_for_path will traverse symbolic links and retrieves metadata of the destination file or directory.
-
-symlink_metadata_for_path will retrieve the metadata of the symbolic link itself.
 
 * `path` same as supplied path
 * `is_file` returns true if path points to a file

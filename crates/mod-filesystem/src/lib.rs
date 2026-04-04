@@ -24,6 +24,15 @@ macro_rules! add_metadata_field {
     };
 }
 
+#[cfg(unix)]
+macro_rules! system_time_to_lua_time {
+    ($epoch_secs:expr, $nsecs:expr) => {{
+        let dt = DateTime::<Utc>::from_timestamp($epoch_secs, $nsecs as u32)
+            .ok_or_else(|| mlua::Error::external("invalid timestamp"))?;
+        Ok(Time::from(dt))
+    }};
+}
+
 impl LuaUserData for MetadataWrapper {
     fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
         add_metadata_field!(fields, "is_file", is_file);
@@ -42,17 +51,20 @@ impl LuaUserData for MetadataWrapper {
             add_metadata_field!(fields, "gid", gid);
             add_metadata_field!(fields, "rdev", rdev);
             add_metadata_field!(fields, "size", size);
-            fields.add_field_method_get("atime", |lua, this| {
-                let atime_secs = this.0.atime();
-                system_time_to_lua_time(lua, Some(atime_secs))
+            fields.add_field_method_get("atime", |_lua, this| {
+                let secs = this.0.atime();
+                let nsec = this.0.atime_nsec();
+                system_time_to_lua_time!(secs, nsec)
             });
-            fields.add_field_method_get("mtime", |lua, this| {
-                let mtime_secs = this.0.mtime();
-                system_time_to_lua_time(lua, Some(mtime_secs))
+            fields.add_field_method_get("mtime", |_lua, this| {
+                let secs = this.0.mtime();
+                let nsec = this.0.mtime_nsec();
+                system_time_to_lua_time!(secs, nsec)
             });
-            fields.add_field_method_get("ctime", |lua, this| {
-                let ctime_secs = this.0.ctime();
-                system_time_to_lua_time(lua, Some(ctime_secs))
+            fields.add_field_method_get("ctime", |_lua, this| {
+                let secs = this.0.ctime();
+                let nsec = this.0.ctime_nsec();
+                system_time_to_lua_time!(secs, nsec)
             });
             add_metadata_field!(fields, "blksize", blksize);
             add_metadata_field!(fields, "blocks", blocks);
@@ -156,14 +168,6 @@ async fn symlink_metadata_for_path(_lua: Lua, path: String) -> mlua::Result<Meta
     Ok(MetadataWrapper(metadata))
 }
 
-#[cfg(unix)]
-fn system_time_to_lua_time(_lua: &Lua, epoch_secs: Option<i64>) -> mlua::Result<Option<Time>> {
-    Ok(epoch_secs.map(|secs| {
-        let dt = DateTime::<Utc>::from_timestamp(secs, 0).unwrap();
-        Time::from(dt)
-    }))
-}
-
 async fn glob(pattern: String, path: Option<String>) -> mlua::Result<Vec<String>> {
     let entries = tokio::task::spawn_blocking(move || {
         let mut entries = vec![];
@@ -209,6 +213,10 @@ assert(meta.is_file)
 assert(not meta.is_dir)
 assert(not meta.is_symlink)
 assert(meta.len == 11)
+
+if meta.ctime ~= nil then
+    assert(meta.ctime.unix_timestamp > 0)
+end
 
 if meta.size ~= nil then
     assert(meta.size == 11)
