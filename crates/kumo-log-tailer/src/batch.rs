@@ -52,46 +52,6 @@ impl LogBatch {
         }
     }
 
-    /// Parse `line` as JSON and add it to the batch.
-    ///
-    /// If `filter` is provided, the parsed value is passed to it;
-    /// if the filter returns `Ok(false)` the record is silently
-    /// discarded.  If the filter returns an error, it is propagated.
-    ///
-    /// Returns an error with context (segment file name and byte offset)
-    /// if the line is not valid JSON.
-    pub fn push(
-        &mut self,
-        line: &str,
-        segment: &Utf8PathBuf,
-        byte_offset: u64,
-        filter: Option<&(dyn Fn(&serde_json::Value) -> anyhow::Result<bool> + Send)>,
-    ) -> anyhow::Result<()> {
-        let value: serde_json::Value = serde_json::from_str(line).map_err(|err| {
-            anyhow::anyhow!(
-                "Failed to parse a line from {segment} (byte offset {byte_offset}) \
-                 as json: {err}. Is the file corrupt? You may need to move \
-                 the file aside to make progress"
-            )
-        })?;
-        if let Some(f) = &filter {
-            if !f(&value)? {
-                return Ok(());
-            }
-        }
-        let file_idx = match self.file_names.iter().rposition(|f| f == segment) {
-            Some(idx) => idx,
-            None => {
-                self.file_names.push(segment.clone());
-                self.file_names.len() - 1
-            }
-        };
-        self.records.push(value);
-        self.line_to_file_name.push(file_idx);
-        self.byte_offsets.push(byte_offset);
-        Ok(())
-    }
-
     /// Add a pre-parsed JSON value to the batch.
     pub(crate) fn push_value(
         &mut self,

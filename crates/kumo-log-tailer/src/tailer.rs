@@ -487,16 +487,6 @@ fn is_file_done(path: &Utf8PathBuf) -> bool {
         .unwrap_or(false)
 }
 
-fn save_checkpoint_sync(cp_path: &Utf8PathBuf, file: &Utf8PathBuf, line: usize) {
-    let data = CheckpointData {
-        file: file.to_string(),
-        line,
-    };
-    if let Ok(json) = serde_json::to_string(&data) {
-        let _ = std::fs::write(cp_path.as_std_path(), json);
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Per-consumer state used during stream construction
 // ---------------------------------------------------------------------------
@@ -766,8 +756,7 @@ fn make_multi_stream(
                         };
                         let cp_path = cp_path.clone();
                         batch.set_commit_fn(Box::new(move || {
-                            save_checkpoint_sync(&cp_path, &cp_file, cp_line);
-                            Ok(())
+                            CheckpointData::save_atomic(&cp_path, &cp_file, cp_line)
                         }));
                     }
                     ready.push(batch);

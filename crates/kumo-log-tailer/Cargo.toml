@@ -21,6 +21,7 @@ mlua = { workspace = true, features = ["vendored", "lua54", "async", "send", "se
 notify = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { version = "1.32", features = ["fs", "io-util", "rt", "time", "sync", "macros"] }
 tokio-stream = { workspace = true }

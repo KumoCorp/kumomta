@@ -1,5 +1,6 @@
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 
 /// Persisted checkpoint data recording the current file and line position.
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -22,8 +23,9 @@ impl CheckpointData {
         }
     }
 
-    /// Save a checkpoint to the given path.
-    pub async fn save(
+    /// Atomically write a checkpoint file by writing to a temporary
+    /// file in the same directory and then renaming it into place.
+    pub fn save_atomic(
         checkpoint_path: &Utf8PathBuf,
         file: &Utf8PathBuf,
         line: usize,
@@ -33,7 +35,14 @@ impl CheckpointData {
             line,
         };
         let json = serde_json::to_string(&data)?;
-        tokio::fs::write(checkpoint_path.as_std_path(), json).await?;
+        let dir = checkpoint_path
+            .parent()
+            .map(|p| p.as_std_path())
+            .unwrap_or_else(|| std::path::Path::new("."));
+        let prefix = checkpoint_path.file_name().unwrap_or(".checkpoint");
+        let mut tmp = tempfile::Builder::new().prefix(prefix).tempfile_in(dir)?;
+        tmp.write_all(json.as_bytes())?;
+        tmp.persist(checkpoint_path.as_std_path())?;
         Ok(())
     }
 }
