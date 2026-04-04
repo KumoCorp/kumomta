@@ -1,24 +1,21 @@
 #![cfg(feature = "lua")]
 
+use camino::Utf8PathBuf;
+use kumo_log_tailer::LogWriterConfig;
 use mlua::Lua;
-use std::io::Write;
 use tempfile::TempDir;
 
-/// Helper: create a zstd-compressed JSONL file with the given records.
-fn write_zstd_log(dir: &std::path::Path, filename: &str, records: &[&str], mark_done: bool) {
-    let path = dir.join(filename);
-    let mut encoder = zstd::Encoder::new(std::fs::File::create(&path).unwrap(), 3).unwrap();
+/// Write records into a single completed segment using [`LogWriter`].
+fn write_segment(dir: &std::path::Path, records: &[&str]) {
+    let log_dir = Utf8PathBuf::try_from(dir.to_path_buf()).unwrap();
+    let mut writer = LogWriterConfig::new(log_dir)
+        .compression_level(3)
+        .max_file_size(u64::MAX)
+        .build();
     for record in records {
-        writeln!(encoder, "{record}").unwrap();
+        writer.write_line(record).unwrap();
     }
-    encoder.finish().unwrap();
-
-    if mark_done {
-        let mut perms = std::fs::metadata(&path).unwrap().permissions();
-        #[allow(clippy::permissions_set_readonly_false)]
-        perms.set_readonly(true);
-        std::fs::set_permissions(&path, perms).unwrap();
-    }
+    writer.close().unwrap();
 }
 
 /// Run a lua script in a fresh Lua state with the tailer module registered.
@@ -40,27 +37,20 @@ async fn test_lua_single_consumer() {
     let dir = TempDir::new().unwrap();
     let log_dir = dir.path().to_str().unwrap().to_string();
 
-    write_zstd_log(
+    write_segment(
         dir.path(),
-        "seg-001.zst",
         &[
             r#"{"type":"Delivery","id":1}"#,
             r#"{"type":"Bounce","id":2}"#,
         ],
-        true,
     );
-    write_zstd_log(
-        dir.path(),
-        "seg-002.zst",
-        &[r#"{"type":"Delivery","id":3}"#],
-        true,
-    );
+    write_segment(dir.path(), &[r#"{"type":"Delivery","id":3}"#]);
 
     let script = format!(
         r#"
         local tailer <close> = kumo.tailer.new {{
             directory = '{log_dir}',
-            pattern = '*.zst',
+            
             max_batch_size = 100,
             max_batch_latency = '100ms',
         }}
@@ -94,15 +84,13 @@ async fn test_lua_single_consumer_with_filter() {
     let dir = TempDir::new().unwrap();
     let log_dir = dir.path().to_str().unwrap().to_string();
 
-    write_zstd_log(
+    write_segment(
         dir.path(),
-        "seg-001.zst",
         &[
             r#"{"type":"Delivery","id":1}"#,
             r#"{"type":"Bounce","id":2}"#,
             r#"{"type":"Delivery","id":3}"#,
         ],
-        true,
     );
 
     let script = format!(
@@ -110,7 +98,7 @@ async fn test_lua_single_consumer_with_filter() {
         local tailer <close> = kumo.tailer.new(
             {{
                 directory = '{log_dir}',
-                pattern = '*.zst',
+                
                 max_batch_size = 100,
                 max_batch_latency = '100ms',
             }},
@@ -146,23 +134,21 @@ async fn test_lua_multi_consumer() {
     let dir = TempDir::new().unwrap();
     let log_dir = dir.path().to_str().unwrap().to_string();
 
-    write_zstd_log(
+    write_segment(
         dir.path(),
-        "seg-001.zst",
         &[
             r#"{"type":"Delivery","id":1}"#,
             r#"{"type":"Bounce","id":2}"#,
             r#"{"type":"Delivery","id":3}"#,
             r#"{"type":"Bounce","id":4}"#,
         ],
-        true,
     );
 
     let script = format!(
         r#"
         local tailer <close> = kumo.tailer.new_multi {{
             directory = '{log_dir}',
-            pattern = '*.zst',
+            
             consumers = {{
                 {{
                     name = 'deliveries',

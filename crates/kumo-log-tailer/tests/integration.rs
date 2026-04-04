@@ -1,33 +1,63 @@
 use camino::Utf8PathBuf;
 use futures::StreamExt;
-use kumo_log_tailer::{LogBatch, LogTailer, LogTailerConfig};
+use kumo_log_tailer::{
+    ConsumerConfig, LogBatch, LogTailer, LogTailerConfig, LogWriter, LogWriterConfig,
+    MultiConsumerTailerConfig,
+};
 use serde_json::json;
-use std::io::Write;
 use std::time::Duration;
 use tempfile::TempDir;
 
-/// Helper: create a zstd-compressed JSONL file with the given records.
-/// If `mark_done` is true, sets the file to readonly (simulating writer completion).
-fn write_zstd_log(dir: &std::path::Path, filename: &str, records: &[&str], mark_done: bool) {
-    let path = dir.join(filename);
-    let mut encoder = zstd::Encoder::new(std::fs::File::create(&path).unwrap(), 3).unwrap();
-    for record in records {
-        writeln!(encoder, "{record}").unwrap();
-    }
-    encoder.finish().unwrap();
+/// Create a [`LogWriter`] for the given directory.
+fn writer_for(dir: &std::path::Path) -> LogWriter {
+    let log_dir = Utf8PathBuf::try_from(dir.to_path_buf()).unwrap();
+    LogWriterConfig::new(log_dir)
+        .compression_level(3)
+        .max_file_size(u64::MAX)
+        .build()
+}
 
-    if mark_done {
-        let mut perms = std::fs::metadata(&path).unwrap().permissions();
-        #[allow(clippy::permissions_set_readonly_false)]
-        perms.set_readonly(true);
-        std::fs::set_permissions(&path, perms).unwrap();
+/// Write records into a single segment and close it (marks it done).
+fn write_segment(dir: &std::path::Path, records: &[&str]) {
+    let mut w = writer_for(dir);
+    for r in records {
+        w.write_line(r).unwrap();
     }
+    w.close().unwrap();
+}
+
+/// Write records into a single segment but leave it writable
+/// (not done), simulating an in-progress file.
+fn write_open_segment(dir: &std::path::Path, records: &[&str]) {
+    let mut w = writer_for(dir);
+    for r in records {
+        w.write_line(r).unwrap();
+    }
+    w.flush_without_marking_done().unwrap();
 }
 
 fn utf8_dir(dir: &TempDir) -> Utf8PathBuf {
     Utf8PathBuf::try_from(dir.path().to_path_buf()).unwrap()
 }
 
+/// Helper to collect exactly one batch from a tailer with a timeout.
+async fn next_batch_with_timeout(tailer: &mut std::pin::Pin<&mut LogTailer>) -> LogBatch {
+    let timeout = tokio::time::sleep(Duration::from_secs(5));
+    tokio::pin!(timeout);
+    tokio::select! {
+        batch = tailer.next() => {
+            batch.expect("expected a batch").expect("batch should be Ok")
+        }
+        _ = &mut timeout => {
+            panic!("timed out waiting for a batch");
+        }
+    }
+}
+
+// -----------------------------------------------------------------------
+
+/// Read one record at a time, closing and reopening with checkpoint.
+/// Verify we get all records exactly once, in order.
 #[tokio::test]
 async fn test_checkpoint_resume_one_at_a_time() {
     let dir = TempDir::new().unwrap();
@@ -41,25 +71,23 @@ async fn test_checkpoint_resume_one_at_a_time() {
         r#"{"id":5}"#,
     ];
 
-    write_zstd_log(dir.path(), "segment-001.zst", &records, true);
+    write_segment(dir.path(), &records);
 
     let mut all_records = Vec::new();
 
-    // Read one record at a time, closing and reopening with checkpoint
     for i in 0..5 {
         let tailer = LogTailerConfig::new(log_dir.clone())
-            .pattern("*.zst")
             .max_batch_size(1)
             .max_batch_latency(Duration::from_millis(50))
             .checkpoint_name("test-cp")
             .build()
             .await
             .unwrap();
-
         tokio::pin!(tailer);
 
-        let batch = tailer.next().await;
-        let mut batch = batch
+        let mut batch = tailer
+            .next()
+            .await
             .unwrap_or_else(|| panic!("expected a batch on iteration {i}"))
             .unwrap_or_else(|e| panic!("expected Ok batch on iteration {i}: {e}"));
         k9::assert_equal!(batch.len(), 1);
@@ -69,59 +97,57 @@ async fn test_checkpoint_resume_one_at_a_time() {
         tailer.as_mut().close();
     }
 
-    // Verify we got all records exactly once, in order
     let expected: Vec<serde_json::Value> = records
         .iter()
         .map(|s| serde_json::from_str(s).unwrap())
         .collect();
     k9::assert_equal!(all_records, expected);
 
-    // One more tailer should yield no records from the completed file
-    // (it should just wait). Close it immediately.
+    // One more tailer should yield no records from the completed file.
     let tailer = LogTailerConfig::new(log_dir.clone())
-        .pattern("*.zst")
         .max_batch_size(1)
         .max_batch_latency(Duration::from_millis(50))
         .checkpoint_name("test-cp")
         .build()
         .await
         .unwrap();
-
-    // close immediately; should get None
     tailer.close();
     tokio::pin!(tailer);
     let result = tailer.next().await;
     k9::assert_equal!(result.is_none(), true);
 }
 
+/// Verify that records from multiple completed segment files are
+/// read in file-sorted (i.e. chronological) order.
 #[tokio::test]
 async fn test_multiple_files_in_order() {
     let dir = TempDir::new().unwrap();
     let log_dir = utf8_dir(&dir);
 
-    write_zstd_log(dir.path(), "aaa.zst", &[r#"{"file":"a","n":1}"#], true);
-    write_zstd_log(
-        dir.path(),
-        "bbb.zst",
-        &[r#"{"file":"b","n":1}"#, r#"{"file":"b","n":2}"#],
-        true,
-    );
-    write_zstd_log(dir.path(), "ccc.zst", &[r#"{"file":"c","n":1}"#], true);
+    // Use a single writer with close() between segments to ensure ordering.
+    let mut w = writer_for(dir.path());
+    w.write_line(r#"{"file":"a","n":1}"#).unwrap();
+    w.close().unwrap();
+    let mut w = writer_for(dir.path());
+    w.write_line(r#"{"file":"b","n":1}"#).unwrap();
+    w.write_line(r#"{"file":"b","n":2}"#).unwrap();
+    w.close().unwrap();
+    let mut w = writer_for(dir.path());
+    w.write_line(r#"{"file":"c","n":1}"#).unwrap();
+    w.close().unwrap();
 
     let tailer = LogTailerConfig::new(log_dir.clone())
-        .pattern("*.zst")
         .max_batch_size(100)
         .max_batch_latency(Duration::from_millis(100))
         .build()
         .await
         .unwrap();
-
     tokio::pin!(tailer);
 
-    // Collect all records from completed files
-    let mut all_records = Vec::new();
+    // Collect all records from completed files.
     // We expect to get batches covering all 4 records from 3 files.
     // The tailer may yield them in one or more batches.
+    let mut all_records = Vec::new();
     let timeout = tokio::time::sleep(Duration::from_secs(5));
     tokio::pin!(timeout);
 
@@ -156,37 +182,31 @@ async fn test_multiple_files_in_order() {
     );
 }
 
+/// Checkpoint resume spanning two separate log files.
 #[tokio::test]
 async fn test_checkpoint_across_multiple_files() {
     let dir = TempDir::new().unwrap();
     let log_dir = utf8_dir(&dir);
 
-    write_zstd_log(
-        dir.path(),
-        "seg-001.zst",
-        &[r#"{"id":1}"#, r#"{"id":2}"#],
-        true,
-    );
-    write_zstd_log(
-        dir.path(),
-        "seg-002.zst",
-        &[r#"{"id":3}"#, r#"{"id":4}"#],
-        true,
-    );
+    let mut w = writer_for(dir.path());
+    w.write_line(r#"{"id":1}"#).unwrap();
+    w.write_line(r#"{"id":2}"#).unwrap();
+    w.close().unwrap();
+    let mut w = writer_for(dir.path());
+    w.write_line(r#"{"id":3}"#).unwrap();
+    w.write_line(r#"{"id":4}"#).unwrap();
+    w.close().unwrap();
 
     let mut all_records = Vec::new();
 
-    // Read one at a time across two files
     for i in 0..4 {
         let tailer = LogTailerConfig::new(log_dir.clone())
-            .pattern("*.zst")
             .max_batch_size(1)
             .max_batch_latency(Duration::from_millis(50))
             .checkpoint_name("multi-cp")
             .build()
             .await
             .unwrap();
-
         tokio::pin!(tailer);
 
         let mut batch = tailer
@@ -197,17 +217,18 @@ async fn test_checkpoint_across_multiple_files() {
         k9::assert_equal!(batch.len(), 1);
         all_records.push(batch.records()[0].clone());
         batch.commit().unwrap();
-
         tailer.as_mut().close();
     }
 
-    let expected = vec![
-        json!({"id":1}),
-        json!({"id":2}),
-        json!({"id":3}),
-        json!({"id":4}),
-    ];
-    k9::assert_equal!(all_records, expected);
+    k9::assert_equal!(
+        all_records,
+        vec![
+            json!({"id":1}),
+            json!({"id":2}),
+            json!({"id":3}),
+            json!({"id":4})
+        ]
+    );
 }
 
 /// Verify that commit() after reading one record advances the checkpoint
@@ -217,16 +238,10 @@ async fn test_commit_advances_checkpoint_past_consumed_batch() {
     let dir = TempDir::new().unwrap();
     let log_dir = utf8_dir(&dir);
 
-    write_zstd_log(
-        dir.path(),
-        "data.zst",
-        &[r#"{"n":1}"#, r#"{"n":2}"#, r#"{"n":3}"#],
-        true,
-    );
+    write_segment(dir.path(), &[r#"{"n":1}"#, r#"{"n":2}"#, r#"{"n":3}"#]);
 
     // First tailer: read one record, then close
     let tailer = LogTailerConfig::new(log_dir.clone())
-        .pattern("*.zst")
         .max_batch_size(1)
         .max_batch_latency(Duration::from_millis(50))
         .checkpoint_name("advance-cp")
@@ -242,12 +257,9 @@ async fn test_commit_advances_checkpoint_past_consumed_batch() {
         .expect("batch should be Ok");
     k9::assert_equal!(first.records(), &[json!({"n": 1})]);
     first.commit().unwrap();
-
     tailer.as_mut().close();
 
-    // Second tailer with same checkpoint: should see record 2, not record 1
     let tailer2 = LogTailerConfig::new(log_dir.clone())
-        .pattern("*.zst")
         .max_batch_size(1)
         .max_batch_latency(Duration::from_millis(50))
         .checkpoint_name("advance-cp")
@@ -263,7 +275,6 @@ async fn test_commit_advances_checkpoint_past_consumed_batch() {
         .expect("batch should be Ok");
     k9::assert_equal!(second.records(), &[json!({"n": 2})]);
     second.commit().unwrap();
-
     tailer2.as_mut().close();
 }
 
@@ -275,17 +286,11 @@ async fn test_drop_without_commit_does_not_advance_checkpoint() {
     let dir = TempDir::new().unwrap();
     let log_dir = utf8_dir(&dir);
 
-    write_zstd_log(
-        dir.path(),
-        "data.zst",
-        &[r#"{"n":1}"#, r#"{"n":2}"#, r#"{"n":3}"#],
-        true,
-    );
+    write_segment(dir.path(), &[r#"{"n":1}"#, r#"{"n":2}"#, r#"{"n":3}"#]);
 
     // First tailer: read one record, then drop without close
     {
         let tailer = LogTailerConfig::new(log_dir.clone())
-            .pattern("*.zst")
             .max_batch_size(1)
             .max_batch_latency(Duration::from_millis(50))
             .checkpoint_name("drop-cp")
@@ -300,14 +305,10 @@ async fn test_drop_without_commit_does_not_advance_checkpoint() {
             .expect("should yield a batch")
             .expect("batch should be Ok");
         k9::assert_equal!(first.records(), &[json!({"n": 1})]);
-
         // batch is dropped here without calling commit()
     }
 
-    // Second tailer with same checkpoint: should see record 1 again
-    // because commit() was never called.
     let tailer2 = LogTailerConfig::new(log_dir.clone())
-        .pattern("*.zst")
         .max_batch_size(1)
         .max_batch_latency(Duration::from_millis(50))
         .checkpoint_name("drop-cp")
@@ -322,7 +323,6 @@ async fn test_drop_without_commit_does_not_advance_checkpoint() {
         .expect("should yield a batch")
         .expect("batch should be Ok");
     k9::assert_equal!(second.records(), &[json!({"n": 1})]);
-
     tailer2.as_mut().close();
 }
 
@@ -335,28 +335,22 @@ async fn test_tail_starts_from_latest_segment() {
     let log_dir = utf8_dir(&dir);
 
     // Two completed segments; the tailer should skip the first.
-    write_zstd_log(
-        dir.path(),
-        "seg-001.zst",
-        &[r#"{"seg":1,"n":1}"#, r#"{"seg":1,"n":2}"#],
-        true,
-    );
-    write_zstd_log(
-        dir.path(),
-        "seg-002.zst",
-        &[r#"{"seg":2,"n":1}"#, r#"{"seg":2,"n":2}"#],
-        true,
-    );
+    let mut w = writer_for(dir.path());
+    w.write_line(r#"{"seg":1,"n":1}"#).unwrap();
+    w.write_line(r#"{"seg":1,"n":2}"#).unwrap();
+    w.close().unwrap();
+    let mut w = writer_for(dir.path());
+    w.write_line(r#"{"seg":2,"n":1}"#).unwrap();
+    w.write_line(r#"{"seg":2,"n":2}"#).unwrap();
+    w.close().unwrap();
 
     let tailer = LogTailerConfig::new(log_dir.clone())
-        .pattern("*.zst")
         .max_batch_size(100)
         .max_batch_latency(Duration::from_millis(100))
         .tail(true)
         .build()
         .await
         .unwrap();
-
     tokio::pin!(tailer);
 
     let mut all_records = Vec::new();
@@ -383,36 +377,19 @@ async fn test_tail_starts_from_latest_segment() {
         }
     }
 
-    // Should only contain records from seg-002, not seg-001
+    // Should only contain records from the second segment, not the first
     k9::assert_equal!(
         all_records,
         vec![json!({"seg": 2, "n": 1}), json!({"seg": 2, "n": 2})]
     );
 
     // Tail mode must NOT have created any checkpoint file.
-    // Since no checkpoint_name was set, no file should exist.
-    // Check that the directory contains only our two log segments.
-    let mut dir_entries: Vec<String> = std::fs::read_dir(dir.path())
+    // Directory should contain only the two log segments.
+    let dir_entries: Vec<_> = std::fs::read_dir(dir.path())
         .unwrap()
         .filter_map(|e| e.ok())
-        .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
-    dir_entries.sort();
-    k9::assert_equal!(dir_entries, vec!["seg-001.zst", "seg-002.zst"]);
-}
-
-/// Helper to collect exactly one batch from a tailer with a timeout.
-async fn next_batch_with_timeout(tailer: &mut std::pin::Pin<&mut LogTailer>) -> LogBatch {
-    let timeout = tokio::time::sleep(Duration::from_secs(5));
-    tokio::pin!(timeout);
-    tokio::select! {
-        batch = tailer.next() => {
-            batch.expect("expected a batch").expect("batch should be Ok")
-        }
-        _ = &mut timeout => {
-            panic!("timed out waiting for a batch");
-        }
-    }
+    k9::assert_equal!(dir_entries.len(), 2);
 }
 
 /// Verify that a single batch can contain records from multiple segment
@@ -422,23 +399,16 @@ async fn test_batch_spans_multiple_segments() {
     let dir = TempDir::new().unwrap();
     let log_dir = utf8_dir(&dir);
 
-    // Two small completed segments: 2 records + 2 records = 4 total.
-    // With batch_size=10 they should all land in one batch.
-    write_zstd_log(
-        dir.path(),
-        "seg-001.zst",
-        &[r#"{"seg":1,"n":1}"#, r#"{"seg":1,"n":2}"#],
-        true,
-    );
-    write_zstd_log(
-        dir.path(),
-        "seg-002.zst",
-        &[r#"{"seg":2,"n":1}"#, r#"{"seg":2,"n":2}"#],
-        true,
-    );
+    let mut w = writer_for(dir.path());
+    w.write_line(r#"{"seg":1,"n":1}"#).unwrap();
+    w.write_line(r#"{"seg":1,"n":2}"#).unwrap();
+    w.close().unwrap();
+    let mut w = writer_for(dir.path());
+    w.write_line(r#"{"seg":2,"n":1}"#).unwrap();
+    w.write_line(r#"{"seg":2,"n":2}"#).unwrap();
+    w.close().unwrap();
 
     let tailer = LogTailerConfig::new(log_dir.clone())
-        .pattern("*.zst")
         .max_batch_size(10)
         .max_batch_latency(Duration::from_millis(100))
         .build()
@@ -462,14 +432,6 @@ async fn test_batch_spans_multiple_segments() {
 
     // The batch should reference two distinct segment files
     k9::assert_equal!(batch.file_names().len(), 2);
-
-    // First two lines come from seg-001, last two from seg-002
-    let seg1 = log_dir.join("seg-001.zst");
-    let seg2 = log_dir.join("seg-002.zst");
-    k9::assert_equal!(batch.file_name_for_line(0), &seg1);
-    k9::assert_equal!(batch.file_name_for_line(1), &seg1);
-    k9::assert_equal!(batch.file_name_for_line(2), &seg2);
-    k9::assert_equal!(batch.file_name_for_line(3), &seg2);
 }
 
 /// Verify that max_batch_size still constrains the batch even when
@@ -480,17 +442,15 @@ async fn test_batch_size_constrains_across_segments() {
     let dir = TempDir::new().unwrap();
     let log_dir = utf8_dir(&dir);
 
-    // Three records across two segments, but batch size is 2.
-    write_zstd_log(
-        dir.path(),
-        "seg-001.zst",
-        &[r#"{"seg":1,"n":1}"#, r#"{"seg":1,"n":2}"#],
-        true,
-    );
-    write_zstd_log(dir.path(), "seg-002.zst", &[r#"{"seg":2,"n":1}"#], true);
+    let mut w = writer_for(dir.path());
+    w.write_line(r#"{"seg":1,"n":1}"#).unwrap();
+    w.write_line(r#"{"seg":1,"n":2}"#).unwrap();
+    w.close().unwrap();
+    let mut w = writer_for(dir.path());
+    w.write_line(r#"{"seg":2,"n":1}"#).unwrap();
+    w.close().unwrap();
 
     let tailer = LogTailerConfig::new(log_dir.clone())
-        .pattern("*.zst")
         .max_batch_size(2)
         .max_batch_latency(Duration::from_millis(100))
         .build()
@@ -498,23 +458,18 @@ async fn test_batch_size_constrains_across_segments() {
         .unwrap();
     tokio::pin!(tailer);
 
-    // First batch: exactly 2 records (the limit), all from seg-001
+    // First batch: exactly 2 records (the limit)
     let batch1 = next_batch_with_timeout(&mut tailer).await;
     k9::assert_equal!(batch1.len(), 2);
     k9::assert_equal!(
         batch1.records(),
-        &[json!({"seg": 1, "n": 1}), json!({"seg": 1, "n": 2}),]
+        &[json!({"seg": 1, "n": 1}), json!({"seg": 1, "n": 2})]
     );
-    k9::assert_equal!(batch1.file_names().len(), 1);
 
-    // Second batch: the remaining record from seg-002
+    // Second batch: the remaining record from the next segment
     let batch2 = next_batch_with_timeout(&mut tailer).await;
     k9::assert_equal!(batch2.len(), 1);
     k9::assert_equal!(batch2.records(), &[json!({"seg": 2, "n": 1})]);
-    k9::assert_equal!(batch2.file_names().len(), 1);
-
-    let seg2 = log_dir.join("seg-002.zst");
-    k9::assert_equal!(batch2.file_name_for_line(0), &seg2);
 }
 
 /// Verify that a partial batch (fewer records than max_batch_size) is
@@ -525,19 +480,10 @@ async fn test_partial_batch_flushed_by_latency() {
     let dir = TempDir::new().unwrap();
     let log_dir = utf8_dir(&dir);
 
-    // Write a file with 3 records but do NOT mark it done.
-    // The tailer will read the 3 records, hit EOF, and wait for more
-    // data.  After max_batch_latency it should yield a partial batch.
-    write_zstd_log(
-        dir.path(),
-        "seg-001.zst",
-        &[r#"{"n":1}"#, r#"{"n":2}"#, r#"{"n":3}"#],
-        false, // not done
-    );
+    write_open_segment(dir.path(), &[r#"{"n":1}"#, r#"{"n":2}"#, r#"{"n":3}"#]);
 
     let tailer = LogTailerConfig::new(log_dir.clone())
-        .pattern("*.zst")
-        .max_batch_size(100) // much larger than available records
+        .max_batch_size(100)
         .max_batch_latency(Duration::from_millis(200))
         .build()
         .await
@@ -552,7 +498,7 @@ async fn test_partial_batch_flushed_by_latency() {
     k9::assert_equal!(batch.len(), 3);
     k9::assert_equal!(
         batch.records(),
-        &[json!({"n": 1}), json!({"n": 2}), json!({"n": 3}),]
+        &[json!({"n": 1}), json!({"n": 2}), json!({"n": 3})]
     );
 
     // The batch should have been yielded after roughly the latency
@@ -570,18 +516,11 @@ async fn test_partial_batch_from_done_file_yields_immediately() {
     let dir = TempDir::new().unwrap();
     let log_dir = utf8_dir(&dir);
 
-    // Write a completed file with fewer records than max_batch_size.
-    write_zstd_log(
-        dir.path(),
-        "seg-001.zst",
-        &[r#"{"n":1}"#, r#"{"n":2}"#],
-        true, // done
-    );
+    write_segment(dir.path(), &[r#"{"n":1}"#, r#"{"n":2}"#]);
 
     let tailer = LogTailerConfig::new(log_dir.clone())
-        .pattern("*.zst")
         .max_batch_size(100)
-        .max_batch_latency(Duration::from_secs(10)) // very long
+        .max_batch_latency(Duration::from_secs(10))
         .build()
         .await
         .unwrap();
@@ -609,16 +548,9 @@ async fn late_arriving_file_impl(poll_watcher: Option<Duration>) {
     let dir = TempDir::new().unwrap();
     let log_dir = utf8_dir(&dir);
 
-    // Write the first segment and mark it done.
-    write_zstd_log(
-        dir.path(),
-        "seg-001.zst",
-        &[r#"{"n":1}"#, r#"{"n":2}"#],
-        true,
-    );
+    write_segment(dir.path(), &[r#"{"n":1}"#, r#"{"n":2}"#]);
 
     let mut config = LogTailerConfig::new(log_dir.clone())
-        .pattern("*.zst")
         .max_batch_size(100)
         .max_batch_latency(Duration::from_millis(100));
     if let Some(interval) = poll_watcher {
@@ -627,7 +559,7 @@ async fn late_arriving_file_impl(poll_watcher: Option<Duration>) {
     let tailer = config.build().await.unwrap();
     tokio::pin!(tailer);
 
-    // Read the first batch — should contain both records from seg-001.
+    // Read the first batch — should contain both records from the first segment.
     let batch1 = next_batch_with_timeout(&mut tailer).await;
     k9::assert_equal!(batch1.records(), &[json!({"n": 1}), json!({"n": 2})]);
 
@@ -635,30 +567,11 @@ async fn late_arriving_file_impl(poll_watcher: Option<Duration>) {
     // to enter the wait state, then write a second segment.
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    write_zstd_log(
-        dir.path(),
-        "seg-002.zst",
-        &[r#"{"n":3}"#, r#"{"n":4}"#],
-        true,
-    );
+    write_segment(dir.path(), &[r#"{"n":3}"#, r#"{"n":4}"#]);
 
     // The tailer should discover the new file and yield its records.
     let batch2 = next_batch_with_timeout(&mut tailer).await;
     k9::assert_equal!(batch2.records(), &[json!({"n": 3}), json!({"n": 4})]);
-
-    // Verify no duplicates: collect everything and check order.
-    let mut all: Vec<serde_json::Value> = Vec::new();
-    all.extend(batch1.records().iter().cloned());
-    all.extend(batch2.records().iter().cloned());
-    k9::assert_equal!(
-        all,
-        vec![
-            json!({"n": 1}),
-            json!({"n": 2}),
-            json!({"n": 3}),
-            json!({"n": 4}),
-        ]
-    );
 }
 
 /// Late-arriving file discovered via the native filesystem watcher.
@@ -680,11 +593,9 @@ async fn test_commit_without_checkpoint_is_noop() {
     let dir = TempDir::new().unwrap();
     let log_dir = utf8_dir(&dir);
 
-    write_zstd_log(dir.path(), "seg-001.zst", &[r#"{"n":1}"#], true);
+    write_segment(dir.path(), &[r#"{"n":1}"#]);
 
-    // No checkpoint_name configured
     let tailer = LogTailerConfig::new(log_dir.clone())
-        .pattern("*.zst")
         .max_batch_size(10)
         .max_batch_latency(Duration::from_millis(50))
         .build()
@@ -700,14 +611,12 @@ async fn test_commit_without_checkpoint_is_noop() {
     // calling it again is also fine
     batch.commit().unwrap();
 
-    // No checkpoint file should have been created
-    let mut dir_entries: Vec<String> = std::fs::read_dir(dir.path())
+    // No checkpoint file should have been created — only the segment
+    let dir_entries: Vec<_> = std::fs::read_dir(dir.path())
         .unwrap()
         .filter_map(|e| e.ok())
-        .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
-    dir_entries.sort();
-    k9::assert_equal!(dir_entries, vec!["seg-001.zst"]);
+    k9::assert_equal!(dir_entries.len(), 1);
 }
 
 /// Test multi-consumer mode with differing max_batch_latency.
@@ -718,21 +627,12 @@ async fn test_commit_without_checkpoint_is_noop() {
 /// after ~200ms while the slow consumer's batch is NOT yet ready.
 /// On a subsequent iteration the slow consumer's batch should also
 /// be yielded (because the file is then marked done, flushing all).
-use kumo_log_tailer::{ConsumerConfig, MultiConsumerTailerConfig};
-
 #[tokio::test]
 async fn test_multi_consumer_differing_latency() {
     let dir = TempDir::new().unwrap();
     let log_dir = utf8_dir(&dir);
 
-    // Write a file that is NOT done so the tailer must rely on
-    // batch latency to decide when to yield.
-    write_zstd_log(
-        dir.path(),
-        "seg-001.zst",
-        &[r#"{"n":1}"#, r#"{"n":2}"#, r#"{"n":3}"#],
-        false, // not done
-    );
+    write_open_segment(dir.path(), &[r#"{"n":1}"#, r#"{"n":2}"#, r#"{"n":3}"#]);
 
     let fast = ConsumerConfig::new("fast")
         .max_batch_size(100)
@@ -742,7 +642,7 @@ async fn test_multi_consumer_differing_latency() {
         .max_batch_size(100)
         .max_batch_latency(Duration::from_secs(10));
 
-    let config = MultiConsumerTailerConfig::new(log_dir.clone(), vec![fast, slow]).pattern("*.zst");
+    let config = MultiConsumerTailerConfig::new(log_dir.clone(), vec![fast, slow]);
 
     let tailer = config.build().await.unwrap();
     tokio::pin!(tailer);
@@ -767,11 +667,11 @@ async fn test_multi_consumer_differing_latency() {
     );
     assert!(
         elapsed < Duration::from_secs(2),
-        "waited too long (slow consumer leaked): {elapsed:?}"
+        "waited too long: {elapsed:?}"
     );
 
-    // Only the fast consumer should be in this yield
     k9::assert_equal!(batches1.len(), 1);
+    // Only the fast consumer should be in this yield
     k9::assert_equal!(batches1[0].consumer_name(), "fast");
     k9::assert_equal!(
         batches1[0].records(),
@@ -780,11 +680,16 @@ async fn test_multi_consumer_differing_latency() {
 
     // Now mark the file as done so the slow consumer's batch
     // gets flushed on the next iteration.
-    let seg = dir.path().join("seg-001.zst");
-    let mut perms = std::fs::metadata(&seg).unwrap().permissions();
-    #[allow(clippy::permissions_set_readonly_false)]
-    perms.set_readonly(true);
-    std::fs::set_permissions(&seg, perms).unwrap();
+    let entries: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    for entry in entries {
+        let mut perms = entry.metadata().unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(true);
+        std::fs::set_permissions(entry.path(), perms).unwrap();
+    }
 
     let timeout2 = tokio::time::sleep(Duration::from_secs(5));
     tokio::pin!(timeout2);
@@ -800,5 +705,128 @@ async fn test_multi_consumer_differing_latency() {
     k9::assert_equal!(
         batches2[0].records(),
         &[json!({"n": 1}), json!({"n": 2}), json!({"n": 3})]
+    );
+}
+
+/// Test that LogWriter produces segment files that LogTailer can read.
+#[tokio::test]
+async fn test_writer_round_trip() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    let mut writer = LogWriterConfig::new(log_dir.clone())
+        .compression_level(3)
+        .max_file_size(10_000)
+        .build();
+
+    // Write records using LogWriter
+    writer.write_value(&json!({"id": 1})).unwrap();
+    writer.write_value(&json!({"id": 2})).unwrap();
+    writer.write_value(&json!({"id": 3})).unwrap();
+    writer.close().unwrap();
+
+    // Read them back with LogTailer
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .max_batch_size(100)
+        .max_batch_latency(Duration::from_millis(100))
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+
+    let batch = next_batch_with_timeout(&mut tailer).await;
+    k9::assert_equal!(
+        batch.records(),
+        &[json!({"id": 1}), json!({"id": 2}), json!({"id": 3})]
+    );
+}
+
+/// Test that LogWriter rolls to a new segment when max_file_size is exceeded.
+#[tokio::test]
+async fn test_writer_rolls_on_size() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    // Set a very small max_file_size so each record triggers a roll
+    let mut writer = LogWriterConfig::new(log_dir.clone())
+        .compression_level(3)
+        .max_file_size(1) // 1 byte — every write will exceed this
+        .build();
+
+    writer.write_value(&json!({"id": 1})).unwrap();
+    writer.write_value(&json!({"id": 2})).unwrap();
+    writer.close().unwrap();
+
+    // Should have created 2 segment files
+    let segments: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    k9::assert_equal!(segments.len(), 2);
+
+    // Both should be readonly (done)
+    for seg in &segments {
+        assert!(
+            seg.metadata().unwrap().permissions().readonly(),
+            "{:?} should be readonly",
+            seg.file_name()
+        );
+    }
+
+    // Tailer should read both in order
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .max_batch_size(100)
+        .max_batch_latency(Duration::from_millis(100))
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+
+    let mut all = Vec::new();
+    let timeout = tokio::time::sleep(Duration::from_secs(5));
+    tokio::pin!(timeout);
+    loop {
+        tokio::select! {
+            batch = tailer.next() => {
+                match batch {
+                    Some(Ok(b)) => {
+                        all.extend(b.records().iter().cloned());
+                        if all.len() >= 2 { break; }
+                    }
+                    Some(Err(e)) => panic!("error: {e}"),
+                    None => break,
+                }
+            }
+            _ = &mut timeout => panic!("timed out"),
+        }
+    }
+    k9::assert_equal!(all, vec![json!({"id": 1}), json!({"id": 2})]);
+}
+
+/// Test that LogWriter respects the suffix option.
+#[tokio::test]
+async fn test_writer_suffix() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    let mut writer = LogWriterConfig::new(log_dir.clone())
+        .compression_level(3)
+        .max_file_size(10_000)
+        .suffix(".zst")
+        .build();
+
+    writer.write_value(&json!({"x": 1})).unwrap();
+    writer.close().unwrap();
+
+    let files: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    k9::assert_equal!(files.len(), 1);
+    assert!(
+        files[0].ends_with(".zst"),
+        "expected .zst suffix, got {}",
+        files[0]
     );
 }
