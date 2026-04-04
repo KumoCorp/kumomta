@@ -82,6 +82,10 @@
    [kumo.string.ends_with](../reference/string/ends_with.md). Thanks to
    @kayozaki! #498
 
+ * New [kumo.fs.metadata_for_path](../reference/kumo.fs/metadata_for_path.md) and
+   [kumo.fs.symlink_metadata_for_path](../reference/kumo.fs/symlink_metadata_for_path.md) functions to get file/directory
+   metadata. Thanks to @kayozaki! #497
+
  * Queue Helper: `queue_module:setup_with_options` has a new optional
    `invalidate_with_epoch` boolean parameter that will set the underlying
    `queue_helper_data` cache to be invalidated when the [config
