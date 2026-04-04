@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["Compute","InstanceMetadata","IpAddressInfo","Ipv4Info","Network","NetworkInterface","SubnetInfo"]};
