@@ -58,7 +58,7 @@ async fn test_lua_single_consumer() {
 
     let script = format!(
         r#"
-        local tailer = kumo.tailer.new {{
+        local tailer <close> = kumo.tailer.new {{
             directory = '{log_dir}',
             pattern = '*.zst',
             max_batch_size = 100,
@@ -77,8 +77,6 @@ async fn test_lua_single_consumer() {
                 break
             end
         end
-
-        tailer:close()
 
         assert(#all_ids == 3, 'expected 3 records, got ' .. #all_ids)
         assert(all_ids[1] == 1, 'first record id should be 1')
@@ -109,7 +107,7 @@ async fn test_lua_single_consumer_with_filter() {
 
     let script = format!(
         r#"
-        local tailer = kumo.tailer.new(
+        local tailer <close> = kumo.tailer.new(
             {{
                 directory = '{log_dir}',
                 pattern = '*.zst',
@@ -132,8 +130,6 @@ async fn test_lua_single_consumer_with_filter() {
                 break
             end
         end
-
-        tailer:close()
 
         assert(#all_ids == 2, 'expected 2 records, got ' .. #all_ids)
         assert(all_ids[1] == 1, 'first should be id 1')
@@ -164,7 +160,7 @@ async fn test_lua_multi_consumer() {
 
     let script = format!(
         r#"
-        local tailer = kumo.tailer.new_multi {{
+        local tailer <close> = kumo.tailer.new_multi {{
             directory = '{log_dir}',
             pattern = '*.zst',
             consumers = {{
@@ -209,8 +205,6 @@ async fn test_lua_multi_consumer() {
                 break
             end
         end
-
-        tailer:close()
 
         assert(#delivery_ids == 2,
             'expected 2 deliveries, got ' .. #delivery_ids)

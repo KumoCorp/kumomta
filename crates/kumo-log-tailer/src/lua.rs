@@ -1,7 +1,7 @@
 use crate::{CloseHandle, ConsumerConfig, LogBatch, LogTailerConfig, MultiConsumerTailerConfig};
 use config::{any_err, from_lua_value, get_or_create_sub_module, SerdeWrappedValue};
 use futures::StreamExt;
-use mlua::{Lua, LuaSerdeExt, UserData, UserDataMethods, UserDataRef, UserDataRefMut};
+use mlua::{Lua, LuaSerdeExt, MetaMethod, UserData, UserDataMethods, UserDataRef, UserDataRefMut};
 use serde::Deserialize;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -126,6 +126,7 @@ impl UserData for LuaLogTailer {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method("batches", Self::batches);
         methods.add_async_method_mut("close", Self::close);
+        methods.add_async_meta_method_mut(MetaMethod::Close, Self::close);
     }
 }
 
@@ -174,6 +175,7 @@ impl UserData for LuaMultiConsumerTailer {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method("batches", Self::batches);
         methods.add_async_method_mut("close", Self::close);
+        methods.add_async_meta_method_mut(MetaMethod::Close, Self::close);
     }
 }
 
@@ -268,7 +270,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     // kumo.tailer.new_multi — multi-consumer tailer
     //
     // Usage:
-    //   local tailer = kumo.tailer.new_multi {
+    //   local tailer <close> = kumo.tailer.new_multi {
     //     directory = '/var/log/kumomta',
     //     consumers = {
     //       { name = 'deliveries', checkpoint_name = 'cp-del',
