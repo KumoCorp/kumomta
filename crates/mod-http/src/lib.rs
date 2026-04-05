@@ -24,6 +24,8 @@ struct ClientOptions {
     pool_idle_timeout: Option<Duration>,
     #[serde(default, with = "duration_serde")]
     timeout: Option<Duration>,
+    #[serde(default)]
+    accept_invalid_certs: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -539,6 +541,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             if let Some(user_agent) = options.user_agent {
                 builder = builder.user_agent(user_agent);
+            }
+
+            if let Some(accept_invalid_certs) = options.accept_invalid_certs {
+                builder = builder.danger_accept_invalid_certs(accept_invalid_certs)
             }
 
             let client = builder.build().map_err(any_err)?;

@@ -22,6 +22,10 @@ across multiple HTTP requests.
 * `timeout` - optional duration. Sets the default timeout to use for each
   request made by the client. Can be overridden using the Request object.
   The default is `60 seconds`. {{since('2024.06.10-84e84b89', inline=True)}}.
+* `accept_invalid_certs` - optional boolean. If true, disables SSL/TLS
+  certificate verification for all requests made by the client. This is
+  **dangerous** and should only be used in development or testing environments,
+  never in production.
 
 ```lua
 local response = kumo.http.build_client({}):get('https://example.com/'):send()
