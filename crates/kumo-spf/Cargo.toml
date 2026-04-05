@@ -10,6 +10,7 @@ edition = "2021"
 live-dns-tests = []
 
 [dependencies]
+bstr.workspace = true
 dns-resolver = {path="../dns-resolver"}
 hickory-resolver = {workspace=true}
 instant-xml = {workspace=true}

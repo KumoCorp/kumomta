@@ -3,8 +3,14 @@ use instant_xml::ToXml;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct DateRange {
-    begin: DateTime<Utc>,
-    end: DateTime<Utc>,
+    pub(crate) begin: DateTime<Utc>,
+    pub(crate) end: DateTime<Utc>,
+}
+
+impl DateRange {
+    pub fn new(begin: DateTime<Utc>, end: DateTime<Utc>) -> Self {
+        Self { begin, end }
+    }
 }
 
 impl ToXml for DateRange {
