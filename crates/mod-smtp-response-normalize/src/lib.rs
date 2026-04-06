@@ -1,5 +1,7 @@
 use chrono::DateTime;
+#[cfg(feature = "lua")]
 use config::get_or_create_sub_module;
+#[cfg(feature = "lua")]
 use mlua::Lua;
 use regex::{RegexSet, RegexSetBuilder};
 use std::borrow::Cow;
@@ -207,6 +209,7 @@ pub fn normalize(s: &str) -> String {
     result
 }
 
+#[cfg(feature = "lua")]
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let string_mod = get_or_create_sub_module(lua, "string")?;
 
