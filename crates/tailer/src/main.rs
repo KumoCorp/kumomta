@@ -15,12 +15,12 @@ struct Opt {
 
     /// The name of the checkpoint file that will be stored
     /// in the log directory
-    #[arg(long, default_value = ".tailer-checkpoint")]
+    #[arg(long, default_value = "tailer-checkpoint")]
     checkpoint: String,
 
     /// When processing log lines, how many to feed into
     /// the actor at once
-    #[arg(long, default_value = "1")]
+    #[arg(long, default_value = "1000")]
     batch_size: usize,
 
     /// Maximum time to wait for a partial batch to fill before
