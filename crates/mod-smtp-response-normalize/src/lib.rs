@@ -49,6 +49,12 @@ const IP_RE: &str = r"^(?:\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|(?:[0-9a-fA-F]{1,4}
 /// <https://stackoverflow.com/a/201378/149111>
 const EMAIL_RE: &str = r#"^(?:[a-z0-9!#$%&'*+\x2f=?^_`\x7b-\x7d~\x2d]+(?:\.[a-z0-9!#$%&'*+\x2f=?^_`\x7b-\x7d~\x2d]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9\x2d]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9\x2d]*[a-z0-9])?|\[(?:(?:(?:2(?:5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9]))\.){3}(?:(?:2(?:5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9])|[a-z0-9\x2d]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])$"#;
 
+/// Match ISO 8601 duration strings.
+/// Format: P[n]Y[n]M[n]DT[n]H[n]M[n]S where P is the duration designator,
+/// T separates date and time components, and each component is optional.
+/// Examples: "P23DT23H", "P4Y", "P1Y2M3DT4H5M6S"
+const ISO8601_DURATION_RE: &str = r"^P(?:\d+(?:\.\d+)?Y)?(?:\d+(?:\.\d+)?M)?(?:\d+(?:\.\d+)?W)?(?:\d+(?:\.\d+)?D)?(?:T(?:\d+(?:\.\d+)?H)?(?:\d+(?:\.\d+)?M)?(?:\d+(?:\.\d+)?S)?)?$";
+
 fn tokenize_re<'a>(word: &'a str) -> Option<Cow<'a, str>> {
     static MAPPING: &[(&str, &str)] = &[
         (IP_RE, "{ipaddr}"),
@@ -116,6 +122,51 @@ fn tokenize_compound<'a>(word: &'a str) -> Option<Cow<'a, str>> {
     }
 }
 
+/// Preprocess the input string to replace duration strings with a placeholder.
+/// Duration strings are sequences like "11s 999ms 990us 55ns".
+/// This must happen before splitting by whitespace since the duration itself
+/// contains whitespace.
+/// We use a placeholder without special characters so the bracket processing doesn't
+/// strip braces from it.
+fn preprocess_duration<'a>(s: &'a str) -> Cow<'a, str> {
+    // Pattern: number followed by time unit, optionally repeated with whitespace
+    // Units: ns, us, ms, s, m, h, day, month, year
+    // This regex matches sequences like "11s 999ms 990us 55ns"
+    static RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        // Match: number + unit, optionally followed by (whitespace + number + unit) repeated
+        // Example: "11s 999ms 990us 55ns"
+        // Word boundaries ensure we don't match "70s" inside "70si756..." or "abc11s"
+        let pattern =
+            r"\b\d+(?:ns|us|ms|s|m|h|day|month|year)(?:\s+\d+(?:ns|us|ms|s|m|h|day|month|year))*\b";
+        regex::Regex::new(pattern).unwrap()
+    });
+
+    // Replace all duration matches with a simple placeholder
+    let result = RE.replace_all(s, "__DURATION__");
+    Cow::Owned(result.into_owned())
+}
+
+/// Tokenize duration placeholders like "__DURATION__" to {duration}
+/// Also recognizes ISO 8601 duration strings (e.g., "P23DT23H", "P4Y", "P1Y2M3DT4H5M6S")
+fn tokenize_duration<'a>(word: &'a str) -> Option<Cow<'a, str>> {
+    if word == "__DURATION__" {
+        Some(Cow::Borrowed("{duration}"))
+    } else if word.starts_with('P') {
+        // ISO 8601 duration format: P[n]Y[n]M[n]DT[n]H[n]M[n]S
+        // T separates date and time components
+        // Check if it matches the ISO 8601 pattern
+        static ISO8601_RE: LazyLock<regex::Regex> =
+            LazyLock::new(|| regex::Regex::new(ISO8601_DURATION_RE).unwrap());
+        if ISO8601_RE.is_match(word) {
+            Some(Cow::Borrowed("{duration}"))
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
 // Annotated here with bench throughput on my 7965WX.
 // Overall is 290 MiB/s 1.4us. Contrast with NOP (empty table)
 // throughput of 1.6GiB/s 244ns.
@@ -124,6 +175,7 @@ fn tokenize_compound<'a>(word: &'a str) -> Option<Cow<'a, str>> {
 const FUNCS: &[Normalizer] = &[
     // Should always be first
     tokenize_dictionary_word_phf, // 1.4266 GiB/s 272ns
+    tokenize_duration,            // duration placeholder
     tokenize_timestamp_3339,      // 1017MiB/s 392ns
     tokenize_uuid,                // 1.13GiB/s 342ns
     tokenize_hash,                // 1.19GiB/s 325ns
@@ -144,6 +196,13 @@ fn normalize_word<'a>(word: &'a str) -> Option<Cow<'a, str>> {
 
 pub fn normalize(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
+
+    // Preprocess to replace duration strings before splitting
+    // We need to do this first because duration strings contain whitespace
+    let s = match preprocess_duration(s) {
+        Cow::Borrowed(b) => b.to_string(),
+        Cow::Owned(o) => o,
+    };
 
     let mut processed;
 
@@ -189,7 +248,7 @@ pub fn normalize(s: &str) -> String {
         }
         &processed
     } else {
-        s
+        &s
     };
 
     for word in s.split_ascii_whitespace() {
@@ -271,6 +330,20 @@ mod tests {
                 "550 Mail is rejected by recipients [aGVsbG8uCg== IP: 10.10.10.10]. https://service.mail.qq.com/detail/0/92.",
                 "550 Mail is rejected by recipients {base64} IP: {ipaddr} https://service.mail.qq.com/detail/0/92.",
             ),
+            (
+                "Context: DispatcherDrop. Next due in 11s 999ms 990us 55ns at 2026-04-05T07:34:04.198063031Z",
+                "Context: DispatcherDrop. Next due in {duration} at {timestamp}",
+            ),
+            ("P23DT23H", "{duration}"),
+            ("P4Y", "{duration}"),
+            ("P1Y2M3DT4H5M6S", "{duration}"),
+            ("P1Y2M3DT4H5M6Shello", "{hash}"),
+            ("abc11s 999ms", "abc11s {duration}"),
+            ("2year", "{duration}"),
+            ("1month", "{duration}"),
+            ("3day", "{duration}"),
+            ("5h 30m", "{duration}"),
+            ("2yearhello", "2yearhello"),
         ];
 
         for (input, expected_output) in CASES {
