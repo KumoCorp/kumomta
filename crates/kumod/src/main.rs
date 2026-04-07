@@ -7,7 +7,7 @@ use config::{declare_event, CallbackSignature};
 use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
 use kumo_server_common::start::StartConfig;
 use kumo_server_lifecycle::LifeCycle;
-use kumo_server_runtime::available_parallelism;
+use kumo_server_runtime::{available_parallelism, rt_spawn};
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use nix::unistd::{Uid, User};
 use std::path::PathBuf;
@@ -284,11 +284,19 @@ async fn perform_init(opts: Opt) -> anyhow::Result<()> {
         let mut script_args = opts.legacy_script_args;
         script_args.append(&mut opts.script_args.clone());
 
-        config
-            .async_call_callback(&main_sig, ParamList(script_args))
-            .await
-            .context("call main callback")?;
-        LifeCycle::request_shutdown().await;
+        // Spawn the main callback in the background so that perform_init
+        // returns immediately. This allows wait_for_shutdown() to run
+        // and properly handle ctrl+c and other shutdown signals.
+        let _ = rt_spawn("main", async move {
+            if let Err(err) = config
+                .async_call_callback(&main_sig, ParamList(script_args))
+                .await
+            {
+                tracing::error!("script main callback failed: {err:#}");
+            }
+            LifeCycle::request_shutdown().await;
+        });
+
         return Ok(());
     }
 
