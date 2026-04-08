@@ -26,6 +26,9 @@ pub struct CheckHostParams {
 
     /// The results of the DKIM part of the checks
     pub dkim: Vec<BTreeMap<BString, BString>>,
+
+    /// The results of the SPF part of the checks
+    pub spf: Option<BTreeMap<BString, BString>>,
 }
 
 impl CheckHostParams {
@@ -34,12 +37,14 @@ impl CheckHostParams {
             from_domain,
             mail_from_domain,
             dkim,
+            spf,
         } = self;
 
         match DmarcContext::new(
             &from_domain,
             mail_from_domain.as_ref().map(|x| x.as_str()),
             &dkim[..],
+            spf.as_ref(),
         ) {
             Ok(cx) => cx.check(resolver).await,
             Err(result) => result,
@@ -84,6 +89,7 @@ struct DmarcContext<'a> {
     pub(crate) mail_from_domain: Option<&'a str>,
     pub(crate) now: SystemTime,
     pub(crate) dkim: &'a [BTreeMap<BString, BString>],
+    pub(crate) spf: Option<&'a BTreeMap<BString, BString>>,
 }
 
 impl<'a> DmarcContext<'a> {
@@ -96,12 +102,14 @@ impl<'a> DmarcContext<'a> {
         from_domain: &'a str,
         mail_from_domain: Option<&'a str>,
         dkim: &'a [BTreeMap<BString, BString>],
+        spf: Option<&'a BTreeMap<BString, BString>>,
     ) -> Result<Self, DispositionWithContext> {
         Ok(Self {
             from_domain,
             mail_from_domain,
             now: SystemTime::now(),
             dkim,
+            spf,
         })
     }
 

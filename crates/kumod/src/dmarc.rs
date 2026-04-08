@@ -20,8 +20,9 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
         "check_msg",
         lua.create_async_function(
             |lua,
-             (msg, dkim_results, opt_resolver_name): (
+             (msg, dkim_results, spf_results, opt_resolver_name): (
                 UserDataRef<Message>,
+                mlua::Value,
                 mlua::Value,
                 Option<String>,
             )| async move {
@@ -69,13 +70,21 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                     ));
                 };
 
-                let dkim_results: Vec<AuthenticationResult> =
-                    config::from_lua_value(&lua, dkim_results)?;
+                let dkim_results: Vec<_> =
+                    config::from_lua_value::<Vec<AuthenticationResult>>(&lua, dkim_results)?
+                        .into_iter()
+                        .map(auth_result_to_props)
+                        .collect();
+
+                let spf_results =
+                    config::from_lua_value::<Option<AuthenticationResult>>(&lua, spf_results)?
+                        .map(auth_result_to_props);
 
                 let result = CheckHostParams {
                     from_domain,
                     mail_from_domain,
-                    dkim: dkim_results.clone().into_iter().map(|x| x.props).collect(),
+                    dkim: dkim_results,
+                    spf: spf_results,
                 }
                 .check(&**resolver)
                 .await;
@@ -123,4 +132,11 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
     )?;
 
     Ok(())
+}
+
+fn auth_result_to_props(
+    mut result: AuthenticationResult,
+) -> BTreeMap<bstr::BString, bstr::BString> {
+    result.props.insert("result".into(), result.result);
+    result.props
 }
