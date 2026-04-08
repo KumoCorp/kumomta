@@ -150,6 +150,128 @@ async fn dmarc_dkim_strict_subdomain_fail() {
 }
 
 #[tokio::test]
+async fn dmarc_dkim_ignores_non_pass_results() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "_dmarc.example.com",
+            "v=DMARC1; p=reject; adkim=s; \
+            rua=mailto:dmarc-feedback@example.com"
+                .to_string(),
+        );
+
+    let mut dkim_fail = AuthenticationResult {
+        method: "dkim".into(),
+        method_version: None,
+        result: Default::default(),
+        reason: None,
+        props: BTreeMap::new(),
+    };
+    dkim_fail.props.insert("result".into(), "fail".into());
+    dkim_fail
+        .props
+        .insert("header.d".into(), "example.org".into());
+
+    let mut dkim_pass = AuthenticationResult {
+        method: "dkim".into(),
+        method_version: None,
+        result: Default::default(),
+        reason: None,
+        props: BTreeMap::new(),
+    };
+    dkim_pass.props.insert("result".into(), "pass".into());
+    dkim_pass
+        .props
+        .insert("header.d".into(), "example.com".into());
+
+    let mut spf_result = AuthenticationResult {
+        method: "spf".into(),
+        method_version: None,
+        result: Default::default(),
+        reason: None,
+        props: BTreeMap::new(),
+    };
+    spf_result.props.insert("result".into(), "pass".into());
+
+    let dkim_results = vec![dkim_fail, dkim_pass];
+    let mut dmarc_context = DmarcContext::new(
+        "example.com",
+        Some("example.com"),
+        &[],
+        "",
+        &dkim_results,
+        &spf_result,
+        None,
+    );
+
+    let result = dmarc_context.check(&resolver).await;
+
+    k9::snapshot!(result.result, "Pass");
+}
+
+#[tokio::test]
+async fn dmarc_dkim_continues_until_aligned_result() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "_dmarc.example.com",
+            "v=DMARC1; p=reject; adkim=s; \
+            rua=mailto:dmarc-feedback@example.com"
+                .to_string(),
+        );
+
+    let mut dkim_unaligned = AuthenticationResult {
+        method: "dkim".into(),
+        method_version: None,
+        result: Default::default(),
+        reason: None,
+        props: BTreeMap::new(),
+    };
+    dkim_unaligned.props.insert("result".into(), "pass".into());
+    dkim_unaligned
+        .props
+        .insert("header.d".into(), "example.org".into());
+
+    let mut dkim_aligned = AuthenticationResult {
+        method: "dkim".into(),
+        method_version: None,
+        result: Default::default(),
+        reason: None,
+        props: BTreeMap::new(),
+    };
+    dkim_aligned.props.insert("result".into(), "pass".into());
+    dkim_aligned
+        .props
+        .insert("header.d".into(), "example.com".into());
+
+    let mut spf_result = AuthenticationResult {
+        method: "spf".into(),
+        method_version: None,
+        result: Default::default(),
+        reason: None,
+        props: BTreeMap::new(),
+    };
+    spf_result.props.insert("result".into(), "fail".into());
+
+    let dkim_results = vec![dkim_unaligned, dkim_aligned];
+    let mut dmarc_context = DmarcContext::new(
+        "example.com",
+        Some("example.com"),
+        &[],
+        "",
+        &dkim_results,
+        &spf_result,
+        None,
+    );
+
+    let result = dmarc_context.check(&resolver).await;
+
+    k9::snapshot!(result.result, "Pass");
+}
+
+#[tokio::test]
 async fn dmarc_dkim_relaxed_illformed() {
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
@@ -290,6 +412,58 @@ async fn dmarc_spf_strict_subdomain() {
 }
 
 #[tokio::test]
+async fn dmarc_spf_ignores_non_pass_result() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "_dmarc.example.com",
+            "v=DMARC1; p=reject; aspf=s; adkim=s; \
+            rua=mailto:dmarc-feedback@example.com"
+                .to_string(),
+        );
+
+    let mut dkim_pass = AuthenticationResult {
+        method: "dkim".into(),
+        method_version: None,
+        result: Default::default(),
+        reason: None,
+        props: BTreeMap::new(),
+    };
+    dkim_pass.props.insert("result".into(), "pass".into());
+    dkim_pass
+        .props
+        .insert("header.d".into(), "example.com".into());
+
+    let mut spf_result = AuthenticationResult {
+        method: "spf".into(),
+        method_version: None,
+        result: Default::default(),
+        reason: None,
+        props: BTreeMap::new(),
+    };
+    spf_result.props.insert("result".into(), "fail".into());
+    spf_result
+        .props
+        .insert("smtp.mailfrom".into(), "helper.example.org".into());
+
+    let dkim_results = vec![dkim_pass];
+    let mut dmarc_context = DmarcContext::new(
+        "example.com",
+        Some("helper.example.org"),
+        &[],
+        "",
+        &dkim_results,
+        &spf_result,
+        None,
+    );
+
+    let result = dmarc_context.check(&resolver).await;
+
+    k9::snapshot!(result.result, "Pass");
+}
+
+#[tokio::test]
 async fn dmarc_pct_rate() {
     let mut total_failures = 0;
     let iters = 10_000;
@@ -338,13 +512,19 @@ async fn evaluate_ip<'a>(
 ) -> DispositionWithContext {
     let mut dkim_vec = vec![];
 
-    let spf_result = AuthenticationResult {
+    let mut spf_result = AuthenticationResult {
         method: "spf".into(),
         method_version: None,
         result: Default::default(),
         reason: None,
         props: BTreeMap::new(),
     };
+    if dkim_domains.is_empty() {
+        spf_result.props.insert("result".into(), "pass".into());
+        spf_result
+            .props
+            .insert("smtp.mailfrom".into(), mail_from_domain.into());
+    }
 
     for dkim_domain in dkim_domains {
         let mut authentication_result = AuthenticationResult {
@@ -354,6 +534,10 @@ async fn evaluate_ip<'a>(
             reason: None,
             props: BTreeMap::new(),
         };
+
+        authentication_result
+            .props
+            .insert("result".into(), "pass".into());
 
         if let Some(dkim_domain) = dkim_domain {
             authentication_result
