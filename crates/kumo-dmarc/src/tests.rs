@@ -393,7 +393,10 @@ async fn evaluate_ip<'a>(
     let spf_result = spf_result.map(|result| {
         let mut map = BTreeMap::new();
         map.insert("result".into(), result.into());
-        map.insert("smtp.mailfrom".into(), mail_from_domain.into());
+        map.insert(
+            "smtp.mailfrom".into(),
+            format!("sender@{mail_from_domain}").into(),
+        );
         map
     });
 

@@ -174,7 +174,6 @@ pub(crate) async fn fetch_dmarc_records(
             if answer.records.is_empty() || answer.nxdomain {
                 return DmarcRecordResolution::PermError;
             } else {
-                eprintln!("answer: {:?}", answer);
                 answer.as_txt()
             }
         }

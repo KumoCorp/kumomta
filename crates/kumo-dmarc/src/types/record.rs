@@ -5,7 +5,7 @@ use crate::types::policy::Policy;
 use crate::types::report_failure::ReportFailure;
 use crate::types::results::{Disposition, DispositionWithContext};
 use crate::{DmarcContext, SenderDomainAlignment};
-use bstr::{BStr, ByteSlice};
+use bstr::ByteSlice;
 use std::str::FromStr;
 
 #[derive(Debug)]
@@ -42,22 +42,20 @@ impl Record {
 
         match self.align_dkim {
             Mode::Relaxed => {
-                let organizational_domain = psl::domain_str(cx.from_domain);
-
                 for dkim in cx.dkim {
                     if !auth_result_is_pass(dkim) {
                         continue;
                     }
 
                     if let Some(result) = dkim.get("header.d".as_bytes()) {
-                        if cx.from_domain == result
-                            || organizational_domain.map(BStr::new) == Some(result.as_bstr())
-                        {
-                            dkim_aligned = true;
-                            break;
-                        }
+                        if let Ok(result_str) = result.to_str() {
+                            if is_relaxed_aligned(cx.from_domain, result_str) {
+                                dkim_aligned = true;
+                                break;
+                            }
 
-                        dkim_error.get_or_insert("DMARC: DKIM relaxed check failed");
+                            dkim_error.get_or_insert("DMARC: DKIM relaxed check failed");
+                        }
                     } else {
                         dkim_error.get_or_insert("DMARC: DKIM signature missing 'd=' tag");
                     }
@@ -70,12 +68,14 @@ impl Record {
                     }
 
                     if let Some(result) = dkim.get("header.d".as_bytes()) {
-                        if cx.from_domain == result {
-                            dkim_aligned = true;
-                            break;
-                        }
+                        if let Ok(result_str) = result.to_str() {
+                            if is_strict_aligned(cx.from_domain, result_str) {
+                                dkim_aligned = true;
+                                break;
+                            }
 
-                        dkim_error.get_or_insert("DMARC: DKIM strict check failed");
+                            dkim_error.get_or_insert("DMARC: DKIM strict check failed");
+                        }
                     } else {
                         dkim_error.get_or_insert("DMARC: DKIM signature missing 'd=' tag");
                     }
@@ -88,11 +88,7 @@ impl Record {
                 if let Some(spf) = cx.spf {
                     if auth_result_is_pass(spf) {
                         if let Some(spf_domain) = spf_alignment_domain(spf) {
-                            let organizational_domain = psl::domain_str(spf_domain);
-
-                            if spf_domain == cx.from_domain
-                                || organizational_domain == Some(cx.from_domain)
-                            {
+                            if is_relaxed_aligned(cx.from_domain, spf_domain) {
                                 spf_aligned = true;
                             } else {
                                 spf_error.get_or_insert("DMARC: SPF relaxed check failed");
@@ -109,7 +105,7 @@ impl Record {
                 if let Some(spf) = cx.spf {
                     if auth_result_is_pass(spf) {
                         if let Some(spf_domain) = spf_alignment_domain(spf) {
-                            if spf_domain == cx.from_domain {
+                            if is_strict_aligned(spf_domain, cx.from_domain) {
                                 spf_aligned = true;
                             } else {
                                 spf_error.get_or_insert("DMARC: SPF strict check failed");
@@ -174,12 +170,25 @@ fn spf_alignment_domain<'a>(
         .get("smtp.mailfrom".as_bytes())
         .filter(|domain| !domain.is_empty())
         .and_then(|domain| domain.to_str().ok())
+        .map(|s| s.split_once('@').map_or(s, |(_, domain)| domain))
         .or_else(|| {
             auth_result
                 .get("smtp.helo".as_bytes())
                 .filter(|domain| !domain.is_empty())
                 .and_then(|domain| domain.to_str().ok())
         })
+}
+
+// Relaxed alignment: organizational domain match (covers exact match too since org domain of "example.com" is "example.com")
+fn is_relaxed_aligned(from_domain: &str, signing_domain: &str) -> bool {
+    psl::domain_str(from_domain)
+        .zip(psl::domain_str(signing_domain))
+        .is_some_and(|(fd, sd)| fd.eq_ignore_ascii_case(sd))
+}
+
+// Strict alignment: exact domain match only.
+fn is_strict_aligned(from_domain: &str, signing_domain: &str) -> bool {
+    from_domain.eq_ignore_ascii_case(signing_domain)
 }
 
 impl FromStr for Record {
