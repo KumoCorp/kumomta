@@ -16,6 +16,7 @@ client = [
   "dep:tokio-rustls",
   "dep:tracing"
 ]
+lua = ["dep:mlua", "mlua/vendored", "mlua/macros", "mlua/lua54", "mlua/async", "mlua/send", "mlua/serialize"]
 
 [dependencies]
 anyhow = {workspace=true}
@@ -36,6 +37,7 @@ pastey.workspace = true
 rustls = {workspace=true}
 rustls-pemfile = { workspace = true }
 rustls-platform-verifier = {workspace=true,optional=true}
+mlua = {workspace=true, optional=true}
 serde = {workspace=true}
 thiserror = {workspace=true}
 tokio = {workspace=true, features=["full"], optional=true}

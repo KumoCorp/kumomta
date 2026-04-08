@@ -5,7 +5,6 @@ use crate::dkim::Signer;
 use crate::dkim::SIGN_POOL;
 pub use crate::queue_name::QueueNameComponents;
 use crate::scheduling::Scheduling;
-use crate::EnvelopeAddress;
 use anyhow::Context;
 use bstr::{BString, ByteSlice, ByteVec};
 use chrono::{DateTime, Utc};
@@ -29,6 +28,7 @@ use mlua::{IntoLua, LuaSerdeExt, UserData, UserDataMethods};
 #[cfg(feature = "impl")]
 use mod_dns_resolver::get_resolver_instance;
 use parking_lot::Mutex;
+use rfc5321::parser::EnvelopeAddress;
 use serde::{Deserialize, Serialize};
 use serde_with::formats::PreferOne;
 use serde_with::{serde_as, OneOrMany};

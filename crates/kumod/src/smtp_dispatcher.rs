@@ -20,7 +20,7 @@ use kumo_server_runtime::spawn;
 use message::message::QueueNameComponents;
 use message::Message;
 use mta_sts::policy::PolicyMode;
-use rfc5321::parser::{ForwardPath, ReversePath};
+use rfc5321::parser::{EnvelopeAddress, ForwardPath, ReversePath};
 use rfc5321::{
     ClientError, EnhancedStatusCode, IsTooManyRecipients, Response, SmtpClient, TlsInformation,
     TlsOptions, TlsStatus,
@@ -1114,7 +1114,7 @@ impl QueueDispatcher for SmtpDispatcher {
             if recipients_this_batch.len() < path_config.max_recipients_per_batch {
                 recipients_this_batch.push(recip);
             } else {
-                revised_recipient_list.push(message::EnvelopeAddress::from(recip));
+                revised_recipient_list.push(EnvelopeAddress::from(recip));
                 // The excess is ready to go immediately
                 retry_immediately = true;
             }
@@ -1306,7 +1306,7 @@ impl QueueDispatcher for SmtpDispatcher {
             };
 
             if record_type == RecordType::TransientFailure {
-                revised_recipient_list.push(message::EnvelopeAddress::from(recipient.clone()));
+                revised_recipient_list.push(EnvelopeAddress::from(recipient.clone()));
             }
             if record_type != RecordType::Delivery && overall_response.is_none() {
                 overall_response.replace(response.clone());

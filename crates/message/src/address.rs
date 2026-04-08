@@ -1,143 +1,9 @@
-use anyhow::anyhow;
 use bstr::{BStr, BString, ByteSlice};
 use config::any_err;
 use mailparsing::{Address, AddressList, EncodeHeaderValue, Mailbox};
 #[cfg(feature = "impl")]
-use mlua::{FromLua, MetaMethod, UserData, UserDataFields, UserDataMethods};
-use rfc5321::parser::{EnvelopeAddress as EnvelopeAddress5321, ForwardPath, ReversePath};
+use mlua::{MetaMethod, UserData, UserDataFields, UserDataMethods};
 use serde::{Deserialize, Serialize};
-
-#[derive(Clone, PartialEq, Serialize, Deserialize, Eq)]
-#[serde(transparent)]
-pub struct EnvelopeAddress(EnvelopeAddress5321);
-
-impl std::fmt::Debug for EnvelopeAddress {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(fmt, "<{}>", self.0.to_string())
-    }
-}
-
-#[cfg(feature = "impl")]
-impl FromLua for EnvelopeAddress {
-    fn from_lua(value: mlua::Value, lua: &mlua::Lua) -> mlua::Result<Self> {
-        match value {
-            mlua::Value::String(s) => s
-                .to_str()?
-                .parse::<EnvelopeAddress5321>()
-                .map_err(any_err)
-                .map(Self),
-            _ => {
-                let ud = mlua::UserDataRef::<EnvelopeAddress>::from_lua(value, lua)?;
-                Ok(ud.clone())
-            }
-        }
-    }
-}
-
-impl EnvelopeAddress {
-    pub fn parse(text: &str) -> anyhow::Result<Self> {
-        let addr = text
-            .parse::<EnvelopeAddress5321>()
-            .map_err(|err| anyhow!("{err}"))?;
-        Ok(Self(addr))
-    }
-
-    pub fn user(&self) -> String {
-        match &self.0 {
-            EnvelopeAddress5321::Postmaster => "postmaster".to_string(),
-            EnvelopeAddress5321::Null => "".to_string(),
-            EnvelopeAddress5321::Path(path) => path.mailbox.local_part().into(),
-        }
-    }
-
-    pub fn domain(&self) -> String {
-        match &self.0 {
-            EnvelopeAddress5321::Postmaster | EnvelopeAddress5321::Null => "".to_string(),
-            EnvelopeAddress5321::Path(path) => path.mailbox.domain.to_string(),
-        }
-    }
-
-    pub fn null_sender() -> Self {
-        Self(EnvelopeAddress5321::Null)
-    }
-
-    pub fn to_string(&self) -> String {
-        self.0.to_string()
-    }
-}
-
-impl TryInto<EnvelopeAddress> for &Mailbox {
-    type Error = anyhow::Error;
-    fn try_into(self) -> anyhow::Result<EnvelopeAddress> {
-        if self.address.local_part.is_empty() && self.address.domain.is_empty() {
-            Ok(EnvelopeAddress::null_sender())
-        } else {
-            EnvelopeAddress::parse(&format!(
-                "{}@{}",
-                self.address.local_part, self.address.domain
-            ))
-        }
-    }
-}
-
-impl TryInto<EnvelopeAddress> for &Address {
-    type Error = anyhow::Error;
-    fn try_into(self) -> anyhow::Result<EnvelopeAddress> {
-        match self {
-            Address::Mailbox(mbox) => mbox.try_into(),
-            Address::Group { name: _, entries } => {
-                if entries.len() == 1 {
-                    (&entries[0]).try_into()
-                } else {
-                    anyhow::bail!("Cannot convert an Address::Group to an EnvelopeAddress unless it has exactly one entry");
-                }
-            }
-        }
-    }
-}
-
-impl TryInto<ForwardPath> for EnvelopeAddress {
-    type Error = &'static str;
-    fn try_into(self) -> Result<ForwardPath, Self::Error> {
-        self.0.try_into()
-    }
-}
-
-impl TryInto<ReversePath> for EnvelopeAddress {
-    type Error = &'static str;
-    fn try_into(self) -> Result<ReversePath, Self::Error> {
-        self.0.try_into()
-    }
-}
-
-impl From<ForwardPath> for EnvelopeAddress {
-    fn from(fp: ForwardPath) -> EnvelopeAddress {
-        EnvelopeAddress(fp.into())
-    }
-}
-
-impl TryFrom<ReversePath> for EnvelopeAddress {
-    type Error = &'static str;
-
-    fn try_from(reverse_path: ReversePath) -> Result<Self, Self::Error> {
-        EnvelopeAddress5321::try_from(reverse_path).map(EnvelopeAddress)
-    }
-}
-
-#[cfg(feature = "impl")]
-impl UserData for EnvelopeAddress {
-    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
-        fields.add_field_method_get("user", |_, this| Ok(this.user().to_string()));
-        fields.add_field_method_get("domain", |_, this| Ok(this.domain().to_string()));
-        fields.add_field_method_get("email", |_, this| Ok(this.0.to_string()));
-    }
-
-    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_meta_method(MetaMethod::ToString, |_, this, _: ()| {
-            Ok(this.0.to_string())
-        });
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeaderAddressList(Vec<HeaderAddressEntry>);
@@ -351,20 +217,6 @@ pub struct AddressGroup {
 mod test {
     use super::*;
     use mailparsing::Parser;
-
-    #[test]
-    fn no_ports_in_domain() {
-        k9::snapshot!(
-            EnvelopeAddress::parse("user@example.com:2025").unwrap_err(),
-            "
-Error at line 1, in Eof:
-user@example.com:2025
-                ^____
-
-
-"
-        );
-    }
 
     /// Test the unusual "info@"@example.com form via HeaderAddressList
     #[test]

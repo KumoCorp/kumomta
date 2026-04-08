@@ -2,6 +2,8 @@ use crate::client_types::SmtpClientTimeouts;
 #[cfg(test)]
 use bstr::BStr;
 use bstr::{BString, ByteSlice};
+#[cfg(feature = "lua")]
+use mlua::{FromLua, MetaMethod, UserData, UserDataFields, UserDataMethods};
 use nom::branch::alt;
 use nom::bytes::complete::{take_while1, take_while_m_n};
 use nom::combinator::{all_consuming, map, map_res, opt, recognize};
@@ -88,7 +90,6 @@ impl Domain {
             Domain::Tagged(s) => s.is_ascii(),
         }
     }
-
 }
 
 /// An email mailbox: `local-part "@" domain`
@@ -326,11 +327,11 @@ impl ReversePath {
 }
 
 impl TryFrom<&str> for ReversePath {
-    type Error = String;
+    type Error = anyhow::Error;
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         EnvelopeAddress::parse(s)?
             .try_into()
-            .map_err(|e: &'static str| e.to_string())
+            .map_err(|e: &'static str| anyhow::anyhow!(e))
     }
 }
 
@@ -363,11 +364,11 @@ impl ForwardPath {
 }
 
 impl TryFrom<&str> for ForwardPath {
-    type Error = String;
+    type Error = anyhow::Error;
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         EnvelopeAddress::parse(s)?
             .try_into()
-            .map_err(|e: &'static str| e.to_string())
+            .map_err(|e: &'static str| anyhow::anyhow!(e))
     }
 }
 
@@ -415,7 +416,7 @@ impl From<MailPath> for EnvelopeAddress {
 }
 
 impl TryFrom<String> for EnvelopeAddress {
-    type Error = String;
+    type Error = anyhow::Error;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
         EnvelopeAddress::parse(&s)
@@ -431,7 +432,7 @@ impl From<EnvelopeAddress> for String {
 impl std::str::FromStr for EnvelopeAddress {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        EnvelopeAddress::parse(s)
+        EnvelopeAddress::parse_impl(s)
     }
 }
 
@@ -458,7 +459,9 @@ impl EnvelopeAddress {
     /// Parse an envelope address from a string.
     ///
     /// Accepts either forward or reverse path syntax, with or without angle brackets.
-    pub fn parse(input: &str) -> Result<EnvelopeAddress, String> {
+    /// Internal parsing function that returns String error type.
+    /// This is used by FromStr (which requires String) and by parse().
+    fn parse_impl(input: &str) -> Result<EnvelopeAddress, String> {
         let input = make_span(input.as_bytes());
         let (_, result) = all_consuming(alt((
             map(tag_no_case("<>"), |_| EnvelopeAddress::Null),
@@ -470,6 +473,67 @@ impl EnvelopeAddress {
         .parse(input)
         .map_err(|e| explain_nom(input, e))?;
         Ok(result)
+    }
+
+    /// Parse an envelope address from a string.
+    ///
+    /// Accepts either forward or reverse path syntax, with or without angle brackets.
+    /// Returns anyhow::Result for easier error handling with anyhow-based code.
+    pub fn parse(input: &str) -> anyhow::Result<Self> {
+        EnvelopeAddress::parse_impl(input).map_err(|e| anyhow::anyhow!(e))
+    }
+
+    /// Returns the local-part (user) portion of the address.
+    /// Returns "postmaster" for Postmaster, empty string for Null.
+    pub fn user(&self) -> String {
+        match self {
+            EnvelopeAddress::Postmaster => "postmaster".to_string(),
+            EnvelopeAddress::Null => "".to_string(),
+            EnvelopeAddress::Path(path) => path.mailbox.local_part().into(),
+        }
+    }
+
+    /// Returns the domain portion of the address.
+    /// Returns empty string for Postmaster and Null.
+    pub fn domain(&self) -> String {
+        match self {
+            EnvelopeAddress::Postmaster | EnvelopeAddress::Null => "".to_string(),
+            EnvelopeAddress::Path(path) => path.mailbox.domain.to_string(),
+        }
+    }
+
+    /// Returns the null sender address: `EnvelopeAddress::Null`
+    pub fn null_sender() -> Self {
+        EnvelopeAddress::Null
+    }
+}
+
+#[cfg(feature = "lua")]
+impl FromLua for EnvelopeAddress {
+    fn from_lua(value: mlua::Value, lua: &mlua::Lua) -> mlua::Result<Self> {
+        match value {
+            mlua::Value::String(s) => s
+                .to_str()?
+                .parse::<EnvelopeAddress>()
+                .map_err(|e: String| mlua::Error::RuntimeError(e)),
+            _ => {
+                let ud = mlua::UserDataRef::<EnvelopeAddress>::from_lua(value, lua)?;
+                Ok(ud.clone())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "lua")]
+impl UserData for EnvelopeAddress {
+    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
+        fields.add_field_method_get("user", |_, this| Ok(this.user()));
+        fields.add_field_method_get("domain", |_, this| Ok(this.domain()));
+        fields.add_field_method_get("email", |_, this| Ok(this.to_string()));
+    }
+
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_meta_method(MetaMethod::ToString, |_, this, _: ()| Ok(this.to_string()));
     }
 }
 
