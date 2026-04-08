@@ -1,13 +1,11 @@
-use config::{any_err, get_or_create_sub_module, serialize_options, SerdeWrappedValue};
-use kumo_dmarc::{Disposition, DmarcPassContext, ReportingInfo};
+use config::{any_err, get_or_create_sub_module, serialize_options};
+use kumo_dmarc::{CheckHostParams, Disposition};
 use mailparsing::AuthenticationResult;
 use message::Message;
 use mlua::{Lua, LuaSerdeExt, UserDataRef};
 use mod_dns_resolver::get_resolver_instance;
 use serde::Serialize;
 use std::collections::BTreeMap;
-
-use crate::smtp_server::{RejectDisconnect, RejectError};
 
 #[derive(Debug, Serialize)]
 struct CheckHostOutput {
@@ -22,20 +20,11 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
         "check_msg",
         lua.create_async_function(
             |lua,
-             (
-                msg,
-                dkim_results,
-                opt_resolver_name,
-                spf_result,
-                use_reporting,
-                opt_reporting_info,
-            ): (
+             (msg, dkim_results, spf_results, opt_resolver_name): (
                 UserDataRef<Message>,
-                SerdeWrappedValue<Vec<AuthenticationResult>>,
+                mlua::Value,
+                mlua::Value,
                 Option<String>,
-                SerdeWrappedValue<AuthenticationResult>,
-                bool,
-                Option<SerdeWrappedValue<ReportingInfo>>,
             )| async move {
                 let resolver = get_resolver_instance(&opt_resolver_name).map_err(any_err)?;
 
@@ -43,18 +32,6 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 let msg_sender = msg.sender().await;
 
                 let mail_from_domain = msg_sender.ok().map(|x| x.domain().to_string());
-
-                let mut recipient_domain_list = msg
-                    .recipient_list()
-                    .await
-                    .map(|x| {
-                        x.into_iter()
-                            .map(|x| x.domain().to_string())
-                            .collect::<Vec<String>>()
-                    })
-                    .unwrap_or_default();
-
-                recipient_domain_list.dedup();
 
                 // From:
                 let from_domain = if let Ok(Some(from)) = msg.get_address_header("From").await {
@@ -93,38 +70,21 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                     ));
                 };
 
-                let dkim_results: Vec<AuthenticationResult> = dkim_results.0;
+                let dkim_results: Vec<_> =
+                    config::from_lua_value::<Vec<AuthenticationResult>>(&lua, dkim_results)?
+                        .into_iter()
+                        .map(auth_result_to_props)
+                        .collect();
 
-                let spf_result: AuthenticationResult = spf_result.0;
+                let spf_results =
+                    config::from_lua_value::<Option<AuthenticationResult>>(&lua, spf_results)?
+                        .map(auth_result_to_props);
 
-                let received_from = spf_result
-                    .props
-                    .get("received_from")
-                    .cloned()
-                    .unwrap_or_default();
-
-                let reporting_info = if use_reporting {
-                    if let Some(reporting_info) = opt_reporting_info {
-                        Some(reporting_info.0)
-                    } else {
-                        return Err(mlua::Error::external(RejectError {
-                            code: 400,
-                            message: "DMARC reporting missing required fields".into(),
-                            disconnect: RejectDisconnect::If421,
-                        }));
-                    }
-                } else {
-                    None
-                };
-
-                let result = DmarcPassContext {
+                let result = CheckHostParams {
                     from_domain,
                     mail_from_domain,
-                    recipient_domain_list,
-                    received_from: received_from.to_string(),
-                    dkim_results,
-                    spf_result,
-                    reporting_info,
+                    dkim: dkim_results,
+                    spf: spf_results,
                 }
                 .check(&**resolver)
                 .await;
@@ -172,4 +132,11 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
     )?;
 
     Ok(())
+}
+
+fn auth_result_to_props(
+    mut result: AuthenticationResult,
+) -> BTreeMap<bstr::BString, bstr::BString> {
+    result.props.insert("result".into(), result.result);
+    result.props
 }
