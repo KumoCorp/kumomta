@@ -35,7 +35,9 @@ use mlua::{FromLuaMulti, IntoLuaMulti, LuaSerdeExt, UserData, UserDataMethods};
 use openssl::x509::X509;
 use parking_lot::FairMutex as Mutex;
 use ppp::{HeaderResult, PartialResult};
-use rfc5321::parser::{Command, EnvelopeAddress, MaybePartialCommand, XClientParameter};
+use rfc5321::parser::{
+    Command, EnvelopeAddress, MaybePartialCommand, PartialReason, XClientParameter,
+};
 use rfc5321::{subject_name, AsyncReadAndWrite, BoxedAsyncReadAndWrite, Response, TlsInformation};
 use rustls::ServerConfig;
 use serde::{Deserialize, Serialize};
@@ -1691,14 +1693,18 @@ impl SmtpServerSession {
                     )
                     .await?;
                 }
-                Ok(MaybePartialCommand::Partial { .. }) => {
-                    self.write_response(
-                        501,
-                        "Syntax error in command or arguments",
-                        Some(line),
-                        RejectDisconnect::If421,
-                    )
-                    .await?;
+                Ok(MaybePartialCommand::Partial { reason, .. }) => {
+                    let msg = match reason {
+                        PartialReason::InvalidRecipientAddress => {
+                            "5.1.3 Invalid recipient address syntax"
+                        }
+                        PartialReason::InvalidSenderAddress => {
+                            "5.1.7 Bad sender's mailbox address syntax"
+                        }
+                        PartialReason::Syntax => "Syntax error in command or arguments",
+                    };
+                    self.write_response(501, msg, Some(line), RejectDisconnect::If421)
+                        .await?;
                 }
                 Ok(MaybePartialCommand::Full(Command::Quit)) => {
                     self.write_response(

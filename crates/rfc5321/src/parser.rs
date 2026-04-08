@@ -794,12 +794,26 @@ impl std::fmt::Debug for Command {
     }
 }
 
+/// Reason why a command was only partially parsed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PartialReason {
+    /// General command syntax error — verb unrecognised, missing prefix, etc.
+    Syntax,
+    /// "MAIL FROM:" prefix matched but the sender address failed to parse.
+    /// The SMTP server should respond with 501 5.1.7.
+    InvalidSenderAddress,
+    /// "RCPT TO:" prefix matched but the recipient address failed to parse.
+    /// The SMTP server should respond with 501 5.1.3.
+    InvalidRecipientAddress,
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub enum MaybePartialCommand {
     Full(Command),
     Partial {
         verb: CommandVerb,
         remainder: BString,
+        reason: PartialReason,
     },
 }
 
@@ -807,10 +821,14 @@ impl std::fmt::Debug for MaybePartialCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MaybePartialCommand::Full(cmd) => write!(f, "Full({cmd:?})"),
-            MaybePartialCommand::Partial { verb, remainder } => {
+            MaybePartialCommand::Partial {
+                verb,
+                remainder,
+                reason,
+            } => {
                 write!(
                     f,
-                    "Partial {{ verb: {verb:?}, remainder: {:?} }}",
+                    "Partial {{ verb: {verb:?}, remainder: {:?}, reason: {reason:?} }}",
                     remainder.escape_bytes()
                 )
             }
@@ -829,6 +847,7 @@ macro_rules! parse_single {
                         |(_cmd, _space, remainder)| MaybePartialCommand::Partial {
                             verb: CommandVerb::$verb,
                             remainder: (*remainder).into(),
+                            reason: PartialReason::Syntax,
                         },
                     ),
                     map(all_consuming(tag_no_case($token)), |_| {
@@ -855,7 +874,8 @@ macro_rules! parse_single {
                     unwrapper(Command::parse(format!("{} trailing garbage", $token))),
                     MaybePartialCommand::Partial {
                         verb: CommandVerb::$verb,
-                        remainder:"trailing garbage".into()
+                        remainder:"trailing garbage".into(),
+                        reason: PartialReason::Syntax,
                     }
                 );
             }
@@ -876,6 +896,7 @@ macro_rules! parse_opt_arg {
                             Err(_) => MaybePartialCommand::Partial {
                                 verb: CommandVerb::$verb,
                                 remainder: BString::default(),
+                                reason: PartialReason::Syntax,
                             },
                         },
                     ),
@@ -884,6 +905,7 @@ macro_rules! parse_opt_arg {
                         |(_cmd, _space, remainder)| MaybePartialCommand::Partial {
                             verb: CommandVerb::$verb,
                             remainder: (*remainder).into(),
+                            reason: PartialReason::Syntax,
                         },
                     ),
                     map(all_consuming(tag_no_case($token)), |_| {
@@ -917,7 +939,8 @@ macro_rules! parse_opt_arg {
                     unwrapper(Command::parse(format!("{} trailing garbage", $token))),
                     MaybePartialCommand::Partial {
                         verb: CommandVerb::$verb,
-                        remainder:"trailing garbage".into()
+                        remainder:"trailing garbage".into(),
+                        reason: PartialReason::Syntax,
                     },
                     "should have partial"
                 );
@@ -1489,12 +1512,14 @@ fn parse_ehlo(input: Span) -> IResult<Span, MaybePartialCommand> {
                 |(_, _, remainder)| MaybePartialCommand::Partial {
                     verb: CommandVerb::Ehlo,
                     remainder: (*remainder).into(),
+                    reason: PartialReason::Syntax,
                 },
             ),
             map(all_consuming(tag_no_case("EHLO")), |_| {
                 MaybePartialCommand::Partial {
                     verb: CommandVerb::Ehlo,
                     remainder: BString::default(),
+                    reason: PartialReason::Syntax,
                 }
             }),
         )),
@@ -1518,12 +1543,14 @@ fn parse_helo(input: Span) -> IResult<Span, MaybePartialCommand> {
                 |(_, _, remainder)| MaybePartialCommand::Partial {
                     verb: CommandVerb::Helo,
                     remainder: (*remainder).into(),
+                    reason: PartialReason::Syntax,
                 },
             ),
             map(all_consuming(tag_no_case("HELO")), |_| {
                 MaybePartialCommand::Partial {
                     verb: CommandVerb::Helo,
                     remainder: BString::default(),
+                    reason: PartialReason::Syntax,
                 }
             }),
         )),
@@ -1545,12 +1572,14 @@ fn parse_lhlo(input: Span) -> IResult<Span, MaybePartialCommand> {
                 |(_, _, remainder)| MaybePartialCommand::Partial {
                     verb: CommandVerb::Lhlo,
                     remainder: (*remainder).into(),
+                    reason: PartialReason::Syntax,
                 },
             ),
             map(all_consuming(tag_no_case("LHLO")), |_| {
                 MaybePartialCommand::Partial {
                     verb: CommandVerb::Lhlo,
                     remainder: BString::default(),
+                    reason: PartialReason::Syntax,
                 }
             }),
         )),
@@ -1627,6 +1656,7 @@ fn parse_auth(input: Span) -> IResult<Span, MaybePartialCommand> {
                 |(_, _, remainder)| MaybePartialCommand::Partial {
                     verb: CommandVerb::Auth,
                     remainder: (*remainder).into(),
+                    reason: PartialReason::Syntax,
                 },
             ),
             // Arm 3: "AUTH" alone → Partial
@@ -1634,6 +1664,7 @@ fn parse_auth(input: Span) -> IResult<Span, MaybePartialCommand> {
                 MaybePartialCommand::Partial {
                     verb: CommandVerb::Auth,
                     remainder: BString::default(),
+                    reason: PartialReason::Syntax,
                 }
             }),
         )),
@@ -1743,6 +1774,7 @@ fn parse_xclient(input: Span) -> IResult<Span, MaybePartialCommand> {
                 |(_, _, remainder)| MaybePartialCommand::Partial {
                     verb: CommandVerb::XClient,
                     remainder: (*remainder).into(),
+                    reason: PartialReason::Syntax,
                 },
             ),
             // Arm 3: "XCLIENT" alone → Partial
@@ -1750,6 +1782,7 @@ fn parse_xclient(input: Span) -> IResult<Span, MaybePartialCommand> {
                 MaybePartialCommand::Partial {
                     verb: CommandVerb::XClient,
                     remainder: BString::default(),
+                    reason: PartialReason::Syntax,
                 }
             }),
         )),
@@ -1786,20 +1819,46 @@ fn parse_mail_from(input: Span) -> IResult<Span, MaybePartialCommand> {
                     })
                 },
             ),
-            // Arm 2: "MAIL" + whitespace + anything → Partial
-            // This catches bad addresses (invalid IP, domain, syntax)
+            // Arm 2: "MAIL FROM:" + valid address + space + unparseable params → Syntax
+            map(
+                all_consuming((
+                    tag_no_case("MAIL"),
+                    wsp,
+                    tag_no_case("FROM:"),
+                    reverse_path,
+                    wsp,
+                    anything,
+                )),
+                |(_, _, _, _, _, remainder)| MaybePartialCommand::Partial {
+                    verb: CommandVerb::Mail,
+                    remainder: (*remainder).into(),
+                    reason: PartialReason::Syntax,
+                },
+            ),
+            // Arm 3: "MAIL FROM:" prefix matched but address failed to parse
+            map(
+                all_consuming((tag_no_case("MAIL"), wsp, tag_no_case("FROM:"), anything)),
+                |(_, _, _, remainder)| MaybePartialCommand::Partial {
+                    verb: CommandVerb::Mail,
+                    remainder: (*remainder).into(),
+                    reason: PartialReason::InvalidSenderAddress,
+                },
+            ),
+            // Arm 4: "MAIL" + whitespace + anything → Partial (bad prefix, e.g. not "FROM:")
             map(
                 all_consuming((tag_no_case("MAIL"), wsp, anything)),
                 |(_, _, remainder)| MaybePartialCommand::Partial {
                     verb: CommandVerb::Mail,
                     remainder: (*remainder).into(),
+                    reason: PartialReason::Syntax,
                 },
             ),
-            // Arm 3: "MAIL" alone → Partial (incomplete command)
+            // Arm 5: "MAIL" alone → Partial (incomplete command)
             map(all_consuming(tag_no_case("MAIL")), |_| {
                 MaybePartialCommand::Partial {
                     verb: CommandVerb::Mail,
                     remainder: BString::default(),
+                    reason: PartialReason::Syntax,
                 }
             }),
         )),
@@ -1836,20 +1895,46 @@ fn parse_rcpt_to(input: Span) -> IResult<Span, MaybePartialCommand> {
                     })
                 },
             ),
-            // Arm 2: "RCPT" + whitespace + anything → Partial
-            // This catches bad addresses (invalid IP, domain, syntax)
+            // Arm 2: "RCPT TO:" + valid address + space + unparseable params → Syntax
+            map(
+                all_consuming((
+                    tag_no_case("RCPT"),
+                    wsp,
+                    tag_no_case("TO:"),
+                    forward_path,
+                    wsp,
+                    anything,
+                )),
+                |(_, _, _, _, _, remainder)| MaybePartialCommand::Partial {
+                    verb: CommandVerb::Rcpt,
+                    remainder: (*remainder).into(),
+                    reason: PartialReason::Syntax,
+                },
+            ),
+            // Arm 3: "RCPT TO:" prefix matched but address failed to parse
+            map(
+                all_consuming((tag_no_case("RCPT"), wsp, tag_no_case("TO:"), anything)),
+                |(_, _, _, remainder)| MaybePartialCommand::Partial {
+                    verb: CommandVerb::Rcpt,
+                    remainder: (*remainder).into(),
+                    reason: PartialReason::InvalidRecipientAddress,
+                },
+            ),
+            // Arm 4: "RCPT" + whitespace + anything → Partial (bad prefix, e.g. not "TO:")
             map(
                 all_consuming((tag_no_case("RCPT"), wsp, anything)),
                 |(_, _, remainder)| MaybePartialCommand::Partial {
                     verb: CommandVerb::Rcpt,
                     remainder: (*remainder).into(),
+                    reason: PartialReason::Syntax,
                 },
             ),
-            // Arm 3: "RCPT" alone → Partial (incomplete command)
+            // Arm 5: "RCPT" alone → Partial (incomplete command)
             map(all_consuming(tag_no_case("RCPT")), |_| {
                 MaybePartialCommand::Partial {
                     verb: CommandVerb::Rcpt,
                     remainder: BString::default(),
+                    reason: PartialReason::Syntax,
                 }
             }),
         )),
@@ -2071,6 +2156,7 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Ehlo,
                 remainder: "[999.999.999.999]".into(),
+                reason: PartialReason::Syntax,
             }
         );
     }
@@ -2082,6 +2168,7 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Ehlo,
                 remainder: "[IPv6:not-an-ipv6]".into(),
+                reason: PartialReason::Syntax,
             }
         );
     }
@@ -2093,6 +2180,7 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Ehlo,
                 remainder: "".into(),
+                reason: PartialReason::Syntax,
             }
         );
     }
@@ -2104,6 +2192,7 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Ehlo,
                 remainder: "!!invalid!!".into(),
+                reason: PartialReason::Syntax,
             }
         );
     }
@@ -2148,6 +2237,7 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Helo,
                 remainder: "".into(),
+                reason: PartialReason::Syntax,
             }
         );
     }
@@ -2159,6 +2249,7 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Helo,
                 remainder: "!!invalid!!".into(),
+                reason: PartialReason::Syntax,
             }
         );
     }
@@ -2210,6 +2301,7 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Lhlo,
                 remainder: "[999.999.999.999]".into(),
+                reason: PartialReason::Syntax,
             }
         );
     }
@@ -2221,6 +2313,7 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Lhlo,
                 remainder: "".into(),
+                reason: PartialReason::Syntax,
             }
         );
     }
@@ -2292,6 +2385,7 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Auth,
                 remainder: "".into(),
+                reason: PartialReason::Syntax,
             }
         );
     }
@@ -2304,6 +2398,7 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Auth,
                 remainder: "!!bad!!".into(),
+                reason: PartialReason::Syntax,
             }
         );
     }
@@ -2370,6 +2465,7 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::XClient,
                 remainder: "".into(),
+                reason: PartialReason::Syntax,
             }
         );
     }
@@ -2382,6 +2478,7 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::XClient,
                 remainder: "NAME=bad+ZZ".into(),
+                reason: PartialReason::Syntax,
             }
         );
     }
@@ -2394,6 +2491,7 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::XClient,
                 remainder: "noequals".into(),
+                reason: PartialReason::Syntax,
             }
         );
     }
@@ -2561,24 +2659,26 @@ Ok(
 
     #[test]
     fn test_mail_from_invalid_ipv4_is_partial() {
-        // Bad IPv4 inside brackets → Partial, not a hard error
+        // Bad IPv4 inside brackets → InvalidSenderAddress, not a hard error
         k9::assert_equal!(
             unwrapper(Command::parse("MAIL FROM:<user@[999.999.999.999]>")),
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Mail,
-                remainder: "FROM:<user@[999.999.999.999]>".into(),
+                remainder: "<user@[999.999.999.999]>".into(),
+                reason: PartialReason::InvalidSenderAddress,
             }
         );
     }
 
     #[test]
     fn test_mail_from_invalid_ipv6_is_partial() {
-        // Bad IPv6 after "IPv6:" prefix → Partial, not a hard error
+        // Bad IPv6 after "IPv6:" prefix → InvalidSenderAddress, not a hard error
         k9::assert_equal!(
             unwrapper(Command::parse("MAIL FROM:<user@[IPv6:not-an-ipv6]>")),
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Mail,
-                remainder: "FROM:<user@[IPv6:not-an-ipv6]>".into(),
+                remainder: "<user@[IPv6:not-an-ipv6]>".into(),
+                reason: PartialReason::InvalidSenderAddress,
             }
         );
     }
@@ -2590,6 +2690,7 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Mail,
                 remainder: "".into(),
+                reason: PartialReason::Syntax,
             }
         );
     }
@@ -2601,6 +2702,7 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Mail,
                 remainder: "garbage".into(),
+                reason: PartialReason::Syntax,
             }
         );
     }
@@ -2749,24 +2851,26 @@ Ok(
 
     #[test]
     fn test_rcpt_to_invalid_ipv4_is_partial() {
-        // Bad IPv4 inside brackets → Partial, not a hard error
+        // Bad IPv4 inside brackets → InvalidRecipientAddress, not a hard error
         k9::assert_equal!(
             unwrapper(Command::parse("RCPT TO:<user@[999.999.999.999]>")),
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Rcpt,
-                remainder: "TO:<user@[999.999.999.999]>".into(),
+                remainder: "<user@[999.999.999.999]>".into(),
+                reason: PartialReason::InvalidRecipientAddress,
             }
         );
     }
 
     #[test]
     fn test_rcpt_to_invalid_ipv6_is_partial() {
-        // Bad IPv6 after "IPv6:" prefix → Partial, not a hard error
+        // Bad IPv6 after "IPv6:" prefix → InvalidRecipientAddress, not a hard error
         k9::assert_equal!(
             unwrapper(Command::parse("RCPT TO:<user@[IPv6:not-an-ipv6]>")),
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Rcpt,
-                remainder: "TO:<user@[IPv6:not-an-ipv6]>".into(),
+                remainder: "<user@[IPv6:not-an-ipv6]>".into(),
+                reason: PartialReason::InvalidRecipientAddress,
             }
         );
     }
@@ -2778,6 +2882,7 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Rcpt,
                 remainder: "".into(),
+                reason: PartialReason::Syntax,
             }
         );
     }
@@ -2789,6 +2894,98 @@ Ok(
             MaybePartialCommand::Partial {
                 verb: CommandVerb::Rcpt,
                 remainder: "garbage".into(),
+                reason: PartialReason::Syntax,
+            }
+        );
+    }
+
+    #[test]
+    fn test_rcpt_to_invalid_address_syntax() {
+        // Structurally valid "RCPT TO:" prefix but unparseable address
+        k9::assert_equal!(
+            unwrapper(Command::parse("RCPT TO:<not an address>")),
+            MaybePartialCommand::Partial {
+                verb: CommandVerb::Rcpt,
+                remainder: "<not an address>".into(),
+                reason: PartialReason::InvalidRecipientAddress,
+            }
+        );
+    }
+
+    #[test]
+    fn test_rcpt_to_valid_address_bad_params() {
+        // Valid address but syntactically invalid ESMTP parameters → Syntax, not InvalidRecipientAddress
+        k9::assert_equal!(
+            unwrapper(Command::parse("RCPT TO:<valid@example.com> !!!garbage")),
+            MaybePartialCommand::Partial {
+                verb: CommandVerb::Rcpt,
+                remainder: "!!!garbage".into(),
+                reason: PartialReason::Syntax,
+            }
+        );
+    }
+
+    #[test]
+    fn test_rcpt_to_bad_address_with_params_is_invalid_address() {
+        // Address is bad regardless of any trailing content → InvalidRecipientAddress
+        k9::assert_equal!(
+            unwrapper(Command::parse("RCPT TO:<bad address> NOTIFY=SUCCESS")),
+            MaybePartialCommand::Partial {
+                verb: CommandVerb::Rcpt,
+                remainder: "<bad address> NOTIFY=SUCCESS".into(),
+                reason: PartialReason::InvalidRecipientAddress,
+            }
+        );
+    }
+
+    #[test]
+    fn test_mail_from_invalid_address_syntax() {
+        // Structurally valid "MAIL FROM:" prefix but unparseable address
+        k9::assert_equal!(
+            unwrapper(Command::parse("MAIL FROM:<not an address>")),
+            MaybePartialCommand::Partial {
+                verb: CommandVerb::Mail,
+                remainder: "<not an address>".into(),
+                reason: PartialReason::InvalidSenderAddress,
+            }
+        );
+    }
+
+    #[test]
+    fn test_mail_from_valid_address_bad_params() {
+        // Valid address but syntactically invalid ESMTP parameters → Syntax, not InvalidSenderAddress
+        k9::assert_equal!(
+            unwrapper(Command::parse("MAIL FROM:<valid@example.com> !!!garbage")),
+            MaybePartialCommand::Partial {
+                verb: CommandVerb::Mail,
+                remainder: "!!!garbage".into(),
+                reason: PartialReason::Syntax,
+            }
+        );
+    }
+
+    #[test]
+    fn test_mail_from_null_sender_bad_params() {
+        // Null sender is a valid reverse-path; bad params following it → Syntax
+        k9::assert_equal!(
+            unwrapper(Command::parse("MAIL FROM:<> !!!garbage")),
+            MaybePartialCommand::Partial {
+                verb: CommandVerb::Mail,
+                remainder: "!!!garbage".into(),
+                reason: PartialReason::Syntax,
+            }
+        );
+    }
+
+    #[test]
+    fn test_mail_from_bad_address_with_params_is_invalid_address() {
+        // Address is bad regardless of any trailing content → InvalidSenderAddress
+        k9::assert_equal!(
+            unwrapper(Command::parse("MAIL FROM:<bad address> SIZE=1000")),
+            MaybePartialCommand::Partial {
+                verb: CommandVerb::Mail,
+                remainder: "<bad address> SIZE=1000".into(),
+                reason: PartialReason::InvalidSenderAddress,
             }
         );
     }
