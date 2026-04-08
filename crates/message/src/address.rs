@@ -189,7 +189,7 @@ impl HeaderAddressList {
     pub fn single_address_cracked(&self) -> anyhow::Result<(&str, &str)> {
         let addr = self.single_address_string()?;
         let tuple = addr
-            .split_once('@')
+            .rsplit_once('@')
             .ok_or_else(|| anyhow::anyhow!("no @ in address"))?;
         Ok(tuple)
     }
@@ -316,7 +316,7 @@ impl HeaderAddress {
             .ok_or_else(|| anyhow::anyhow!("no address"))?;
 
         address
-            .split_once('@')
+            .rsplit_once('@')
             .ok_or_else(|| anyhow::anyhow!("no @ in address"))
     }
 }
@@ -350,6 +350,7 @@ pub struct AddressGroup {
 #[cfg(test)]
 mod test {
     use super::*;
+    use mailparsing::Parser;
 
     #[test]
     fn no_ports_in_domain() {
@@ -363,5 +364,33 @@ user@example.com:2025
 
 "
         );
+    }
+
+    /// Test the unusual "info@"@example.com form via HeaderAddressList
+    #[test]
+    fn header_address_list_with_at_in_local_part() {
+        // Parse the header value that contains the unusual email address
+        let header_value = "\"info@\"@example.com";
+        let addr_list = Parser::parse_address_list_header(header_value.as_bytes())
+            .expect("failed to parse address list");
+
+        // Convert to HeaderAddressList
+        let header_addr_list: HeaderAddressList = addr_list.into();
+
+        // Test single_address_cracked() which uses rsplit_once('@')
+        let (user, domain) = header_addr_list
+            .single_address_cracked()
+            .expect("failed to crack address");
+        k9::assert_equal!(user, "\"info@\"");
+        k9::assert_equal!(domain, "example.com");
+
+        let addr = header_addr_list
+            .single_address()
+            .expect("expected single address");
+
+        // Now test crack_address() which uses rsplit_once('@')
+        let (user, domain) = addr.crack_address().unwrap();
+        k9::assert_equal!(user, "\"info@\"");
+        k9::assert_equal!(domain, "example.com");
     }
 }

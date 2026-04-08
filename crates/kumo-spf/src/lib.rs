@@ -173,7 +173,7 @@ impl<'a> SpfContext<'a> {
     ///   initially, the domain portion of the "MAIL FROM" or "HELO" identity
     /// - `client_ip` is the IP address of the SMTP client that is emitting the mail
     fn new(sender: &'a str, domain: &'a str, client_ip: IpAddr) -> Result<Self, SpfResult> {
-        let Some((local_part, sender_domain)) = sender.split_once('@') else {
+        let Some((local_part, sender_domain)) = sender.rsplit_once('@') else {
             return Err(SpfResult {
                 disposition: SpfDisposition::PermError,
                 context:
