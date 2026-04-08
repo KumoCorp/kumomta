@@ -28,8 +28,14 @@ async fn no_ports_in_rcpt_domain() -> anyhow::Result<()> {
         r#"
 Response {
     code: 501,
-    enhanced_code: None,
-    content: "Syntax error in command or arguments",
+    enhanced_code: Some(
+        EnhancedStatusCode {
+            class: 5,
+            subject: 1,
+            detail: 3,
+        },
+    ),
+    content: "Invalid recipient address syntax",
     command: Some(
         "RCPT TO:<sender@example.com:2025>\r
 ",
