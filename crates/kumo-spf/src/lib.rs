@@ -129,12 +129,19 @@ pub struct CheckHostParams {
 impl CheckHostParams {
     pub async fn check(self, resolver: &dyn Resolver) -> SpfResult {
         let Self {
-            domain,
+            mut domain,
             sender,
             client_ip,
             ehlo_domain,
             relaying_host_name,
         } = self;
+
+        // When MAIL FROM is blank and domain is empty, fallback to EHLO domain
+        if domain.is_empty() {
+            if let Some(ehlo) = &ehlo_domain {
+                domain = ehlo.clone();
+            }
+        }
 
         let sender = match sender {
             Some(sender) => sender,
@@ -173,12 +180,9 @@ impl<'a> SpfContext<'a> {
     ///   initially, the domain portion of the "MAIL FROM" or "HELO" identity
     /// - `client_ip` is the IP address of the SMTP client that is emitting the mail
     fn new(sender: &'a str, domain: &'a str, client_ip: IpAddr) -> Result<Self, SpfResult> {
-        let Some((local_part, sender_domain)) = sender.split_once('@') else {
-            return Err(SpfResult {
-                disposition: SpfDisposition::PermError,
-                context:
-                    "input sender parameter '{sender}' is missing @ sign to delimit local part and domain".to_owned(),
-            });
+        let (local_part, sender_domain) = match sender.split_once('@') {
+            Some((local_part, sender_domain)) => (local_part, sender_domain),
+            None => ("postmaster", sender),
         };
 
         Ok(Self {
