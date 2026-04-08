@@ -174,6 +174,11 @@ impl FromStr for Record {
 
         let (mut version, mut policy) = (false, false);
         for part in s.split(';') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+
             let Some((key, value)) = part.split_once('=') else {
                 return Err(format!("invalid part {part:?}"));
             };
@@ -237,7 +242,7 @@ mod tests {
     #[test]
     fn parse_b_2_1() {
         // https://www.rfc-editor.org/rfc/rfc7489#appendix-B.2.1
-        const B_2_1: &str = "v=DMARC1; p=none; rua=mailto:dmarc-feedback@example.com";
+        const B_2_1: &str = "v=DMARC1; p=none; rua=mailto:dmarc-feedback@example.com;";
         let record = Record::from_str(B_2_1).unwrap();
         assert_eq!(record.policy, Policy::None);
         assert_eq!(record.rate, 100);
