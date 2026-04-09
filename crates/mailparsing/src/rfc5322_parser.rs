@@ -80,10 +80,7 @@ fn is_atext(c: u8) -> bool {
 fn atext(input: Span) -> IResult<Span, Span> {
     context(
         "atext",
-        recognize(many1(alt((
-            take_while1(is_atext_ascii),
-            utf8_non_ascii,
-        )))),
+        recognize(many1(alt((take_while1(is_atext_ascii), utf8_non_ascii)))),
     )
     .parse(input)
 }
@@ -475,15 +472,11 @@ Ok(
             addr_spec
         ),
         r#"
-Err(
-    HeaderParse(
-        "Error at line 1, expected "@" but found ".":
-"darth".vader@a.galaxy.far.far.away
-       ^___________________________
-
-while parsing addr_spec
-",
-    ),
+Ok(
+    AddrSpec {
+        local_part: "darth.vader",
+        domain: "a.galaxy.far.far.away",
+    },
 )
 "#
     );
@@ -513,6 +506,174 @@ Ok(
     );
 }
 
+#[cfg(test)]
+#[test]
+fn test_obs_local_part_in_addr_spec() {
+    // obs-local-part = word *("." word) where word = atom / quoted-string
+    // This mixed form is defined in RFC 5322 §4.4 and is correctly parsed
+    // via obs_local_part which is tried first in the local_part alternation.
+    k9::snapshot!(
+        parse_with(r#""first".last@example.com"#.as_bytes(), addr_spec),
+        r#"
+Ok(
+    AddrSpec {
+        local_part: "first.last",
+        domain: "example.com",
+    },
+)
+"#
+    );
+    k9::snapshot!(
+        parse_with(r#"first."last"@example.com"#.as_bytes(), addr_spec),
+        r#"
+Ok(
+    AddrSpec {
+        local_part: "first.last",
+        domain: "example.com",
+    },
+)
+"#
+    );
+    k9::snapshot!(
+        parse_with(r#""first"."last"@example.com"#.as_bytes(), addr_spec),
+        r#"
+Ok(
+    AddrSpec {
+        local_part: "first.last",
+        domain: "example.com",
+    },
+)
+"#
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn test_obs_local_part_encode_roundtrip() {
+    // When an obs-local-part is resolved to its semantic content and stored
+    // in an AddrSpec, encode_value should produce a valid RFC 5321 address.
+
+    // "first".last -> semantic content "first.last" -> encodes as dot-string
+    let addr = AddrSpec::new("first.last", "example.com");
+    k9::assert_equal!(addr.encode_value(), "first.last@example.com");
+
+    // "first second".last -> semantic content "first second.last" -> needs quoting
+    let addr = AddrSpec::new("first second.last", "example.com");
+    k9::assert_equal!(addr.encode_value(), r#""first second.last"@example.com"#);
+
+    // "first\"".last -> semantic content "first\".last" -> needs quoting with escaping
+    let addr = AddrSpec::new("first\".last", "example.com");
+    k9::assert_equal!(addr.encode_value(), r#""first\".last"@example.com"#);
+}
+
+#[cfg(test)]
+#[test]
+fn test_obs_local_part_with_special_chars() {
+    // obs-local-part where the quoted-string word contains characters
+    // that require quoting (space, specials)
+    k9::snapshot!(
+        parse_with(r#""hello world".user@example.com"#.as_bytes(), addr_spec),
+        r#"
+Ok(
+    AddrSpec {
+        local_part: "hello world.user",
+        domain: "example.com",
+    },
+)
+"#
+    );
+    // Verify the round-trip encodes as a valid RFC 5321 quoted-string
+    let addr = AddrSpec::new("hello world.user", "example.com");
+    k9::assert_equal!(addr.encode_value(), r#""hello world.user"@example.com"#);
+}
+
+#[cfg(test)]
+#[test]
+fn test_utf8_non_ascii_in_local_part() {
+    // RFC 6531/6532: internationalized local-part with non-ASCII characters
+    k9::snapshot!(
+        parse_with("用户@example.com".as_bytes(), addr_spec),
+        r#"
+Ok(
+    AddrSpec {
+        local_part: "用户",
+        domain: "example.com",
+    },
+)
+"#
+    );
+    k9::snapshot!(
+        parse_with("münchen@example.com".as_bytes(), addr_spec),
+        r#"
+Ok(
+    AddrSpec {
+        local_part: "münchen",
+        domain: "example.com",
+    },
+)
+"#
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn test_utf8_non_ascii_in_domain() {
+    // RFC 6531: internationalized domain in header address
+    k9::snapshot!(
+        parse_with("user@例え.jp".as_bytes(), addr_spec),
+        r#"
+Ok(
+    AddrSpec {
+        local_part: "user",
+        domain: "例え.jp",
+    },
+)
+"#
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn test_quoted_pair_non_ascii() {
+    // quoted_pair with utf8_non_ascii: backslash followed by a non-ASCII char
+    k9::snapshot!(
+        parse_with(r#""\München"@example.com"#.as_bytes(), addr_spec),
+        r#"
+Ok(
+    AddrSpec {
+        local_part: "München",
+        domain: "example.com",
+    },
+)
+"#
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn test_invalid_utf8_rejected() {
+    // Lone continuation byte (0x80) is not valid UTF-8 and should be rejected
+    // in atext position
+    let input = b"user\x80@example.com";
+    parse_with(input, addr_spec).unwrap_err();
+
+    // Overlong encoding of '/' (U+002F): 0xC0 0xAF is invalid UTF-8
+    let input = b"user\xC0\xAF@example.com";
+    parse_with(input, addr_spec).unwrap_err();
+
+    // Truncated multi-byte sequence: 0xC3 without continuation
+    let input = b"user\xC3@example.com";
+    parse_with(input, addr_spec).unwrap_err();
+
+    // Invalid byte in quoted-string qtext position
+    let input = b"\"user\x80\"@example.com";
+    parse_with(input, addr_spec).unwrap_err();
+
+    // Invalid byte in comment ctext position
+    let input = b"(comment\x80) user@example.com";
+    parse_with(input, mailbox).unwrap_err();
+}
+
 // atom = { cfws? ~ atext ~ cfws? }
 fn atom(input: Span) -> IResult<Span, BString> {
     let (loc, text) = context("atom", delimited(opt(cfws), atext, opt(cfws))).parse(input)?;
@@ -539,8 +700,14 @@ fn obs_local_part(input: Span) -> IResult<Span, BString> {
 }
 
 // local_part = { dot_atom | quoted_string | obs_local_part }
+// obs_local_part (word *("." word)) is a superset of both dot_atom and
+// quoted_string: a dot-separated run of atoms is an obs_local_part where
+// every word is an atom, and a bare quoted-string is an obs_local_part
+// with no dot continuations. It must be tried first because dot_atom can
+// partially match (e.g. consuming "first" from "first.\"last\"@domain")
+// and then fail in the wider addr_spec context with no backtracking.
 fn local_part(input: Span) -> IResult<Span, BString> {
-    context("local_part", alt((dot_atom, quoted_string, obs_local_part))).parse(input)
+    context("local_part", alt((obs_local_part, dot_atom, quoted_string))).parse(input)
 }
 
 // domain = { dot_atom | domain_literal | obs_domain }
@@ -732,10 +899,7 @@ fn quoted_pair(input: Span) -> IResult<Span, Span> {
         "quoted_pair",
         preceded(
             tag("\\"),
-            alt((
-                take_while_m_n(1, 1, is_quoted_pair_ascii),
-                utf8_non_ascii,
-            )),
+            alt((take_while_m_n(1, 1, is_quoted_pair_ascii), utf8_non_ascii)),
         ),
     )
     .parse(input)
@@ -947,10 +1111,7 @@ fn no_fold_literal(input: Span) -> IResult<Span, BString> {
         map(
             recognize((
                 tag("["),
-                recognize(many0(alt((
-                    take_while1(is_dtext_ascii),
-                    utf8_non_ascii,
-                )))),
+                recognize(many0(alt((take_while1(is_dtext_ascii), utf8_non_ascii)))),
                 tag("]"),
             )),
             |s: Span| (*s).into(),
@@ -2601,6 +2762,74 @@ Some(
             r#"
 Some(
     "Hello André",
+)
+"#
+        );
+    }
+
+    #[test]
+    fn unstructured_bare_non_ascii() {
+        // Direct test of unstructured header parsing with bare UTF-8
+        // (no encoded-word), exercising obs_utext -> utf8_non_ascii
+        let message = "Subject: Héllo wörld äöü\n\n\n";
+        let msg = MimePart::parse(message).unwrap();
+        k9::snapshot!(
+            msg.headers().subject().unwrap(),
+            r#"
+Some(
+    "Héllo wörld äöü",
+)
+"#
+        );
+
+        // Subject with CJK characters
+        let message = "Subject: 件名テスト\n\n\n";
+        let msg = MimePart::parse(message).unwrap();
+        k9::snapshot!(
+            msg.headers().subject().unwrap(),
+            r#"
+Some(
+    "件名テスト",
+)
+"#
+        );
+    }
+
+    #[test]
+    fn unstructured_raw_shift_jis() {
+        // Raw Shift-JIS bytes in a Subject header (not wrapped in an
+        // RFC 2047 encoded-word). "テスト" in Shift-JIS is:
+        //   テ=0x83 0x65  ス=0x83 0x58  ト=0x83 0x67
+        // These bytes are not valid UTF-8 (0x83 is a continuation byte
+        // appearing as a lead byte). With utf8_non_ascii validation,
+        // the parser will not match them as non-ASCII text.
+        let message = b"Subject: \x83\x65\x83\x58\x83\x67\n\n\n";
+
+        // Structural parse succeeds: the message is split into headers
+        // and body, and the Subject header is recognized.
+        let msg = MimePart::parse(message.as_slice()).unwrap();
+        let subject_header = msg.headers().get_first("Subject").unwrap();
+        k9::assert_equal!(
+            subject_header.get_raw_value(),
+            b"\x83\x65\x83\x58\x83\x67".as_slice()
+        );
+
+        // Semantic parse of the value as unstructured text fails because
+        // the raw bytes are not valid UTF-8.
+        k9::snapshot!(
+            msg.headers().subject(),
+            r#"
+Err(
+    InvalidHeaderValueDuringGet {
+        header_name: "Subject",
+        error: HeaderParse(
+            "Error at line 1, in Eof:
+\\x83e\\x83X\\x83g
+^_____
+
+",
+        ),
+    },
 )
 "#
         );

@@ -3739,4 +3739,13 @@ Ok(
         // ü is valid UTF-8, should appear as-is
         k9::assert_equal!(debug_str, r#"<@example.com:üser@example.com>"#);
     }
+
+    #[test]
+    fn test_envelope_address_rejects_obs_local_part() {
+        // obs-local-part (RFC 5322 §4.4) mixes quoted-strings and atoms
+        // separated by dots. This is not valid in RFC 5321 envelope addresses.
+        EnvelopeAddress::parse(r#""first".last@example.com"#).unwrap_err();
+        EnvelopeAddress::parse(r#"first."last"@example.com"#).unwrap_err();
+        EnvelopeAddress::parse(r#""first"."last"@example.com"#).unwrap_err();
+    }
 }
