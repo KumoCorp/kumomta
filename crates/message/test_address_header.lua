@@ -6,7 +6,8 @@ local function new_msg(content)
 end
 
 -- HeaderAddressList: single simple address without display name
-local msg = new_msg 'From: user@example.com\r\nTo: someone@example.com\r\n\r\nBody'
+local msg =
+  new_msg 'From: user@example.com\r\nTo: someone@example.com\r\n\r\nBody'
 local from = msg:from_header()
 utils.assert_eq(from.user, 'user')
 utils.assert_eq(from.domain, 'example.com')

@@ -13,8 +13,35 @@ use nom_utils::{
     explain_nom, make_context_error, make_span, tag, utf8_non_ascii, IResult, ParseError, Span,
 };
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DeserializeAs, SerializeAs};
 use std::collections::BTreeMap;
 use std::fmt::Debug;
+
+/// A `serde_with` adapter that serializes `BString` as a JSON string when
+/// the value is valid UTF-8, falling back to the default byte-array
+/// representation otherwise.
+pub struct BStringUtf8;
+
+impl SerializeAs<BString> for BStringUtf8 {
+    fn serialize_as<S>(value: &BString, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match std::str::from_utf8(value.as_bytes()) {
+            Ok(s) => serializer.serialize_str(s),
+            Err(_) => value.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> DeserializeAs<'de, BString> for BStringUtf8 {
+    fn deserialize_as<D>(deserializer: D) -> std::result::Result<BString, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        BString::deserialize(deserializer)
+    }
+}
 
 impl MailParsingError {
     pub fn from_nom(input: Span, err: nom::Err<ParseError<Span<'_>>>) -> Self {
@@ -1741,10 +1768,12 @@ impl Parser {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ARCAuthenticationResults {
     pub instance: u8,
+    #[serde_as(as = "BStringUtf8")]
     pub serv_id: BString,
     pub version: Option<u32>,
     pub results: Vec<AuthenticationResult>,
@@ -1785,9 +1814,11 @@ impl EncodeHeaderValue for ARCAuthenticationResults {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthenticationResults {
+    #[serde_as(as = "BStringUtf8")]
     pub serv_id: BString,
     #[serde(default)]
     pub version: Option<u32>,
@@ -1844,6 +1875,7 @@ impl EncodeHeaderValue for AuthenticationResults {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthenticationResult {
@@ -1851,8 +1883,10 @@ pub struct AuthenticationResult {
     #[serde(default)]
     pub method_version: Option<u32>,
     pub result: String,
+    #[serde_as(as = "Option<BStringUtf8>")]
     #[serde(default)]
     pub reason: Option<BString>,
+    #[serde_as(as = "BTreeMap<_, BStringUtf8>")]
     #[serde(default)]
     pub props: BTreeMap<String, BString>,
 }
@@ -1961,9 +1995,10 @@ pub struct Mailbox {
     pub address: AddrSpec,
 }
 
+#[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct MessageID(pub BString);
+pub struct MessageID(#[serde_as(as = "BStringUtf8")] pub BString);
 
 impl EncodeHeaderValue for MessageID {
     fn encode_value(&self) -> SharedString<'static> {
@@ -3851,6 +3886,158 @@ ARCAuthenticationResults {
     ],
 }
 "#
+        );
+    }
+
+    #[test]
+    fn bstring_utf8_serializes_utf8_as_string() {
+        // A MessageID with pure ASCII content serializes as a JSON string
+        let mid = MessageID(BString::from("abc123@example.com"));
+        let json = serde_json::to_string(&mid).unwrap();
+        k9::assert_equal!(json, r#""abc123@example.com""#);
+    }
+
+    #[test]
+    fn bstring_utf8_serializes_non_utf8_as_array() {
+        // A MessageID with invalid UTF-8 falls back to byte array
+        let mid = MessageID(BString::from(&b"hello\x80world"[..]));
+        let json = serde_json::to_string(&mid).unwrap();
+        k9::assert_equal!(json, "[104,101,108,108,111,128,119,111,114,108,100]");
+    }
+
+    #[test]
+    fn bstring_utf8_round_trip_utf8() {
+        let mid = MessageID(BString::from("test@example.com"));
+        let json = serde_json::to_string(&mid).unwrap();
+        let restored: MessageID = serde_json::from_str(&json).unwrap();
+        k9::assert_equal!(restored, mid);
+    }
+
+    #[test]
+    fn bstring_utf8_round_trip_non_utf8() {
+        let mid = MessageID(BString::from(&b"\xff\xfe"[..]));
+        let json = serde_json::to_string(&mid).unwrap();
+        let restored: MessageID = serde_json::from_str(&json).unwrap();
+        k9::assert_equal!(restored, mid);
+    }
+
+    #[test]
+    fn authentication_results_serialize_as_strings() {
+        let ar = AuthenticationResults {
+            serv_id: BString::from("example.com"),
+            version: None,
+            results: vec![AuthenticationResult {
+                method: "dkim".into(),
+                method_version: None,
+                result: "pass".into(),
+                reason: Some(BString::from("good signature")),
+                props: BTreeMap::from([
+                    ("header.d".into(), BString::from("example.com")),
+                    ("header.s".into(), BString::from("selector1")),
+                ]),
+            }],
+        };
+        let json = serde_json::to_string_pretty(&ar).unwrap();
+        // All BString fields that are valid UTF-8 should appear as JSON strings
+        k9::assert_equal!(
+            json,
+            r#"{
+  "serv_id": "example.com",
+  "version": null,
+  "results": [
+    {
+      "method": "dkim",
+      "method_version": null,
+      "result": "pass",
+      "reason": "good signature",
+      "props": {
+        "header.d": "example.com",
+        "header.s": "selector1"
+      }
+    }
+  ]
+}"#
+        );
+    }
+
+    #[test]
+    fn authentication_results_round_trip() {
+        let ar = AuthenticationResults {
+            serv_id: BString::from("mx.example.org"),
+            version: Some(1),
+            results: vec![AuthenticationResult {
+                method: "spf".into(),
+                method_version: None,
+                result: "pass".into(),
+                reason: None,
+                props: BTreeMap::from([(
+                    "smtp.mailfrom".into(),
+                    BString::from("sender@example.com"),
+                )]),
+            }],
+        };
+        let json = serde_json::to_string(&ar).unwrap();
+        let restored: AuthenticationResults = serde_json::from_str(&json).unwrap();
+        k9::assert_equal!(restored, ar);
+    }
+
+    #[test]
+    fn authentication_result_non_utf8_reason() {
+        let ar = AuthenticationResult {
+            method: "dkim".into(),
+            method_version: None,
+            result: "temperror".into(),
+            reason: Some(BString::from(&b"bad\x80data"[..])),
+            props: BTreeMap::new(),
+        };
+        let json = serde_json::to_string(&ar).unwrap();
+        // reason should be a byte array since it contains invalid UTF-8
+        assert!(json.contains(r#""reason":[98,97,100,128,100,97,116,97]"#));
+        let restored: AuthenticationResult = serde_json::from_str(&json).unwrap();
+        k9::assert_equal!(restored, ar);
+    }
+
+    #[test]
+    fn authentication_results_encode_value_with_binary() {
+        // Construct AuthenticationResults with non-UTF-8 bytes in BString fields
+        // and capture the encode_value() output for use in a Lua test.
+        let ar = AuthenticationResults {
+            serv_id: BString::from(&b"mx.ex\x80mple.com"[..]),
+            version: None,
+            results: vec![AuthenticationResult {
+                method: "spf".into(),
+                method_version: None,
+                result: "pass".into(),
+                reason: Some(BString::from(&b"good\xffsig"[..])),
+                props: BTreeMap::from([(
+                    "smtp.mailfrom".into(),
+                    BString::from(&b"user@\xfehost"[..]),
+                )]),
+            }],
+        };
+        let encoded = ar.encode_value();
+        k9::snapshot!(
+            encoded,
+            r#"
+mx.ex\x80mple.com;\r
+\tspf=pass reason=good\xffsig\r
+\tsmtp.mailfrom=user@\xfehost
+"#
+        );
+    }
+
+    #[test]
+    fn arc_authentication_results_serialize_as_strings() {
+        let arc = ARCAuthenticationResults {
+            instance: 1,
+            serv_id: BString::from("mx.example.com"),
+            version: None,
+            results: vec![],
+        };
+        let json = serde_json::to_string(&arc).unwrap();
+        k9::assert_equal!(
+            json,
+            r#"{"instance":1,"serv_id":"mx.example.com","version":null,"results":[]}"#
         );
     }
 }

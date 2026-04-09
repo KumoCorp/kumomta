@@ -1397,7 +1397,7 @@ impl UserData for Message {
 
         methods.add_async_method("parse_mime", |_lua, this, _: ()| async move {
             let data = this.data().await.map_err(any_err)?;
-            let owned_data = String::from_utf8_lossy(data.as_ref().as_ref()).to_string();
+            let owned_data = BString::new(data.as_ref().to_vec());
             let part = MimePart::parse(owned_data).map_err(any_err)?;
             Ok(mod_mimepart::PartRef::new(part))
         });
