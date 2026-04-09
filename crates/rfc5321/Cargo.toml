@@ -47,3 +47,4 @@ tracing = {workspace=true, optional=true}
 
 [dev-dependencies]
 k9.workspace = true
+serde_json.workspace = true

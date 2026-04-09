@@ -396,7 +396,11 @@ impl std::fmt::Display for EnvelopeAddress {
         match self {
             EnvelopeAddress::Null => write!(f, ""),
             EnvelopeAddress::Postmaster => write!(f, "Postmaster"),
-            EnvelopeAddress::Path(path) => path.fmt(f),
+            // Drop the source route (at-domain-list) per RFC 5321 §4.4:
+            // "SHOULD NOT copy source route (at-domain-list)"
+            EnvelopeAddress::Path(path) => {
+                write!(f, "{}@{}", path.mailbox.local_part, path.mailbox.domain)
+            }
         }
     }
 }
@@ -3735,7 +3739,85 @@ Ok(
         let addr = EnvelopeAddress::Path(path);
         let debug_str = format!("{:?}", addr);
         // ü is valid UTF-8, should appear as-is
-        k9::assert_equal!(debug_str, r#"<@example.com:üser@example.com>"#);
+        // EnvelopeAddress::Display drops the source route per RFC 5321 §4.4,
+        // so the Debug output also omits it
+        k9::assert_equal!(debug_str, r#"<üser@example.com>"#);
+    }
+
+    #[test]
+    fn test_envelope_address_display_drops_source_route() {
+        let path = MailPath {
+            at_domain_list: vec!["hosta.int".into(), "jkl.org".into()],
+            mailbox: Mailbox {
+                local_part: String::from("userc"),
+                domain: Domain::DomainName("d.bar.org".parse().unwrap()),
+            },
+        };
+        let addr = EnvelopeAddress::Path(path);
+        // Display drops the source route
+        k9::assert_equal!(addr.to_string(), "userc@d.bar.org");
+        // MailPath::Display still includes it (for diagnostics)
+        if let EnvelopeAddress::Path(ref p) = addr {
+            k9::assert_equal!(p.to_string(), "@hosta.int,@jkl.org:userc@d.bar.org");
+        }
+
+        // Quoted local part containing @
+        let path2 = MailPath {
+            at_domain_list: vec!["relay.example".into()],
+            mailbox: Mailbox {
+                local_part: String::from(r#""info@""#),
+                domain: Domain::DomainName("example.com".parse().unwrap()),
+            },
+        };
+        let addr2 = EnvelopeAddress::Path(path2);
+        k9::assert_equal!(addr2.to_string(), r#""info@"@example.com"#);
+        if let EnvelopeAddress::Path(ref p) = addr2 {
+            k9::assert_equal!(p.to_string(), r#"@relay.example:"info@"@example.com"#);
+        }
+    }
+
+    #[test]
+    fn test_envelope_address_serde_roundtrip_with_source_route() {
+        // Parse a MAIL FROM with source route
+        let cmd = unwrapper(Command::parse(
+            "MAIL FROM:<@hosta.int,@jkl.org:userc@d.bar.org>",
+        ));
+        if let MaybePartialCommand::Full(Command::MailFrom { address, .. }) = cmd {
+            if let ReversePath::Path(mail_path) = address {
+                let addr = EnvelopeAddress::Path(mail_path);
+                // Serialize (via Into<String> which uses Display)
+                let serialized = serde_json::to_string(&addr).unwrap();
+                k9::assert_equal!(serialized, r#""userc@d.bar.org""#);
+                // Deserialize back
+                let deserialized: EnvelopeAddress =
+                    serde_json::from_str(&serialized).unwrap();
+                // Roundtrip succeeds (source route is dropped)
+                k9::assert_equal!(deserialized.to_string(), "userc@d.bar.org");
+            } else {
+                panic!("Expected Path variant");
+            }
+        } else {
+            panic!("Expected Full MailFrom");
+        }
+
+        // Quoted local part with @ inside
+        let cmd2 = unwrapper(Command::parse(
+            r#"MAIL FROM:<@relay.example:"info@"@example.com>"#,
+        ));
+        if let MaybePartialCommand::Full(Command::MailFrom { address, .. }) = cmd2 {
+            if let ReversePath::Path(mail_path) = address {
+                let addr = EnvelopeAddress::Path(mail_path);
+                let serialized = serde_json::to_string(&addr).unwrap();
+                k9::assert_equal!(serialized, r#""\"info@\"@example.com""#);
+                let deserialized: EnvelopeAddress =
+                    serde_json::from_str(&serialized).unwrap();
+                k9::assert_equal!(deserialized.to_string(), r#""info@"@example.com"#);
+            } else {
+                panic!("Expected Path variant");
+            }
+        } else {
+            panic!("Expected Full MailFrom");
+        }
     }
 
     #[test]
