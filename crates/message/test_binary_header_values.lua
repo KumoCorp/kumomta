@@ -62,25 +62,30 @@ local msg4 = new_msg('X-AllBytes: ' .. all_bytes .. '\r\n\r\nBody')
 local result = msg4:get_first_named_header_value 'X-AllBytes'
 utils.assert_eq(result, all_bytes)
 
--- Authentication-Results header with binary (non-UTF-8) content in serv_id
--- and reason fields. Binary in propspec values is tested with a leading
--- non-ASCII byte to avoid the parser's domain-before-value alternation.
-local ar_header = 'mx.ex\x80mple.com;'
+-- Authentication-Results header with binary (non-UTF-8) content.
+-- The raw value accessor preserves binary bytes via the fallback path.
+local ar_header_bin = 'mx.ex\x80mple.com;'
   .. ' spf=pass reason=good\xffsig'
   .. ' smtp.mailfrom=\xfevalue'
 local msg5 =
-  new_msg('Authentication-Results: ' .. ar_header .. '\r\n\r\nBody')
+  new_msg('Authentication-Results: ' .. ar_header_bin .. '\r\n\r\nBody')
 local ar_value = msg5:get_first_named_header_value 'Authentication-Results'
-utils.assert_eq(ar_value, ar_header)
+utils.assert_eq(ar_value, ar_header_bin)
 
--- Use the structured authentication_results accessor to verify binary
--- is preserved in individual parsed fields.
-local hdr = msg5:parse_mime().headers:get_first_named 'Authentication-Results'
+-- The structured authentication_results accessor uses the strict RFC 8601
+-- parser which correctly requires valid characters. Use UTF-8 non-ASCII
+-- (internationalized) content to verify it parses and preserves them.
+local ar_header_utf8 = 'mx.ex\xc3\xbcmple.com;'
+  .. ' spf=pass reason=good\xc3\xa9sig'
+  .. ' smtp.mailfrom=t\xc3\xa9st'
+local msg6 =
+  new_msg('Authentication-Results: ' .. ar_header_utf8 .. '\r\n\r\nBody')
+local hdr = msg6:parse_mime().headers:get_first_named 'Authentication-Results'
 local ar = hdr.authentication_results
-utils.assert_eq(ar.serv_id, 'mx.ex\x80mple.com')
+utils.assert_eq(ar.serv_id, 'mx.ex\xc3\xbcmple.com')
 utils.assert_eq(#ar.results, 1)
 local r = ar.results[1]
 utils.assert_eq(r.method, 'spf')
 utils.assert_eq(r.result, 'pass')
-utils.assert_eq(r.reason, 'good\xffsig')
-utils.assert_eq(r.props['smtp.mailfrom'], '\xfevalue')
+utils.assert_eq(r.reason, 'good\xc3\xa9sig')
+utils.assert_eq(r.props['smtp.mailfrom'], 't\xc3\xa9st')

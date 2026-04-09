@@ -67,7 +67,7 @@ fn not_angle(c: u8) -> bool {
 // char = { '\u{01}'..'\u{7f}' }
 fn is_char(c: u8) -> bool {
     match c {
-        0x01..=0xff => true,
+        0x01..=0x7f => true,
         _ => false,
     }
 }
@@ -1352,13 +1352,14 @@ fn methodspec(input: Span) -> IResult<Span, (String, Option<u32>, String)> {
 }
 
 // Taken from https://datatracker.ietf.org/doc/html/rfc8601 which says
-// that this is the same as the SMTP Keyword token.
-// Only matches ASCII alphanumeric, '+' and '-'.
+// that this is the same as the SMTP Keyword token (RFC 5321 section 4.1.2).
+// Keyword = Ldh-str = *( ALPHA / DIGIT / "-" ) Let-dig
+// Only matches ASCII alphanumeric and '-'.
 fn keyword(input: Span) -> IResult<Span, String> {
     context(
         "keyword",
         map(
-            take_while1(|c: u8| c.is_ascii_alphanumeric() || c == b'+' || c == b'-'),
+            take_while1(|c: u8| c.is_ascii_alphanumeric() || c == b'-'),
             // SAFETY: predicate only matches ASCII bytes
             |s: Span| String::from_utf8((*s).into()).expect("keyword is ASCII-only"),
         ),
@@ -1393,6 +1394,10 @@ fn propspec(input: Span) -> IResult<Span, (String, BString)> {
         "propspec",
         map(
             (
+                // RFC 8601 resinfo ABNF says CFWS is required before each
+                // propspec, but we use opt(cfws) here because other parsers
+                // (notably quoted_string) may have already consumed the
+                // whitespace.
                 opt(cfws),
                 keyword,
                 opt(cfws),
@@ -1402,6 +1407,10 @@ fn propspec(input: Span) -> IResult<Span, (String, BString)> {
                 opt(cfws),
                 tag("="),
                 opt(cfws),
+                // pvalue = [CFWS] ( value / [ [CFWS] "@" ] domain ) [CFWS]
+                // Try @domain and local@domain first (distinctive @ marker),
+                // then quoted_string (distinctive " marker), then domain
+                // (handles dotted names), then mime_token last (single tokens).
                 alt((
                     map(preceded(tag("@"), domain), |d| {
                         let mut at_dom = BString::from("@");
@@ -1414,9 +1423,9 @@ fn propspec(input: Span) -> IResult<Span, (String, BString)> {
                         result.push_str(d);
                         result
                     }),
+                    quoted_string,
                     domain,
-                    // value must be last in this alternation
-                    value,
+                    map(mime_token, |s: Span| (*s).into()),
                 )),
                 opt(cfws),
             ),
@@ -1447,8 +1456,16 @@ fn is_mime_token(c: u8) -> bool {
 }
 
 // mime_token = { (!(" " | ctl | tspecials) ~ char)+ }
+// Also accepts validated UTF-8 multi-byte sequences per RFC 6532.
 fn mime_token(input: Span) -> IResult<Span, Span> {
-    context("mime_token", take_while1(is_mime_token)).parse(input)
+    context(
+        "mime_token",
+        recognize(many1(alt((
+            take_while1(is_mime_token),
+            utf8_non_ascii,
+        )))),
+    )
+    .parse(input)
 }
 
 // RFC2045 modified by RFC2231 MIME header fields
@@ -1783,10 +1800,10 @@ impl EncodeHeaderValue for ARCAuthenticationResults {
     fn encode_value(&self) -> SharedString<'static> {
         let mut result = format!("i={}; ", self.instance).into_bytes();
 
-        match self.version {
-            Some(v) => result.push_str(&format!("{} {v}", self.serv_id)),
-            None => result.push_str(&self.serv_id),
-        };
+        emit_value_token(&self.serv_id, &mut result);
+        if let Some(v) = self.version {
+            result.push_str(&format!(" {v}"));
+        }
 
         if self.results.is_empty() {
             result.push_str("; none");
@@ -1828,6 +1845,7 @@ pub struct AuthenticationResults {
 
 /// Emits a value that was parsed by `value`, into target
 fn emit_value_token(value: &[u8], target: &mut Vec<u8>) {
+    // Allow '@' bare since the pvalue parser handles @domain and local@domain
     let use_quoted_string = !value.iter().all(|&c| is_mime_token(c) || c == b'@');
     if use_quoted_string {
         target.push(b'"');
@@ -1845,10 +1863,11 @@ fn emit_value_token(value: &[u8], target: &mut Vec<u8>) {
 
 impl EncodeHeaderValue for AuthenticationResults {
     fn encode_value(&self) -> SharedString<'static> {
-        let mut result = match self.version {
-            Some(v) => format!("{} {v}", self.serv_id).into_bytes(),
-            None => self.serv_id.to_vec(),
-        };
+        let mut result = Vec::new();
+        emit_value_token(&self.serv_id, &mut result);
+        if let Some(v) = self.version {
+            result.push_str(&format!(" {v}"));
+        }
         if self.results.is_empty() {
             result.push_str("; none");
         } else {
@@ -4019,11 +4038,36 @@ ARCAuthenticationResults {
         k9::snapshot!(
             encoded,
             r#"
-mx.ex\x80mple.com;\r
-\tspf=pass reason=good\xffsig\r
-\tsmtp.mailfrom=user@\xfehost
+"mx.ex\x80mple.com";\r
+\tspf=pass reason="good\xffsig"\r
+\tsmtp.mailfrom="user@\xfehost"
 "#
         );
+    }
+
+    #[test]
+    fn authentication_results_serv_id_quoting() {
+        // A serv_id containing characters that need quoting is properly quoted
+        let ar = AuthenticationResults {
+            serv_id: BString::from("mx example.com"),
+            version: None,
+            results: vec![],
+        };
+        let encoded = ar.encode_value();
+        k9::snapshot!(encoded, r#""mx example.com"; none"#);
+
+        // Normal domain-like serv_id is emitted bare
+        let ar2 = AuthenticationResults {
+            serv_id: BString::from("mx.example.com"),
+            version: Some(1),
+            results: vec![],
+        };
+        let encoded2 = ar2.encode_value();
+        k9::snapshot!(&encoded2, "mx.example.com 1; none");
+        // Bare serv_id roundtrips
+        let parsed = Parser::parse_authentication_results_header(encoded2.as_bytes()).unwrap();
+        k9::assert_equal!(parsed.serv_id, ar2.serv_id);
+        k9::assert_equal!(parsed.version, Some(1));
     }
 
     #[test]
@@ -4040,4 +4084,5 @@ mx.ex\x80mple.com;\r
             r#"{"instance":1,"serv_id":"mx.example.com","version":null,"results":[]}"#
         );
     }
+
 }
