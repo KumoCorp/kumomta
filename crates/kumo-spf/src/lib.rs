@@ -180,7 +180,7 @@ impl<'a> SpfContext<'a> {
     ///   initially, the domain portion of the "MAIL FROM" or "HELO" identity
     /// - `client_ip` is the IP address of the SMTP client that is emitting the mail
     fn new(sender: &'a str, domain: &'a str, client_ip: IpAddr) -> Result<Self, SpfResult> {
-        let (local_part, sender_domain) = match sender.split_once('@') {
+        let (local_part, sender_domain) = match sender.rsplit_once('@') {
             Some((local_part, sender_domain)) => (local_part, sender_domain),
             None => ("postmaster", sender),
         };

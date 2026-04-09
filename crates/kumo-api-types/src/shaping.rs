@@ -342,7 +342,7 @@ impl ShapingInner {
     }
 
     pub async fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<Rule>> {
-        use rfc5321::ForwardPath;
+        use rfc5321::parser::ForwardPath;
         // Extract the domain from the recipient.
         let recipient = ForwardPath::try_from(
             record

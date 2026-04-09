@@ -5,7 +5,6 @@ use crate::dkim::Signer;
 use crate::dkim::SIGN_POOL;
 pub use crate::queue_name::QueueNameComponents;
 use crate::scheduling::Scheduling;
-use crate::EnvelopeAddress;
 use anyhow::Context;
 use bstr::{BString, ByteSlice, ByteVec};
 use chrono::{DateTime, Utc};
@@ -29,6 +28,7 @@ use mlua::{IntoLua, LuaSerdeExt, UserData, UserDataMethods};
 #[cfg(feature = "impl")]
 use mod_dns_resolver::get_resolver_instance;
 use parking_lot::Mutex;
+use rfc5321::parser::EnvelopeAddress;
 use serde::{Deserialize, Serialize};
 use serde_with::formats::PreferOne;
 use serde_with::{serde_as, OneOrMany};
@@ -1093,7 +1093,10 @@ impl Message {
         let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
         match headers.get_first(name) {
-            Some(hdr) => Ok(Some(hdr.as_unstructured()?)),
+            Some(hdr) => Ok(Some(
+                hdr.as_unstructured()
+                    .unwrap_or_else(|_| hdr.get_raw_value().into()),
+            )),
             None => Ok(None),
         }
     }
@@ -1104,7 +1107,10 @@ impl Message {
 
         let mut values = vec![];
         for hdr in headers.iter_named(name) {
-            values.push(hdr.as_unstructured()?);
+            values.push(
+                hdr.as_unstructured()
+                    .unwrap_or_else(|_| hdr.get_raw_value().into()),
+            );
         }
         Ok(values)
     }
@@ -1115,7 +1121,11 @@ impl Message {
 
         let mut values = vec![];
         for hdr in headers.iter() {
-            values.push((hdr.get_name().into(), hdr.as_unstructured()?));
+            values.push((
+                hdr.get_name().into(),
+                hdr.as_unstructured()
+                    .unwrap_or_else(|_| hdr.get_raw_value().into()),
+            ));
         }
         Ok(values)
     }
@@ -1387,7 +1397,7 @@ impl UserData for Message {
 
         methods.add_async_method("parse_mime", |_lua, this, _: ()| async move {
             let data = this.data().await.map_err(any_err)?;
-            let owned_data = String::from_utf8_lossy(data.as_ref().as_ref()).to_string();
+            let owned_data = BString::new(data.as_ref().to_vec());
             let part = MimePart::parse(owned_data).map_err(any_err)?;
             Ok(mod_mimepart::PartRef::new(part))
         });

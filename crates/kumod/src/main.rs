@@ -288,13 +288,10 @@ async fn perform_init(opts: Opt) -> anyhow::Result<()> {
         // returns immediately. This allows wait_for_shutdown() to run
         // and properly handle ctrl+c and other shutdown signals.
         let _ = rt_spawn("main", async move {
-            if let Err(err) = config
+            let result = config
                 .async_call_callback(&main_sig, ParamList(script_args))
-                .await
-            {
-                tracing::error!("script main callback failed: {err:#}");
-            }
-            LifeCycle::request_shutdown().await;
+                .await;
+            LifeCycle::request_shutdown(result).await;
         });
 
         return Ok(());
@@ -321,7 +318,7 @@ async fn perform_init(opts: Opt) -> anyhow::Result<()> {
             anyhow::bail!("Validation failed");
         }
 
-        LifeCycle::request_shutdown().await;
+        LifeCycle::request_shutdown(Ok(())).await;
     } else {
         config::epoch::start_monitor();
         lruttl::spawn_memory_monitor();

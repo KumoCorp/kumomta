@@ -12,6 +12,7 @@ use num_format::{Locale, ToFormattedString};
 use rand::distributions::WeightedIndex;
 use rand::prelude::*;
 use reqwest::{Client as HttpClient, Url};
+use rfc5321::parser::{Command, ForwardPath, ReversePath};
 use rfc5321::*;
 use serde::Serialize;
 use std::io::Write;

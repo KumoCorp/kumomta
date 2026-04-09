@@ -14,7 +14,9 @@
    quoted local part form of an address, such as `"quoted"@example.com`.
    This behavior also applies to the local part values that are used
    to construct [Advanced Maildir
-   Paths](../reference/kumo/make_queue_config/protocol.md#advanced-maildir-path).
+   Paths](../reference/kumo/make_queue_config/protocol.md#advanced-maildir-path),
+   as well as [addressheader.user](../reference/addressheader/user.md) and entries in
+   [addressheader.list](../reference/addressheader/list.md)
  * Our MIME parser now accommodates non-conforming binary message
    content that is neither ASCII nor UTF-8, such as message content encoded in
    `shift-jis` without using appropriate MIME markup to indicate that encoding.
@@ -74,6 +76,14 @@
    now outputs keys of json objects in sorted order.  This means that utilities
    such as `resolve-shaping-domain` will now output keys in sorted order as well.
 
+ * [msg:get_first_named_header_value](../reference/message/get_first_named_header_value.md)
+   and related header accessors now fall back to returning the raw header
+   value when the structured parser fails, rather than raising an error.
+   This improves resilience when processing messages with non-conforming
+   header content.
+ * [msg:parse_mime()](../reference/message/parse_mime.md) and
+   `kumo.mimepart.parse()` now preserve binary (non-UTF-8) bytes in message
+   content rather than applying lossy UTF-8 conversion.
  * [kumo.encode.charset_encode](../reference/kumo.encode/charset_encode.md) and
    [kumo.encode.charset_decode](../reference/kumo.encode/charset_decode.md) string
    charset encoding/decoding functions for advanced use cases.

@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use bstr::{BStr, BString, ByteSlice};
 use chrono::{DateTime, Utc};
 use mailparsing::{Header, HeaderParseResult, MimePart};
-use rfc5321::EnvelopeAddress;
+use rfc5321::parser::EnvelopeAddress;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::str::FromStr;

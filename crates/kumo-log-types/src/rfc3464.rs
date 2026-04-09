@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context};
 use bstr::{BStr, BString, ByteSlice};
 use chrono::{DateTime, Utc};
 use mailparsing::MimePart;
-use rfc5321::EnvelopeAddress;
+use rfc5321::parser::EnvelopeAddress;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::str::FromStr;

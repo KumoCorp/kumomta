@@ -1,4 +1,5 @@
-use crate::{EnvelopeAddress, Message};
+use crate::Message;
+use rfc5321::parser::EnvelopeAddress;
 use serde::{Deserialize, Serialize};
 use spool::SpoolId;
 

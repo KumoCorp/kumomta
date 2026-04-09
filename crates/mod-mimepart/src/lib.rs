@@ -1,6 +1,7 @@
 pub use crate::mimepart::PartRef;
+use bstr::BString;
 use config::{SerdeWrappedValue, any_err, get_or_create_sub_module};
-use mailparsing::{AttachmentOptions, MimePart, SharedString};
+use mailparsing::{AttachmentOptions, MimePart};
 use mlua::{Lua, UserDataRef};
 
 pub mod builder;
@@ -60,8 +61,8 @@ fn new_multipart(
     Ok(PartRef::new(part))
 }
 
-fn parse_eml(_: &Lua, eml_contents: String) -> mlua::Result<PartRef> {
-    let eml_contents: SharedString = eml_contents.into();
+fn parse_eml(_: &Lua, eml_contents: mlua::String) -> mlua::Result<PartRef> {
+    let eml_contents = BString::new(eml_contents.as_bytes().to_vec());
     let part = MimePart::parse(eml_contents).map_err(any_err)?;
     Ok(PartRef::new(part))
 }

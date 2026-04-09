@@ -1,5 +1,6 @@
 use crate::kumod::{DaemonWithMaildir, MailGenParams};
 use k9::assert_equal;
+use rfc5321::parser::Command;
 use rfc5321::*;
 
 /// test maximum line length for a single SMTP command

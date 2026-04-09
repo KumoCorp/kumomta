@@ -47,7 +47,7 @@ impl Record {
                         continue;
                     }
 
-                    if let Some(result) = dkim.get("header.d".as_bytes()) {
+                    if let Some(result) = dkim.get("header.d") {
                         if let Ok(result_str) = result.to_str() {
                             if is_relaxed_aligned(cx.from_domain, result_str) {
                                 dkim_aligned = true;
@@ -67,7 +67,7 @@ impl Record {
                         continue;
                     }
 
-                    if let Some(result) = dkim.get("header.d".as_bytes()) {
+                    if let Some(result) = dkim.get("header.d") {
                         if let Ok(result_str) = result.to_str() {
                             if is_strict_aligned(cx.from_domain, result_str) {
                                 dkim_aligned = true;
@@ -156,24 +156,24 @@ impl Record {
 }
 
 fn auth_result_is_pass(
-    auth_result: &std::collections::BTreeMap<bstr::BString, bstr::BString>,
+    auth_result: &std::collections::BTreeMap<String, bstr::BString>,
 ) -> bool {
     auth_result
-        .get("result".as_bytes())
+        .get("result")
         .is_some_and(|result| result.eq_ignore_ascii_case(b"pass"))
 }
 
 fn spf_alignment_domain<'a>(
-    auth_result: &'a std::collections::BTreeMap<bstr::BString, bstr::BString>,
+    auth_result: &'a std::collections::BTreeMap<String, bstr::BString>,
 ) -> Option<&'a str> {
     auth_result
-        .get("smtp.mailfrom".as_bytes())
+        .get("smtp.mailfrom")
         .filter(|domain| !domain.is_empty())
         .and_then(|domain| domain.to_str().ok())
         .map(|s| s.split_once('@').map_or(s, |(_, domain)| domain))
         .or_else(|| {
             auth_result
-                .get("smtp.helo".as_bytes())
+                .get("smtp.helo")
                 .filter(|domain| !domain.is_empty())
                 .and_then(|domain| domain.to_str().ok())
         })

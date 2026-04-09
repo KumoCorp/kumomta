@@ -12,9 +12,8 @@ use maildir::{MailEntry, Maildir};
 use mailparsing::MessageBuilder;
 use nix::unistd::{Uid, User};
 use parking_lot::Mutex;
-use rfc5321::{
-    BatchSendSuccess, ForwardPath, Response, ReversePath, SmtpClient, SmtpClientTimeouts,
-};
+use rfc5321::parser::{ForwardPath, ReversePath};
+use rfc5321::{BatchSendSuccess, Response, SmtpClient, SmtpClientTimeouts};
 use sqlite::{Connection, State};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
