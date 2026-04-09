@@ -1460,10 +1460,7 @@ fn is_mime_token(c: u8) -> bool {
 fn mime_token(input: Span) -> IResult<Span, Span> {
     context(
         "mime_token",
-        recognize(many1(alt((
-            take_while1(is_mime_token),
-            utf8_non_ascii,
-        )))),
+        recognize(many1(alt((take_while1(is_mime_token), utf8_non_ascii)))),
     )
     .parse(input)
 }
@@ -4084,5 +4081,4 @@ ARCAuthenticationResults {
             r#"{"instance":1,"serv_id":"mx.example.com","version":null,"results":[]}"#
         );
     }
-
 }

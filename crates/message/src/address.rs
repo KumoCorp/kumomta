@@ -79,9 +79,7 @@ impl UserData for HeaderAddressList {
         fields.add_field_method_get("domain", |_, this| {
             Ok(this.domain().map_err(any_err)?.to_string())
         });
-        fields.add_field_method_get("email", |_, this| {
-            Ok(this.email().map_err(any_err)?)
-        });
+        fields.add_field_method_get("email", |_, this| Ok(this.email().map_err(any_err)?));
         fields.add_field_method_get("name", |_, this| {
             Ok(this.name().map_err(any_err)?.map(|s| s.to_string()))
         });
@@ -276,10 +274,7 @@ mod test {
         };
 
         let json = serde_json::to_string(&addr).unwrap();
-        k9::assert_equal!(
-            json,
-            r#"{"name":"Test User","address":"test@example.com"}"#
-        );
+        k9::assert_equal!(json, r#"{"name":"Test User","address":"test@example.com"}"#);
 
         let roundtripped: HeaderAddress = serde_json::from_str(&json).unwrap();
         k9::assert_equal!(roundtripped, addr);
@@ -295,10 +290,7 @@ mod test {
         };
 
         let json = serde_json::to_string(&addr).unwrap();
-        k9::assert_equal!(
-            json,
-            r#"{"name":null,"address":"\"info@\"@example.com"}"#
-        );
+        k9::assert_equal!(json, r#"{"name":null,"address":"\"info@\"@example.com"}"#);
 
         let roundtripped: HeaderAddress = serde_json::from_str(&json).unwrap();
         k9::assert_equal!(roundtripped, addr);

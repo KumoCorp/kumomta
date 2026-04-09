@@ -3789,8 +3789,7 @@ Ok(
                 let serialized = serde_json::to_string(&addr).unwrap();
                 k9::assert_equal!(serialized, r#""userc@d.bar.org""#);
                 // Deserialize back
-                let deserialized: EnvelopeAddress =
-                    serde_json::from_str(&serialized).unwrap();
+                let deserialized: EnvelopeAddress = serde_json::from_str(&serialized).unwrap();
                 // Roundtrip succeeds (source route is dropped)
                 k9::assert_equal!(deserialized.to_string(), "userc@d.bar.org");
             } else {
@@ -3809,8 +3808,7 @@ Ok(
                 let addr = EnvelopeAddress::Path(mail_path);
                 let serialized = serde_json::to_string(&addr).unwrap();
                 k9::assert_equal!(serialized, r#""\"info@\"@example.com""#);
-                let deserialized: EnvelopeAddress =
-                    serde_json::from_str(&serialized).unwrap();
+                let deserialized: EnvelopeAddress = serde_json::from_str(&serialized).unwrap();
                 k9::assert_equal!(deserialized.to_string(), r#""info@"@example.com"#);
             } else {
                 panic!("Expected Path variant");
