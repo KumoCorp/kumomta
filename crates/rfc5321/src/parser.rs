@@ -117,8 +117,6 @@ impl Mailbox {
     /// Normalization removes any quoting from the local part,
     /// so that `"\f\o\o"` and `"foo"` will both be returned
     /// as `foo` and will compare as equal.
-    /// Any byte sequences that are invalid UTF-8 will be
-    /// replaced with the unicode replacement character.
     pub fn local_part(&self) -> Cow<'_, str> {
         // Check if the local_part is a quoted string
         if self.local_part.starts_with('"') {
