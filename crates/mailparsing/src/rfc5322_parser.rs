@@ -9,7 +9,9 @@ use nom::error::context;
 use nom::multi::{many0, many1, separated_list1};
 use nom::sequence::{delimited, preceded, separated_pair, terminated};
 use nom::Parser as _;
-use nom_utils::{explain_nom, make_context_error, make_span, tag, IResult, ParseError, Span};
+use nom_utils::{
+    explain_nom, make_context_error, make_span, tag, utf8_non_ascii, IResult, ParseError, Span,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::Debug;
@@ -18,10 +20,6 @@ impl MailParsingError {
     pub fn from_nom(input: Span, err: nom::Err<ParseError<Span<'_>>>) -> Self {
         MailParsingError::HeaderParse(explain_nom(input, err))
     }
-}
-
-fn is_utf8_non_ascii(c: u8) -> bool {
-    c == 0 || c >= 0x80
 }
 
 // ctl = { '\u{00}'..'\u{1f}' | "\u{7f}" }
@@ -60,20 +58,34 @@ fn is_token(c: u8) -> bool {
 }
 
 // vchar = { '\u{21}'..'\u{7e}' | utf8_non_ascii }
-fn is_vchar(c: u8) -> bool {
-    (0x21..=0x7e).contains(&c) || is_utf8_non_ascii(c)
+fn is_vchar_ascii(c: u8) -> bool {
+    (0x21..=0x7e).contains(&c)
 }
 
-fn is_atext(c: u8) -> bool {
+fn is_atext_ascii(c: u8) -> bool {
     match c {
         b'!' | b'#' | b'$' | b'%' | b'&' | b'\'' | b'*' | b'+' | b'-' | b'/' | b'=' | b'?'
         | b'^' | b'_' | b'`' | b'{' | b'|' | b'}' | b'~' => true,
-        c => c.is_ascii_alphanumeric() || is_utf8_non_ascii(c),
+        c => c.is_ascii_alphanumeric(),
     }
 }
 
+/// Byte-level predicate for atext, including UTF-8 continuation/leading bytes.
+/// Used for non-parser checks (e.g., needs_quoting). For parsing, use the
+/// `atext` parser which properly validates UTF-8 via `utf8_non_ascii`.
+fn is_atext(c: u8) -> bool {
+    is_atext_ascii(c) || c >= 0x80
+}
+
 fn atext(input: Span) -> IResult<Span, Span> {
-    context("atext", take_while1(is_atext)).parse(input)
+    context(
+        "atext",
+        recognize(many1(alt((
+            take_while1(is_atext_ascii),
+            utf8_non_ascii,
+        )))),
+    )
+    .parse(input)
 }
 
 fn is_obs_no_ws_ctl(c: u8) -> bool {
@@ -88,29 +100,36 @@ fn is_obs_ctext(c: u8) -> bool {
 }
 
 // ctext = { '\u{21}'..'\u{27}' | '\u{2a}'..'\u{5b}' | '\u{5d}'..'\u{7e}' | obs_ctext | utf8_non_ascii }
-fn is_ctext(c: u8) -> bool {
+fn is_ctext_ascii(c: u8) -> bool {
     match c {
         0x21..=0x27 | 0x2a..=0x5b | 0x5d..=0x7e => true,
-        c => is_obs_ctext(c) || is_utf8_non_ascii(c),
+        c => is_obs_ctext(c),
     }
 }
 
 // dtext = { '\u{21}'..'\u{5a}' | '\u{5e}'..'\u{7e}' | obs_dtext | utf8_non_ascii }
 // obs_dtext = { obs_no_ws_ctl | quoted_pair }
-fn is_dtext(c: u8) -> bool {
+fn is_dtext_ascii(c: u8) -> bool {
     match c {
         0x21..=0x5a | 0x5e..=0x7e => true,
-        c => is_obs_no_ws_ctl(c) || is_utf8_non_ascii(c),
+        c => is_obs_no_ws_ctl(c),
     }
 }
 
 // qtext = { "\u{21}" | '\u{23}'..'\u{5b}' | '\u{5d}'..'\u{7e}' | obs_qtext | utf8_non_ascii }
 // obs_qtext = { obs_no_ws_ctl }
-fn is_qtext(c: u8) -> bool {
+fn is_qtext_ascii(c: u8) -> bool {
     match c {
         0x21 | 0x23..=0x5b | 0x5d..=0x7e => true,
-        c => is_obs_no_ws_ctl(c) || is_utf8_non_ascii(c),
+        c => is_obs_no_ws_ctl(c),
     }
+}
+
+/// Byte-level predicate for qtext, including UTF-8 continuation/leading bytes.
+/// Used for non-parser checks. For parsing, use `qcontent` which validates
+/// UTF-8 via `utf8_non_ascii`.
+fn is_qtext(c: u8) -> bool {
+    is_qtext_ascii(c) || c >= 0x80
 }
 
 fn is_tspecial(c: u8) -> bool {
@@ -552,7 +571,14 @@ fn domain_literal(input: Span) -> IResult<Span, BString> {
             delimited(
                 tag("["),
                 (
-                    many0((opt(fws), alt((take_while_m_n(1, 1, is_dtext), quoted_pair)))),
+                    many0((
+                        opt(fws),
+                        alt((
+                            take_while_m_n(1, 1, is_dtext_ascii),
+                            utf8_non_ascii,
+                            quoted_pair,
+                        )),
+                    )),
                     opt(fws),
                 ),
                 tag("]"),
@@ -676,7 +702,7 @@ fn ccontent(input: Span) -> IResult<Span, Span> {
     context(
         "ccontent",
         recognize(alt((
-            recognize(take_while_m_n(1, 1, is_ctext)),
+            recognize(alt((take_while_m_n(1, 1, is_ctext_ascii), utf8_non_ascii))),
             recognize(quoted_pair),
             comment,
             recognize(encoded_word),
@@ -685,11 +711,18 @@ fn ccontent(input: Span) -> IResult<Span, Span> {
     .parse(input)
 }
 
-fn is_quoted_pair(c: u8) -> bool {
+fn is_quoted_pair_ascii(c: u8) -> bool {
     match c {
         0x00 | b'\r' | b'\n' | b' ' => true,
-        c => is_obs_no_ws_ctl(c) || is_vchar(c),
+        c => is_obs_no_ws_ctl(c) || is_vchar_ascii(c),
     }
+}
+
+/// Byte-level predicate for quoted_pair, including UTF-8 continuation/leading
+/// bytes. Used for non-parser checks. For parsing, use `quoted_pair` which
+/// validates UTF-8 via `utf8_non_ascii`.
+fn is_quoted_pair(c: u8) -> bool {
+    is_quoted_pair_ascii(c) || c >= 0x80
 }
 
 // quoted_pair = { ( "\\"  ~ (vchar | wsp)) | obs_qp }
@@ -697,7 +730,13 @@ fn is_quoted_pair(c: u8) -> bool {
 fn quoted_pair(input: Span) -> IResult<Span, Span> {
     context(
         "quoted_pair",
-        preceded(tag("\\"), take_while_m_n(1, 1, is_quoted_pair)),
+        preceded(
+            tag("\\"),
+            alt((
+                take_while_m_n(1, 1, is_quoted_pair_ascii),
+                utf8_non_ascii,
+            )),
+        ),
     )
     .parse(input)
 }
@@ -805,7 +844,10 @@ fn encoding(input: Span) -> IResult<Span, Span> {
 fn encoded_text(input: Span) -> IResult<Span, Span> {
     context(
         "encoded_text",
-        take_while1(|c| is_vchar(c) && c != b' ' && c != b'?'),
+        recognize(many1(alt((
+            take_while1(|c| is_vchar_ascii(c) && c != b' ' && c != b'?'),
+            utf8_non_ascii,
+        )))),
     )
     .parse(input)
 }
@@ -843,7 +885,11 @@ fn quoted_string(input: Span) -> IResult<Span, BString> {
 fn qcontent(input: Span) -> IResult<Span, Span> {
     context(
         "qcontent",
-        alt((take_while_m_n(1, 1, is_qtext), quoted_pair)),
+        alt((
+            take_while_m_n(1, 1, is_qtext_ascii),
+            utf8_non_ascii,
+            quoted_pair,
+        )),
     )
     .parse(input)
 }
@@ -899,7 +945,14 @@ fn no_fold_literal(input: Span) -> IResult<Span, BString> {
     context(
         "no_fold_literal",
         map(
-            recognize((tag("["), take_while(is_dtext), tag("]"))),
+            recognize((
+                tag("["),
+                recognize(many0(alt((
+                    take_while1(is_dtext_ascii),
+                    utf8_non_ascii,
+                )))),
+                tag("]"),
+            )),
             |s: Span| (*s).into(),
         ),
     )
@@ -1175,7 +1228,12 @@ fn propspec(input: Span) -> IResult<Span, (BString, BString)> {
 fn obs_utext(input: Span) -> IResult<Span, Span> {
     context(
         "obs_utext",
-        take_while_m_n(1, 1, |c| c == 0x00 || is_obs_no_ws_ctl(c) || is_vchar(c)),
+        alt((
+            take_while_m_n(1, 1, |c| {
+                c == 0x00 || is_obs_no_ws_ctl(c) || is_vchar_ascii(c)
+            }),
+            utf8_non_ascii,
+        )),
     )
     .parse(input)
 }

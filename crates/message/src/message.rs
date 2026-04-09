@@ -1093,7 +1093,10 @@ impl Message {
         let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
         match headers.get_first(name) {
-            Some(hdr) => Ok(Some(hdr.as_unstructured()?)),
+            Some(hdr) => Ok(Some(
+                hdr.as_unstructured()
+                    .unwrap_or_else(|_| hdr.get_raw_value().into()),
+            )),
             None => Ok(None),
         }
     }
@@ -1104,7 +1107,10 @@ impl Message {
 
         let mut values = vec![];
         for hdr in headers.iter_named(name) {
-            values.push(hdr.as_unstructured()?);
+            values.push(
+                hdr.as_unstructured()
+                    .unwrap_or_else(|_| hdr.get_raw_value().into()),
+            );
         }
         Ok(values)
     }
@@ -1115,7 +1121,11 @@ impl Message {
 
         let mut values = vec![];
         for hdr in headers.iter() {
-            values.push((hdr.get_name().into(), hdr.as_unstructured()?));
+            values.push((
+                hdr.get_name().into(),
+                hdr.as_unstructured()
+                    .unwrap_or_else(|_| hdr.get_raw_value().into()),
+            ));
         }
         Ok(values)
     }
