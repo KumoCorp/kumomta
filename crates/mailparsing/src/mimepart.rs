@@ -1013,29 +1013,34 @@ impl<'a> MimePart<'a> {
 
                 for (i, p) in self.parts.iter().enumerate() {
                     let part_idx = i.try_into().map_err(|_| MailParsingError::TooManyParts)?;
-                    if let Ok(mut s) = p.simplified_structure_pointers_impl(Some(part_idx)) {
+                    if let Ok(s) = p.simplified_structure_pointers_impl(Some(part_idx)) {
                         if let Some(p) = s.text_part {
+                            let ptr = PartPointer::root_or_nth(my_idx).append(p);
                             if text_part.is_none() {
-                                text_part.replace(PartPointer::root_or_nth(my_idx).append(p));
+                                text_part.replace(ptr);
                             } else {
-                                attachments.push(p);
+                                attachments.push(ptr);
                             }
                         }
                         if let Some(p) = s.html_part {
+                            let ptr = PartPointer::root_or_nth(my_idx).append(p);
                             if html_part.is_none() {
-                                html_part.replace(PartPointer::root_or_nth(my_idx).append(p));
+                                html_part.replace(ptr);
                             } else {
-                                attachments.push(p);
+                                attachments.push(ptr);
                             }
                         }
                         if let Some(p) = s.amp_html_part {
+                            let ptr = PartPointer::root_or_nth(my_idx).append(p);
                             if amp_html_part.is_none() {
-                                amp_html_part.replace(PartPointer::root_or_nth(my_idx).append(p));
+                                amp_html_part.replace(ptr);
                             } else {
-                                attachments.push(p);
+                                attachments.push(ptr);
                             }
                         }
-                        attachments.append(&mut s.attachments);
+                        for attachment in s.attachments {
+                            attachments.push(PartPointer::root_or_nth(my_idx).append(attachment));
+                        }
                     }
                 }
 
@@ -1226,7 +1231,7 @@ pub struct SimplifiedStructurePointers {
     pub attachments: Vec<PartPointer>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SimplifiedStructure<'a> {
     pub text: Option<SharedString<'a>>,
     pub html: Option<SharedString<'a>>,
@@ -2198,5 +2203,79 @@ Body\r
 
         eprintln!("{rebuilt:?}");
         assert_eq!(rebuilt.body().unwrap().to_string_lossy().trim(), "�");
+    }
+
+    #[test]
+    fn nested_multipart_mixed_related() {
+        // Reproduces the structure: multipart/mixed -> multipart/related -> [text/html, image/png]
+        let message = concat!(
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/mixed;\r\n",
+            "\tboundary=\"----=_Part_602641_1899404624.1775349148919\"\r\n",
+            "\r\n",
+            "------=_Part_602641_1899404624.1775349148919\r\n",
+            "Content-Type: multipart/related;\r\n",
+            "\tboundary=\"----=_Part_602642_1070442961.1775349148920\"\r\n",
+            "\r\n",
+            "------=_Part_602642_1070442961.1775349148920\r\n",
+            "Content-Type: text/html;charset=UTF-8\r\n",
+            "Content-Transfer-Encoding: quoted-printable\r\n",
+            "\r\n",
+            "<html><body>Test HTML</body></html>\r\n",
+            "------=_Part_602642_1070442961.1775349148920\r\n",
+            "Content-Type: image/png; name=inline\r\n",
+            "Content-Transfer-Encoding: base64\r\n",
+            "Content-Disposition: inline; filename=inline\r\n",
+            "Content-ID: <dell-aiops>\r\n",
+            "\r\n",
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==\r\n",
+            "------=_Part_602642_1070442961.1775349148920--\r\n",
+            "------=_Part_602641_1899404624.1775349148919--\r\n"
+        );
+
+        let root = MimePart::parse(message).unwrap();
+
+        /// Extract content-type from part
+        fn ct(p: &MimePart) -> String {
+            p.headers()
+                .content_type()
+                .unwrap()
+                .unwrap()
+                .value
+                .to_string()
+        }
+
+        assert_eq!(ct(&root), "multipart/mixed");
+
+        // Structure check: root should have 1 part (multipart/related)
+        let [related_part] = &root.child_parts()[..] else {
+            panic!("root must have one child")
+        };
+        assert_eq!(ct(related_part), "multipart/related");
+
+        // multipart/related should have 2 parts (text/html and image)
+        let [html_part, image_part] = &related_part.child_parts()[..] else {
+            panic!("related part must have two children")
+        };
+
+        // Check content types
+        assert_eq!(ct(html_part), "text/html");
+        assert_eq!(ct(image_part), "image/png");
+
+        // Verify simplified structure can be retrieved (this tests the PartRef resolution path)
+        let simplified = root.simplified_structure().unwrap();
+        let DecodedBody::Text(html) = html_part.body().unwrap() else {
+            panic!("must be text")
+        };
+        assert_eq!(
+            simplified,
+            SimplifiedStructure {
+                text: None,
+                html: Some(html),
+                amp_html: None,
+                headers: &root.headers(),
+                attachments: vec![image_part.clone()],
+            }
+        );
     }
 }
