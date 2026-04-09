@@ -1204,7 +1204,7 @@ pub fn subject_name(cert: &X509Ref) -> Vec<String> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::parser::{EnvelopeAddress, MailPath, Mailbox, ReversePath};
+    use crate::parser::{EnvelopeAddress, ReversePath};
 
     #[test]
     fn test_stuffing() {

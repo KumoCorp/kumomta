@@ -1,3 +1,4 @@
+#[cfg(feature = "impl")]
 use config::any_err;
 use mailparsing::{AddrSpec, Address, AddressList, EncodeHeaderValue, Mailbox};
 #[cfg(feature = "impl")]
