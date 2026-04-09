@@ -69,7 +69,7 @@ impl StartConfig<'_> {
             if let Err(err) = init_future.await {
                 let err = format!("{err:#}");
                 tracing::error!("problem initializing: {err}");
-                LifeCycle::request_shutdown().await;
+                LifeCycle::request_shutdown(Ok(())).await;
                 error.replace(err);
             }
             // This log line is depended upon by the integration
@@ -79,7 +79,7 @@ impl StartConfig<'_> {
             error
         })?;
 
-        life_cycle.wait_for_shutdown().await;
+        let final_result = life_cycle.wait_for_shutdown().await;
 
         // after waiting for those to idle out, shut down logging
         shutdown_future.await;
@@ -88,6 +88,9 @@ impl StartConfig<'_> {
 
         if let Some(error) = init_handle.await? {
             anyhow::bail!("Initialization raised an error: {error}");
+        }
+        if let Some(Err(error)) = final_result {
+            anyhow::bail!("Shutdown due to error: {error}");
         }
         Ok(())
     }

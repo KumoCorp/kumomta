@@ -117,7 +117,7 @@ pub fn is_shutting_down() -> bool {
 struct ShutdownState {
     tx: WatchSender<()>,
     rx: WatchReceiver<()>,
-    request_shutdown_tx: MPSCSender<()>,
+    request_shutdown_tx: MPSCSender<anyhow::Result<()>>,
     stop_requested: AtomicBool,
 }
 
@@ -154,7 +154,7 @@ impl ShutdownSubcription {
 /// process and allow other code to work with Activity and ShutdownSubcription.
 pub struct LifeCycle {
     activity_rx: MPSCReceiver<()>,
-    request_shutdown_rx: MPSCReceiver<()>,
+    request_shutdown_rx: MPSCReceiver<anyhow::Result<()>>,
 }
 
 impl Default for LifeCycle {
@@ -203,7 +203,7 @@ impl LifeCycle {
     /// This will cause the wait_for_shutdown method on the process
     /// LifeCycle instance to wake up and initiate the shutdown
     /// procedure.
-    pub async fn request_shutdown() {
+    pub async fn request_shutdown(final_result: anyhow::Result<()>) {
         tracing::debug!("shutdown has been requested");
         if let Some(state) = STOPPING.get() {
             if state.stop_requested.compare_exchange(
@@ -213,7 +213,7 @@ impl LifeCycle {
                 Ordering::SeqCst,
             ) == Ok(false)
             {
-                state.request_shutdown_tx.send(()).await.ok();
+                state.request_shutdown_tx.send(final_result).await.ok();
             }
         } else {
             tracing::error!("request_shutdown: STOPPING channel is unavailable");
@@ -223,19 +223,22 @@ impl LifeCycle {
     /// Wait for a shutdown request, then propagate that state
     /// to running tasks, and then wait for those tasks to complete
     /// before returning to the caller.
-    pub async fn wait_for_shutdown(&mut self) {
+    pub async fn wait_for_shutdown(&mut self) -> Option<anyhow::Result<()>> {
         // Wait for interrupt
         tracing::debug!("Waiting for interrupt");
         let mut sig_term =
             tokio::signal::unix::signal(SignalKind::terminate()).expect("listen for SIGTERM");
         let mut sig_hup =
-            tokio::signal::unix::signal(SignalKind::hangup()).expect("listen for SIGUP");
+            tokio::signal::unix::signal(SignalKind::hangup()).expect("listen for SIGHUP");
 
+        let mut final_result: Option<anyhow::Result<()>> = None;
         tokio::select! {
             _ = sig_term.recv() => {}
             _ = sig_hup.recv() => {}
             _ = tokio::signal::ctrl_c() => {}
-            _ = self.request_shutdown_rx.recv() => {}
+            res = self.request_shutdown_rx.recv() => {
+                final_result = res;
+            }
         };
         tracing::debug!("wait_for_shutdown: shutdown requested!");
         tracing::info!(
@@ -267,7 +270,7 @@ impl LifeCycle {
                     tracing::info!("Still waiting for {n} pending activities... {summary}");
                 }
                 _ = self.activity_rx.recv() => {
-                    return
+                    return final_result;
                 }
             }
         }
