@@ -155,9 +155,7 @@ impl Record {
     }
 }
 
-fn auth_result_is_pass(
-    auth_result: &std::collections::BTreeMap<String, bstr::BString>,
-) -> bool {
+fn auth_result_is_pass(auth_result: &std::collections::BTreeMap<String, bstr::BString>) -> bool {
     auth_result
         .get("result")
         .is_some_and(|result| result.eq_ignore_ascii_case(b"pass"))
