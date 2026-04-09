@@ -26,7 +26,7 @@ utils.assert_eq(from2.name, 'John Smith')
 local json_str = tostring(from2)
 utils.assert_eq(
   json_str,
-  '[{"Address":{"name":[74,111,104,110,32,83,109,105,116,104],"address":"john@example.com"}}]'
+  '[{"Address":{"name":"John Smith","address":"john@example.com"}}]'
 )
 
 -- HeaderAddressList: error cases on multi-address header
@@ -83,7 +83,7 @@ utils.assert_eq(named_list[2].name, nil)
 -- HeaderAddress tostring produces JSON
 utils.assert_eq(
   tostring(named_list[1]),
-  '{"name":[65,108,105,99,101],"address":"alice@example.com"}'
+  '{"name":"Alice","address":"alice@example.com"}'
 )
 utils.assert_eq(
   tostring(named_list[2]),

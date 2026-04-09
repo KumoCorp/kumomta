@@ -291,7 +291,7 @@ fn group(input: Span) -> IResult<Span, Address> {
     Ok((
         loc,
         Address::Group {
-            name: name.into(),
+            name,
             entries: group_list.unwrap_or_else(|| MailboxList(vec![])),
         },
     ))
@@ -327,7 +327,7 @@ fn name_addr(input: Span) -> IResult<Span, Mailbox> {
     context(
         "name_addr",
         map((opt(display_name), angle_addr), |(name, address)| Mailbox {
-            name: name.map(Into::into),
+            name,
             address,
         }),
     )
@@ -335,13 +335,13 @@ fn name_addr(input: Span) -> IResult<Span, Mailbox> {
 }
 
 // display_name = { phrase }
-fn display_name(input: Span) -> IResult<Span, BString> {
+fn display_name(input: Span) -> IResult<Span, String> {
     context("display_name", phrase).parse(input)
 }
 
 // phrase = { (encoded_word | word)+ | obs_phrase }
 // obs_phrase = { (encoded_word | word) ~ (encoded_word | word | dot | cfws)* }
-fn phrase(input: Span) -> IResult<Span, BString> {
+fn phrase(input: Span) -> IResult<Span, String> {
     let (loc, (a, b)): (Span, (BString, Vec<Option<BString>>)) = context(
         "phrase",
         (
@@ -362,7 +362,13 @@ fn phrase(input: Span) -> IResult<Span, BString> {
             result.push_str(item);
         }
     }
-    Ok((loc, result))
+    // SAFETY: all sub-parsers (word, encoded_word) produce only
+    // validated UTF-8 via utf8_non_ascii or charset decoding.
+    Ok((
+        loc,
+        String::from_utf8(result.into())
+            .expect("phrase sub-parsers should only produce valid UTF-8"),
+    ))
 }
 
 // angle_addr = { cfws? ~ "<" ~ addr_spec ~ ">" ~ cfws? | obs_angle_addr }
@@ -416,11 +422,19 @@ fn obs_route(input: Span) -> IResult<Span, Span> {
 fn addr_spec(input: Span) -> IResult<Span, AddrSpec> {
     let (loc, (local_part, domain)) =
         context("addr_spec", separated_pair(local_part, tag("@"), domain)).parse(input)?;
+
+    // local_part and domain parsers accept only ASCII or validated
+    // UTF-8 (via utf8_non_ascii), so this conversion is infallible.
+    let to_string = |b: BString| -> String {
+        String::from_utf8(b.into())
+            .expect("local_part/domain parsers should only produce valid UTF-8")
+    };
+
     Ok((
         loc,
         AddrSpec {
-            local_part: local_part.into(),
-            domain: domain.into(),
+            local_part: to_string(local_part),
+            domain: to_string(domain),
         },
     ))
 }
@@ -1278,9 +1292,9 @@ fn resinfo(input: Span) -> IResult<Span, AuthenticationResult> {
                 opt(many1(propspec)),
             ),
             |(_, _, (method, method_version, result), reason, props)| AuthenticationResult {
-                method: method.into(),
+                method,
                 method_version,
-                result: result.into(),
+                result,
                 reason: reason.map(Into::into),
                 props: match props {
                     None => BTreeMap::default(),
@@ -1292,7 +1306,7 @@ fn resinfo(input: Span) -> IResult<Span, AuthenticationResult> {
     .parse(input)
 }
 
-fn methodspec(input: Span) -> IResult<Span, (BString, Option<u32>, BString)> {
+fn methodspec(input: Span) -> IResult<Span, (String, Option<u32>, String)> {
     context(
         "methodspec",
         map(
@@ -1311,13 +1325,15 @@ fn methodspec(input: Span) -> IResult<Span, (BString, Option<u32>, BString)> {
 }
 
 // Taken from https://datatracker.ietf.org/doc/html/rfc8601 which says
-// that this is the same as the SMTP Keyword token
-fn keyword(input: Span) -> IResult<Span, BString> {
+// that this is the same as the SMTP Keyword token.
+// Only matches ASCII alphanumeric, '+' and '-'.
+fn keyword(input: Span) -> IResult<Span, String> {
     context(
         "keyword",
         map(
             take_while1(|c: u8| c.is_ascii_alphanumeric() || c == b'+' || c == b'-'),
-            |s: Span| (*s).into(),
+            // SAFETY: predicate only matches ASCII bytes
+            |s: Span| String::from_utf8((*s).into()).expect("keyword is ASCII-only"),
         ),
     )
     .parse(input)
@@ -1345,7 +1361,7 @@ fn reasonspec(input: Span) -> IResult<Span, BString> {
     .parse(input)
 }
 
-fn propspec(input: Span) -> IResult<Span, (BString, BString)> {
+fn propspec(input: Span) -> IResult<Span, (String, BString)> {
     context(
         "propspec",
         map(
@@ -1378,7 +1394,7 @@ fn propspec(input: Span) -> IResult<Span, (BString, BString)> {
                 opt(cfws),
             ),
             |(_, ptype, _, _, _, property, _, _, _, value, _)| {
-                (format!("{ptype}.{property}").into(), value)
+                (format!("{ptype}.{property}"), value)
             },
         ),
     )
@@ -1748,7 +1764,7 @@ impl EncodeHeaderValue for ARCAuthenticationResults {
         } else {
             for res in &self.results {
                 result.push_str(";\r\n\t");
-                emit_value_token(&res.method, &mut result);
+                emit_value_token(res.method.as_bytes(), &mut result);
                 if let Some(v) = res.method_version {
                     result.push_str(&format!("/{v}"));
                 }
@@ -1807,7 +1823,7 @@ impl EncodeHeaderValue for AuthenticationResults {
         } else {
             for res in &self.results {
                 result.push_str(";\r\n\t");
-                emit_value_token(&res.method, &mut result);
+                emit_value_token(res.method.as_bytes(), &mut result);
                 if let Some(v) = res.method_version {
                     result.push_str(&format!("/{v}"));
                 }
@@ -1831,21 +1847,21 @@ impl EncodeHeaderValue for AuthenticationResults {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthenticationResult {
-    pub method: BString,
+    pub method: String,
     #[serde(default)]
     pub method_version: Option<u32>,
-    pub result: BString,
+    pub result: String,
     #[serde(default)]
     pub reason: Option<BString>,
     #[serde(default)]
-    pub props: BTreeMap<BString, BString>,
+    pub props: BTreeMap<String, BString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AddrSpec {
-    pub local_part: BString,
-    pub domain: BString,
+    pub local_part: String,
+    pub domain: String,
 }
 
 impl AddrSpec {
@@ -1865,14 +1881,18 @@ impl EncodeHeaderValue for AddrSpec {
     fn encode_value(&self) -> SharedString<'static> {
         let mut result: Vec<u8> = vec![];
 
-        let needs_quoting = !self.local_part.iter().all(|&c| is_atext(c) || c == b'.');
+        let needs_quoting = !self
+            .local_part
+            .as_bytes()
+            .iter()
+            .all(|&c| is_atext(c) || c == b'.');
         if needs_quoting {
             result.push(b'"');
             // RFC5321 4.1.2 qtextSMTP:
             // within a quoted string, any ASCII graphic or space is permitted without
             // blackslash-quoting except double-quote and the backslash itself.
 
-            for &c in self.local_part.iter() {
+            for &c in self.local_part.as_bytes().iter() {
                 if c == b'"' || c == b'\\' {
                     result.push(b'\\');
                 }
@@ -1893,7 +1913,7 @@ impl EncodeHeaderValue for AddrSpec {
 #[serde(untagged)]
 pub enum Address {
     Mailbox(Mailbox),
-    Group { name: BString, entries: MailboxList },
+    Group { name: String, entries: MailboxList },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1937,7 +1957,7 @@ impl MailboxList {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Mailbox {
-    pub name: Option<BString>,
+    pub name: Option<String>,
     pub address: AddrSpec,
 }
 

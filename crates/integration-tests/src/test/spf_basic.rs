@@ -72,8 +72,8 @@ async fn spf_basic() -> anyhow::Result<()> {
         let from = headers.from().unwrap().unwrap().0;
         let results = headers.authentication_results().unwrap().unwrap().results;
         eprintln!("{results:#?}");
-        match from[0].address.domain.as_slice() {
-            b"example.com" => {
+        match from[0].address.domain.as_str() {
+            "example.com" => {
                 assert_eq!(results.len(), 1);
                 assert_eq!(results[0].result, "none");
                 assert_eq!(results[0].method, "spf");
@@ -82,11 +82,11 @@ async fn spf_basic() -> anyhow::Result<()> {
                     "no SPF records found for example.com"
                 );
                 assert_eq!(
-                    results[0].props.get("smtp.mailfrom".as_bytes()).unwrap(),
+                    results[0].props.get("smtp.mailfrom").unwrap(),
                     "sender@example.com"
                 );
             }
-            b"allowed.localhost" => {
+            "allowed.localhost" => {
                 assert_eq!(results.len(), 1);
                 assert_eq!(results[0].result, "pass");
                 assert_eq!(results[0].method, "spf");
@@ -95,7 +95,7 @@ async fn spf_basic() -> anyhow::Result<()> {
                     "matched 'all' directive"
                 );
                 assert_eq!(
-                    results[0].props.get("smtp.mailfrom".as_bytes()).unwrap(),
+                    results[0].props.get("smtp.mailfrom").unwrap(),
                     "foo@allowed.localhost"
                 );
             }
