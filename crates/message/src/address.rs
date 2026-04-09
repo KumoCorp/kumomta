@@ -1,5 +1,5 @@
 use config::any_err;
-use mailparsing::{Address, AddressList, EncodeHeaderValue, Mailbox};
+use mailparsing::{AddrSpec, Address, AddressList, EncodeHeaderValue, Mailbox};
 #[cfg(feature = "impl")]
 use mlua::{MetaMethod, UserData, UserDataFields, UserDataMethods};
 use serde::{Deserialize, Serialize};
@@ -11,15 +11,15 @@ impl HeaderAddressList {
     /// If the address list is comprised of a single entry,
     /// returns just the email domain from that entry
     pub fn domain(&self) -> anyhow::Result<&str> {
-        let (_local, domain) = self.single_address_cracked()?;
-        Ok(domain)
+        let addr = self.single_address()?;
+        addr.domain()
     }
 
     /// If the address list is comprised of a single entry,
     /// returns just the email domain from that entry
     pub fn user(&self) -> anyhow::Result<&str> {
-        let (user, _domain) = self.single_address_cracked()?;
-        Ok(user)
+        let addr = self.single_address()?;
+        addr.user()
     }
 
     /// If the address list is comprised of a single entry,
@@ -29,9 +29,9 @@ impl HeaderAddressList {
         Ok(addr.name.as_deref())
     }
 
-    pub fn email(&self) -> anyhow::Result<Option<&str>> {
+    pub fn email(&self) -> anyhow::Result<Option<String>> {
         let addr = self.single_address()?;
-        Ok(addr.address.as_deref())
+        Ok(addr.email())
     }
 
     /// Flattens the groups and list and returns a simple list
@@ -49,22 +49,6 @@ impl HeaderAddressList {
             }
         }
         res
-    }
-
-    pub fn single_address_cracked(&self) -> anyhow::Result<(&str, &str)> {
-        let addr = self.single_address_string()?;
-        let tuple = addr
-            .rsplit_once('@')
-            .ok_or_else(|| anyhow::anyhow!("no @ in address"))?;
-        Ok(tuple)
-    }
-
-    pub fn single_address_string(&self) -> anyhow::Result<&str> {
-        let addr = self.single_address()?;
-        match &addr.address {
-            None => anyhow::bail!("no address"),
-            Some(addr) => Ok(addr),
-        }
     }
 
     pub fn single_address(&self) -> anyhow::Result<&HeaderAddress> {
@@ -96,7 +80,7 @@ impl UserData for HeaderAddressList {
             Ok(this.domain().map_err(any_err)?.to_string())
         });
         fields.add_field_method_get("email", |_, this| {
-            Ok(this.email().map_err(any_err)?.map(|s| s.to_string()))
+            Ok(this.email().map_err(any_err)?)
         });
         fields.add_field_method_get("name", |_, this| {
             Ok(this.name().map_err(any_err)?.map(|s| s.to_string()))
@@ -143,46 +127,83 @@ impl From<&Address> for HeaderAddressEntry {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HeaderAddress {
+/// Wire format for JSON serialization of HeaderAddress.
+/// This preserves the original `{name, address}` JSON shape for
+/// backwards compatibility with existing consumers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct HeaderAddressWire {
     pub name: Option<String>,
     pub address: Option<String>,
+}
+
+impl From<HeaderAddress> for HeaderAddressWire {
+    fn from(addr: HeaderAddress) -> Self {
+        let address = addr.email();
+        Self {
+            name: addr.name,
+            address,
+        }
+    }
+}
+
+impl TryFrom<HeaderAddressWire> for HeaderAddress {
+    type Error = anyhow::Error;
+
+    fn try_from(wire: HeaderAddressWire) -> anyhow::Result<Self> {
+        let (user, domain) = match &wire.address {
+            Some(email) => {
+                let parsed = AddrSpec::parse(email)?;
+                (Some(parsed.local_part), Some(parsed.domain))
+            }
+            None => (None, None),
+        };
+        Ok(Self {
+            name: wire.name,
+            user,
+            domain,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "HeaderAddressWire", into = "HeaderAddressWire")]
+pub struct HeaderAddress {
+    pub name: Option<String>,
+    pub user: Option<String>,
+    pub domain: Option<String>,
 }
 
 impl From<&Mailbox> for HeaderAddress {
     fn from(mbox: &Mailbox) -> HeaderAddress {
         Self {
             name: mbox.name.clone(),
-            address: Some(mbox.address.encode_value().to_string()),
+            user: Some(mbox.address.local_part.clone()),
+            domain: Some(mbox.address.domain.clone()),
         }
     }
 }
 
 impl HeaderAddress {
     pub fn user(&self) -> anyhow::Result<&str> {
-        let (user, _domain) = self.crack_address().map_err(any_err)?;
-        Ok(user)
+        self.user
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("no address"))
     }
     pub fn domain(&self) -> anyhow::Result<&str> {
-        let (_user, domain) = self.crack_address().map_err(any_err)?;
-        Ok(domain)
+        self.domain
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("no address"))
     }
-    pub fn email(&self) -> Option<&str> {
-        self.address.as_deref()
+    pub fn email(&self) -> Option<String> {
+        match (&self.user, &self.domain) {
+            (Some(user), Some(domain)) => {
+                Some(AddrSpec::new(user, domain).encode_value().to_string())
+            }
+            _ => None,
+        }
     }
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
-    }
-
-    pub fn crack_address(&self) -> anyhow::Result<(&str, &str)> {
-        let address = self
-            .address
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("no address"))?;
-
-        address
-            .rsplit_once('@')
-            .ok_or_else(|| anyhow::anyhow!("no @ in address"))
     }
 }
 
@@ -195,7 +216,7 @@ impl UserData for HeaderAddress {
         fields.add_field_method_get("domain", |_, this| {
             Ok(this.domain().map_err(any_err)?.to_string())
         });
-        fields.add_field_method_get("email", |_, this| Ok(this.email().map(|s| s.to_string())));
+        fields.add_field_method_get("email", |_, this| Ok(this.email()));
         fields.add_field_method_get("name", |_, this| Ok(this.name().map(|s| s.to_string())));
     }
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
@@ -228,20 +249,58 @@ mod test {
         // Convert to HeaderAddressList
         let header_addr_list: HeaderAddressList = addr_list.into();
 
-        // Test single_address_cracked() which uses rsplit_once('@')
-        let (user, domain) = header_addr_list
-            .single_address_cracked()
-            .expect("failed to crack address");
-        k9::assert_equal!(user, "\"info@\"");
+        // user() now returns the decoded local part (without quotes)
+        let user = header_addr_list.user().expect("failed to get user");
+        k9::assert_equal!(user, "info@");
+        let domain = header_addr_list.domain().expect("failed to get domain");
         k9::assert_equal!(domain, "example.com");
 
         let addr = header_addr_list
             .single_address()
             .expect("expected single address");
 
-        // Now test crack_address() which uses rsplit_once('@')
-        let (user, domain) = addr.crack_address().unwrap();
-        k9::assert_equal!(user, "\"info@\"");
-        k9::assert_equal!(domain, "example.com");
+        // HeaderAddress stores the decoded local part
+        k9::assert_equal!(addr.user().unwrap(), "info@");
+        k9::assert_equal!(addr.domain().unwrap(), "example.com");
+        // email() re-encodes with quoting as needed
+        k9::assert_equal!(addr.email().unwrap(), "\"info@\"@example.com");
+    }
+
+    /// Test JSON serialization roundtrip preserves the {name, address} shape
+    #[test]
+    fn header_address_serde_roundtrip() {
+        let addr = HeaderAddress {
+            name: Some("Test User".into()),
+            user: Some("test".into()),
+            domain: Some("example.com".into()),
+        };
+
+        let json = serde_json::to_string(&addr).unwrap();
+        k9::assert_equal!(
+            json,
+            r#"{"name":"Test User","address":"test@example.com"}"#
+        );
+
+        let roundtripped: HeaderAddress = serde_json::from_str(&json).unwrap();
+        k9::assert_equal!(roundtripped, addr);
+    }
+
+    /// Test JSON roundtrip with a quoted local part
+    #[test]
+    fn header_address_serde_roundtrip_quoted() {
+        let addr = HeaderAddress {
+            name: None,
+            user: Some("info@".into()),
+            domain: Some("example.com".into()),
+        };
+
+        let json = serde_json::to_string(&addr).unwrap();
+        k9::assert_equal!(
+            json,
+            r#"{"name":null,"address":"\"info@\"@example.com"}"#
+        );
+
+        let roundtripped: HeaderAddress = serde_json::from_str(&json).unwrap();
+        k9::assert_equal!(roundtripped, addr);
     }
 }
