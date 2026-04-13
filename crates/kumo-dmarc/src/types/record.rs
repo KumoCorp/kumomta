@@ -37,10 +37,10 @@ impl Record {
         match self.align_dkim {
             Mode::Relaxed => {
                 for dkim in cx.dkim {
-                    if let Some(result) = dkim.get("header.d".as_bytes()) {
+                    if let Some(result) = dkim.get("header.d") {
                         let organizational_domain = psl::domain_str(cx.from_domain);
 
-                        if cx.from_domain != result
+                        if cx.from_domain.as_bytes() != result.as_bytes()
                             && organizational_domain.map(BStr::new) != Some(result.as_bstr())
                         {
                             return DispositionWithContext {
@@ -58,8 +58,8 @@ impl Record {
             }
             Mode::Strict => {
                 for dkim in cx.dkim {
-                    if let Some(result) = dkim.get("header.d".as_bytes()) {
-                        if cx.from_domain != result {
+                    if let Some(result) = dkim.get("header.d") {
+                        if cx.from_domain.as_bytes() != result.as_bytes() {
                             return DispositionWithContext {
                                 result: self.select_failure_mode(sender_location),
                                 context: "DMARC: DKIM strict check failed".into(),

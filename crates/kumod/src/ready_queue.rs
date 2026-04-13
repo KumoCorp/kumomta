@@ -1536,7 +1536,6 @@ impl Dispatcher {
 
             fn all_same(v: &[ConnectionFailureKind]) -> Option<Self> {
                 let mut item = None;
-                tracing::info!("all_same: {v:#?}");
                 for i in v.iter() {
                     item = match item.take() {
                         None => Some(*i),

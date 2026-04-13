@@ -3,12 +3,16 @@ name = "mod-smtp-response-normalize"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["lua"]
+lua = ["dep:config", "dep:mlua"]
+
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
-config = {path="../config"}
+config = {path="../config", optional = true}
 memchr.workspace = true
-mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
+mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"], optional = true}
 phf = "0.13"
 regex.workspace = true
 uuid.workspace = true

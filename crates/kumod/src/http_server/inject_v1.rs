@@ -19,9 +19,10 @@ use kumo_server_lifecycle::Activity;
 use kumo_server_runtime::{Runtime, RUNTIME};
 use kumo_template::{CompiledTemplates, TemplateDialect, TemplateEngine, TemplateList};
 use mailparsing::{AddrSpec, Address, EncodeHeaderValue, Mailbox, MessageBuilder, MimePart};
-use message::{EnvelopeAddress, Message};
+use message::Message;
 use mlua::{Lua, LuaSerdeExt};
 use reqwest::StatusCode;
+use rfc5321::parser::EnvelopeAddress;
 use rfc5321::Response;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -114,8 +115,14 @@ pub struct Recipient {
     /// When using templating, this is the map of placeholder
     /// name to replacement value that should be used by the
     /// templating engine when processing just this recipient.
-    /// Note that `name` is implicitly set from the `name`
-    /// field, so you do not need to duplicate it here.
+    ///
+    /// The following substitutions are pre-defined:
+    ///
+    /// |Name|Value|Version|
+    /// |----|-----|-------|
+    /// |email|Populated from the recipient `email` field|Always|
+    /// |name|Populated from the recipient `name` field|Always|
+    /// |to_header|A suitable value for use in a `To:` header, constructed from the recipient `email` and `name` fields. eg: `"John Smith" <john.smith@mailbox-example.com>`|{{since('dev', inline=True)}}|
     #[serde(default)]
     #[schema(additional_properties, example=json!({
         "age": 42,
@@ -489,6 +496,15 @@ impl<'a> Compiled<'a> {
             subst.insert("name".to_string(), name.to_string().into());
         }
 
+        let to_mailbox = Address::Mailbox(Mailbox {
+            name: recip.name.clone().map(Into::into),
+            address: AddrSpec::parse(&recip.email)?,
+        });
+        subst.insert(
+            "to_header".to_string(),
+            to_mailbox.encode_value().to_string().into(),
+        );
+
         for (k, v) in &recip.substitutions {
             subst.insert(k.clone(), v.clone());
         }
@@ -508,7 +524,7 @@ impl<'a> Compiled<'a> {
                     msg.headers_mut().set_mime_version("1.0")?;
                 }
 
-                Ok(msg.to_message_string())
+                Ok(String::from_utf8(msg.to_message_bytes())?)
             }
             Content::Builder {
                 text_body,
@@ -553,17 +569,14 @@ impl<'a> Compiled<'a> {
                 }
 
                 if need_to {
-                    builder.set_to(Address::Mailbox(Mailbox {
-                        name: recip.name.clone().map(Into::into),
-                        address: AddrSpec::parse(&recip.email)?,
-                    }))?;
+                    builder.set_to(to_mailbox)?;
                 }
 
                 for part in &self.attached {
                     builder.attach_part(part.clone());
                 }
 
-                Ok(builder.build()?.to_message_string())
+                Ok(String::from_utf8(builder.build()?.to_message_bytes())?)
             }
         }
     }
@@ -1855,6 +1868,191 @@ Some(
                     name: None,
                     address: AddrSpec {
                         local_part: "someone.else",
+                        domain: "example.com",
+                    },
+                },
+            ),
+        ],
+    ),
+)
+"#
+        );
+    }
+
+    #[tokio::test]
+    async fn test_builder_default_to_header_per_recipient() {
+        // Tests that when no To header is provided in content.headers,
+        // a per-recipient To is generated from email+name.
+        let mut request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: Some("James Smythe".to_string()),
+                substitutions: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Builder {
+                text_body: Some("I am the plain text, {{ name }}. 😀".to_string()),
+                amp_html_body: None,
+                html_body: None,
+                subject: Some("hello {{ name }}".to_string()),
+                from: Some(FromHeader {
+                    email: "from@example.com".to_string(),
+                    name: Some("Sender Name".to_string()),
+                }),
+                reply_to: None,
+                headers: BTreeMap::new(),
+                attachments: vec![],
+            },
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+            template_dialect: TemplateDialectWithSchema::Handlebars,
+        };
+
+        request.normalize().unwrap();
+        let compiled = request.compile().unwrap();
+
+        // Recipient: gets default To from their own email+name
+        let generated = compiled
+            .expand_for_recip(
+                &request.recipients[0],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap();
+        let parsed = MimePart::parse(generated.as_str()).unwrap();
+        let structure = parsed.simplified_structure().unwrap();
+
+        k9::snapshot!(
+            structure.headers.to().unwrap(),
+            r#"
+Some(
+    AddressList(
+        [
+            Mailbox(
+                Mailbox {
+                    name: Some(
+                        "James Smythe",
+                    ),
+                    address: AddrSpec {
+                        local_part: "user",
+                        domain: "example.com",
+                    },
+                },
+            ),
+        ],
+    ),
+)
+"#
+        );
+    }
+
+    #[tokio::test]
+    async fn test_builder_to_header_substitution_override() {
+        // Tests explicit `To: {{ to_header }}` in content.headers where:
+        // - Recipient 0: no override, gets the pre-defined default
+        // - Recipient 1: overrides `to_header` via substitutions
+        let mut request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![
+                Recipient {
+                    email: "user@example.com".to_string(),
+                    name: Some("James Smythe".to_string()),
+                    substitutions: HashMap::new(),
+                },
+                Recipient {
+                    email: "second@example.com".to_string(),
+                    name: Some("Second User".to_string()),
+                    substitutions: [(
+                        "to_header".to_string(),
+                        Value::String("custom.to@example.com".to_string()),
+                    )]
+                    .into_iter()
+                    .collect(),
+                },
+            ],
+            substitutions: HashMap::new(),
+            content: Content::Builder {
+                text_body: Some("I am the plain text, {{ name }}. 😀".to_string()),
+                amp_html_body: None,
+                html_body: None,
+                subject: Some("hello {{ name }}".to_string()),
+                from: Some(FromHeader {
+                    email: "from@example.com".to_string(),
+                    name: Some("Sender Name".to_string()),
+                }),
+                reply_to: None,
+                headers: [("To".to_string(), "{{ to_header }}".to_string())]
+                    .into_iter()
+                    .collect(),
+                attachments: vec![],
+            },
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+            template_dialect: TemplateDialectWithSchema::Handlebars,
+        };
+
+        request.normalize().unwrap();
+        let compiled = request.compile().unwrap();
+
+        // Recipient 0: no override, to_header renders to pre-defined default
+        let generated0 = compiled
+            .expand_for_recip(
+                &request.recipients[0],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap();
+        let parsed0 = MimePart::parse(generated0.as_str()).unwrap();
+        let structure0 = parsed0.simplified_structure().unwrap();
+
+        k9::snapshot!(
+            structure0.headers.to().unwrap(),
+            r#"
+Some(
+    AddressList(
+        [
+            Mailbox(
+                Mailbox {
+                    name: Some(
+                        "James Smythe",
+                    ),
+                    address: AddrSpec {
+                        local_part: "user",
+                        domain: "example.com",
+                    },
+                },
+            ),
+        ],
+    ),
+)
+"#
+        );
+
+        // Recipient 1: overrides to_header with custom value
+        let generated1 = compiled
+            .expand_for_recip(
+                &request.recipients[1],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap();
+        let parsed1 = MimePart::parse(generated1.as_str()).unwrap();
+        let structure1 = parsed1.simplified_structure().unwrap();
+
+        k9::snapshot!(
+            structure1.headers.to().unwrap(),
+            r#"
+Some(
+    AddressList(
+        [
+            Mailbox(
+                Mailbox {
+                    name: None,
+                    address: AddrSpec {
+                        local_part: "custom.to",
                         domain: "example.com",
                     },
                 },

@@ -237,7 +237,7 @@ impl DKIMHeader {
         // of the "i=" tag
         if let Some(user) = header.get_tag("i") {
             let signing_domain = header.get_required_tag("d");
-            let Some((_local, domain)) = user.split_once('@') else {
+            let Some((_local, domain)) = user.rsplit_once('@') else {
                 return Err(DKIMError::DomainMismatch);
             };
 

@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = ["impl"]
-impl = ["dep:kumo-dkim", "dep:data-loader", "data-loader/impl", "dep:lruttl", "dep:mlua", "dep:mod-mimepart"]
+impl = ["dep:kumo-dkim", "dep:data-loader", "data-loader/impl", "dep:lruttl", "dep:mlua", "dep:mod-mimepart", "rfc5321/lua"]
 
 [dependencies]
 anyhow = {workspace=true}

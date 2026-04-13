@@ -13,10 +13,11 @@ use kumo_log_types::JsonLogRecord;
 use kumo_server_common::http_server::HttpListenerParams;
 use kumo_server_lifecycle::ShutdownSubcription;
 use mailparsing::MimePart;
-use message::{EnvelopeAddress, Message};
+use message::Message;
 use mlua::prelude::*;
 use mlua::{Lua, UserDataMethods, Value};
 use num_format::{Locale, ToFormattedString};
+use rfc5321::parser::EnvelopeAddress;
 use spool::SpoolId;
 use std::sync::Arc;
 use throttle::ThrottleSpec;
@@ -284,14 +285,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             Some(report) => {
                 let recip = EnvelopeAddress::parse(&log_record.sender)
                     .context("log_record is somehow an invalid EnvelopeAddress")?;
-                let body = report.to_message_string();
+                let body = report.to_message_bytes();
 
                 let msg = Message::new_dirty(
                     SpoolId::new(),
                     EnvelopeAddress::null_sender(),
                     vec![recip],
                     serde_json::json!({}),
-                    Arc::new(body.as_bytes().to_vec().into_boxed_slice()),
+                    Arc::new(body.into_boxed_slice()),
                 )?;
                 Ok(Some(msg))
             }

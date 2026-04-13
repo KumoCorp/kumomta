@@ -1,6 +1,6 @@
 use crate::kumod::DaemonWithMaildir;
 use anyhow::Context;
-use rfc5321::Command;
+use rfc5321::parser::Command;
 
 #[tokio::test]
 async fn no_ports_in_rcpt_domain() -> anyhow::Result<()> {
@@ -18,7 +18,7 @@ async fn no_ports_in_rcpt_domain() -> anyhow::Result<()> {
         })
         .await?;
     let resp = client
-        .send_command(&Command::RawLine(
+        .send_command(&Command::Unknown(
             "RCPT TO:<sender@example.com:2025>".into(),
         ))
         .await?;
@@ -28,13 +28,14 @@ async fn no_ports_in_rcpt_domain() -> anyhow::Result<()> {
         r#"
 Response {
     code: 501,
-    enhanced_code: None,
-    content: "Syntax error in command or arguments:  --> 1:28
-  |
-1 | RCPT TO:<sender@example.com:2025>
-  |                            ^---
-  |
-  = expected alpha, digit, or utf8_non_ascii",
+    enhanced_code: Some(
+        EnhancedStatusCode {
+            class: 5,
+            subject: 1,
+            detail: 3,
+        },
+    ),
+    content: "Invalid recipient address syntax",
     command: Some(
         "RCPT TO:<sender@example.com:2025>\r
 ",

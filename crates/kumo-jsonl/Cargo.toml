@@ -1,0 +1,38 @@
+[package]
+name = "kumo-jsonl"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+lua = ["dep:mlua", "dep:config"]
+
+[dependencies]
+anyhow = { workspace = true }
+async-stream = { workspace = true }
+camino = { workspace = true, features = ["serde1"] }
+config = { path = "../config", optional = true }
+duration-serde = { path = "../duration-serde" }
+filenamegen = { workspace = true }
+futures = { workspace = true }
+
+memchr = { workspace = true }
+mlua = { workspace = true, features = ["vendored", "lua54", "async", "send", "serialize"], optional = true }
+notify = { workspace = true }
+serde = { workspace = true }
+chrono = { workspace = true, features = ["clock"] }
+chrono-tz = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+zstd = { workspace = true }
+tokio = { version = "1.32", features = ["fs", "io-util", "rt", "time", "sync", "macros"] }
+tokio-stream = { workspace = true }
+zstd-safe = { workspace = true }
+
+[dev-dependencies]
+k9 = { workspace = true }
+mlua = { workspace = true, features = ["vendored", "lua54", "async", "send", "serialize"] }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { version = "1.32", features = ["full"] }

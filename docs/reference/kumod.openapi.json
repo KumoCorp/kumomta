@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.03.11-17b80530"
+    "version": "2026.04.01-becf6f64"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -1516,7 +1516,7 @@
           },
           "substitutions": {
             "type": "object",
-            "description": "When using templating, this is the map of placeholder\nname to replacement value that should be used by the\ntemplating engine when processing just this recipient.\nNote that `name` is implicitly set from the `name`\nfield, so you do not need to duplicate it here.",
+            "description": "When using templating, this is the map of placeholder\nname to replacement value that should be used by the\ntemplating engine when processing just this recipient.\n\nThe following substitutions are pre-defined:\n\n|Name|Value|Version|\n|----|-----|-------|\n|email|Populated from the recipient `email` field|Always|\n|name|Populated from the recipient `name` field|Always|\n|to_header|A suitable value for use in a `To:` header, constructed from the recipient `email` and `name` fields. eg: `\"John Smith\" <john.smith@mailbox-example.com>`|{{since('dev', inline=True)}}|",
             "additionalProperties": true,
             "example": {
               "age": 42,

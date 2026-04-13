@@ -41,6 +41,20 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     string_mod.set(
+        "starts_with",
+        lua.create_function(move |_, (s, pattern): (mlua::String, mlua::String)| {
+            Ok(s.as_bytes().starts_with_str(pattern.as_bytes()))
+        })?,
+    )?;
+
+    string_mod.set(
+        "ends_with",
+        lua.create_function(move |_, (s, pattern): (mlua::String, mlua::String)| {
+            Ok(s.as_bytes().ends_with_str(pattern.as_bytes()))
+        })?,
+    )?;
+
+    string_mod.set(
         "split",
         lua.create_function(move |_, (s, pattern): (String, String)| {
             Ok(s.split(&pattern)
