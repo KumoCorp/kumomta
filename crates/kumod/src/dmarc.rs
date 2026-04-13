@@ -1,4 +1,3 @@
-use bstr::BString;
 use config::{any_err, get_or_create_sub_module, serialize_options, SerdeWrappedValue};
 use kumo_dmarc::{Disposition, DmarcPassContext, ReportingInfo};
 use mailparsing::AuthenticationResult;
@@ -100,7 +99,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
 
                 let received_from = spf_result
                     .props
-                    .get(&BString::new("received_from".as_bytes().to_vec()))
+                    .get("received_from")
                     .cloned()
                     .unwrap_or_default();
 

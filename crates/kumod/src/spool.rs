@@ -119,7 +119,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             spawn("define_spool", async move {
                 if let Err(err) = define_spool(params).await {
                     tracing::error!("Error in spool: {err:#}");
-                    LifeCycle::request_shutdown().await;
+                    LifeCycle::request_shutdown(Err(err)).await;
                 }
             })
             .map_err(any_err)?

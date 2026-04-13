@@ -22,7 +22,7 @@ use kumo_server_common::http_server::{AppError, RouterAndDocs};
 use kumo_server_common::router_with_docs;
 use message::message::QueueNameComponents;
 use parking_lot::Mutex;
-use rfc5321::ForwardPath;
+use rfc5321::parser::ForwardPath;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 use std::hash::Hash;

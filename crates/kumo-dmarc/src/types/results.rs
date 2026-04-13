@@ -1,7 +1,7 @@
 use crate::types::identifier::Identifier;
 use crate::types::policy::Policy;
 use crate::types::policy_override::PolicyOverrideReason;
-use bstr::{BString, ByteSlice};
+use bstr::BString;
 use instant_xml::{FromXml, ToXml};
 use kumo_spf::SpfDisposition;
 use mailparsing::AuthenticationResult;
@@ -48,7 +48,7 @@ impl ToXml for SpfAuthResult {
 
 impl From<AuthenticationResult> for SpfAuthResult {
     fn from(value: AuthenticationResult) -> Self {
-        let d = value.props.get("header.d".as_bytes());
+        let d = value.props.get("header.d");
 
         Self {
             domain: d.cloned().unwrap_or_default(),
@@ -100,21 +100,6 @@ impl From<String> for DkimResult {
     }
 }
 
-impl From<BString> for DkimResult {
-    fn from(value: BString) -> Self {
-        match value.to_lowercase().as_slice() {
-            b"none" => DkimResult::None,
-            b"pass" => DkimResult::Pass,
-            b"fail" => DkimResult::Fail,
-            b"policy" => DkimResult::Policy,
-            b"neutral" => DkimResult::Neutral,
-            b"temperror" => DkimResult::TempError,
-            b"permerror" => DkimResult::PermError,
-            _ => DkimResult::None,
-        }
-    }
-}
-
 #[derive(Debug, Eq, PartialEq, ToXml, Serialize, Deserialize, Clone)]
 pub struct DkimAuthResult {
     domain: String,
@@ -125,13 +110,13 @@ pub struct DkimAuthResult {
 
 impl From<AuthenticationResult> for DkimAuthResult {
     fn from(value: AuthenticationResult) -> Self {
-        let d = value.props.get("header.d".as_bytes());
-        let s = value.props.get("header.s".as_bytes());
+        let d = value.props.get("header.d");
+        let s = value.props.get("header.s");
         Self {
             domain: d.cloned().unwrap_or_default().to_string(),
             selector: s.cloned().map(|x| x.to_string()),
             result: value.result.clone().into(),
-            human_result: Some(value.result.to_string()),
+            human_result: Some(value.result.clone()),
         }
     }
 }

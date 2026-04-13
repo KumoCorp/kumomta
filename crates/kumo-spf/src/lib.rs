@@ -1,6 +1,5 @@
 use crate::record::Record;
 use crate::spec::MacroSpec;
-use bstr::{BString, ByteSlice};
 use dns_resolver::{DnsError, Resolver};
 use hickory_resolver::proto::rr::RecordType;
 use hickory_resolver::Name;
@@ -70,16 +69,16 @@ impl SpfDisposition {
     }
 }
 
-impl From<BString> for SpfDisposition {
-    fn from(value: BString) -> Self {
-        match value.to_lowercase().as_slice() {
-            b"none" => Self::None,
-            b"neutral" => Self::Neutral,
-            b"pass" => Self::Pass,
-            b"fail" => Self::Fail,
-            b"softfail" => Self::SoftFail,
-            b"temperror" => Self::TempError,
-            b"permerror" => Self::PermError,
+impl From<String> for SpfDisposition {
+    fn from(value: String) -> Self {
+        match value.to_lowercase().as_str() {
+            "none" => Self::None,
+            "neutral" => Self::Neutral,
+            "pass" => Self::Pass,
+            "fail" => Self::Fail,
+            "softfail" => Self::SoftFail,
+            "temperror" => Self::TempError,
+            "permerror" => Self::PermError,
             _ => Self::None,
         }
     }
@@ -184,7 +183,7 @@ impl<'a> SpfContext<'a> {
     ///   initially, the domain portion of the "MAIL FROM" or "HELO" identity
     /// - `client_ip` is the IP address of the SMTP client that is emitting the mail
     fn new(sender: &'a str, domain: &'a str, client_ip: IpAddr) -> Result<Self, SpfResult> {
-        let Some((local_part, sender_domain)) = sender.split_once('@') else {
+        let Some((local_part, sender_domain)) = sender.rsplit_once('@') else {
             return Err(SpfResult {
                 disposition: SpfDisposition::PermError,
                 context:

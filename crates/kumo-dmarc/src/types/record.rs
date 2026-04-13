@@ -40,10 +40,10 @@ impl Record {
         match self.align_dkim {
             Mode::Relaxed => {
                 for dkim in cx.dkim_results {
-                    if let Some(result) = dkim.props.get("header.d".as_bytes()) {
+                    if let Some(result) = dkim.props.get("header.d") {
                         let organizational_domain = psl::domain_str(cx.from_domain);
 
-                        if cx.from_domain != result
+                        if cx.from_domain.as_bytes() != result.as_bytes()
                             && organizational_domain.map(BStr::new) != Some(result.as_bstr())
                         {
                             cx.dkim_aligned = super::results::DmarcResult::Fail;
@@ -63,12 +63,12 @@ impl Record {
             }
             Mode::Strict => {
                 for dkim in cx.dkim_results {
-                    if let Some(result) = dkim.props.get("header.d".as_bytes()) {
-                        if cx.from_domain != result {
-                            alignment_failure = Some(DispositionWithContext {
+                    if let Some(result) = dkim.props.get("header.d") {
+                        if cx.from_domain.as_bytes() != result.as_bytes() {
+                            return DispositionWithContext {
                                 result: self.disposition(sender_domain_alignment),
                                 context: "DMARC: DKIM strict check failed".into(),
-                            });
+                            };
                         }
                     } else {
                         alignment_failure = Some(DispositionWithContext {

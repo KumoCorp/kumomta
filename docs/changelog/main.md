@@ -14,7 +14,9 @@
    quoted local part form of an address, such as `"quoted"@example.com`.
    This behavior also applies to the local part values that are used
    to construct [Advanced Maildir
-   Paths](../reference/kumo/make_queue_config/protocol.md#advanced-maildir-path).
+   Paths](../reference/kumo/make_queue_config/protocol.md#advanced-maildir-path),
+   as well as [addressheader.user](../reference/addressheader/user.md) and entries in
+   [addressheader.list](../reference/addressheader/list.md)
  * Our MIME parser now accommodates non-conforming binary message
    content that is neither ASCII nor UTF-8, such as message content encoded in
    `shift-jis` without using appropriate MIME markup to indicate that encoding.
@@ -41,6 +43,18 @@
 
 ## Other Changes and Enhancements
 
+ * New [kumo.jsonl](../reference/kumo.jsonl/index.md) module providing
+   utilities for reading and writing zstd-compressed JSONL log segment files.
+   This is useful when you want to implement webhook delivery (or other
+   log-driven processing) **out of band** from the in-process
+   [log hook](../userguide/operation/webhooks.md) mechanism — for example,
+   to run a separate long-lived script that reads from the on-disk logs and
+   forwards them to an HTTP endpoint with independent checkpointing and retry
+   semantics.  See the
+   [Batched Webhook Example](../reference/kumo.jsonl/new_tailer.md#batched-webhook-example)
+   and the
+   [Per-Customer Webhook Example](../reference/kumo.jsonl/new_tailer.md#per-customer-webhook-example-with-main-parameters)
+   in the `kumo.jsonl.new_tailer` docs for worked examples.
  * queue helper: certain misconfigurations are now detected at startup,
    improving error discovery.
  * New
@@ -62,9 +76,32 @@
    now outputs keys of json objects in sorted order.  This means that utilities
    such as `resolve-shaping-domain` will now output keys in sorted order as well.
 
+ * [msg:get_first_named_header_value](../reference/message/get_first_named_header_value.md)
+   and related header accessors now fall back to returning the raw header
+   value when the structured parser fails, rather than raising an error.
+   This improves resilience when processing messages with non-conforming
+   header content.
+ * [msg:parse_mime()](../reference/message/parse_mime.md) and
+   `kumo.mimepart.parse()` now preserve binary (non-UTF-8) bytes in message
+   content rather than applying lossy UTF-8 conversion.
  * [kumo.encode.charset_encode](../reference/kumo.encode/charset_encode.md) and
    [kumo.encode.charset_decode](../reference/kumo.encode/charset_decode.md) string
    charset encoding/decoding functions for advanced use cases.
+
+ * [kumo.string.starts_with](../reference/string/starts_with.md) and
+   [kumo.string.ends_with](../reference/string/ends_with.md). Thanks to
+   @kayozaki! #498
+
+ * New [kumo.fs.metadata_for_path](../reference/kumo.fs/metadata_for_path.md) and
+   [kumo.fs.symlink_metadata_for_path](../reference/kumo.fs/symlink_metadata_for_path.md) functions to get file/directory
+   metadata. Thanks to @kayozaki! #497
+
+ * Queue Helper: `queue_module:setup_with_options` has a new optional
+   `invalidate_with_epoch` boolean parameter that will set the underlying
+   `queue_helper_data` cache to be invalidated when the [config
+   epoch](../reference/configuration.md#config-epoch) is bumped.  This option
+   allows you to achieve lower latency configuration updates in exchange for
+   higher CPU overhead around the time of the configuration update.
 
 ## Fixes
 
@@ -76,3 +113,13 @@
    response. #495
  * smtp server: uncommon quoted local parts containing the `@` sign are now
    accepted by the envelope address parser. #495
+ * smtp client: when using client certificates with openssl, we did not load
+   or propagate intermediate certificates from the supplied certificate data,
+   which could lead to the peer failing to verify the client certificate.
+   Thanks to @kayozaki! #496
+ * HTTP injection API: a `to_header` template substitution is now
+   pre-defined with the default `To` header value that would be generated
+   for the recipient. You can use `{{ to_header }}` in your `To` header
+   template and optionally override `to_header` in the per-recipient
+   substitutions for recipients where you want a different value.
+   Thanks to @Harshjha3006! #501

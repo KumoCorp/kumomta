@@ -1,5 +1,4 @@
 use crate::headermap::EncodeHeaderValue;
-use crate::nom_utils::{explain_nom, make_context_error, make_span, IResult, ParseError, Span};
 use crate::{MailParsingError, Result, SharedString};
 use bstr::{BStr, BString, ByteSlice, ByteVec};
 use charset_normalizer_rs::Encoding;
@@ -9,85 +8,45 @@ use nom::combinator::{all_consuming, map, opt, recognize};
 use nom::error::context;
 use nom::multi::{many0, many1, separated_list1};
 use nom::sequence::{delimited, preceded, separated_pair, terminated};
-use nom::{Compare, Input, Parser as _};
+use nom::Parser as _;
+use nom_utils::{
+    explain_nom, make_context_error, make_span, tag, utf8_non_ascii, IResult, ParseError, Span,
+};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DeserializeAs, SerializeAs};
 use std::collections::BTreeMap;
 use std::fmt::Debug;
-use std::marker::PhantomData;
+
+/// A `serde_with` adapter that serializes `BString` as a JSON string when
+/// the value is valid UTF-8, falling back to the default byte-array
+/// representation otherwise.
+pub struct BStringUtf8;
+
+impl SerializeAs<BString> for BStringUtf8 {
+    fn serialize_as<S>(value: &BString, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match std::str::from_utf8(value.as_bytes()) {
+            Ok(s) => serializer.serialize_str(s),
+            Err(_) => value.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> DeserializeAs<'de, BString> for BStringUtf8 {
+    fn deserialize_as<D>(deserializer: D) -> std::result::Result<BString, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        BString::deserialize(deserializer)
+    }
+}
 
 impl MailParsingError {
     pub fn from_nom(input: Span, err: nom::Err<ParseError<Span<'_>>>) -> Self {
         MailParsingError::HeaderParse(explain_nom(input, err))
     }
-}
-
-/// Like nom::bytes::complete::tag, except that we print what the tag
-/// was expecting if there was an error.
-/// I feel like this should be the default behavior TBH.
-fn tag<E>(tag: &'static str) -> TagParser<E> {
-    TagParser {
-        tag,
-        e: PhantomData,
-    }
-}
-
-/// Struct to support displaying better errors for tag()
-struct TagParser<E> {
-    tag: &'static str,
-    e: PhantomData<E>,
-}
-
-/// All this fuss to show what we expected for the TagParser impl
-impl<I, Error: nom::error::ParseError<I> + nom::error::FromExternalError<I, String>> nom::Parser<I>
-    for TagParser<Error>
-where
-    I: Input + Compare<&'static str> + nom::AsBytes,
-{
-    type Output = I;
-    type Error = Error;
-
-    fn process<OM: nom::OutputMode>(
-        &mut self,
-        i: I,
-    ) -> nom::PResult<OM, I, Self::Output, Self::Error> {
-        use nom::error::ErrorKind;
-        use nom::{CompareResult, Err, Mode};
-
-        let tag_len = self.tag.input_len();
-
-        match i.compare(self.tag) {
-            CompareResult::Ok => Ok((i.take_from(tag_len), OM::Output::bind(|| i.take(tag_len)))),
-            CompareResult::Incomplete => Err(Err::Error(OM::Error::bind(|| {
-                Error::from_external_error(
-                    i,
-                    ErrorKind::Fail,
-                    format!(
-                        "expected \"{}\" but ran out of input",
-                        self.tag.escape_debug()
-                    ),
-                )
-            }))),
-
-            CompareResult::Error => {
-                let available = i.take(i.input_len().min(tag_len));
-                Err(Err::Error(OM::Error::bind(|| {
-                    Error::from_external_error(
-                        i,
-                        ErrorKind::Fail,
-                        format!(
-                            "expected \"{}\" but found {:?}",
-                            self.tag.escape_debug(),
-                            BStr::new(available.as_bytes())
-                        ),
-                    )
-                })))
-            }
-        }
-    }
-}
-
-fn is_utf8_non_ascii(c: u8) -> bool {
-    c == 0 || c >= 0x80
 }
 
 // ctl = { '\u{00}'..'\u{1f}' | "\u{7f}" }
@@ -108,7 +67,7 @@ fn not_angle(c: u8) -> bool {
 // char = { '\u{01}'..'\u{7f}' }
 fn is_char(c: u8) -> bool {
     match c {
-        0x01..=0xff => true,
+        0x01..=0x7f => true,
         _ => false,
     }
 }
@@ -126,20 +85,31 @@ fn is_token(c: u8) -> bool {
 }
 
 // vchar = { '\u{21}'..'\u{7e}' | utf8_non_ascii }
-fn is_vchar(c: u8) -> bool {
-    (0x21..=0x7e).contains(&c) || is_utf8_non_ascii(c)
+fn is_vchar_ascii(c: u8) -> bool {
+    (0x21..=0x7e).contains(&c)
 }
 
-fn is_atext(c: u8) -> bool {
+fn is_atext_ascii(c: u8) -> bool {
     match c {
         b'!' | b'#' | b'$' | b'%' | b'&' | b'\'' | b'*' | b'+' | b'-' | b'/' | b'=' | b'?'
         | b'^' | b'_' | b'`' | b'{' | b'|' | b'}' | b'~' => true,
-        c => c.is_ascii_alphanumeric() || is_utf8_non_ascii(c),
+        c => c.is_ascii_alphanumeric(),
     }
 }
 
+/// Byte-level predicate for atext, including UTF-8 continuation/leading bytes.
+/// Used for non-parser checks (e.g., needs_quoting). For parsing, use the
+/// `atext` parser which properly validates UTF-8 via `utf8_non_ascii`.
+fn is_atext(c: u8) -> bool {
+    is_atext_ascii(c) || c >= 0x80
+}
+
 fn atext(input: Span) -> IResult<Span, Span> {
-    context("atext", take_while1(is_atext)).parse(input)
+    context(
+        "atext",
+        recognize(many1(alt((take_while1(is_atext_ascii), utf8_non_ascii)))),
+    )
+    .parse(input)
 }
 
 fn is_obs_no_ws_ctl(c: u8) -> bool {
@@ -154,29 +124,36 @@ fn is_obs_ctext(c: u8) -> bool {
 }
 
 // ctext = { '\u{21}'..'\u{27}' | '\u{2a}'..'\u{5b}' | '\u{5d}'..'\u{7e}' | obs_ctext | utf8_non_ascii }
-fn is_ctext(c: u8) -> bool {
+fn is_ctext_ascii(c: u8) -> bool {
     match c {
         0x21..=0x27 | 0x2a..=0x5b | 0x5d..=0x7e => true,
-        c => is_obs_ctext(c) || is_utf8_non_ascii(c),
+        c => is_obs_ctext(c),
     }
 }
 
 // dtext = { '\u{21}'..'\u{5a}' | '\u{5e}'..'\u{7e}' | obs_dtext | utf8_non_ascii }
 // obs_dtext = { obs_no_ws_ctl | quoted_pair }
-fn is_dtext(c: u8) -> bool {
+fn is_dtext_ascii(c: u8) -> bool {
     match c {
         0x21..=0x5a | 0x5e..=0x7e => true,
-        c => is_obs_no_ws_ctl(c) || is_utf8_non_ascii(c),
+        c => is_obs_no_ws_ctl(c),
     }
 }
 
 // qtext = { "\u{21}" | '\u{23}'..'\u{5b}' | '\u{5d}'..'\u{7e}' | obs_qtext | utf8_non_ascii }
 // obs_qtext = { obs_no_ws_ctl }
-fn is_qtext(c: u8) -> bool {
+fn is_qtext_ascii(c: u8) -> bool {
     match c {
         0x21 | 0x23..=0x5b | 0x5d..=0x7e => true,
-        c => is_obs_no_ws_ctl(c) || is_utf8_non_ascii(c),
+        c => is_obs_no_ws_ctl(c),
     }
+}
+
+/// Byte-level predicate for qtext, including UTF-8 continuation/leading bytes.
+/// Used for non-parser checks. For parsing, use `qcontent` which validates
+/// UTF-8 via `utf8_non_ascii`.
+fn is_qtext(c: u8) -> bool {
+    is_qtext_ascii(c) || c >= 0x80
 }
 
 fn is_tspecial(c: u8) -> bool {
@@ -341,7 +318,7 @@ fn group(input: Span) -> IResult<Span, Address> {
     Ok((
         loc,
         Address::Group {
-            name: name.into(),
+            name,
             entries: group_list.unwrap_or_else(|| MailboxList(vec![])),
         },
     ))
@@ -377,7 +354,7 @@ fn name_addr(input: Span) -> IResult<Span, Mailbox> {
     context(
         "name_addr",
         map((opt(display_name), angle_addr), |(name, address)| Mailbox {
-            name: name.map(Into::into),
+            name,
             address,
         }),
     )
@@ -385,13 +362,13 @@ fn name_addr(input: Span) -> IResult<Span, Mailbox> {
 }
 
 // display_name = { phrase }
-fn display_name(input: Span) -> IResult<Span, BString> {
+fn display_name(input: Span) -> IResult<Span, String> {
     context("display_name", phrase).parse(input)
 }
 
 // phrase = { (encoded_word | word)+ | obs_phrase }
 // obs_phrase = { (encoded_word | word) ~ (encoded_word | word | dot | cfws)* }
-fn phrase(input: Span) -> IResult<Span, BString> {
+fn phrase(input: Span) -> IResult<Span, String> {
     let (loc, (a, b)): (Span, (BString, Vec<Option<BString>>)) = context(
         "phrase",
         (
@@ -412,7 +389,13 @@ fn phrase(input: Span) -> IResult<Span, BString> {
             result.push_str(item);
         }
     }
-    Ok((loc, result))
+    // SAFETY: all sub-parsers (word, encoded_word) produce only
+    // validated UTF-8 via utf8_non_ascii or charset decoding.
+    Ok((
+        loc,
+        String::from_utf8(result.into())
+            .expect("phrase sub-parsers should only produce valid UTF-8"),
+    ))
 }
 
 // angle_addr = { cfws? ~ "<" ~ addr_spec ~ ">" ~ cfws? | obs_angle_addr }
@@ -466,11 +449,19 @@ fn obs_route(input: Span) -> IResult<Span, Span> {
 fn addr_spec(input: Span) -> IResult<Span, AddrSpec> {
     let (loc, (local_part, domain)) =
         context("addr_spec", separated_pair(local_part, tag("@"), domain)).parse(input)?;
+
+    // local_part and domain parsers accept only ASCII or validated
+    // UTF-8 (via utf8_non_ascii), so this conversion is infallible.
+    let to_string = |b: BString| -> String {
+        String::from_utf8(b.into())
+            .expect("local_part/domain parsers should only produce valid UTF-8")
+    };
+
     Ok((
         loc,
         AddrSpec {
-            local_part: local_part.into(),
-            domain: domain.into(),
+            local_part: to_string(local_part),
+            domain: to_string(domain),
         },
     ))
 }
@@ -522,15 +513,11 @@ Ok(
             addr_spec
         ),
         r#"
-Err(
-    HeaderParse(
-        "Error at line 1, expected "@" but found ".":
-"darth".vader@a.galaxy.far.far.away
-       ^___________________________
-
-while parsing addr_spec
-",
-    ),
+Ok(
+    AddrSpec {
+        local_part: "darth.vader",
+        domain: "a.galaxy.far.far.away",
+    },
 )
 "#
     );
@@ -560,6 +547,174 @@ Ok(
     );
 }
 
+#[cfg(test)]
+#[test]
+fn test_obs_local_part_in_addr_spec() {
+    // obs-local-part = word *("." word) where word = atom / quoted-string
+    // This mixed form is defined in RFC 5322 §4.4 and is correctly parsed
+    // via obs_local_part which is tried first in the local_part alternation.
+    k9::snapshot!(
+        parse_with(r#""first".last@example.com"#.as_bytes(), addr_spec),
+        r#"
+Ok(
+    AddrSpec {
+        local_part: "first.last",
+        domain: "example.com",
+    },
+)
+"#
+    );
+    k9::snapshot!(
+        parse_with(r#"first."last"@example.com"#.as_bytes(), addr_spec),
+        r#"
+Ok(
+    AddrSpec {
+        local_part: "first.last",
+        domain: "example.com",
+    },
+)
+"#
+    );
+    k9::snapshot!(
+        parse_with(r#""first"."last"@example.com"#.as_bytes(), addr_spec),
+        r#"
+Ok(
+    AddrSpec {
+        local_part: "first.last",
+        domain: "example.com",
+    },
+)
+"#
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn test_obs_local_part_encode_roundtrip() {
+    // When an obs-local-part is resolved to its semantic content and stored
+    // in an AddrSpec, encode_value should produce a valid RFC 5321 address.
+
+    // "first".last -> semantic content "first.last" -> encodes as dot-string
+    let addr = AddrSpec::new("first.last", "example.com");
+    k9::assert_equal!(addr.encode_value(), "first.last@example.com");
+
+    // "first second".last -> semantic content "first second.last" -> needs quoting
+    let addr = AddrSpec::new("first second.last", "example.com");
+    k9::assert_equal!(addr.encode_value(), r#""first second.last"@example.com"#);
+
+    // "first\"".last -> semantic content "first\".last" -> needs quoting with escaping
+    let addr = AddrSpec::new("first\".last", "example.com");
+    k9::assert_equal!(addr.encode_value(), r#""first\".last"@example.com"#);
+}
+
+#[cfg(test)]
+#[test]
+fn test_obs_local_part_with_special_chars() {
+    // obs-local-part where the quoted-string word contains characters
+    // that require quoting (space, specials)
+    k9::snapshot!(
+        parse_with(r#""hello world".user@example.com"#.as_bytes(), addr_spec),
+        r#"
+Ok(
+    AddrSpec {
+        local_part: "hello world.user",
+        domain: "example.com",
+    },
+)
+"#
+    );
+    // Verify the round-trip encodes as a valid RFC 5321 quoted-string
+    let addr = AddrSpec::new("hello world.user", "example.com");
+    k9::assert_equal!(addr.encode_value(), r#""hello world.user"@example.com"#);
+}
+
+#[cfg(test)]
+#[test]
+fn test_utf8_non_ascii_in_local_part() {
+    // RFC 6531/6532: internationalized local-part with non-ASCII characters
+    k9::snapshot!(
+        parse_with("用户@example.com".as_bytes(), addr_spec),
+        r#"
+Ok(
+    AddrSpec {
+        local_part: "用户",
+        domain: "example.com",
+    },
+)
+"#
+    );
+    k9::snapshot!(
+        parse_with("münchen@example.com".as_bytes(), addr_spec),
+        r#"
+Ok(
+    AddrSpec {
+        local_part: "münchen",
+        domain: "example.com",
+    },
+)
+"#
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn test_utf8_non_ascii_in_domain() {
+    // RFC 6531: internationalized domain in header address
+    k9::snapshot!(
+        parse_with("user@例え.jp".as_bytes(), addr_spec),
+        r#"
+Ok(
+    AddrSpec {
+        local_part: "user",
+        domain: "例え.jp",
+    },
+)
+"#
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn test_quoted_pair_non_ascii() {
+    // quoted_pair with utf8_non_ascii: backslash followed by a non-ASCII char
+    k9::snapshot!(
+        parse_with(r#""\München"@example.com"#.as_bytes(), addr_spec),
+        r#"
+Ok(
+    AddrSpec {
+        local_part: "München",
+        domain: "example.com",
+    },
+)
+"#
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn test_invalid_utf8_rejected() {
+    // Lone continuation byte (0x80) is not valid UTF-8 and should be rejected
+    // in atext position
+    let input = b"user\x80@example.com";
+    parse_with(input, addr_spec).unwrap_err();
+
+    // Overlong encoding of '/' (U+002F): 0xC0 0xAF is invalid UTF-8
+    let input = b"user\xC0\xAF@example.com";
+    parse_with(input, addr_spec).unwrap_err();
+
+    // Truncated multi-byte sequence: 0xC3 without continuation
+    let input = b"user\xC3@example.com";
+    parse_with(input, addr_spec).unwrap_err();
+
+    // Invalid byte in quoted-string qtext position
+    let input = b"\"user\x80\"@example.com";
+    parse_with(input, addr_spec).unwrap_err();
+
+    // Invalid byte in comment ctext position
+    let input = b"(comment\x80) user@example.com";
+    parse_with(input, mailbox).unwrap_err();
+}
+
 // atom = { cfws? ~ atext ~ cfws? }
 fn atom(input: Span) -> IResult<Span, BString> {
     let (loc, text) = context("atom", delimited(opt(cfws), atext, opt(cfws))).parse(input)?;
@@ -586,8 +741,14 @@ fn obs_local_part(input: Span) -> IResult<Span, BString> {
 }
 
 // local_part = { dot_atom | quoted_string | obs_local_part }
+// obs_local_part (word *("." word)) is a superset of both dot_atom and
+// quoted_string: a dot-separated run of atoms is an obs_local_part where
+// every word is an atom, and a bare quoted-string is an obs_local_part
+// with no dot continuations. It must be tried first because dot_atom can
+// partially match (e.g. consuming "first" from "first.\"last\"@domain")
+// and then fail in the wider addr_spec context with no backtracking.
 fn local_part(input: Span) -> IResult<Span, BString> {
-    context("local_part", alt((dot_atom, quoted_string, obs_local_part))).parse(input)
+    context("local_part", alt((obs_local_part, dot_atom, quoted_string))).parse(input)
 }
 
 // domain = { dot_atom | domain_literal | obs_domain }
@@ -618,7 +779,14 @@ fn domain_literal(input: Span) -> IResult<Span, BString> {
             delimited(
                 tag("["),
                 (
-                    many0((opt(fws), alt((take_while_m_n(1, 1, is_dtext), quoted_pair)))),
+                    many0((
+                        opt(fws),
+                        alt((
+                            take_while_m_n(1, 1, is_dtext_ascii),
+                            utf8_non_ascii,
+                            quoted_pair,
+                        )),
+                    )),
                     opt(fws),
                 ),
                 tag("]"),
@@ -742,7 +910,7 @@ fn ccontent(input: Span) -> IResult<Span, Span> {
     context(
         "ccontent",
         recognize(alt((
-            recognize(take_while_m_n(1, 1, is_ctext)),
+            recognize(alt((take_while_m_n(1, 1, is_ctext_ascii), utf8_non_ascii))),
             recognize(quoted_pair),
             comment,
             recognize(encoded_word),
@@ -751,11 +919,18 @@ fn ccontent(input: Span) -> IResult<Span, Span> {
     .parse(input)
 }
 
-fn is_quoted_pair(c: u8) -> bool {
+fn is_quoted_pair_ascii(c: u8) -> bool {
     match c {
         0x00 | b'\r' | b'\n' | b' ' => true,
-        c => is_obs_no_ws_ctl(c) || is_vchar(c),
+        c => is_obs_no_ws_ctl(c) || is_vchar_ascii(c),
     }
+}
+
+/// Byte-level predicate for quoted_pair, including UTF-8 continuation/leading
+/// bytes. Used for non-parser checks. For parsing, use `quoted_pair` which
+/// validates UTF-8 via `utf8_non_ascii`.
+fn is_quoted_pair(c: u8) -> bool {
+    is_quoted_pair_ascii(c) || c >= 0x80
 }
 
 // quoted_pair = { ( "\\"  ~ (vchar | wsp)) | obs_qp }
@@ -763,7 +938,10 @@ fn is_quoted_pair(c: u8) -> bool {
 fn quoted_pair(input: Span) -> IResult<Span, Span> {
     context(
         "quoted_pair",
-        preceded(tag("\\"), take_while_m_n(1, 1, is_quoted_pair)),
+        preceded(
+            tag("\\"),
+            alt((take_while_m_n(1, 1, is_quoted_pair_ascii), utf8_non_ascii)),
+        ),
     )
     .parse(input)
 }
@@ -871,7 +1049,10 @@ fn encoding(input: Span) -> IResult<Span, Span> {
 fn encoded_text(input: Span) -> IResult<Span, Span> {
     context(
         "encoded_text",
-        take_while1(|c| is_vchar(c) && c != b' ' && c != b'?'),
+        recognize(many1(alt((
+            take_while1(|c| is_vchar_ascii(c) && c != b' ' && c != b'?'),
+            utf8_non_ascii,
+        )))),
     )
     .parse(input)
 }
@@ -909,7 +1090,11 @@ fn quoted_string(input: Span) -> IResult<Span, BString> {
 fn qcontent(input: Span) -> IResult<Span, Span> {
     context(
         "qcontent",
-        alt((take_while_m_n(1, 1, is_qtext), quoted_pair)),
+        alt((
+            take_while_m_n(1, 1, is_qtext_ascii),
+            utf8_non_ascii,
+            quoted_pair,
+        )),
     )
     .parse(input)
 }
@@ -965,7 +1150,11 @@ fn no_fold_literal(input: Span) -> IResult<Span, BString> {
     context(
         "no_fold_literal",
         map(
-            recognize((tag("["), take_while(is_dtext), tag("]"))),
+            recognize((
+                tag("["),
+                recognize(many0(alt((take_while1(is_dtext_ascii), utf8_non_ascii)))),
+                tag("]"),
+            )),
             |s: Span| (*s).into(),
         ),
     )
@@ -1130,9 +1319,9 @@ fn resinfo(input: Span) -> IResult<Span, AuthenticationResult> {
                 opt(many1(propspec)),
             ),
             |(_, _, (method, method_version, result), reason, props)| AuthenticationResult {
-                method: method.into(),
+                method,
                 method_version,
-                result: result.into(),
+                result,
                 reason: reason.map(Into::into),
                 props: match props {
                     None => BTreeMap::default(),
@@ -1144,7 +1333,7 @@ fn resinfo(input: Span) -> IResult<Span, AuthenticationResult> {
     .parse(input)
 }
 
-fn methodspec(input: Span) -> IResult<Span, (BString, Option<u32>, BString)> {
+fn methodspec(input: Span) -> IResult<Span, (String, Option<u32>, String)> {
     context(
         "methodspec",
         map(
@@ -1163,13 +1352,16 @@ fn methodspec(input: Span) -> IResult<Span, (BString, Option<u32>, BString)> {
 }
 
 // Taken from https://datatracker.ietf.org/doc/html/rfc8601 which says
-// that this is the same as the SMTP Keyword token
-fn keyword(input: Span) -> IResult<Span, BString> {
+// that this is the same as the SMTP Keyword token (RFC 5321 section 4.1.2).
+// Keyword = Ldh-str = *( ALPHA / DIGIT / "-" ) Let-dig
+// Only matches ASCII alphanumeric and '-'.
+fn keyword(input: Span) -> IResult<Span, String> {
     context(
         "keyword",
         map(
-            take_while1(|c: u8| c.is_ascii_alphanumeric() || c == b'+' || c == b'-'),
-            |s: Span| (*s).into(),
+            take_while1(|c: u8| c.is_ascii_alphanumeric() || c == b'-'),
+            // SAFETY: predicate only matches ASCII bytes
+            |s: Span| String::from_utf8((*s).into()).expect("keyword is ASCII-only"),
         ),
     )
     .parse(input)
@@ -1197,11 +1389,15 @@ fn reasonspec(input: Span) -> IResult<Span, BString> {
     .parse(input)
 }
 
-fn propspec(input: Span) -> IResult<Span, (BString, BString)> {
+fn propspec(input: Span) -> IResult<Span, (String, BString)> {
     context(
         "propspec",
         map(
             (
+                // RFC 8601 resinfo ABNF says CFWS is required before each
+                // propspec, but we use opt(cfws) here because other parsers
+                // (notably quoted_string) may have already consumed the
+                // whitespace.
                 opt(cfws),
                 keyword,
                 opt(cfws),
@@ -1211,6 +1407,10 @@ fn propspec(input: Span) -> IResult<Span, (BString, BString)> {
                 opt(cfws),
                 tag("="),
                 opt(cfws),
+                // pvalue = [CFWS] ( value / [ [CFWS] "@" ] domain ) [CFWS]
+                // Try @domain and local@domain first (distinctive @ marker),
+                // then quoted_string (distinctive " marker), then domain
+                // (handles dotted names), then mime_token last (single tokens).
                 alt((
                     map(preceded(tag("@"), domain), |d| {
                         let mut at_dom = BString::from("@");
@@ -1223,14 +1423,14 @@ fn propspec(input: Span) -> IResult<Span, (BString, BString)> {
                         result.push_str(d);
                         result
                     }),
+                    quoted_string,
                     domain,
-                    // value must be last in this alternation
-                    value,
+                    map(mime_token, |s: Span| (*s).into()),
                 )),
                 opt(cfws),
             ),
             |(_, ptype, _, _, _, property, _, _, _, value, _)| {
-                (format!("{ptype}.{property}").into(), value)
+                (format!("{ptype}.{property}"), value)
             },
         ),
     )
@@ -1241,7 +1441,12 @@ fn propspec(input: Span) -> IResult<Span, (BString, BString)> {
 fn obs_utext(input: Span) -> IResult<Span, Span> {
     context(
         "obs_utext",
-        take_while_m_n(1, 1, |c| c == 0x00 || is_obs_no_ws_ctl(c) || is_vchar(c)),
+        alt((
+            take_while_m_n(1, 1, |c| {
+                c == 0x00 || is_obs_no_ws_ctl(c) || is_vchar_ascii(c)
+            }),
+            utf8_non_ascii,
+        )),
     )
     .parse(input)
 }
@@ -1251,8 +1456,13 @@ fn is_mime_token(c: u8) -> bool {
 }
 
 // mime_token = { (!(" " | ctl | tspecials) ~ char)+ }
+// Also accepts validated UTF-8 multi-byte sequences per RFC 6532.
 fn mime_token(input: Span) -> IResult<Span, Span> {
-    context("mime_token", take_while1(is_mime_token)).parse(input)
+    context(
+        "mime_token",
+        recognize(many1(alt((take_while1(is_mime_token), utf8_non_ascii)))),
+    )
+    .parse(input)
 }
 
 // RFC2045 modified by RFC2231 MIME header fields
@@ -1572,10 +1782,12 @@ impl Parser {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ARCAuthenticationResults {
     pub instance: u8,
+    #[serde_as(as = "BStringUtf8")]
     pub serv_id: BString,
     pub version: Option<u32>,
     pub results: Vec<AuthenticationResult>,
@@ -1585,17 +1797,17 @@ impl EncodeHeaderValue for ARCAuthenticationResults {
     fn encode_value(&self) -> SharedString<'static> {
         let mut result = format!("i={}; ", self.instance).into_bytes();
 
-        match self.version {
-            Some(v) => result.push_str(&format!("{} {v}", self.serv_id)),
-            None => result.push_str(&self.serv_id),
-        };
+        emit_value_token(&self.serv_id, &mut result);
+        if let Some(v) = self.version {
+            result.push_str(&format!(" {v}"));
+        }
 
         if self.results.is_empty() {
             result.push_str("; none");
         } else {
             for res in &self.results {
                 result.push_str(";\r\n\t");
-                emit_value_token(&res.method, &mut result);
+                emit_value_token(res.method.as_bytes(), &mut result);
                 if let Some(v) = res.method_version {
                     result.push_str(&format!("/{v}"));
                 }
@@ -1616,9 +1828,11 @@ impl EncodeHeaderValue for ARCAuthenticationResults {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthenticationResults {
+    #[serde_as(as = "BStringUtf8")]
     pub serv_id: BString,
     #[serde(default)]
     pub version: Option<u32>,
@@ -1628,6 +1842,7 @@ pub struct AuthenticationResults {
 
 /// Emits a value that was parsed by `value`, into target
 fn emit_value_token(value: &[u8], target: &mut Vec<u8>) {
+    // Allow '@' bare since the pvalue parser handles @domain and local@domain
     let use_quoted_string = !value.iter().all(|&c| is_mime_token(c) || c == b'@');
     if use_quoted_string {
         target.push(b'"');
@@ -1645,16 +1860,17 @@ fn emit_value_token(value: &[u8], target: &mut Vec<u8>) {
 
 impl EncodeHeaderValue for AuthenticationResults {
     fn encode_value(&self) -> SharedString<'static> {
-        let mut result = match self.version {
-            Some(v) => format!("{} {v}", self.serv_id).into_bytes(),
-            None => self.serv_id.to_vec(),
-        };
+        let mut result = Vec::new();
+        emit_value_token(&self.serv_id, &mut result);
+        if let Some(v) = self.version {
+            result.push_str(&format!(" {v}"));
+        }
         if self.results.is_empty() {
             result.push_str("; none");
         } else {
             for res in &self.results {
                 result.push_str(";\r\n\t");
-                emit_value_token(&res.method, &mut result);
+                emit_value_token(res.method.as_bytes(), &mut result);
                 if let Some(v) = res.method_version {
                     result.push_str(&format!("/{v}"));
                 }
@@ -1675,24 +1891,27 @@ impl EncodeHeaderValue for AuthenticationResults {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthenticationResult {
-    pub method: BString,
+    pub method: String,
     #[serde(default)]
     pub method_version: Option<u32>,
-    pub result: BString,
+    pub result: String,
+    #[serde_as(as = "Option<BStringUtf8>")]
     #[serde(default)]
     pub reason: Option<BString>,
+    #[serde_as(as = "BTreeMap<_, BStringUtf8>")]
     #[serde(default)]
-    pub props: BTreeMap<BString, BString>,
+    pub props: BTreeMap<String, BString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AddrSpec {
-    pub local_part: BString,
-    pub domain: BString,
+    pub local_part: String,
+    pub domain: String,
 }
 
 impl AddrSpec {
@@ -1712,14 +1931,18 @@ impl EncodeHeaderValue for AddrSpec {
     fn encode_value(&self) -> SharedString<'static> {
         let mut result: Vec<u8> = vec![];
 
-        let needs_quoting = !self.local_part.iter().all(|&c| is_atext(c) || c == b'.');
+        let needs_quoting = !self
+            .local_part
+            .as_bytes()
+            .iter()
+            .all(|&c| is_atext(c) || c == b'.');
         if needs_quoting {
             result.push(b'"');
             // RFC5321 4.1.2 qtextSMTP:
             // within a quoted string, any ASCII graphic or space is permitted without
             // blackslash-quoting except double-quote and the backslash itself.
 
-            for &c in self.local_part.iter() {
+            for &c in self.local_part.as_bytes().iter() {
                 if c == b'"' || c == b'\\' {
                     result.push(b'\\');
                 }
@@ -1740,7 +1963,7 @@ impl EncodeHeaderValue for AddrSpec {
 #[serde(untagged)]
 pub enum Address {
     Mailbox(Mailbox),
-    Group { name: BString, entries: MailboxList },
+    Group { name: String, entries: MailboxList },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1784,13 +2007,14 @@ impl MailboxList {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Mailbox {
-    pub name: Option<BString>,
+    pub name: Option<String>,
     pub address: AddrSpec,
 }
 
+#[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct MessageID(pub BString);
+pub struct MessageID(#[serde_as(as = "BStringUtf8")] pub BString);
 
 impl EncodeHeaderValue for MessageID {
     fn encode_value(&self) -> SharedString<'static> {
@@ -2615,6 +2839,74 @@ Some(
     }
 
     #[test]
+    fn unstructured_bare_non_ascii() {
+        // Direct test of unstructured header parsing with bare UTF-8
+        // (no encoded-word), exercising obs_utext -> utf8_non_ascii
+        let message = "Subject: Héllo wörld äöü\n\n\n";
+        let msg = MimePart::parse(message).unwrap();
+        k9::snapshot!(
+            msg.headers().subject().unwrap(),
+            r#"
+Some(
+    "Héllo wörld äöü",
+)
+"#
+        );
+
+        // Subject with CJK characters
+        let message = "Subject: 件名テスト\n\n\n";
+        let msg = MimePart::parse(message).unwrap();
+        k9::snapshot!(
+            msg.headers().subject().unwrap(),
+            r#"
+Some(
+    "件名テスト",
+)
+"#
+        );
+    }
+
+    #[test]
+    fn unstructured_raw_shift_jis() {
+        // Raw Shift-JIS bytes in a Subject header (not wrapped in an
+        // RFC 2047 encoded-word). "テスト" in Shift-JIS is:
+        //   テ=0x83 0x65  ス=0x83 0x58  ト=0x83 0x67
+        // These bytes are not valid UTF-8 (0x83 is a continuation byte
+        // appearing as a lead byte). With utf8_non_ascii validation,
+        // the parser will not match them as non-ASCII text.
+        let message = b"Subject: \x83\x65\x83\x58\x83\x67\n\n\n";
+
+        // Structural parse succeeds: the message is split into headers
+        // and body, and the Subject header is recognized.
+        let msg = MimePart::parse(message.as_slice()).unwrap();
+        let subject_header = msg.headers().get_first("Subject").unwrap();
+        k9::assert_equal!(
+            subject_header.get_raw_value(),
+            b"\x83\x65\x83\x58\x83\x67".as_slice()
+        );
+
+        // Semantic parse of the value as unstructured text fails because
+        // the raw bytes are not valid UTF-8.
+        k9::snapshot!(
+            msg.headers().subject(),
+            r#"
+Err(
+    InvalidHeaderValueDuringGet {
+        header_name: "Subject",
+        error: HeaderParse(
+            "Error at line 1, in Eof:
+\\x83e\\x83X\\x83g
+^_____
+
+",
+        ),
+    },
+)
+"#
+        );
+    }
+
+    #[test]
     fn rfc2047_bogus() {
         let message = concat!(
             "From: =?US-OSCII?Q?Keith_Moore?= <moore@cs.utk.edu>\n",
@@ -2833,7 +3125,7 @@ Some(
         );
 
         k9::snapshot!(
-            msg.rebuild(None).unwrap().to_message_string(),
+            BString::from(msg.rebuild(None).unwrap().to_message_bytes()),
             r#"
 Content-Type: text/plain;\r
 \tcharset="us-ascii"\r
@@ -3610,6 +3902,183 @@ ARCAuthenticationResults {
     ],
 }
 "#
+        );
+    }
+
+    #[test]
+    fn bstring_utf8_serializes_utf8_as_string() {
+        // A MessageID with pure ASCII content serializes as a JSON string
+        let mid = MessageID(BString::from("abc123@example.com"));
+        let json = serde_json::to_string(&mid).unwrap();
+        k9::assert_equal!(json, r#""abc123@example.com""#);
+    }
+
+    #[test]
+    fn bstring_utf8_serializes_non_utf8_as_array() {
+        // A MessageID with invalid UTF-8 falls back to byte array
+        let mid = MessageID(BString::from(&b"hello\x80world"[..]));
+        let json = serde_json::to_string(&mid).unwrap();
+        k9::assert_equal!(json, "[104,101,108,108,111,128,119,111,114,108,100]");
+    }
+
+    #[test]
+    fn bstring_utf8_round_trip_utf8() {
+        let mid = MessageID(BString::from("test@example.com"));
+        let json = serde_json::to_string(&mid).unwrap();
+        let restored: MessageID = serde_json::from_str(&json).unwrap();
+        k9::assert_equal!(restored, mid);
+    }
+
+    #[test]
+    fn bstring_utf8_round_trip_non_utf8() {
+        let mid = MessageID(BString::from(&b"\xff\xfe"[..]));
+        let json = serde_json::to_string(&mid).unwrap();
+        let restored: MessageID = serde_json::from_str(&json).unwrap();
+        k9::assert_equal!(restored, mid);
+    }
+
+    #[test]
+    fn authentication_results_serialize_as_strings() {
+        let ar = AuthenticationResults {
+            serv_id: BString::from("example.com"),
+            version: None,
+            results: vec![AuthenticationResult {
+                method: "dkim".into(),
+                method_version: None,
+                result: "pass".into(),
+                reason: Some(BString::from("good signature")),
+                props: BTreeMap::from([
+                    ("header.d".into(), BString::from("example.com")),
+                    ("header.s".into(), BString::from("selector1")),
+                ]),
+            }],
+        };
+        let json = serde_json::to_string_pretty(&ar).unwrap();
+        // All BString fields that are valid UTF-8 should appear as JSON strings
+        k9::assert_equal!(
+            json,
+            r#"{
+  "serv_id": "example.com",
+  "version": null,
+  "results": [
+    {
+      "method": "dkim",
+      "method_version": null,
+      "result": "pass",
+      "reason": "good signature",
+      "props": {
+        "header.d": "example.com",
+        "header.s": "selector1"
+      }
+    }
+  ]
+}"#
+        );
+    }
+
+    #[test]
+    fn authentication_results_round_trip() {
+        let ar = AuthenticationResults {
+            serv_id: BString::from("mx.example.org"),
+            version: Some(1),
+            results: vec![AuthenticationResult {
+                method: "spf".into(),
+                method_version: None,
+                result: "pass".into(),
+                reason: None,
+                props: BTreeMap::from([(
+                    "smtp.mailfrom".into(),
+                    BString::from("sender@example.com"),
+                )]),
+            }],
+        };
+        let json = serde_json::to_string(&ar).unwrap();
+        let restored: AuthenticationResults = serde_json::from_str(&json).unwrap();
+        k9::assert_equal!(restored, ar);
+    }
+
+    #[test]
+    fn authentication_result_non_utf8_reason() {
+        let ar = AuthenticationResult {
+            method: "dkim".into(),
+            method_version: None,
+            result: "temperror".into(),
+            reason: Some(BString::from(&b"bad\x80data"[..])),
+            props: BTreeMap::new(),
+        };
+        let json = serde_json::to_string(&ar).unwrap();
+        // reason should be a byte array since it contains invalid UTF-8
+        assert!(json.contains(r#""reason":[98,97,100,128,100,97,116,97]"#));
+        let restored: AuthenticationResult = serde_json::from_str(&json).unwrap();
+        k9::assert_equal!(restored, ar);
+    }
+
+    #[test]
+    fn authentication_results_encode_value_with_binary() {
+        // Construct AuthenticationResults with non-UTF-8 bytes in BString fields
+        // and capture the encode_value() output for use in a Lua test.
+        let ar = AuthenticationResults {
+            serv_id: BString::from(&b"mx.ex\x80mple.com"[..]),
+            version: None,
+            results: vec![AuthenticationResult {
+                method: "spf".into(),
+                method_version: None,
+                result: "pass".into(),
+                reason: Some(BString::from(&b"good\xffsig"[..])),
+                props: BTreeMap::from([(
+                    "smtp.mailfrom".into(),
+                    BString::from(&b"user@\xfehost"[..]),
+                )]),
+            }],
+        };
+        let encoded = ar.encode_value();
+        k9::snapshot!(
+            encoded,
+            r#"
+"mx.ex\x80mple.com";\r
+\tspf=pass reason="good\xffsig"\r
+\tsmtp.mailfrom="user@\xfehost"
+"#
+        );
+    }
+
+    #[test]
+    fn authentication_results_serv_id_quoting() {
+        // A serv_id containing characters that need quoting is properly quoted
+        let ar = AuthenticationResults {
+            serv_id: BString::from("mx example.com"),
+            version: None,
+            results: vec![],
+        };
+        let encoded = ar.encode_value();
+        k9::snapshot!(encoded, r#""mx example.com"; none"#);
+
+        // Normal domain-like serv_id is emitted bare
+        let ar2 = AuthenticationResults {
+            serv_id: BString::from("mx.example.com"),
+            version: Some(1),
+            results: vec![],
+        };
+        let encoded2 = ar2.encode_value();
+        k9::snapshot!(&encoded2, "mx.example.com 1; none");
+        // Bare serv_id roundtrips
+        let parsed = Parser::parse_authentication_results_header(encoded2.as_bytes()).unwrap();
+        k9::assert_equal!(parsed.serv_id, ar2.serv_id);
+        k9::assert_equal!(parsed.version, Some(1));
+    }
+
+    #[test]
+    fn arc_authentication_results_serialize_as_strings() {
+        let arc = ARCAuthenticationResults {
+            instance: 1,
+            serv_id: BString::from("mx.example.com"),
+            version: None,
+            results: vec![],
+        };
+        let json = serde_json::to_string(&arc).unwrap();
+        k9::assert_equal!(
+            json,
+            r#"{"instance":1,"serv_id":"mx.example.com","version":null,"results":[]}"#
         );
     }
 }

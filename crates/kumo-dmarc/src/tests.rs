@@ -1,6 +1,5 @@
 use crate::types::results::DispositionWithContext;
 use crate::{Disposition, DmarcContext};
-use bstr::BString;
 use dns_resolver::{Resolver, TestResolver};
 use mailparsing::AuthenticationResult;
 use std::collections::BTreeMap;
@@ -342,7 +341,7 @@ async fn evaluate_ip<'a>(
     let spf_result = AuthenticationResult {
         method: "spf".into(),
         method_version: None,
-        result: BString::default(),
+        result: String::default(),
         reason: None,
         props: BTreeMap::new(),
     };
@@ -351,7 +350,7 @@ async fn evaluate_ip<'a>(
         let mut authentication_result = AuthenticationResult {
             method: "dkim".into(),
             method_version: None,
-            result: BString::default(),
+            result: String::default(),
             reason: None,
             props: BTreeMap::new(),
         };
