@@ -1013,29 +1013,31 @@ impl<'a> MimePart<'a> {
 
                 for (i, p) in self.parts.iter().enumerate() {
                     let part_idx = i.try_into().map_err(|_| MailParsingError::TooManyParts)?;
-                    if let Ok(mut s) = p.simplified_structure_pointers_impl(Some(part_idx)) {
+                    if let Ok(s) = p.simplified_structure_pointers_impl(Some(part_idx)) {
                         if let Some(p) = s.text_part {
                             if text_part.is_none() {
                                 text_part.replace(PartPointer::root_or_nth(my_idx).append(p));
                             } else {
-                                attachments.push(p);
+                                attachments.push(PartPointer::root_or_nth(my_idx).append(p));
                             }
                         }
                         if let Some(p) = s.html_part {
                             if html_part.is_none() {
                                 html_part.replace(PartPointer::root_or_nth(my_idx).append(p));
                             } else {
-                                attachments.push(p);
+                                attachments.push(PartPointer::root_or_nth(my_idx).append(p));
                             }
                         }
                         if let Some(p) = s.amp_html_part {
                             if amp_html_part.is_none() {
                                 amp_html_part.replace(PartPointer::root_or_nth(my_idx).append(p));
                             } else {
-                                attachments.push(p);
+                                attachments.push(PartPointer::root_or_nth(my_idx).append(p));
                             }
                         }
-                        attachments.append(&mut s.attachments);
+                        for attachment in s.attachments {
+                            attachments.push(PartPointer::root_or_nth(my_idx).append(attachment));
+                        }
                     }
                 }
 
@@ -2198,5 +2200,73 @@ Body\r
 
         eprintln!("{rebuilt:?}");
         assert_eq!(rebuilt.body().unwrap().to_string_lossy().trim(), "�");
+    }
+
+    #[test]
+    fn nested_multipart_mixed_related() {
+        // Reproduces the structure: multipart/mixed -> multipart/related -> [text/html, image/png]
+        let message = concat!(
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/mixed;\r\n",
+            "\tboundary=\"----=_Part_602641_1899404624.1775349148919\"\r\n",
+            "\r\n",
+            "------=_Part_602641_1899404624.1775349148919\r\n",
+            "Content-Type: multipart/related;\r\n",
+            "\tboundary=\"----=_Part_602642_1070442961.1775349148920\"\r\n",
+            "\r\n",
+            "------=_Part_602642_1070442961.1775349148920\r\n",
+            "Content-Type: text/html;charset=UTF-8\r\n",
+            "Content-Transfer-Encoding: quoted-printable\r\n",
+            "\r\n",
+            "<html><body>Test HTML</body></html>\r\n",
+            "------=_Part_602642_1070442961.1775349148920\r\n",
+            "Content-Type: image/png; name=inline\r\n",
+            "Content-Transfer-Encoding: base64\r\n",
+            "Content-Disposition: inline; filename=inline\r\n",
+            "Content-ID: <dell-aiops>\r\n",
+            "\r\n",
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==\r\n",
+            "------=_Part_602642_1070442961.1775349148920--\r\n",
+            "------=_Part_602641_1899404624.1775349148919--\r\n"
+        );
+
+        let part = MimePart::parse(message).unwrap();
+
+        // Structure check: root should have 1 part (multipart/related)
+        assert_eq!(
+            part.child_parts().len(),
+            1,
+            "Root should have one child (multipart/related)"
+        );
+
+        let related_part = &part.child_parts()[0];
+        // multipart/related should have 2 parts (text/html and image)
+        assert_eq!(
+            related_part.child_parts().len(),
+            2,
+            "Related should have two children (html and image)"
+        );
+
+        let html_part = &related_part.child_parts()[0];
+        let image_part = &related_part.child_parts()[1];
+
+        // Check content types
+        let html_ct = html_part.headers().content_type().unwrap().unwrap();
+        assert_eq!(html_ct.value, "text/html");
+
+        let image_ct = image_part.headers().content_type().unwrap().unwrap();
+        assert_eq!(image_ct.value, "image/png");
+
+        // Verify simplified structure can be retrieved (this tests the PartRef resolution path)
+        let simplified = part.simplified_structure().unwrap();
+        assert!(
+            simplified.html.is_some(),
+            "Should find HTML part in simplified structure"
+        );
+        assert_eq!(
+            simplified.attachments.len(),
+            1,
+            "Should have one attachment (the image)"
+        );
     }
 }
