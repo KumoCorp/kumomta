@@ -254,7 +254,7 @@ socks5_proxy_server = "127.0.0.1:5000"
 [pool."a"."ip"]
   ]],
   })
-  assert(status, "SocketAddr format should work")
+  assert(status, 'SocketAddr format should work')
 
   -- Test that hostname format works
   local status2, data_or_error2 = pcall(load_data, {
@@ -265,7 +265,7 @@ socks5_proxy_server = "example.com:5000"
 [pool."b"."ip2"]
   ]],
   })
-  assert(status2, "Hostname format should work")
+  assert(status2, 'Hostname format should work')
 
   -- TODO: Add proper validation test once the validation logic is finalized
   -- For now, we've confirmed that both SocketAddr and hostname formats work correctly
