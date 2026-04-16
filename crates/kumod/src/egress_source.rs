@@ -52,30 +52,31 @@ impl SocketAddrOrHostname {
             if port.parse::<u16>().is_err() {
                 return false;
             }
-            
+
             // Check that there are no other colons in the host part
             if host.contains(':') {
                 return false;
             }
-            
+
             // Basic hostname validation
             if host.is_empty() || host.len() > 253 {
                 return false;
             }
-            
+
             // Check each label
             for label in host.split('.') {
                 if label.is_empty() || label.len() > 63 {
                     return false;
                 }
                 // Check for valid characters (letters, digits, hyphens, but not starting/ending with hyphen)
-                if !label.chars().all(|c| c.is_alphanumeric() || c == '-') 
-                   || label.starts_with('-') 
-                   || label.ends_with('-') {
+                if !label.chars().all(|c| c.is_alphanumeric() || c == '-')
+                    || label.starts_with('-')
+                    || label.ends_with('-')
+                {
                     return false;
                 }
             }
-            
+
             // Additional validation: ensure it looks like a proper hostname
             // Must have at least one dot or be a valid single label
             if !host.contains('.') {
@@ -84,7 +85,7 @@ impl SocketAddrOrHostname {
                     return false;
                 }
             }
-            
+
             true
         } else {
             false // No port specified
@@ -98,16 +99,16 @@ impl<'de> serde::Deserialize<'de> for SocketAddrOrHostname {
         D: serde::Deserializer<'de>,
     {
         use serde::Deserialize;
-        
+
         #[derive(Deserialize)]
         #[serde(untagged)]
         enum SocketAddrOrString {
             SocketAddr(SocketAddr),
             String(String),
         }
-        
+
         let value = SocketAddrOrString::deserialize(deserializer)?;
-        
+
         match value {
             SocketAddrOrString::SocketAddr(addr) => Ok(SocketAddrOrHostname::SocketAddr(addr)),
             SocketAddrOrString::String(hostname) => {
@@ -268,7 +269,7 @@ impl EgressSource {
             .map(|lookup| lookup.item)
     }
 
-    fn resolve_proxy_protocol(&'_ self, address: SocketAddr) -> anyhow::Result<ProxyProto<'_>> {
+    async fn resolve_proxy_protocol(&'_ self, address: SocketAddr) -> anyhow::Result<ProxyProto<'_>> {
         use ppp::v2::{Addresses, IPv4, IPv6};
         let source_name = &self.name;
 
@@ -980,19 +981,27 @@ mod test {
         // Valid hostnames with ports
         assert!(SocketAddrOrHostname::is_valid_hostname("example.com:8080"));
         assert!(SocketAddrOrHostname::is_valid_hostname("localhost:5000"));
-        assert!(SocketAddrOrHostname::is_valid_hostname("api.example.org:443"));
-        
+        assert!(SocketAddrOrHostname::is_valid_hostname(
+            "api.example.org:443"
+        ));
+
         // Valid single label hostnames
         assert!(SocketAddrOrHostname::is_valid_hostname("api:8080"));
         assert!(SocketAddrOrHostname::is_valid_hostname("test:5000"));
-        
+
         // Invalid cases
         assert!(!SocketAddrOrHostname::is_valid_hostname("example.com")); // No port
-        assert!(!SocketAddrOrHostname::is_valid_hostname("example.com:invalid")); // Invalid port
+        assert!(!SocketAddrOrHostname::is_valid_hostname(
+            "example.com:invalid"
+        )); // Invalid port
         assert!(!SocketAddrOrHostname::is_valid_hostname("")); // Empty string
         assert!(!SocketAddrOrHostname::is_valid_hostname(":8080")); // No hostname
-        assert!(!SocketAddrOrHostname::is_valid_hostname("example.com:8080:extra")); // Multiple colons
-        assert!(!SocketAddrOrHostname::is_valid_hostname("test@example.com:8080")); // Invalid characters
+        assert!(!SocketAddrOrHostname::is_valid_hostname(
+            "example.com:8080:extra"
+        )); // Multiple colons
+        assert!(!SocketAddrOrHostname::is_valid_hostname(
+            "test@example.com:8080"
+        )); // Invalid characters
     }
 
     #[test]
