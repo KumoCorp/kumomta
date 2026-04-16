@@ -68,5 +68,13 @@ DeliverySummary {
 }
 "
     );
+
+    let mut messages = daemon.extract_maildir_messages()?;
+
+    assert_eq!(messages.len(), 1);
+    let parsed = messages[0].parsed()?;
+    println!("headers: {:?}", parsed.headers());
+    assert!(parsed.headers().get_first("X-Rebound").is_some());
+
     Ok(())
 }

@@ -8,8 +8,7 @@ use crate::state::{
 use anyhow::anyhow;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::Json;
 use chrono::{DateTime, Utc};
 use kumo_api_types::shaping::{
     Action, EgressPathConfigValueUnchecked, Regex, Rule, Shaping, Trigger,
@@ -19,11 +18,11 @@ use kumo_api_types::tsa::{
     Suspensions,
 };
 use kumo_log_types::*;
-use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::{AppError, RouterAndDocs};
+use kumo_server_common::router_with_docs;
 use message::message::QueueNameComponents;
 use parking_lot::Mutex;
-use rfc5321::ForwardPath;
+use rfc5321::parser::ForwardPath;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 use std::hash::Hash;
@@ -41,21 +40,19 @@ pub fn open_history_db() -> anyhow::Result<Database> {
     Database::open(&path)
 }
 
-#[derive(OpenApi)]
-#[openapi(info(title = "tsa-daemon",), paths(), components())]
-struct ApiDoc;
-
 pub fn make_router() -> RouterAndDocs {
-    RouterAndDocs {
-        router: Router::new()
-            .route("/publish_log_v1", post(publish_log_v1))
-            .route("/get_config_v1/shaping.toml", get(get_config_v1))
-            .route("/get_suspension_v1/suspended.json", get(get_suspension_v1))
-            .route("/subscribe_suspension_v1", get(subscribe_suspension_v1))
-            .route("/get_bounce_v1/bounced.json", get(get_bounce_v1))
-            .route("/subscribe_event_v1", get(subscribe_event_v1)),
-        docs: ApiDoc::openapi(),
-    }
+    router_with_docs!(
+        title = "tsa-daemon",
+        handlers = [
+            get_bounce_v1,
+            get_config_v1,
+            get_suspension_v1,
+            publish_log_v1,
+            subscribe_event_v1,
+            subscribe_suspension_v1,
+            tsa_status,
+        ]
+    )
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -295,155 +292,157 @@ async fn publish_log_v1_impl(
 ) -> anyhow::Result<()> {
     tracing::trace!("got record: {record:?}");
     // Extract the domain from the recipient.
-    let recipient = ForwardPath::try_from(record.recipient.as_str())
-        .map_err(|err| anyhow!("parsing record.recipient: {err}"))?;
+    for recip in &record.recipient {
+        let recipient = ForwardPath::try_from(recip.as_str())
+            .map_err(|err| anyhow!("parsing record.recipient: {err}"))?;
 
-    let recipient = match recipient {
-        ForwardPath::Postmaster => {
-            // It doesn't make sense to apply automation on the
-            // local postmaster address, so we ignore this.
-            return Ok(());
-        }
-        ForwardPath::Path(path) => path.mailbox,
-    };
-    let domain = recipient.domain.to_string();
-
-    // Track events/outcomes by site.
-    let source = record.egress_source.as_deref().unwrap_or("unspecified");
-    let store_key = record.site.to_string();
-
-    let matches = shaping.match_rules(&record).await?;
-
-    for m in &matches {
-        let expires = record.timestamp + chrono::Duration::from_std(m.duration)?;
-        if expires <= *now {
-            // Record was perhaps delayed and is already expired, no sense recording it now
-            continue;
-        }
-
-        let matching_scope = MatchingScope::from_rule_and_record(m, &record);
-
-        let triggered = match m.trigger {
-            Trigger::Immediate => true,
-            Trigger::Threshold(spec) => {
-                let count = TSA_STATE
-                    .get()
-                    .expect("state not initialized")
-                    .record_event(&matching_scope, m, &record);
-
-                count >= spec.limit
+        let recipient = match recipient {
+            ForwardPath::Postmaster => {
+                // It doesn't make sense to apply automation on the
+                // local postmaster address, so we ignore this.
+                continue;
             }
+            ForwardPath::Path(path) => path.mailbox,
         };
+        let domain = recipient.domain.to_string();
 
-        tracing::trace!("match={m:?} triggered={triggered} for {record:?}");
+        // Track events/outcomes by site.
+        let source = record.egress_source.as_deref().unwrap_or("unspecified");
+        let store_key = record.site.to_string();
 
-        // To enact the action, we need to generate (or update) a row
-        // in the db with its effects and its expiry
-        if triggered {
-            for action in &m.action {
-                // Since there can be multiple actions within a match,
-                // ensure that the rule_hash that we use to record
-                // the effects of an action varies by the current
-                // action that we are iterating
-                let a_hash = action_hash(m, action);
-                let rule_hash = format!("{store_key}-{a_hash}");
-                let action_hash = ActionHash::from_rule_and_record(m, action, &record);
+        let matches = shaping.match_rules(&record).await?;
 
-                tracing::debug!("{action:?} for {record:?}");
-                match action {
-                    Action::Suspend => {
-                        create_ready_q_suspension(
-                            &action_hash,
-                            &rule_hash,
-                            m,
-                            &record,
-                            source,
-                            events,
-                        )
-                        .await?;
-                    }
-                    Action::SuspendTenant => {
-                        create_tenant_suspension(
-                            &action_hash,
-                            &rule_hash,
-                            m,
-                            &record,
-                            UseCampaign::No,
-                            events,
-                        )
-                        .await?;
-                    }
-                    Action::SuspendCampaign => {
-                        create_tenant_suspension(
-                            &action_hash,
-                            &rule_hash,
-                            m,
-                            &record,
-                            UseCampaign::Yes,
-                            events,
-                        )
-                        .await?;
-                    }
-                    Action::SetConfig(config) => {
-                        TSA_STATE
-                            .get()
-                            .expect("tsa_state missing")
-                            .create_config_override(
+        for m in &matches {
+            let expires = record.timestamp + chrono::Duration::from_std(m.duration)?;
+            if expires <= *now {
+                // Record was perhaps delayed and is already expired, no sense recording it now
+                continue;
+            }
+
+            let matching_scope = MatchingScope::from_rule_and_record(m, &record);
+
+            let triggered = match m.trigger {
+                Trigger::Immediate => true,
+                Trigger::Threshold(spec) => {
+                    let count = TSA_STATE
+                        .get()
+                        .expect("state not initialized")
+                        .record_event(&matching_scope, m, &record);
+
+                    count >= spec.limit
+                }
+            };
+
+            tracing::trace!("match={m:?} triggered={triggered} for {record:?}");
+
+            // To enact the action, we need to generate (or update) a row
+            // in the db with its effects and its expiry
+            if triggered {
+                for action in &m.action {
+                    // Since there can be multiple actions within a match,
+                    // ensure that the rule_hash that we use to record
+                    // the effects of an action varies by the current
+                    // action that we are iterating
+                    let a_hash = action_hash(m, action);
+                    let rule_hash = format!("{store_key}-{a_hash}");
+                    let action_hash = ActionHash::from_rule_and_record(m, action, &record);
+
+                    tracing::debug!("{action:?} for {record:?}");
+                    match action {
+                        Action::Suspend => {
+                            create_ready_q_suspension(
+                                &action_hash,
+                                &rule_hash,
+                                m,
+                                &record,
+                                source,
+                                events,
+                            )
+                            .await?;
+                        }
+                        Action::SuspendTenant => {
+                            create_tenant_suspension(
+                                &action_hash,
+                                &rule_hash,
+                                m,
+                                &record,
+                                UseCampaign::No,
+                                events,
+                            )
+                            .await?;
+                        }
+                        Action::SuspendCampaign => {
+                            create_tenant_suspension(
+                                &action_hash,
+                                &rule_hash,
+                                m,
+                                &record,
+                                UseCampaign::Yes,
+                                events,
+                            )
+                            .await?;
+                        }
+                        Action::SetConfig(config) => {
+                            TSA_STATE
+                                .get()
+                                .expect("tsa_state missing")
+                                .create_config_override(
+                                    &action_hash,
+                                    m,
+                                    &record,
+                                    config,
+                                    &domain,
+                                    source,
+                                    PreferRollup::Yes,
+                                );
+                        }
+                        Action::SetDomainConfig(config) => {
+                            TSA_STATE
+                                .get()
+                                .expect("tsa_state missing")
+                                .create_config_override(
+                                    &action_hash,
+                                    m,
+                                    &record,
+                                    config,
+                                    &domain,
+                                    source,
+                                    PreferRollup::No,
+                                );
+                        }
+                        Action::Bounce => {
+                            create_bounce(
                                 &action_hash,
                                 m,
                                 &record,
-                                config,
-                                &domain,
-                                source,
-                                PreferRollup::Yes,
-                            );
-                    }
-                    Action::SetDomainConfig(config) => {
-                        TSA_STATE
-                            .get()
-                            .expect("tsa_state missing")
-                            .create_config_override(
+                                UseTenant::No,
+                                UseCampaign::No,
+                                events,
+                            )
+                            .await?;
+                        }
+                        Action::BounceTenant => {
+                            create_bounce(
                                 &action_hash,
                                 m,
                                 &record,
-                                config,
-                                &domain,
-                                source,
-                                PreferRollup::No,
-                            );
-                    }
-                    Action::Bounce => {
-                        create_bounce(
-                            &action_hash,
-                            m,
-                            &record,
-                            UseTenant::No,
-                            UseCampaign::No,
-                            events,
-                        )
-                        .await?;
-                    }
-                    Action::BounceTenant => {
-                        create_bounce(
-                            &action_hash,
-                            m,
-                            &record,
-                            UseTenant::Yes,
-                            UseCampaign::No,
-                            events,
-                        )
-                        .await?;
-                    }
-                    Action::BounceCampaign => {
-                        create_bounce(
-                            &action_hash,
-                            m,
-                            &record,
-                            UseTenant::Yes,
-                            UseCampaign::Yes,
-                            events,
-                        )
-                        .await?;
+                                UseTenant::Yes,
+                                UseCampaign::No,
+                                events,
+                            )
+                            .await?;
+                        }
+                        Action::BounceCampaign => {
+                            create_bounce(
+                                &action_hash,
+                                m,
+                                &record,
+                                UseTenant::Yes,
+                                UseCampaign::Yes,
+                                events,
+                            )
+                            .await?;
+                        }
                     }
                 }
             }
@@ -495,8 +494,8 @@ fn action_hash(m: &Rule, action: &Action) -> String {
     hasher.get()
 }
 
+#[utoipa::path(post, path="/publish_log_v1", request_body=Object)]
 async fn publish_log_v1(
-    _: TrustedIpRequired,
     // Note: Json<> must be last in the param list
     Json(record): Json<JsonLogRecord>,
 ) -> Result<(), AppError> {
@@ -645,7 +644,8 @@ pub async fn import_configs_from_sqlite(
         .await
 }
 
-async fn get_config_v1(_: TrustedIpRequired) -> Result<String, AppError> {
+#[utoipa::path(get, path = "/get_config_v1/shaping.toml")]
+async fn get_config_v1() -> Result<String, AppError> {
     let result = TSA_STATE
         .get()
         .expect("tsa_state missing")
@@ -720,7 +720,8 @@ pub async fn import_suspensions_from_sqlite(
         .await
 }
 
-async fn get_suspension_v1(_: TrustedIpRequired) -> Result<Json<Suspensions>, AppError> {
+#[utoipa::path(get, path = "/get_suspension_v1/suspended.json")]
+async fn get_suspension_v1() -> Result<Json<Suspensions>, AppError> {
     Ok(Json(get_suspensions()))
 }
 
@@ -752,11 +753,11 @@ async fn process_suspension_subscription_inner(mut socket: WebSocket) -> anyhow:
         let suspensions = get_suspensions();
         for record in suspensions.ready_q {
             let json = serde_json::to_string(&SuspensionEntry::ReadyQ(record))?;
-            socket.send(Message::Text(json)).await?;
+            socket.send(Message::Text(json.into())).await?;
         }
         for record in suspensions.sched_q {
             let json = serde_json::to_string(&SuspensionEntry::SchedQ(record))?;
-            socket.send(Message::Text(json)).await?;
+            socket.send(Message::Text(json.into())).await?;
         }
     }
 
@@ -769,7 +770,7 @@ async fn process_suspension_subscription_inner(mut socket: WebSocket) -> anyhow:
             _ => continue,
         };
         let json = serde_json::to_string(&event)?;
-        socket.send(Message::Text(json)).await?;
+        socket.send(Message::Text(json.into())).await?;
     }
 }
 
@@ -783,14 +784,14 @@ async fn process_suspension_subscription(socket: WebSocket) {
 
 /// This is a legacy endpoint that can only report on the old SuspensionEntry
 /// enum variants
-pub async fn subscribe_suspension_v1(
-    _: TrustedIpRequired,
-    ws: WebSocketUpgrade,
-) -> impl IntoResponse {
+#[utoipa::path(get, path = "/subscribe_suspension_v1")]
+#[deprecated]
+pub async fn subscribe_suspension_v1(ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(process_suspension_subscription)
 }
 
-async fn get_bounce_v1(_: TrustedIpRequired) -> Result<Json<Vec<SchedQBounce>>, AppError> {
+#[utoipa::path(get, path = "/get_bounce_v1/bounced.json")]
+async fn get_bounce_v1() -> Result<Json<Vec<SchedQBounce>>, AppError> {
     let result = TSA_STATE
         .get()
         .expect("tsa_state missing")
@@ -818,11 +819,11 @@ async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Resu
             );
             for record in suspensions.ready_q {
                 let json = serde_json::to_string(&SubscriptionItem::ReadyQSuspension(record))?;
-                socket.send(Message::Text(json)).await?;
+                socket.send(Message::Text(json.into())).await?;
             }
             for record in suspensions.sched_q {
                 let json = serde_json::to_string(&SubscriptionItem::SchedQSuspension(record))?;
-                socket.send(Message::Text(json)).await?;
+                socket.send(Message::Text(json.into())).await?;
             }
         }
         // and then bounces
@@ -835,7 +836,7 @@ async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Resu
             tracing::debug!("new sub, has {num_bounces} bounces");
             for record in bounces {
                 let json = serde_json::to_string(&SubscriptionItem::SchedQBounce(record))?;
-                socket.send(Message::Text(json)).await?;
+                socket.send(Message::Text(json.into())).await?;
             }
         }
 
@@ -853,7 +854,7 @@ async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Resu
     loop {
         let event = rx.recv().await?;
         let json = serde_json::to_string(&event)?;
-        socket.send(Message::Text(json)).await?;
+        socket.send(Message::Text(json.into())).await?;
     }
 }
 
@@ -863,6 +864,21 @@ async fn process_event_subscription(socket: WebSocket) {
     }
 }
 
-pub async fn subscribe_event_v1(_: TrustedIpRequired, ws: WebSocketUpgrade) -> impl IntoResponse {
+#[utoipa::path(get, path = "/subscribe_event_v1")]
+pub async fn subscribe_event_v1(ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(process_event_subscription)
+}
+
+/// Simple health check endpoint for the TSA Daemon.
+/// Returns basic status information.
+#[utoipa::path(
+    get,
+    tag = "status",
+    path = "/tsa/status",
+    responses(
+        (status = 200, description = "TSA is healthy", body = String)
+    ),
+)]
+async fn tsa_status() -> &'static str {
+    "TSA Daemon OK"
 }

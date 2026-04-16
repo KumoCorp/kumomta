@@ -54,6 +54,10 @@ Full docs available at: <https://docs.kumomta.com>
 
 * `top` — Continually update and show what's happening in kumod
 
+* `xfer` — Transfer messages from matching queues to an alternative kumomta node
+
+* `xfer-cancel` — Cancels a message transfer that was initiated via the xfer subcommand.  You specify the name of the xfer queue associated with the transfer and matching messages will be taken out of that queue and returned to their originating queue
+
 ## Options
 
 

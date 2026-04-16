@@ -4,47 +4,52 @@ use crate::http_server::admin_trace_smtp_client_v1::{
 };
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::{IncrementAttempts, InsertReason, QueueManager, QueueState};
-use crate::ready_queue::{Dispatcher, QueueDispatcher};
-use crate::smtp_server::ShuttingDownError;
+use crate::ready_queue::{AttemptConnectionDisposition, Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
+use bounce_classify::{BounceClass, PreDefinedBounceClass};
 use config::{load_config, CallbackSignature};
 use data_loader::KeySource;
-use dns_resolver::{has_colon_port, resolve_a_or_aaaa, ResolvedMxAddresses};
+use dns_resolver::{has_colon_port, resolve_a_or_aaaa, IpLookupStrategy, ResolvedMxAddresses};
 use kumo_address::socket::SocketAddress;
 use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls};
 use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
-use kumo_server_lifecycle::ShutdownSubcription;
+use kumo_server_lifecycle::{ShutdownSubcription, ShuttingDownError};
 use kumo_server_runtime::spawn;
 use message::message::QueueNameComponents;
 use message::Message;
 use mta_sts::policy::PolicyMode;
+use rfc5321::parser::{EnvelopeAddress, ForwardPath, ReversePath};
 use rfc5321::{
-    ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient,
-    TlsInformation, TlsOptions, TlsStatus,
+    ClientError, EnhancedStatusCode, IsTooManyRecipients, Response, SmtpClient, TlsInformation,
+    TlsOptions, TlsStatus,
 };
 use serde::{Deserialize, Serialize};
+use spool::SpoolId;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UnixStream;
 use tracing::Level;
 
 lruttl::declare_cache! {
+/// Remembers which site names have broken TLS
 static BROKEN_TLS_BY_SITE: LruCacheWithTtl<String, ()>::new("smtp_dispatcher_broken_tls", 64 * 1024);
 }
 
 lruttl::declare_cache! {
+/// Caches smtp client certificates by KeySource spec
 static CLIENT_CERT: LruCacheWithTtl<KeySource, Result<Option<Arc<Box<[u8]>>>, String>>::new("smtp_dispatcher_client_certificate", 1024);
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
 pub struct SmtpProtocol {
     #[serde(default)]
     pub mx_list: Vec<MxListEntry>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(untagged)]
 pub enum MxListEntry {
     /// A name that needs to be resolved to its A or AAAA record in DNS,
@@ -58,11 +63,15 @@ pub enum MxListEntry {
 impl MxListEntry {
     /// Resolve self into 1 or more `ResolvedAddress` and append to the
     /// supplied `addresses` vector.
-    pub async fn resolve_into(&self, addresses: &mut Vec<ResolvedAddress>) -> anyhow::Result<()> {
+    pub async fn resolve_into(
+        &self,
+        addresses: &mut Vec<ResolvedAddress>,
+        strategy: IpLookupStrategy,
+    ) -> anyhow::Result<()> {
         match self {
             Self::Name(a) => {
                 if let Some((label, port)) = has_colon_port(a) {
-                    let resolved = resolve_a_or_aaaa(label)
+                    let resolved = resolve_a_or_aaaa(label, None, strategy)
                         .await
                         .with_context(|| format!("resolving mx_list entry {a}"))?;
                     for mut r in resolved {
@@ -74,7 +83,7 @@ impl MxListEntry {
                 }
 
                 addresses.append(
-                    &mut resolve_a_or_aaaa(a)
+                    &mut resolve_a_or_aaaa(a, None, strategy)
                         .await
                         .with_context(|| format!("resolving mx_list entry {a}"))?,
                 );
@@ -110,6 +119,7 @@ pub struct SmtpDispatcher {
     site_has_broken_tls: bool,
     terminated_ok: bool,
     attempted_message_send: bool,
+    recips_last_txn: HashMap<(SpoolId, ForwardPath), u8>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -119,26 +129,6 @@ pub struct OpportunisticInsecureTlsHandshakeError {
     pub error: ClientError,
     pub address: String,
     pub label: String,
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-pub struct CertificateKeyPair {
-    certificate: Vec<u8>,
-    key: Vec<u8>,
-}
-
-impl OpportunisticInsecureTlsHandshakeError {
-    pub fn is_match_anyhow(err: &anyhow::Error) -> bool {
-        Self::is_match(err.root_cause())
-    }
-
-    pub fn is_match(err: &(dyn std::error::Error + 'static)) -> bool {
-        if let Some(cause) = err.source() {
-            return Self::is_match(cause);
-        } else {
-            err.downcast_ref::<Self>().is_some()
-        }
-    }
 }
 
 impl SmtpDispatcher {
@@ -163,13 +153,17 @@ impl SmtpDispatcher {
                 .mx
                 .as_ref()
                 .expect("to have mx when doing smtp")
-                .resolve_addresses()
+                .resolve_addresses(path_config.ip_lookup_strategy)
                 .await
         } else {
             let mut addresses = vec![];
             for a in proto_config.mx_list.iter() {
-                a.resolve_into(&mut addresses).await?;
+                a.resolve_into(&mut addresses, path_config.ip_lookup_strategy)
+                    .await?;
             }
+            // Note that ResolvedMxAddresses::Addresses is in LIFO
+            // order, and we have FIFO order.  Reverse it!
+            addresses.reverse();
             ResolvedMxAddresses::Addresses(addresses)
         };
 
@@ -259,13 +253,15 @@ impl SmtpDispatcher {
             dispatcher
                 .bulk_ready_queue_operation(
                     Response {
-                        code: 550,
+                        code: 451,
                         enhanced_code: Some(EnhancedStatusCode {
-                            class: 5,
+                            class: 4,
                             subject: 4,
                             detail: 4,
                         }),
-                        content: "MX consisted solely of hosts on the skip_hosts list".to_string(),
+                        content:
+                            "KumoMTA internal: MX consisted solely of hosts on the skip_hosts list"
+                                .to_string(),
                         command: None,
                     },
                     InsertReason::MxWasSkipped.into(),
@@ -285,13 +281,90 @@ impl SmtpDispatcher {
             site_has_broken_tls: false,
             terminated_ok: false,
             attempted_message_send: false,
+            recips_last_txn: HashMap::new(),
         }))
     }
 
-    async fn attempt_connection_impl(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
-        if let Some(client) = &self.client {
+    async fn attempt_connection_impl(
+        &mut self,
+        dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<AttemptConnectionDisposition> {
+        if let Some(client) = &mut self.client {
             if client.is_connected() {
-                return Ok(());
+                // If we get a unilateral response here now it can either be:
+                // 1. a 421 advising us that the connection is being closed.
+                // 2. a protocol sync/deviation/conformance issue, and we must
+                //    therefore treat this as a closed connection.
+                // Errors that present here also indicate that the connection
+                // has closed.
+                //
+                // We want to surface these right now so that we can proceed with
+                // making a new connection, rather than returning this current
+                // connection that will immediately result in a transfail
+                // when we try sending a message through it.
+                match client.check_unilateral_response().await {
+                    Ok(None) => {
+                        // Still connected
+                        return Ok(AttemptConnectionDisposition::ReusedExisting);
+                    }
+                    Ok(Some(response)) => {
+                        // We got an explicit signal that the connection is closing
+                        // out.  We don't consider this to be a transport error
+                        // so we'll close the current connection.
+                        // If we've managed to send messages so far in this session,
+                        // then we're consider it to be a successful plan so we should
+                        // not advance to the next candidate in the plan and make a
+                        // new session.
+                        // However, if we haven't managed to send anything so far,
+                        // closing and restarting the plan now would likely lead to
+                        // a persistent recurrence of this same state, so in that
+                        // situation we need to ensure that the reconnect_strategy
+                        // is applied to decide what to do.
+                        tracing::debug!(
+                            "{} sent a unilateral response: \
+                            {response:?}, treating the connection as closed",
+                            dispatcher.name
+                        );
+                        // Decide whether this is a successful plan
+                        self.update_state_for_reconnect(dispatcher);
+
+                        // if so, we can/should close the current session and start
+                        // a new one with a fresh plan
+                        if self.terminated_ok {
+                            let _ = self.close_connection(dispatcher).await;
+                            return Ok(
+                                AttemptConnectionDisposition::PeerClosedConnectionNeedNewSession,
+                            );
+                        }
+
+                        // otherwise, continue to next candidate host if that is what
+                        // the reconnect_strategy indicates.
+                        // While this is a return that leaves this function,
+                        // our caller will typically continue its loop and call
+                        // back in, but on the next call we won't show as connected
+                        // and will instead reach the logic below to make a new
+                        // connection in the current session, if that is what
+                        // the reconnect_strategy indicated.
+                        return Ok(
+                            AttemptConnectionDisposition::PeerClosedConnectionContinueSession,
+                        );
+                    }
+                    Err(err) => {
+                        // We got a transport error of some kind.
+                        // update_state_for_reconnect applies any reconnect_strategy
+                        // which will decide whether we continue with the connection
+                        // plan or whether we need to go to a new session.
+                        tracing::debug!(
+                            "{} had error: {err:#} \
+                            while checking for liveness, treating it as closed",
+                            dispatcher.name
+                        );
+                        self.update_state_for_reconnect(dispatcher);
+                        return Ok(
+                            AttemptConnectionDisposition::PeerClosedConnectionContinueSession,
+                        );
+                    }
+                };
             }
         }
 
@@ -338,7 +411,7 @@ impl SmtpDispatcher {
                     tokio::select! {
                         _ = tokio::time::sleep(delay) => {},
                         _ = shutdown.shutting_down() => {
-                            return Err(ShuttingDownError.into());
+                            return Err(ShuttingDownError::new("waiting for max_connection_rate").into());
                         }
                     };
                 } else {
@@ -461,7 +534,7 @@ impl SmtpDispatcher {
         self.source_address.take();
         let (mut client, source_address) = tokio::select! {
             _ = shutdown.shutting_down() => {
-                return Err(ShuttingDownError.into());
+                return Err(ShuttingDownError::new("waiting for new connection").into());
             }
             result = make_connection => { result? },
         }
@@ -721,7 +794,7 @@ impl SmtpDispatcher {
                         // be busted by the failed handshake and never succeed
                         tokio::time::timeout(
                             tokio::time::Duration::from_secs(2),
-                            client.send_command(&rfc5321::Command::Quit),
+                            client.send_command(&rfc5321::parser::Command::Quit),
                         )
                         .await
                         .ok();
@@ -807,7 +880,7 @@ impl SmtpDispatcher {
             .replace(connection_wrapper.map_connection(client));
         self.client_address.replace(address);
         dispatcher.delivered_this_connection = 0;
-        Ok(())
+        Ok(AttemptConnectionDisposition::ConnectedNew)
     }
 
     async fn resolve_cached_client_cert(
@@ -858,6 +931,7 @@ impl SmtpDispatcher {
         dispatcher: &Dispatcher,
         kind: RecordType,
         msg: Message,
+        recipient_list: Option<Vec<String>>,
         response: Response,
     ) {
         log_disposition(LogDisposition {
@@ -874,6 +948,7 @@ impl SmtpDispatcher {
             source_address: self.source_address.clone(),
             provider: dispatcher.path_config.borrow().provider_name.as_deref(),
             session_id: Some(dispatcher.session_id),
+            recipient_list: recipient_list,
         })
         .await
     }
@@ -916,7 +991,10 @@ impl SmtpDispatcher {
 impl QueueDispatcher for SmtpDispatcher {
     async fn close_connection(&mut self, _dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
         if let Some(mut client) = self.client.take() {
-            client.send_command(&rfc5321::Command::Quit).await.ok();
+            client
+                .send_command(&rfc5321::parser::Command::Quit)
+                .await
+                .ok();
             // Close out this dispatcher and let the maintainer spawn
             // a new connection
             Ok(true)
@@ -931,7 +1009,10 @@ impl QueueDispatcher for SmtpDispatcher {
         self.terminated_ok
     }
 
-    async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+    async fn attempt_connection(
+        &mut self,
+        dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<AttemptConnectionDisposition> {
         self.attempt_connection_impl(dispatcher)
             .await
             .map_err(|err| {
@@ -956,22 +1037,37 @@ impl QueueDispatcher for SmtpDispatcher {
         let msg = msgs.pop().expect("just verified that there is one");
 
         msg.load_meta_if_needed().await.context("loading meta")?;
-        msg.load_data_if_needed().await.context("loading data")?;
+        let data = msg.data().await.context("loading data")?;
 
-        let data = msg.get_data();
+        let spool_id = *msg.id();
+        let mut recips_this_txn = HashMap::new();
+
         let sender: ReversePath = msg
-            .sender()?
+            .sender()
+            .await?
             .try_into()
-            .map_err(|err| anyhow::anyhow!("{err}"))?;
-        let recipient: ForwardPath = msg
-            .recipient()?
-            .try_into()
-            .map_err(|err| anyhow::anyhow!("{err}"))?;
+            .map_err(|err: &str| anyhow::anyhow!("{err}"))?;
+        let mut recipients: Vec<ForwardPath> = vec![];
+        for recip in msg.recipient_list().await? {
+            let recip: ForwardPath = recip
+                .try_into()
+                .map_err(|err: &str| anyhow::anyhow!("{err:#}"))?;
+            recips_this_txn.insert(
+                (spool_id, recip.clone()),
+                1 + self
+                    .recips_last_txn
+                    .get(&(spool_id, recip.clone()))
+                    .copied()
+                    .unwrap_or(0),
+            );
+            recipients.push(recip);
+        }
 
         self.tracer.set_meta("message_id", msg.id().to_string());
         self.tracer.set_meta("sender", sender.to_string());
-        self.tracer.set_meta("recipient", recipient.to_string());
-        if let Ok(name) = msg.get_queue_name() {
+        self.tracer
+            .set_meta("recipient", msg.recipient_list_string().await?);
+        if let Ok(name) = msg.get_queue_name().await {
             let components = QueueNameComponents::parse(&name);
             self.tracer.set_meta("domain", components.domain);
             self.tracer
@@ -1003,23 +1099,137 @@ impl QueueDispatcher for SmtpDispatcher {
             .borrow()
             .try_next_host_on_transport_error;
 
-        match self
+        self.client.as_mut().map(|client| {
+            client.set_ignore_8bit_checks(dispatcher.path_config.borrow().ignore_8bit_checks)
+        });
+
+        // This will hold the list of recipients that have not
+        // reached a terminal disposition
+        let mut revised_recipient_list = vec![];
+        let mut recipients_this_batch = vec![];
+        let mut retry_immediately = false;
+
+        let path_config = dispatcher.path_config.borrow();
+        for recip in recipients {
+            if recipients_this_batch.len() < path_config.max_recipients_per_batch {
+                recipients_this_batch.push(recip);
+            } else {
+                revised_recipient_list.push(EnvelopeAddress::from(recip));
+                // The excess is ready to go immediately
+                retry_immediately = true;
+            }
+        }
+
+        let send_result = self
             .client
             .as_mut()
             .unwrap()
-            .send_mail(sender, recipient, &*data)
-            .await
-        {
-            Err(ClientError::Rejected(mut response)) => {
-                let queue_name = msg.get_queue_name()?;
-                let components = QueueNameComponents::parse(&queue_name);
+            .send_mail_multi_recip(sender, recipients_this_batch.clone(), &*data)
+            .await;
+
+        let mut result_per_rcpt = vec![];
+        let mut rewrite_eligible = false;
+        let mut break_connection = false;
+        let mut overall_response = None;
+
+        match send_result {
+            Err(ClientError::RejectedBatch(responses)) => {
+                rewrite_eligible = true;
+                for resp in responses {
+                    result_per_rcpt.push(resp.clone());
+                }
+            }
+            Err(ClientError::Rejected(response)) => {
+                rewrite_eligible = true;
+                for _recip in &recipients_this_batch {
+                    result_per_rcpt.push(response.clone());
+                }
+            }
+            Err(
+                ref err @ ClientError::TimeOutRequest {
+                    ref commands,
+                    duration,
+                },
+            ) => {
+                break_connection = true;
+                let reason = format!(
+                    "KumoMTA internal: failed to send message to {} {:?}: \
+                    Timed Out waiting {duration:?} to write {commands:?}",
+                    dispatcher.name, self.client_address
+                );
+                tracing::debug!("{reason}");
+
+                for _recip in &recipients_this_batch {
+                    result_per_rcpt.push(Response {
+                        code: 421,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 4,
+                            subject: 4,
+                            detail: 2,
+                        }),
+                        content: reason.clone(),
+                        command: err.command(),
+                    });
+                }
+            }
+            Err(ClientError::TimeOutResponse { command, duration }) => {
+                break_connection = true;
+                let reason = format!(
+                    "KumoMTA internal: failed to send message to {} {:?}: \
+                    Timed Out waiting {duration:?} for response to {command:?}",
+                    dispatcher.name, self.client_address
+                );
+
+                for _recip in &recipients_this_batch {
+                    result_per_rcpt.push(Response {
+                        code: 421,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 4,
+                            subject: 4,
+                            detail: 2,
+                        }),
+                        content: reason.clone(),
+                        command: command.as_ref().map(|c| c.encode().to_string()),
+                    });
+                }
+            }
+            Err(err) => {
+                for _recip in &recipients_this_batch {
+                    result_per_rcpt.push(Response {
+                        code: 400,
+                        enhanced_code: None,
+                        content: format!("KumoMTA internal: failed to send message: {err:#}"),
+                        command: err.command(),
+                    });
+                }
+            }
+            Ok(status) => {
+                for resp in &status.rcpt_responses {
+                    if resp.code == 250 {
+                        result_per_rcpt.push(status.response.clone());
+                    } else {
+                        rewrite_eligible = true;
+                        result_per_rcpt.push(resp.clone());
+                    }
+                }
+                overall_response.replace(status.response);
+            }
+        }
+
+        if rewrite_eligible {
+            let queue_name = msg.get_queue_name().await?;
+            let components = QueueNameComponents::parse(&queue_name);
+
+            let sig = CallbackSignature::<
+                (String, &str, Option<&str>, Option<&str>, &str),
+                Option<u16>,
+            >::new("smtp_client_rewrite_delivery_status");
+
+            for response in result_per_rcpt.iter_mut() {
+                if response.code == 250 {
+                    continue;
+                }
                 let mut config = load_config().await.context("load_config")?;
-
-                let sig = CallbackSignature::<
-                    (String, &str, Option<&str>, Option<&str>, &str),
-                    Option<u16>,
-                >::new("smtp_client_rewrite_delivery_status");
-
                 let rewritten_code: anyhow::Result<Option<u16>> = config
                     .async_call_callback(
                         &sig,
@@ -1052,327 +1262,239 @@ impl QueueDispatcher for SmtpDispatcher {
                         tracing::error!("smtp_client_rewrite_delivery_status event failed: {err:#}. Preserving original DSN");
                     }
                 }
-                let due_to_message = response.was_due_to_message();
-
-                if response.code == 503 || (response.code >= 300 && response.code < 400) {
-                    // 503 is a "permanent" failure response but it indicates
-                    // that there was a protocol synchronization issue.
-                    //
-                    // For 3xx: there isn't a valid RFC-defined 300 final
-                    // disposition for submitting an email message.  In order
-                    // to get here there has most likely been a protocol
-                    // synchronization issue.
-                    //
-                    // We should consider the connection to be broken and we
-                    // should allow the message to be retried later on.
-                    if !self
-                        .client_address
-                        .as_ref()
-                        .map(|a| a.name.contains("icloud.com"))
-                        .unwrap_or(false)
-                    {
-                        tracing::error!(
-                            "Unexpected {} response while sending message \
-                            to {} {:?}: {response:?}. \
-                            Probable protocol synchronization error, please report this! \
-                            Session ID={}. \
-                            Message will be re-queued.",
-                            response.code,
-                            dispatcher.name,
-                            self.client_address,
-                            dispatcher.session_id,
-                        );
-                    }
-
-                    dispatcher.metrics.inc_transfail();
-                    // Break this connection
-                    let have_more_connection_candidates =
-                        self.update_state_for_reconnect(dispatcher);
-                    if let Some(msg) = dispatcher.msgs.pop() {
-                        self.log_disposition(
-                            dispatcher,
-                            RecordType::TransientFailure,
-                            msg.clone(),
-                            response.clone(),
-                        )
-                        .await;
-
-                        if !due_to_message
-                            && try_next_host_on_transport_error
-                            && have_more_connection_candidates
-                        {
-                            // Try it on the next connection
-                            dispatcher.msgs.push(msg);
-                        } else {
-                            spawn(
-                                "requeue message",
-                                QueueManager::requeue_message(
-                                    msg,
-                                    IncrementAttempts::Yes,
-                                    None,
-                                    response,
-                                    InsertReason::LoggedTransientFailure.into(),
-                                ),
-                            )?;
-                        }
-                    }
-                    // We handled requeue
-                    return Ok(());
-                } else if response.code >= 400 && response.code < 500 {
-                    // Transient failure
-                    tracing::debug!(
-                        "failed to send message to {} {:?}: {response:?}",
-                        dispatcher.name,
-                        self.client_address
-                    );
-                    dispatcher.metrics.inc_transfail();
-
-                    let reconnect = response.code == 421;
-
-                    let have_more_connection_candidates = if reconnect {
-                        // We're effectively disconnected, so prepare
-                        // for reconnecting for the next message.
-                        self.update_state_for_reconnect(dispatcher)
-                    } else {
-                        false
-                    };
-
-                    if let Some(msg) = dispatcher.msgs.pop() {
-                        self.log_disposition(
-                            dispatcher,
-                            RecordType::TransientFailure,
-                            msg.clone(),
-                            response.clone(),
-                        )
-                        .await;
-
-                        if !due_to_message
-                            && try_next_host_on_transport_error
-                            && have_more_connection_candidates
-                        {
-                            // Try it on the next connection
-                            dispatcher.msgs.push(msg);
-                        } else {
-                            spawn(
-                                "requeue message",
-                                QueueManager::requeue_message(
-                                    msg,
-                                    IncrementAttempts::Yes,
-                                    None,
-                                    response,
-                                    InsertReason::LoggedTransientFailure.into(),
-                                ),
-                            )?;
-                        }
-                    }
-
-                    return Ok(());
-                } else if response.code >= 200 && response.code < 300 {
-                    tracing::debug!("Delivered OK! {response:?}");
-                    if let Some(msg) = dispatcher.msgs.pop() {
-                        self.log_disposition(
-                            dispatcher,
-                            RecordType::Delivery,
-                            msg.clone(),
-                            response,
-                        )
-                        .await;
-                        SpoolManager::remove_from_spool(*msg.id()).await?;
-                    }
-                    dispatcher.metrics.inc_delivered();
-                } else {
-                    dispatcher.metrics.inc_fail();
-                    tracing::debug!(
-                        "failed to send message to {} {:?}: {response:?}",
-                        dispatcher.name,
-                        self.client_address
-                    );
-                    if let Some(msg) = dispatcher.msgs.pop() {
-                        self.log_disposition(dispatcher, RecordType::Bounce, msg.clone(), response)
-                            .await;
-                        SpoolManager::remove_from_spool(*msg.id()).await?;
-                    }
-                }
             }
-            Err(
-                ref err @ ClientError::TimeOutRequest {
-                    ref commands,
-                    duration,
-                },
-            ) => {
-                // Transient failure
-                let reason = format!(
-                    "KumoMTA internal: failed to send message to {} {:?}: \
-                    Timed Out waiting {duration:?} to write {commands:?}",
-                    dispatcher.name, self.client_address
-                );
-                tracing::debug!("{reason}");
-                dispatcher.metrics.inc_transfail();
-
-                // Move on to the next host
-                let have_more_connection_candidates = self.update_state_for_reconnect(dispatcher);
-
-                if let Some(msg) = dispatcher.msgs.pop() {
-                    let response = Response {
-                        code: 421,
-                        enhanced_code: Some(EnhancedStatusCode {
-                            class: 4,
-                            subject: 4,
-                            detail: 2,
-                        }),
-                        content: reason.clone(),
-                        command: err.command(),
-                    };
-                    self.log_disposition(
-                        dispatcher,
-                        RecordType::TransientFailure,
-                        msg.clone(),
-                        response.clone(),
-                    )
-                    .await;
-
-                    if try_next_host_on_transport_error && have_more_connection_candidates {
-                        // Try it on the next connection
-                        dispatcher.msgs.push(msg);
-                    } else {
-                        spawn(
-                            "requeue message",
-                            QueueManager::requeue_message(
-                                msg,
-                                IncrementAttempts::Yes,
-                                None,
-                                response,
-                                InsertReason::LoggedTransientFailure.into(),
-                            ),
-                        )?;
-                    }
-                }
-                return Ok(());
-            }
-            Err(ClientError::TimeOutResponse { command, duration }) => {
-                // Transient failure
-                let reason = format!(
-                    "KumoMTA internal: failed to send message to {} {:?}: \
-                    Timed Out waiting {duration:?} for response to {command:?}",
-                    dispatcher.name, self.client_address
-                );
-
-                tracing::debug!("{reason}");
-                dispatcher.metrics.inc_transfail();
-                // Move on to the next host
-                let have_more_connection_candidates = self.update_state_for_reconnect(dispatcher);
-
-                if let Some(msg) = dispatcher.msgs.pop() {
-                    let response = Response {
-                        code: 421,
-                        enhanced_code: Some(EnhancedStatusCode {
-                            class: 4,
-                            subject: 4,
-                            detail: 2,
-                        }),
-                        content: reason.clone(),
-                        command: command.map(|c| c.encode()),
-                    };
-                    self.log_disposition(
-                        dispatcher,
-                        RecordType::TransientFailure,
-                        msg.clone(),
-                        response.clone(),
-                    )
-                    .await;
-
-                    if try_next_host_on_transport_error && have_more_connection_candidates {
-                        // Try it on the next connection
-                        dispatcher.msgs.push(msg);
-                    } else {
-                        spawn(
-                            "requeue message",
-                            QueueManager::requeue_message(
-                                msg,
-                                IncrementAttempts::Yes,
-                                None,
-                                response,
-                                InsertReason::LoggedTransientFailure.into(),
-                            ),
-                        )?;
-                    }
-                }
-                return Ok(());
-            }
-            Err(err) => {
-                // Some other kind of error; we consider this to be a Transient failure,
-                // and we will prefer to continue with another host
-                tracing::debug!(
-                    "failed to send message to {} {:?}: {err:#}",
-                    dispatcher.name,
-                    self.client_address
-                );
-
-                dispatcher.metrics.inc_transfail();
-                let due_to_message = err.was_due_to_message();
-                let have_more_connection_candidates = self.update_state_for_reconnect(dispatcher);
-
-                if let Some(msg) = dispatcher.msgs.pop() {
-                    let response = Response {
-                        code: 400,
-                        enhanced_code: None,
-                        content: format!("KumoMTA internal: failed to send message: {err:#}"),
-                        command: err.command(),
-                    };
-
-                    self.log_disposition(
-                        dispatcher,
-                        RecordType::TransientFailure,
-                        msg.clone(),
-                        response.clone(),
-                    )
-                    .await;
-
-                    if !due_to_message
-                        && try_next_host_on_transport_error
-                        && have_more_connection_candidates
-                    {
-                        // Try it on the next connection
-                        dispatcher.msgs.push(msg);
-                    } else {
-                        spawn(
-                            "requeue message",
-                            QueueManager::requeue_message(
-                                msg,
-                                IncrementAttempts::Yes,
-                                None,
-                                response,
-                                InsertReason::LoggedTransientFailure.into(),
-                            ),
-                        )?;
-                    }
-                }
-
-                return Ok(());
-            }
-            Ok(response) => {
-                tracing::debug!("Delivered OK! {response:?}");
-                if let Some(msg) = dispatcher.msgs.pop() {
-                    self.log_disposition(dispatcher, RecordType::Delivery, msg.clone(), response)
-                        .await;
-                    SpoolManager::remove_from_spool(*msg.id()).await?;
-                }
-                dispatcher.metrics.inc_delivered();
-            }
-        };
-
-        let is_connected = self
-            .client
-            .as_ref()
-            .map(|c| c.is_connected())
-            .unwrap_or(false);
-        if !is_connected {
-            self.update_state_for_reconnect(dispatcher);
-            anyhow::bail!(
-                "after previous send attempt, client is unexpectedly no longer connected"
-            );
         }
 
-        Ok(())
+        struct ByStatusEntry {
+            record_type: RecordType,
+            recipients: Vec<ForwardPath>,
+        }
+
+        // Group by distinct response for logging purposes
+        let mut by_status = HashMap::<(Response, IsTooManyRecipients), ByStatusEntry>::new();
+        let mut by_class = HashMap::new();
+
+        let mut transport_error = false;
+
+        for (batch_idx, (recipient, response)) in recipients_this_batch
+            .iter()
+            .zip(result_per_rcpt.iter())
+            .enumerate()
+        {
+            let (record_type, too_many) = classify_record(&response).await;
+
+            // Determine effective too-many recip state: if the batch is size 1,
+            // or this is the first recipient, it cannot be too-many
+            let too_many = if batch_idx == 0 || recipients_this_batch.len() == 1 {
+                IsTooManyRecipients::No
+            } else {
+                too_many
+            };
+            let too_many = if too_many == IsTooManyRecipients::Maybe
+                && self
+                    .recips_last_txn
+                    .get(&(spool_id, recipient.clone()))
+                    .copied()
+                    .unwrap_or(0)
+                    < 1
+            {
+                IsTooManyRecipients::Yes
+            } else if too_many == IsTooManyRecipients::Yes {
+                IsTooManyRecipients::Yes
+            } else {
+                IsTooManyRecipients::No
+            };
+
+            if record_type == RecordType::TransientFailure {
+                revised_recipient_list.push(EnvelopeAddress::from(recipient.clone()));
+            }
+            if record_type != RecordType::Delivery && overall_response.is_none() {
+                overall_response.replace(response.clone());
+            }
+            match record_type {
+                RecordType::TransientFailure => {
+                    dispatcher.metrics.inc_transfail();
+                }
+                RecordType::Delivery => {
+                    dispatcher.metrics.inc_delivered();
+                }
+                RecordType::Bounce => {
+                    dispatcher.metrics.inc_fail();
+                }
+                _ => unreachable!(),
+            }
+
+            if too_many == IsTooManyRecipients::Yes {
+                retry_immediately = true;
+            } else if !response.was_due_to_message() {
+                transport_error = true;
+            }
+            if response.code == 421 {
+                break_connection = true;
+            }
+
+            by_status
+                .entry((response.clone(), too_many))
+                .or_insert_with(|| ByStatusEntry {
+                    record_type,
+                    recipients: vec![],
+                })
+                .recipients
+                .push(recipient.clone());
+            *by_class.entry(record_type).or_insert(0) += 1;
+        }
+
+        self.recips_last_txn = recips_this_txn;
+
+        let mut logged_transient = false;
+
+        // Log the various outcomes
+        for ((response, too_many), entry) in by_status {
+            if entry.record_type == RecordType::TransientFailure {
+                if too_many == IsTooManyRecipients::Yes
+                //    && by_class[&RecordType::TransientFailure] == 1
+                //    && by_class.len() > 1
+                {
+                    // Skip logging a transient failure for the too many
+                    // recipients case if it looks like something got through
+                    // OK.  We'll retry the excess recipients immediately
+                    // and have a log record for those imminently.
+                    continue;
+                }
+                logged_transient = true;
+            }
+
+            self.log_disposition(
+                dispatcher,
+                entry.record_type,
+                msg.clone(),
+                Some(
+                    entry
+                        .recipients
+                        .into_iter()
+                        .map(|fp| fp.to_string())
+                        .collect(),
+                ),
+                response,
+            )
+            .await;
+        }
+
+        if revised_recipient_list.is_empty() {
+            // No more recipients means that we can stop tracking
+            // this message and remove it from the spool
+            dispatcher.msgs.pop();
+            SpoolManager::remove_from_spool(*msg.id()).await?;
+
+            let is_connected = self
+                .client
+                .as_ref()
+                .map(|c| c.is_connected())
+                .unwrap_or(false);
+            if !is_connected {
+                self.update_state_for_reconnect(dispatcher);
+                anyhow::bail!(
+                    "after previous send attempt, client is unexpectedly no longer connected"
+                );
+            }
+
+            Ok(())
+        } else {
+            // Revise the recipient list; all delivered and bounced
+            // recipients are removed leaving just those that need
+            // the message to be re-attempted
+            msg.set_recipient_list(revised_recipient_list).await?;
+            dispatcher.msgs.pop();
+
+            if transport_error && try_next_host_on_transport_error {
+                break_connection = true;
+            }
+
+            if break_connection && try_next_host_on_transport_error {
+                let have_more_connection_candidates = self.update_state_for_reconnect(dispatcher);
+                if have_more_connection_candidates {
+                    // Try it on the next connection
+                    dispatcher.msgs.push(msg);
+                    return Ok(());
+                }
+            }
+
+            let is_connected = self
+                .client
+                .as_ref()
+                .map(|c| c.is_connected())
+                .unwrap_or(false);
+
+            if retry_immediately && is_connected {
+                dispatcher.msgs.push(msg);
+                return Ok(());
+            }
+
+            spawn(
+                "requeue message",
+                QueueManager::requeue_message(
+                    msg,
+                    IncrementAttempts::Yes,
+                    None,
+                    overall_response.take().unwrap_or_else(|| Response {
+                        code: 400,
+                        enhanced_code: None,
+                        command: None,
+                        content: "KumoMTA internal: retrying failed batch".to_string(),
+                    }),
+                    if logged_transient {
+                        InsertReason::LoggedTransientFailure.into()
+                    } else {
+                        InsertReason::TooManyRecipients.into()
+                    },
+                ),
+            )?;
+
+            if !is_connected {
+                self.update_state_for_reconnect(dispatcher);
+                anyhow::bail!(
+                    "after previous send attempt, client is unexpectedly no longer connected"
+                );
+            }
+            Ok(())
+        }
     }
+}
+
+async fn classify_record(response: &Response) -> (RecordType, IsTooManyRecipients) {
+    let too_many = match response.is_too_many_recipients() {
+        as_is @ (IsTooManyRecipients::Yes | IsTooManyRecipients::No) => as_is,
+        IsTooManyRecipients::Maybe => {
+            match crate::logging::classify::classify_response(&response).await {
+                BounceClass::UserDefined(_) => IsTooManyRecipients::Maybe,
+                BounceClass::PreDefined(bc) => match bc {
+                    PreDefinedBounceClass::TooManyRecipients => IsTooManyRecipients::Yes,
+                    PreDefinedBounceClass::Uncategorized => IsTooManyRecipients::Maybe,
+                    _ => IsTooManyRecipients::No,
+                },
+            }
+        }
+    };
+
+    let record_type = if matches!(
+        too_many,
+        IsTooManyRecipients::Yes | IsTooManyRecipients::Maybe
+    ) || response.code == 503
+        || (response.code >= 300 && response.code < 500)
+    {
+        // 503 is a "permanent" failure response but it indicates
+        // that there was a protocol synchronization issue.
+        //
+        // For 3xx: there isn't a valid RFC-defined 300 final
+        // disposition for submitting an email message.  In order
+        // to get here there has most likely been a protocol
+        // synchronization issue.
+        RecordType::TransientFailure
+    } else if response.code >= 200 && response.code < 300 {
+        RecordType::Delivery
+    } else {
+        RecordType::Bounce
+    };
+
+    (record_type, too_many)
 }

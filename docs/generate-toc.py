@@ -60,7 +60,14 @@ class Gen(object):
 
             if self.extract_title:
                 with open(filename, "r") as f:
-                    title = f.readline().strip("#").strip()
+                    # Find the title; it is usually the first line,
+                    # but we may have front-matter containing tags
+                    # that we need to skip, so we look for a line
+                    # starting with # to identify the title
+                    for line in f:
+                        if line.startswith("#"):
+                            title = line.strip("#").strip()
+                            break
 
             children.append(Page(title, filename))
 
@@ -293,6 +300,7 @@ TOC = [
                     ),
                     Page("Routing Messages via AMQP", "userguide/policy/amqp.md"),
                     Page("Routing Messages via Kafka", "userguide/policy/kafka.md"),
+                    Page("Routing Messages via NATS", "userguide/policy/nats.md"),
                     Page(
                         "Storing Secrets in Hashicorp Vault",
                         "userguide/policy/hashicorp_vault.md",
@@ -331,6 +339,10 @@ TOC = [
                         "Deploying KumoMTA on Kubernetes",
                         "userguide/clustering/kubernetes.md",
                     ),
+                    Page(
+                        "Node ID",
+                        "userguide/clustering/nodeid.md",
+                    ),
                 ],
             ),
             Page(
@@ -352,14 +364,35 @@ TOC = [
                 "Integrations",
                 "userguide/integrations/index.md",
                 children=[
-                    Page("Postmastery", "userguide/integrations/postmastery.md"),
+                    Page("EmailElement", "userguide/integrations/emailelement.md"),
                     Page(
                         "Ongage",
                         "userguide/integrations/ongage.md",
                     ),
                     Page(
+                        "Mautic",
+                        "userguide/integrations/mautic.md",
+                    ),
+                    Page("Postmastery", "userguide/integrations/postmastery.md"),
+                    Page(
+                        "Tatami Monitor",
+                        "userguide/integrations/tatamimonitor.md",
+                    ),
+                    Page(
                         "Prometheus",
                         "userguide/integrations/prometheus.md",
+                    ),
+                    Page(
+                        "Grafana",
+                        "userguide/integrations/grafana.md",
+                    ),
+                    Page(
+                        "Hornetsecurity Spam Filter",
+                        "userguide/integrations/hornetsecurity.md",
+                    ),
+                    Page(
+                        "Rspamd Spam filter",
+                        "userguide/integrations/rspamd.md",
                     ),
                 ],
             ),
@@ -372,13 +405,19 @@ TOC = [
             Page("Predefined Metadata", "reference/metadata.md"),
             Page("Queues", "reference/queues.md"),
             Page("Configuration Lifecycle", "reference/configuration.md"),
+            Page("SMTP Server Events", "reference/smtp_server_events.md"),
             Page("Memory Management", "reference/memory.md"),
             Gen("Template Syntax", "reference/template"),
             Page("Log Record", "reference/log_record.md"),
+            Page("Access Control", "reference/access_control.md"),
             Gen("kcli", "reference/kcli", extract_title=True),
             Gen(
                 "module: kumo",
                 "reference/kumo",
+            ),
+            Gen(
+                "module: kumo.aaa",
+                "reference/kumo.aaa",
             ),
             Gen(
                 "module: kumo.amqp",
@@ -387,6 +426,10 @@ TOC = [
             Gen(
                 "module: kumo.api.inject",
                 "reference/kumo.api.inject",
+            ),
+            Gen(
+                "module: kumo.crypto",
+                "reference/kumo.crypto",
             ),
             Gen(
                 "module: kumo.digest",
@@ -413,8 +456,16 @@ TOC = [
                 "reference/kumo.domain_map",
             ),
             Gen(
+                "module: kumo.file_type",
+                "reference/kumo.file_type",
+            ),
+            Gen(
                 "module: kumo.fs",
                 "reference/kumo.fs",
+            ),
+            Gen(
+                "module: kumo.jsonl",
+                "reference/kumo.jsonl",
             ),
             Gen(
                 "module: kumo.http",
@@ -423,6 +474,14 @@ TOC = [
             Gen(
                 "module: kumo.kafka",
                 "reference/kumo.kafka",
+            ),
+            Gen(
+                "module: kumo.nats",
+                "reference/kumo.nats",
+            ),
+            Gen(
+                "module: kumo.mimepart",
+                "reference/kumo.mimepart",
             ),
             Gen(
                 "module: kumo.mpsc",
@@ -473,6 +532,18 @@ TOC = [
                 "reference/kumo.time",
             ),
             Gen(
+                "module: kumo.xfer",
+                "reference/kumo.xfer",
+            ),
+            Gen(
+                "module: policy-extras.mail_auth",
+                "reference/policy-extras.mail_auth",
+            ),
+            Gen(
+                "module: proxy",
+                "reference/proxy",
+            ),
+            Gen(
                 "module: tsa",
                 "reference/tsa",
             ),
@@ -492,6 +563,14 @@ TOC = [
                 "object: connectionmeta",
                 "reference/connectionmeta.md",
             ),
+            Gen(
+                "object: headermap",
+                "reference/headermap",
+            ),
+            Gen(
+                "object: header",
+                "reference/header",
+            ),
             Page(
                 "object: keysource",
                 "reference/keysource.md",
@@ -501,11 +580,25 @@ TOC = [
                 "reference/message",
             ),
             Gen(
+                "object: mimepart",
+                "reference/mimepart",
+            ),
+            Gen(
                 "events",
                 "reference/events",
             ),
-            Page("HTTP API Explorer", "reference/rapidoc.md"),
-            Gen("HTTP API", "reference/http", extract_title=True),
+            Gen("kumod HTTP API", "reference/http/kumod", extract_title=True),
+            Gen("kumod Metrics", "reference/metrics/kumod", extract_title=True),
+            Gen(
+                "proxy-server HTTP API",
+                "reference/http/proxy-server",
+                extract_title=True,
+            ),
+            Gen(
+                "proxy-server Metrics",
+                "reference/metrics/proxy-server",
+                extract_title=True,
+            ),
             RustDoc(
                 "Internal Rust API",
                 "rustapi",

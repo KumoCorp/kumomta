@@ -1,5 +1,5 @@
 use clap::Parser;
-use kumo_api_types::BounceV1ListEntry;
+use kumo_api_client::KumoApiClient;
 use num_format::{Locale, ToFormattedString};
 use reqwest::Url;
 use tabout::{Alignment, Column};
@@ -18,12 +18,8 @@ pub struct BounceListCommand {
 
 impl BounceListCommand {
     pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
-        let result: Vec<BounceV1ListEntry> = crate::request_with_json_response(
-            reqwest::Method::GET,
-            endpoint.join("/api/admin/bounce/v1")?,
-            &(),
-        )
-        .await?;
+        let client = KumoApiClient::new(endpoint.clone());
+        let result = client.admin_bounce_list_v1().await?;
 
         if self.json {
             println!("{}", serde_json::to_string_pretty(&result)?);

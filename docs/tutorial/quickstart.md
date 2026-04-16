@@ -20,7 +20,7 @@ This tutorial requires the following:
 1. Provision an AWS t2.xlarge (or larger) instance (or any physical or virtual server with at least 4 CPUs, 16Gb RAM, 300Gb Hard Drive).
 
     !!!Note
-        The hardware here is for a medium throughput sending environment, but KumoMTA can run on a smaller footprint for low-volume environments. if your sending needs are smaller, you can deploy to a server with 1 CPU, 2GB RAM, and 10Gb of storage.
+        The hardware here is for a medium throughput sending environment, but KumoMTA can technically run on a smaller footprint for low-volume environments. if your sending needs are smaller, you can deploy to a server with 1 CPU, 2GB RAM, and 10Gb of storage. Deployments with fewer than 4 cores are officially unsupported in production by our team.
 
 1. [Install Rocky Linux 9](https://docs.rockylinux.org/guides/installation/). A minimal install is sufficient.
 

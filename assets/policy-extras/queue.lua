@@ -86,13 +86,14 @@ end
 
 mod.is_queue_config_option = is_queue_config_option
 
-local Bool, List, Map, Option, Record, String =
+local Bool, List, Map, Option, Record, String, Variant =
   typing.boolean,
   typing.list,
   typing.map,
   typing.option,
   typing.record,
-  typing.string
+  typing.string,
+  typing.variant
 
 local CampaignConfig = Record('CampaignConfig', {
   _dynamic = is_queue_config_option,
@@ -133,6 +134,14 @@ local QueueHelperConfig = Record('QueueHelperConfig', {
 
   tenants = Option(Map(String, TenantConfig)),
   queues = Option(Map(String, DomainConfig)),
+})
+
+local QueueHelperSetup = Record('QueueHelperSetup', {
+  file_names = List(Variant(String, QueueHelperConfig)),
+  skip_queue_config_hook = Option(Bool),
+
+  -- This passed through to the queue_helper_data memoize cache setup
+  invalidate_with_epoch = Option(Bool),
 })
 
 local function parse_tenant_with_campaign(data)
@@ -389,7 +398,7 @@ local function apply_impl(msg, data)
     msg:set_meta('tenant', tenant)
   end
 
-  local recip = msg:recipient()
+  local recip = msg:recipient_list()[1]
   if recip then
     local composed = resolve_config(
       data,
@@ -453,6 +462,8 @@ function mod:resolve_provider(domain, routing_domain)
 end
 
 function mod:setup_with_options(options)
+  options = QueueHelperSetup(options)
+
   if mod.CONFIGURED then
     error 'queues module has already been configured'
   end
@@ -461,6 +472,7 @@ function mod:setup_with_options(options)
     name = 'queue_helper_data',
     ttl = '1 minute',
     capacity = 10,
+    invalidate_with_epoch = options.invalidate_with_epoch,
   })
 
   local helper = {
@@ -761,6 +773,11 @@ egress_pool = "bar"
   end
 
   local msg = new_msg 'recip@example.com'
+  apply_impl(msg, data)
+  utils.assert_eq(msg:get_meta 'tenant', 'mytenant')
+
+  local msg = new_msg 'recip@example.com'
+  msg:set_recipient { 'a@example.com', 'b@example.com' }
   apply_impl(msg, data)
   utils.assert_eq(msg:get_meta 'tenant', 'mytenant')
 

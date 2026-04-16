@@ -10,7 +10,7 @@ tags:
 kumo.fs.read_dir(path)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 !!! note
     In earlier versions of kumo, this function is available via the

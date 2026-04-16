@@ -1,6 +1,6 @@
 # kumo.disconnect
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 ```lua
 kumo.disconnect(CODE, MESSAGE, REJECT_OR_DISCONNECT)

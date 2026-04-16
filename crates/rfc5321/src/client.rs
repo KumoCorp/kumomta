@@ -1,14 +1,11 @@
 #![allow(clippy::result_large_err)]
 use crate::client_types::*;
-use crate::{
-    AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Domain, EsmtpParameter, ForwardPath,
-    ReversePath,
-};
-use hickory_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
+use crate::parser::{Command, Domain, EsmtpParameter, ForwardPath, ReversePath};
+use crate::{AsyncReadAndWrite, BoxedAsyncReadAndWrite};
+use bstr::ByteSlice;
 use hickory_proto::rr::rdata::TLSA;
 use memchr::memmem::Finder;
-use openssl::pkey::PKey;
-use openssl::ssl::{DaneMatchType, DaneSelector, DaneUsage, SslOptions};
+use nom_utils::DomainString;
 use openssl::x509::{X509Ref, X509};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -23,8 +20,9 @@ use tokio::time::timeout;
 use tokio_rustls::rustls::pki_types::ServerName;
 use tracing::Level;
 
-pub use crate::tls::TlsOptions;
-pub use {openssl, tokio_rustls};
+pub use kumo_tls_helper::TlsOptions;
+pub use openssl;
+pub use tokio_rustls;
 
 const MAX_LINE_LEN: usize = 4096;
 
@@ -40,21 +38,23 @@ pub enum ClientError {
     NotConnected,
     #[error("Command rejected {0:?}")]
     Rejected(Response),
+    #[error("Commands rejected {0:?}")]
+    RejectedBatch(Vec<Response>),
     #[error("STARTTLS: {0} is not a valid DNS name")]
     InvalidDnsName(String),
     #[error("Invalid client certificate configured: {error:?}")]
     FailedToBuildConnector { error: String },
-    #[error("Timed Out waiting {duration:?} for response to {command:?}")]
+    #[error("Timed Out waiting {duration:?} for response to cmd={}", self.command_for_err())]
     TimeOutResponse {
         command: Option<Command>,
         duration: Duration,
     },
-    #[error("Timed Out writing {duration:?} {commands:?}")]
+    #[error("Timed Out after {duration:?} writing cmd={}", self.command_for_err())]
     TimeOutRequest {
         commands: Vec<Command>,
         duration: Duration,
     },
-    #[error("Error {error} reading response to {command:?}")]
+    #[error("Error {error} reading response to cmd={}", self.command_for_err())]
     ReadError {
         command: Option<Command>,
         error: String,
@@ -62,7 +62,7 @@ pub enum ClientError {
     },
     #[error("Error {error} flushing send buffer")]
     FlushError { error: String },
-    #[error("Error {error} writing {commands:?}")]
+    #[error("Error {error} writing {}", self.command_for_err())]
     WriteError {
         commands: Vec<Command>,
         error: String,
@@ -86,15 +86,26 @@ impl ClientError {
             | Self::ReadError {
                 command: Some(command),
                 ..
-            } => Some(command.encode()),
+            } => Some(command.encode().to_string()),
             Self::TimeOutRequest { commands, .. } | Self::WriteError { commands, .. }
                 if !commands.is_empty() =>
             {
-                let commands: Vec<String> = commands.into_iter().map(|cmd| cmd.encode()).collect();
-                Some(commands.join(""))
+                let s: String = commands
+                    .iter()
+                    .map(|cmd| cmd.encode().to_string())
+                    .collect();
+                Some(s)
             }
             _ => None,
         }
+    }
+
+    /// Returns the command(s) string suitable for embedding in the
+    /// overall error message
+    fn command_for_err(&self) -> String {
+        self.command()
+            .map(|cmd| cmd.replace("\r\n", ""))
+            .unwrap_or_else(|| "NONE".to_string())
     }
 
     /// If the error contents were likely caused by something
@@ -125,6 +136,10 @@ impl ClientError {
             | Self::SslErrorStack(_)
             | Self::NoUsableDaneTlsa { .. } => false,
             Self::Rejected(response) => response.was_due_to_message(),
+            Self::RejectedBatch(responses) => match responses.len() {
+                1 => responses[0].was_due_to_message(),
+                _ => false,
+            },
         }
     }
 }
@@ -207,6 +222,7 @@ pub struct SmtpClient {
     use_rset: bool,
     enable_rset: bool,
     enable_pipelining: bool,
+    ignore_8bit_checks: bool,
 }
 
 fn extract_hostname(hostname: &str) -> &str {
@@ -256,7 +272,13 @@ impl SmtpClient {
             use_rset: false,
             enable_rset: false,
             enable_pipelining: false,
+            ignore_8bit_checks: false,
         }
+    }
+
+    /// Setting this to true causes 8BITMIME and SMTPUTF8 checks to be ignored
+    pub fn set_ignore_8bit_checks(&mut self, enable: bool) {
+        self.ignore_8bit_checks = enable;
     }
 
     pub fn is_connected(&self) -> bool {
@@ -336,13 +358,21 @@ impl SmtpClient {
                         });
                     }
                     Err(_) => {
-                        self.socket.take();
+                        // If we're using a zero timeout we're probing
+                        // for liveness, so we don't want to treat this
+                        // timeout as a fatal error that closes the
+                        // connection
+                        if timeout_duration != Duration::ZERO {
+                            self.socket.take();
+                        }
                         if let Some(tracer) = &self.tracer {
                             tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
                                 level: Level::ERROR,
                                 message: format!("Read Timeout after {timeout_duration:?}"),
                             });
-                            tracer.trace_event(SmtpClientTraceEvent::Closed);
+                            if self.socket.is_none() {
+                                tracer.trace_event(SmtpClientTraceEvent::Closed);
+                            }
                         }
                         return Err(ClientError::TimeOutResponse {
                             command: cmd.cloned(),
@@ -375,6 +405,24 @@ impl SmtpClient {
                 });
             }
             self.read_buffer.extend_from_slice(&data[0..size]);
+        }
+    }
+
+    /// Check to see if there is either a unilateral response
+    /// or an error condition immediately available on the socket.
+    ///
+    /// Intended to be used after the connection has idled to see if
+    /// the peer has opted to close the connection, either gracefully
+    /// by sending what should be a 421, or abruptly by simply snipping
+    /// the connection.
+    pub async fn check_unilateral_response(&mut self) -> Result<Option<Response>, ClientError> {
+        match self.read_response(None, Duration::ZERO).await {
+            // Unilateral response was received
+            Ok(response) => Ok(Some(response)),
+            // Nothing immediately available: this should hopefully be the common case
+            Err(ClientError::TimeOutResponse { .. }) => Ok(None),
+            // An actual error
+            Err(err) => Err(err),
         }
     }
 
@@ -415,7 +463,7 @@ impl SmtpClient {
                 .map_err(ClientError::MalformedResponseLine)?;
         }
 
-        let response = response_builder.build(command.map(|cmd| cmd.encode()));
+        let response = response_builder.build(command.map(|cmd| cmd.encode().to_string()));
 
         tracing::trace!("{}: {response:?}", self.hostname);
 
@@ -481,25 +529,29 @@ impl SmtpClient {
             .sum();
 
         let mut lines: Vec<String> = vec![];
-        let mut all = String::new();
+        let mut all: Vec<u8> = vec![];
         for cmd in commands {
             let line = cmd.encode();
-            all.push_str(&line);
-            lines.push(line);
+            all.extend_from_slice(&line);
+            lines.push(line.to_string());
         }
-        tracing::trace!("send->{}: (PIPELINE) {all}", self.hostname);
+        tracing::trace!(
+            "send->{}: (PIPELINE) {}",
+            self.hostname,
+            all.as_bstr().escape_bytes()
+        );
         if self.socket.is_some() {
             if let Some(tracer) = &self.tracer {
                 // Send the lines individually to the tracer, so that we
                 // don't break --terse mode
-                for line in lines {
-                    WriteTracer::trace(tracer, &line);
+                for line in &lines {
+                    WriteTracer::trace(tracer, line);
                 }
             }
         }
         self.write_all_with_timeout(
             total_timeout,
-            all.as_bytes(),
+            &all,
             || ClientError::TimeOutRequest {
                 duration: total_timeout,
                 commands: commands.to_vec(),
@@ -517,14 +569,14 @@ impl SmtpClient {
         tracing::trace!("send->{}: {line}", self.hostname);
         if self.socket.is_some() {
             if let Some(tracer) = &self.tracer {
-                WriteTracer::trace(tracer, &line);
+                WriteTracer::trace(tracer, &line.to_string());
             }
         }
 
         let timeout_duration = command.client_timeout_request(&self.timeouts);
         self.write_all_with_timeout(
             timeout_duration,
-            line.as_bytes(),
+            &line,
             || ClientError::TimeOutRequest {
                 duration: timeout_duration,
                 commands: vec![command.clone()],
@@ -636,7 +688,11 @@ impl SmtpClient {
         ehlo_name: &str,
     ) -> Result<&HashMap<String, EsmtpCapability>, ClientError> {
         let response = self
-            .send_command(&Command::Lhlo(Domain::Name(ehlo_name.to_string())))
+            .send_command(&Command::Lhlo(Domain::DomainName(
+                ehlo_name
+                    .parse::<DomainString>()
+                    .map_err(|_| ClientError::InvalidDnsName(ehlo_name.to_string()))?,
+            )))
             .await?;
         self.ehlo_common(response)
     }
@@ -646,7 +702,11 @@ impl SmtpClient {
         ehlo_name: &str,
     ) -> Result<&HashMap<String, EsmtpCapability>, ClientError> {
         let response = self
-            .send_command(&Command::Ehlo(Domain::Name(ehlo_name.to_string())))
+            .send_command(&Command::Ehlo(Domain::DomainName(
+                ehlo_name
+                    .parse::<DomainString>()
+                    .map_err(|_| ClientError::InvalidDnsName(ehlo_name.to_string()))?,
+            )))
             .await?;
         self.ehlo_common(response)
     }
@@ -841,8 +901,20 @@ impl SmtpClient {
         recipient: RECIP,
         data: B,
     ) -> Result<Response, ClientError> {
+        let recipient: ForwardPath = recipient.into();
+        let status = self
+            .send_mail_multi_recip(sender, vec![recipient], data)
+            .await?;
+        Ok(status.response)
+    }
+
+    pub async fn send_mail_multi_recip<B: AsRef<[u8]>, SENDER: Into<ReversePath>>(
+        &mut self,
+        sender: SENDER,
+        recipient_list: Vec<ForwardPath>,
+        data: B,
+    ) -> Result<BatchSendSuccess, ClientError> {
         let sender = sender.into();
-        let recipient = recipient.into();
 
         let data: &[u8] = data.as_ref();
         let stuffed;
@@ -856,21 +928,53 @@ impl SmtpClient {
         };
 
         let data_is_8bit = data.iter().any(|&b| b >= 0x80);
-        let envelope_is_8bit = !sender.is_ascii() || !recipient.is_ascii();
+        let envelope_is_8bit =
+            !sender.is_ascii() || recipient_list.iter().any(|recipient| !recipient.is_ascii());
 
         let mut mail_from_params = vec![];
-        if data_is_8bit && self.capabilities.contains_key("8BITMIME") {
-            mail_from_params.push(EsmtpParameter {
-                name: "BODY".to_string(),
-                value: Some("8BITMIME".to_string()),
-            });
+        if data_is_8bit {
+            if self.capabilities.contains_key("8BITMIME") {
+                mail_from_params.push(EsmtpParameter {
+                    name: "BODY".to_string(),
+                    value: Some("8BITMIME".to_string()),
+                });
+            } else if !self.ignore_8bit_checks {
+                return Err(ClientError::Rejected(Response {
+                    code: 554,
+                    command: None,
+                    enhanced_code: Some(EnhancedStatusCode {
+                        class: 5,
+                        subject: 6,
+                        detail: 3,
+                    }),
+                    content: "KumoMTA internal: DATA is 8bit, destination does \
+                        not support 8BITMIME. Conversion via msg:check_fix_conformance \
+                        during reception is required"
+                        .to_string(),
+                }));
+            }
         }
 
-        if envelope_is_8bit && self.capabilities.contains_key("SMTPUTF8") {
-            mail_from_params.push(EsmtpParameter {
-                name: "SMTPUTF8".to_string(),
-                value: None,
-            });
+        if envelope_is_8bit {
+            if self.capabilities.contains_key("SMTPUTF8") {
+                mail_from_params.push(EsmtpParameter {
+                    name: "SMTPUTF8".to_string(),
+                    value: None,
+                });
+            } else if !self.ignore_8bit_checks {
+                return Err(ClientError::Rejected(Response {
+                    code: 554,
+                    command: None,
+                    enhanced_code: Some(EnhancedStatusCode {
+                        class: 5,
+                        subject: 6,
+                        detail: 7,
+                    }),
+                    content: "KumoMTA internal: envelope is 8bit, destination does \
+                        not support SMTPUTF8."
+                        .to_string(),
+                }));
+            }
         }
 
         let mut commands = vec![];
@@ -892,10 +996,13 @@ impl SmtpClient {
             address: sender,
             parameters: mail_from_params,
         });
-        commands.push(Command::RcptTo {
-            address: recipient,
-            parameters: vec![],
-        });
+
+        for recipient in &recipient_list {
+            commands.push(Command::RcptTo {
+                address: recipient.clone(),
+                parameters: vec![],
+            });
+        }
         commands.push(Command::Data);
 
         // Assume that something might break below: if it does, we want
@@ -925,9 +1032,13 @@ impl SmtpClient {
             return Err(ClientError::Rejected(mail_resp));
         }
 
-        let rcpt_resp = responses.remove(0)?;
-        if is_err && rcpt_resp.code != 250 {
-            return Err(ClientError::Rejected(rcpt_resp));
+        let mut rcpt_responses = vec![];
+        for _ in &recipient_list {
+            rcpt_responses.push(responses.remove(0)?);
+        }
+
+        if is_err && rcpt_responses.iter().all(|resp| resp.code != 250) {
+            return Err(ClientError::RejectedBatch(rcpt_responses));
         }
 
         let data_resp = responses.remove(0)?;
@@ -935,7 +1046,9 @@ impl SmtpClient {
             return Err(ClientError::Rejected(data_resp));
         }
 
-        if data_resp.code == 354 && (mail_resp.code != 250 || rcpt_resp.code != 250) {
+        if data_resp.code == 354
+            && (mail_resp.code != 250 || rcpt_responses.iter().all(|resp| resp.code != 250))
+        {
             // RFC 2920 3.1:
             // the client cannot assume that the DATA command will be rejected
             // just because none of the RCPT TO commands worked.  If the DATA
@@ -959,8 +1072,13 @@ impl SmtpClient {
         if mail_resp.code != 250 {
             return Err(ClientError::Rejected(mail_resp));
         }
-        if rcpt_resp.code != 250 {
-            return Err(ClientError::Rejected(rcpt_resp));
+        if rcpt_responses.iter().all(|resp| resp.code != 250) {
+            if rcpt_responses.len() == 1 {
+                return Err(ClientError::Rejected(
+                    rcpt_responses.pop().expect("have at least one"),
+                ));
+            }
+            return Err(ClientError::RejectedBatch(rcpt_responses));
         }
         if data_resp.code != 354 {
             return Err(ClientError::Rejected(data_resp));
@@ -990,8 +1108,17 @@ impl SmtpClient {
         // issuing an RSET next time around
         self.use_rset = self.enable_rset;
 
-        Ok(resp)
+        Ok(BatchSendSuccess {
+            response: resp,
+            rcpt_responses,
+        })
     }
+}
+
+#[derive(Debug)]
+pub struct BatchSendSuccess {
+    pub response: Response,
+    pub rcpt_responses: Vec<Response>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
@@ -1017,7 +1144,7 @@ impl Drop for SmtpClient {
         }
     }
 }
-fn parse_response_line(line: &str) -> Result<ResponseLine, ClientError> {
+fn parse_response_line(line: &'_ str) -> Result<ResponseLine<'_>, ClientError> {
     if line.len() < 4 {
         return Err(ClientError::MalformedResponseLine(line.to_string()));
     }
@@ -1032,100 +1159,6 @@ fn parse_response_line(line: &str) -> Result<ResponseLine, ClientError> {
             Err(_) => Err(ClientError::MalformedResponseLine(line.to_string())),
         },
         _ => Err(ClientError::MalformedResponseLine(line.to_string())),
-    }
-}
-
-impl TlsOptions {
-    pub fn build_openssl_connector(
-        &self,
-        hostname: &str,
-    ) -> Result<openssl::ssl::ConnectConfiguration, ClientError> {
-        tracing::trace!("build_openssl_connector for {hostname}");
-        let mut builder =
-            openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls_client())?;
-
-        if let (Some(cert_data), Some(key_data)) =
-            (&self.certificate_from_pem, &self.private_key_from_pem)
-        {
-            let cert = X509::from_pem(cert_data)?;
-            builder.set_certificate(&cert)?;
-
-            let key = PKey::private_key_from_pem(key_data)?;
-            builder.set_private_key(&key)?;
-
-            builder.check_private_key()?;
-        }
-
-        if let Some(list) = &self.openssl_cipher_list {
-            builder.set_cipher_list(list)?;
-        }
-
-        if let Some(suites) = &self.openssl_cipher_suites {
-            builder.set_ciphersuites(suites)?;
-        }
-
-        if let Some(options) = &self.openssl_options {
-            builder.clear_options(SslOptions::all());
-            builder.set_options(*options);
-        }
-
-        if self.insecure {
-            builder.set_verify(openssl::ssl::SslVerifyMode::NONE);
-        }
-
-        if !self.dane_tlsa.is_empty() {
-            builder.dane_enable()?;
-            builder.set_no_dane_ee_namechecks();
-        }
-
-        let connector = builder.build();
-
-        let mut config = connector.configure()?;
-
-        if !self.dane_tlsa.is_empty() {
-            config.dane_enable(hostname)?;
-            let mut any_usable = false;
-            for tlsa in &self.dane_tlsa {
-                let usable = config.dane_tlsa_add(
-                    match tlsa.cert_usage() {
-                        CertUsage::PkixTa => DaneUsage::PKIX_TA,
-                        CertUsage::PkixEe => DaneUsage::PKIX_EE,
-                        CertUsage::DaneTa => DaneUsage::DANE_TA,
-                        CertUsage::DaneEe => DaneUsage::DANE_EE,
-                        CertUsage::Unassigned(n) => DaneUsage::from_raw(n),
-                        CertUsage::Private => DaneUsage::PRIV_CERT,
-                    },
-                    match tlsa.selector() {
-                        Selector::Full => DaneSelector::CERT,
-                        Selector::Spki => DaneSelector::SPKI,
-                        Selector::Unassigned(n) => DaneSelector::from_raw(n),
-                        Selector::Private => DaneSelector::PRIV_SEL,
-                    },
-                    match tlsa.matching() {
-                        Matching::Raw => DaneMatchType::FULL,
-                        Matching::Sha256 => DaneMatchType::SHA2_256,
-                        Matching::Sha512 => DaneMatchType::SHA2_512,
-                        Matching::Unassigned(n) => DaneMatchType::from_raw(n),
-                        Matching::Private => DaneMatchType::PRIV_MATCH,
-                    },
-                    tlsa.cert_data(),
-                )?;
-
-                tracing::trace!("build_dane_connector usable={usable} {tlsa:?}");
-                if usable {
-                    any_usable = true;
-                }
-            }
-
-            if !any_usable {
-                return Err(ClientError::NoUsableDaneTlsa {
-                    hostname: hostname.to_string(),
-                    tlsa: self.dane_tlsa.clone(),
-                });
-            }
-        }
-
-        Ok(config)
     }
 }
 
@@ -1152,7 +1185,7 @@ fn apply_dot_stuffing(data: &[u8]) -> Option<Vec<u8>> {
 
 /// Extracts the object=name pairs of the subject name from a cert.
 /// eg:
-/// ```norun
+/// ```no_run
 /// ["C=US", "ST=CA", "L=SanFrancisco", "O=Fort-Funston", "OU=MyOrganizationalUnit",
 /// "CN=do.havedane.net", "name=EasyRSA", "emailAddress=me@myhost.mydomain"]
 /// ```
@@ -1171,6 +1204,7 @@ pub fn subject_name(cert: &X509Ref) -> Vec<String> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::parser::{EnvelopeAddress, ReversePath};
 
     #[test]
     fn test_stuffing() {
@@ -1332,5 +1366,39 @@ mod test {
         assert_eq!(extract_hostname("[foo.]:25"), "foo");
         assert_eq!(extract_hostname("[::1]:25"), "::1");
         assert_eq!(extract_hostname("::1:25"), "::1");
+    }
+
+    #[test]
+    fn test_format_error_command() {
+        assert_eq!(
+            format!(
+                "{:#}",
+                ClientError::TimeOutRequest {
+                    commands: vec![Command::DataDot],
+                    duration: Duration::from_secs(10),
+                }
+            ),
+            "Timed Out after 10s writing cmd=."
+        );
+        assert_eq!(
+            format!(
+                "{:#}",
+                ClientError::TimeOutResponse {
+                    command: Some(Command::MailFrom {
+                        address: {
+                            let EnvelopeAddress::Path(p) =
+                                EnvelopeAddress::parse("user@host").unwrap()
+                            else {
+                                panic!("expected Path")
+                            };
+                            ReversePath::Path(p)
+                        },
+                        parameters: vec![],
+                    }),
+                    duration: Duration::from_secs(10),
+                }
+            ),
+            r#"Timed Out waiting 10s for response to cmd=MAIL FROM:<user@host>"#
+        );
     }
 }

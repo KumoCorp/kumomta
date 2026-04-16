@@ -1,12 +1,12 @@
 use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{any_err, from_lua_value, get_or_create_module, serialize_options};
 use dashmap::DashMap;
+use kumo_prometheus::declare_metric;
 use lruttl::LruCacheWithTtl;
 use mlua::{
     FromLua, Function, IntoLua, Lua, LuaSerdeExt, MetaMethod, MultiValue, UserData,
     UserDataMethods, UserDataRef,
 };
-use prometheus::CounterVec;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
@@ -330,38 +330,41 @@ fn get_cache_by_name(
     })
 }
 
-static CACHE_LOOKUP: LazyLock<CounterVec> = LazyLock::new(|| {
-    prometheus::register_counter_vec!(
+declare_metric! {
+/// How many times a memoize cache lookup was initiated for a given cache.
+///
+/// Redundant with the newer [lruttl_lookup_count](lruttl_lookup_count.md) metric.
+static CACHE_LOOKUP: CounterVec(
         "memoize_cache_lookup_count",
-        "how many times a memoize cache lookup was initiated for a given cache",
-        &["cache_name"]
-    )
-    .unwrap()
-});
-static CACHE_HIT: LazyLock<CounterVec> = LazyLock::new(|| {
-    prometheus::register_counter_vec!(
+        &["cache_name"]);
+}
+
+declare_metric! {
+/// How many times a memoize cache lookup was a hit for a given cache.
+///
+/// Redundant with the newer [lruttl_hit_count](lruttl_hit_count.md) metric.
+static CACHE_HIT: CounterVec(
         "memoize_cache_hit_count",
-        "how many times a memoize cache lookup was a hit for a given cache",
-        &["cache_name"]
-    )
-    .unwrap()
-});
-static CACHE_MISS: LazyLock<CounterVec> = LazyLock::new(|| {
-    prometheus::register_counter_vec!(
+        &["cache_name"]);
+}
+
+declare_metric! {
+/// How many times a memoize cache lookup was a miss for a given cache
+///
+/// Redundant with the newer [lruttl_miss_count](lruttl_miss_count.md) metric.
+static CACHE_MISS: CounterVec(
         "memoize_cache_miss_count",
-        "how many times a memoize cache lookup was a miss for a given cache",
-        &["cache_name"]
-    )
-    .unwrap()
-});
-static CACHE_POPULATED: LazyLock<CounterVec> = LazyLock::new(|| {
-    prometheus::register_counter_vec!(
+        &["cache_name"]);
+}
+
+declare_metric! {
+/// How many times a memoize cache lookup resulted in performing the work to populate the entry
+///
+/// Redundant with the newer [lruttl_populated_count](lruttl_populated_count.md) metric.
+static CACHE_POPULATED: CounterVec(
         "memoize_cache_populated_count",
-        "how many times a memoize cache lookup resulted in performing the work to populate the entry",
-        &["cache_name"]
-    )
-    .unwrap()
-});
+        &["cache_name"]);
+}
 
 fn multi_value_to_json_value(lua: &Lua, multi: MultiValue) -> mlua::Result<serde_json::Value> {
     let mut values = multi.into_vec();
@@ -628,5 +631,111 @@ mod test {
 
         assert_eq!(result, 0);
         assert_eq!(call_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    #[test_log::test]
+    async fn test_memoize_blocked() {
+        use std::sync::Mutex;
+        use tokio::sync::Notify;
+
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let notify = Arc::new(Notify::new());
+        let shared_notify = Arc::new(Mutex::new(Some(Arc::clone(&notify))));
+
+        async fn setup_lua(
+            call_count: &Arc<AtomicUsize>,
+            notify: Arc<Mutex<Option<Arc<Notify>>>>,
+        ) -> Lua {
+            let lua = Lua::new();
+            register(&lua).unwrap();
+            let globals = lua.globals();
+            let counter = Arc::clone(&call_count);
+
+            fn take_notify(n: &Arc<Mutex<Option<Arc<Notify>>>>) -> Option<Arc<Notify>> {
+                n.lock().unwrap().take()
+            }
+
+            globals
+                .set(
+                    "do_thing",
+                    lua.create_async_function(move |_lua, _: ()| {
+                        let counter = counter.clone();
+                        let notify = notify.clone();
+                        async move {
+                            eprintln!("do_thing called!");
+                            match dbg!(take_notify(&notify)) {
+                                Some(notify) => {
+                                    eprintln!("do_thing: wait for notify");
+                                    notify.notified().await;
+                                    eprintln!("notified!");
+                                }
+                                None => {
+                                    eprintln!("do_thing: sleeping");
+                                    tokio::time::sleep(Duration::from_secs(1)).await;
+                                    eprintln!("do_thing: slept");
+                                }
+                            };
+                            eprintln!("do_thing: increment");
+                            let count = counter.fetch_add(1, Ordering::SeqCst);
+                            Ok(count)
+                        }
+                    })
+                    .unwrap(),
+                )
+                .unwrap();
+
+            let init = r#"
+            local kumo = require 'kumo';
+            -- make cached_do_thing a global for use in the expiry test below
+            cached_do_thing = kumo.memoize(do_thing, {
+                ttl = "1s",
+                capacity = 4,
+                name = "test_memoize_do_thing",
+                populate_timeout = "2s",
+            })
+        "#;
+
+            let () = lua.load(init).eval_async().await.unwrap();
+            lua
+        }
+
+        let lua = setup_lua(&call_count, shared_notify.clone()).await;
+        async fn do_thing(lua: Lua) -> mlua::Result<usize> {
+            lua.load("return cached_do_thing()").eval_async().await
+        }
+
+        // Set up a future that will get far enough to own the lookup,
+        // but that won't complete until we notify it to do so.
+        eprintln!("spawning first call to do_thing");
+        let first_future = tokio::spawn(do_thing(lua));
+        // Let it progress to await on the notifier
+        tokio::task::yield_now().await;
+
+        // Now setup a second call; we expect this one to time out
+        // because the first one owns the lookup
+        let lua = setup_lua(&call_count, shared_notify.clone()).await;
+        eprintln!("second call to do_thing");
+
+        let res = do_thing(lua).await;
+        eprintln!("second_future is done!");
+        let error = res.unwrap_err().to_string();
+        assert!(
+            error.contains(
+                "timed out after 2s on semaphore acquire while waiting for cache to populate"
+            ),
+            "error: {error}"
+        );
+
+        // The third call will succeed because we've de-coupled the
+        // original lookup from the herd protection
+        eprintln!("third call to do_thing");
+        let lua = setup_lua(&call_count, shared_notify.clone()).await;
+        let result = do_thing(lua).await.unwrap();
+        assert_eq!(result, 0);
+
+        // Now wake up the original future and verify what it returns
+        notify.notify_one();
+        assert_eq!(first_future.await.unwrap().unwrap(), 1);
     }
 }

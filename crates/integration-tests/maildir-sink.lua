@@ -7,10 +7,19 @@ local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 
 kumo.on('init', function()
   kumo.configure_accounting_db_path ':memory:'
+  kumo.aaa.configure_acct_log {
+    log_dir = TEST_DIR .. '/acct',
+    max_segment_duration = '1s',
+  }
 
   local smtp_params = {
     listen = '127.0.0.1:0',
     relay_hosts = { '0.0.0.0/0' },
+    batch_handling = 'BatchByDomain',
+    max_recipients_per_message = 4,
+    -- This client_timeout value is coupled with assumptions
+    -- in disconnect_peer_idle_out!
+    client_timeout = '3s',
   }
   local client_ca = os.getenv 'KUMOD_CLIENT_REQUIRED_CA'
   if client_ca then
@@ -18,12 +27,27 @@ kumo.on('init', function()
       key_data = client_ca,
     }
   end
+  local require_proxy_protocol = os.getenv 'KUMOD_TEST_REQUIRE_PROXY_PROTOCOL'
+  if require_proxy_protocol then
+    smtp_params.peer = {
+      ['127.0.0.1'] = {
+        require_proxy_protocol = true,
+      },
+    }
+  end
 
   kumo.start_esmtp_listener(smtp_params)
+
+  kumo.start_http_listener {
+    listen = '127.0.0.1:0',
+  }
 
   kumo.configure_local_logs {
     log_dir = TEST_DIR .. '/logs',
     max_segment_duration = '1s',
+    meta = {
+      '*',
+    },
   }
 
   kumo.define_spool {
@@ -37,7 +61,18 @@ kumo.on('init', function()
   }
 end)
 
+kumo.on('xfer_message_received', function(msg)
+  -- This is coupled with the xfer integration tests
+  msg:set_meta('sunk', 'received via xfer')
+end)
+
 local function apply_rejections(envelope_addr)
+  if string.find(envelope_addr.user, 'full-enh') then
+    kumo.reject(452, '4.1.1 mailbox is full')
+  end
+  if string.find(envelope_addr.user, 'full') then
+    kumo.reject(452, 'mailbox is full')
+  end
   if string.find(envelope_addr.user, 'tempfail') then
     kumo.reject(400, 'tempfail requested')
   end
@@ -104,4 +139,22 @@ kumo.on('smtp_server_auth_plain', function(authz, authc, password)
     )
   )
   return simple_auth_check(authc, password)
+end)
+
+kumo.on('smtp_server_ehlo', function(domain, conn_meta, extensions)
+  local revised = {}
+  for _, ext in ipairs(extensions) do
+    local include = true
+    if ext == '8BITMIME' and os.getenv 'KUMOD_HIDE_8BITMIME' then
+      include = false
+    end
+    if ext == 'SMTPUTF8' and os.getenv 'KUMOD_HIDE_SMTPUTF8' then
+      include = false
+    end
+    if include then
+      table.insert(revised, ext)
+    end
+  end
+
+  return revised
 end)

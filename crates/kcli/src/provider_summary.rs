@@ -1,15 +1,16 @@
-use crate::queue_summary::get_metrics;
 use anyhow::Context;
 use clap::Parser;
 use dns_resolver::MailExchanger;
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
+use itertools::Itertools;
+use kumo_api_client::KumoApiClient;
 use lexicmp::natural_lexical_cmp;
 use message::message::QueueNameComponents;
 use num_format::{Locale, ToFormattedString};
 use reqwest::Url;
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use tabout::{Alignment, Column};
 
@@ -101,117 +102,118 @@ impl ProviderSummaryCommand {
         let mut provider_by_pool = HashMap::new();
         let mut domain_resolution = FuturesUnordered::new();
         let limiter = Arc::new(tokio::sync::Semaphore::new(128));
-        let _: Vec<()> = get_metrics(endpoint, |m| {
-            let name = m.name().as_str();
-            match name {
-                "scheduled_count" if self.show_domains => {
-                    let queue = m.labels().get("queue").unwrap();
-                    let components = QueueNameComponents::parse(queue);
-                    let domain = components
-                        .routing_domain
-                        .unwrap_or(components.domain)
-                        .to_string();
-                    let limiter = limiter.clone();
-                    domain_resolution.push(tokio::spawn(async move {
-                        match limiter.acquire().await {
-                            Ok(permit) => {
-                                let mx_result = MailExchanger::resolve(&domain).await;
-                                drop(permit);
-                                (domain, mx_result)
+        let client = KumoApiClient::new(endpoint.clone());
+        let _: Vec<()> = client
+            .get_metrics(|m| {
+                let name = m.name().as_str();
+                match name {
+                    "scheduled_count" if self.show_domains => {
+                        let queue = m.labels().get("queue").unwrap();
+                        let components = QueueNameComponents::parse(queue);
+                        let domain = components
+                            .routing_domain
+                            .unwrap_or(components.domain)
+                            .to_string();
+                        let limiter = limiter.clone();
+                        domain_resolution.push(tokio::spawn(async move {
+                            match limiter.acquire().await {
+                                Ok(permit) => {
+                                    let mx_result = MailExchanger::resolve(&domain).await;
+                                    drop(permit);
+                                    (domain, mx_result)
+                                }
+                                Err(err) => (domain, Err(err).context("failed to acquire permit")),
                             }
-                            Err(err) => (domain, Err(err).context("failed to acquire permit")),
-                        }
-                    }));
-                }
+                        }));
+                    }
 
-                "total_messages_delivered_by_provider"
-                | "connection_count_by_provider"
-                | "total_messages_fail_by_provider"
-                | "total_messages_transfail_by_provider"
-                | "queued_count_by_provider" => {
-                    if !self.by_pool {
-                        let provider = m.labels().get("provider").unwrap();
-                        let value = m.value() as usize;
+                    "total_messages_delivered_by_provider"
+                    | "connection_count_by_provider"
+                    | "total_messages_fail_by_provider"
+                    | "total_messages_transfail_by_provider"
+                    | "queued_count_by_provider" => {
+                        if !self.by_pool {
+                            let provider = m.labels().get("provider").unwrap();
+                            let value = m.value() as usize;
 
-                        let entry =
-                            provider_metrics
+                            let entry = provider_metrics
                                 .entry(provider.to_string())
                                 .or_insert_with(|| ProviderMetrics {
                                     name: provider.to_string(),
                                     ..Default::default()
                                 });
 
-                        match name {
-                            "total_messages_delivered_by_provider" => {
-                                entry.delivered += value;
+                            match name {
+                                "total_messages_delivered_by_provider" => {
+                                    entry.delivered += value;
+                                }
+                                "total_messages_fail_by_provider" => {
+                                    entry.fail += value;
+                                }
+                                "total_messages_transfail_by_provider" => {
+                                    entry.transfail += value;
+                                }
+                                "queued_count_by_provider" => {
+                                    entry.queue_size += value;
+                                }
+                                "connection_count_by_provider" => {
+                                    entry.connections += value;
+                                }
+                                _ => {}
                             }
-                            "total_messages_fail_by_provider" => {
-                                entry.fail += value;
-                            }
-                            "total_messages_transfail_by_provider" => {
-                                entry.transfail += value;
-                            }
-                            "queued_count_by_provider" => {
-                                entry.queue_size += value;
-                            }
-                            "connection_count_by_provider" => {
-                                entry.connections += value;
-                            }
-                            _ => {}
                         }
                     }
-                }
-                "total_messages_delivered_by_provider_and_source"
-                | "connection_count_by_provider_and_pool"
-                | "total_messages_fail_by_provider_and_source"
-                | "total_messages_transfail_by_provider_and_source"
-                | "queued_count_by_provider_and_pool" => {
-                    if self.by_pool {
-                        let provider = m.labels().get("provider").unwrap();
-                        let pool = m.labels().get("pool").unwrap();
-                        let value = m.value() as usize;
+                    "total_messages_delivered_by_provider_and_source"
+                    | "connection_count_by_provider_and_pool"
+                    | "total_messages_fail_by_provider_and_source"
+                    | "total_messages_transfail_by_provider_and_source"
+                    | "queued_count_by_provider_and_pool" => {
+                        if self.by_pool {
+                            let provider = m.labels().get("provider").unwrap();
+                            let pool = m.labels().get("pool").unwrap();
+                            let value = m.value() as usize;
 
-                        let entry = provider_by_pool
-                            .entry((provider.to_string(), pool.to_string()))
-                            .or_insert_with(|| ProviderMetrics {
-                                name: provider.to_string(),
-                                pool: Some(pool.to_string()),
-                                ..Default::default()
-                            });
+                            let entry = provider_by_pool
+                                .entry((provider.to_string(), pool.to_string()))
+                                .or_insert_with(|| ProviderMetrics {
+                                    name: provider.to_string(),
+                                    pool: Some(pool.to_string()),
+                                    ..Default::default()
+                                });
 
-                        match name {
-                            "total_messages_delivered_by_provider_and_source" => {
-                                entry.delivered += value;
+                            match name {
+                                "total_messages_delivered_by_provider_and_source" => {
+                                    entry.delivered += value;
+                                }
+                                "total_messages_fail_by_provider_and_source" => {
+                                    entry.fail += value;
+                                }
+                                "total_messages_transfail_by_provider_and_source" => {
+                                    entry.transfail += value;
+                                }
+                                "queued_count_by_provider_and_pool" => {
+                                    entry.queue_size += value;
+                                }
+                                "connection_count_by_provider_and_pool" => {
+                                    entry.connections += value;
+                                }
+                                _ => {}
                             }
-                            "total_messages_fail_by_provider_and_source" => {
-                                entry.fail += value;
-                            }
-                            "total_messages_transfail_by_provider_and_source" => {
-                                entry.transfail += value;
-                            }
-                            "queued_count_by_provider_and_pool" => {
-                                entry.queue_size += value;
-                            }
-                            "connection_count_by_provider_and_pool" => {
-                                entry.connections += value;
-                            }
-                            _ => {}
                         }
                     }
+                    _ => {}
                 }
-                _ => {}
-            }
-            None
-        })
-        .await?;
+                None
+            })
+            .await?;
 
-        let mut site_to_domains: HashMap<String, Vec<String>> = HashMap::new();
+        let mut site_to_domains: HashMap<String, BTreeSet<String>> = HashMap::new();
         while let Some(Ok((domain, result))) = domain_resolution.next().await {
             if let Ok(mx) = result {
                 site_to_domains
                     .entry(mx.site_name.to_string())
                     .or_default()
-                    .push(domain);
+                    .insert(domain);
             }
         }
 
@@ -362,12 +364,11 @@ impl ProviderSummaryCommand {
 }
 
 fn resolve_domains(
-    site_to_domains: &mut HashMap<String, Vec<String>>,
+    site_to_domains: &mut HashMap<String, BTreeSet<String>>,
     site: &str,
 ) -> Option<String> {
     if let Some(domains) = site_to_domains.get_mut(site) {
-        domains.sort();
-        Some(domains.join(", "))
+        Some(domains.iter().join(", "))
     } else {
         None
     }

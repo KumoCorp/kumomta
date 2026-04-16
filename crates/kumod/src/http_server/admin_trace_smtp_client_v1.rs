@@ -2,7 +2,6 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use chrono::{DateTime, Utc};
 use kumo_api_types::{TraceSmtpClientV1Event, TraceSmtpClientV1Payload, TraceSmtpClientV1Request};
-use kumo_server_common::http_server::auth::TrustedIpRequired;
 use parking_lot::Mutex;
 use rfc5321::DeferredTracer;
 use std::net::{IpAddr, SocketAddr};
@@ -261,7 +260,7 @@ async fn process_websocket_inner(mut socket: WebSocket) -> anyhow::Result<()> {
                     },
                 };
                 let json = serde_json::to_string(&event)?;
-                socket.send(Message::Text(json)).await?;
+                socket.send(Message::Text(json.into())).await?;
                 continue;
             }
         };
@@ -300,7 +299,7 @@ async fn process_websocket_inner(mut socket: WebSocket) -> anyhow::Result<()> {
         }
 
         let json = serde_json::to_string(&event.to_v1(request.terse))?;
-        socket.send(Message::Text(json)).await?;
+        socket.send(Message::Text(json.into())).await?;
     }
 }
 
@@ -310,6 +309,9 @@ async fn process_websocket(socket: WebSocket) {
     }
 }
 
-pub async fn trace(_: TrustedIpRequired, ws: WebSocketUpgrade) -> impl IntoResponse {
+/// This is a websocket endpoint that provides outbound SMTP tracing.
+/// It cannot be described via auto-generated docs extracted from the JSON Schema.
+#[utoipa::path(get, tags = ["debugging", "kcli:trace-smtp-client"], path = "/api/admin/trace-smtp-client/v1")]
+pub async fn trace(ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(|socket| process_websocket(socket))
 }

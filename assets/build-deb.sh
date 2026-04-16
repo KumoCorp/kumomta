@@ -138,5 +138,25 @@ FAKEROOT=fakeroot
 if test "$EUID" -eq 0 ; then
   FAKEROOT=""
 fi
-$FAKEROOT dpkg-deb --verbose --build pkg/debian $debname.deb
+
+# I see this when building in a container, dpkg-deb 1.21:
+#
+# Settings        Time Taken             File Size     Compression %
+# default (zstd)  3:08                   165MB          19%
+# -z1             0:08                   240MB          28%
+# -Zxz            0:16                   151MB          18%
+# -Znone          0:07                   864MB         100%
+#
+# The default zstd performance on that version/environment combination
+# is truly terrible, so we want to avoid it.
+#
+# on the host with dpkg-deb 1.22:
+# Settings        Time Taken             File Size     Compression %
+# default         0:19                   160MBA          19%
+# -Zxz            0:15                   149MB           17%
+# -z9 -Zgzip      1:13                   230MB           27%
+# -Znone          0:07                   864MB          100%
+#
+# Therefore, xz has the best combination of compression and performance
+$FAKEROOT dpkg-deb --verbose -Zxz --build pkg/debian $debname.deb
 

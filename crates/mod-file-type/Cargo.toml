@@ -1,0 +1,11 @@
+[package]
+name = "mod-file-type"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+config = {path="../config"}
+file_type = {workspace = true, features=["httpd", "iana"]}
+mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
+serde.workspace = true

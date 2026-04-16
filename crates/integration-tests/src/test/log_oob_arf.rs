@@ -100,7 +100,7 @@ Rejected(
     struct RelayDisp {
         was_arf_or_oob: bool,
         will_enqueue: bool,
-        recipient: String,
+        recipient: Vec<String>,
     }
 
     let trace_dispositions: Vec<_> = trace_events
@@ -127,27 +127,37 @@ Rejected(
     RelayDisp {
         was_arf_or_oob: true,
         will_enqueue: true,
-        recipient: "oob@example.com",
+        recipient: [
+            "oob@example.com",
+        ],
     },
     RelayDisp {
         was_arf_or_oob: true,
         will_enqueue: false,
-        recipient: "oob@thendrop.example.com",
+        recipient: [
+            "oob@thendrop.example.com",
+        ],
     },
     RelayDisp {
         was_arf_or_oob: true,
         will_enqueue: true,
-        recipient: "arf@example.com",
+        recipient: [
+            "arf@example.com",
+        ],
     },
     RelayDisp {
         was_arf_or_oob: true,
         will_enqueue: false,
-        recipient: "arf@thendrop.example.com",
+        recipient: [
+            "arf@thendrop.example.com",
+        ],
     },
     RelayDisp {
         was_arf_or_oob: false,
         will_enqueue: false,
-        recipient: "recip@example.com",
+        recipient: [
+            "recip@example.com",
+        ],
     },
 ]
 "#

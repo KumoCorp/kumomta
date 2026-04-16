@@ -6,7 +6,6 @@ use kumo_api_types::{
     SuspendReadyQueueV1ListEntry, SuspendReadyQueueV1Request, SuspendV1CancelRequest,
     SuspendV1Response,
 };
-use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
 use mlua::{Lua, LuaSerdeExt, Value};
 use parking_lot::FairMutex as Mutex;
@@ -176,14 +175,14 @@ impl AdminSuspendReadyQEntry {
 /// Define a suspension for a ready queue
 #[utoipa::path(
     post,
-    tag="suspend",
+    tags=["suspend", "kcli:suspend-ready-q"],
     path="/api/admin/suspend-ready-q/v1",
+    request_body=SuspendReadyQueueV1Request,
     responses(
         (status = 200, description = "Suspended", body=SuspendV1Response),
     ),
 )]
 pub async fn suspend(
-    _: TrustedIpRequired,
     // Note: Json<> must be last in the param list
     Json(request): Json<SuspendReadyQueueV1Request>,
 ) -> Result<Json<SuspendV1Response>, AppError> {
@@ -203,29 +202,28 @@ pub async fn suspend(
 /// List the active ready-queue suspensions
 #[utoipa::path(
     get,
-    tag="suspend",
+    tags=["suspend", "kcli:suspend-ready-q-list"],
     path="/api/admin/suspend-ready-q/v1",
     responses(
         (status = 200, description = "Suspended", body=SuspendReadyQueueV1ListEntry),
     ),
 )]
-pub async fn list(
-    _: TrustedIpRequired,
-) -> Result<Json<Vec<SuspendReadyQueueV1ListEntry>>, AppError> {
+pub async fn list() -> Result<Json<Vec<SuspendReadyQueueV1ListEntry>>, AppError> {
     Ok(Json(AdminSuspendReadyQEntry::get_all_v1()))
 }
 
 /// Remove a ready-queue suspension
 #[utoipa::path(
     delete,
-    tag="suspend",
+    tags=["suspend", "kcli:suspend-ready-q-cancel"],
     path="/api/admin/suspend-ready-q/v1",
+    request_body=SuspendV1CancelRequest,
     responses(
         (status = 200, description = "Removed the suspension"),
         (status = 404, description = "Suspension either expired or was never valid"),
     ),
 )]
-pub async fn delete(_: TrustedIpRequired, Json(request): Json<SuspendV1CancelRequest>) -> Response {
+pub async fn delete(Json(request): Json<SuspendV1CancelRequest>) -> Response {
     let removed = AdminSuspendReadyQEntry::remove_by_id(&request.id);
     if removed {
         (StatusCode::OK, format!("removed {}", request.id))

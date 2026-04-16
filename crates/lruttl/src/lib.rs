@@ -1,11 +1,13 @@
 use crate::metrics::*;
 use dashmap::DashMap;
+use kumo_prometheus::prometheus::{IntCounter, IntGauge};
 use kumo_server_memory::subscribe_to_memory_status_changes_async;
+pub use linkme;
 use parking_lot::Mutex;
-use prometheus::{IntCounter, IntGauge};
+pub use pastey as paste;
 use scopeguard::defer;
 use std::borrow::Borrow;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
 use std::hash::Hash;
@@ -13,7 +15,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Weak};
 use tokio::sync::Semaphore;
 use tokio::time::{timeout_at, Duration, Instant};
-pub use {linkme, paste};
 
 mod metrics;
 
@@ -347,7 +348,20 @@ async fn prune_expired_caches() {
 }
 
 #[linkme::distributed_slice]
-pub static LRUTTL_VIVIFY: [fn() -> &'static str];
+pub static LRUTTL_VIVIFY: [fn() -> CacheDefinition];
+
+#[macro_export]
+macro_rules! optional_doc {
+    ($doc:expr) => {
+        Some($doc.trim())
+    };
+    ($($doc:expr)+) => {
+        Some(concat!($($doc,)+).trim())
+    };
+    () => {
+        None
+    };
+}
 
 /// Declare a cache as a static, and link it into the list of possible
 /// pre-defined caches.
@@ -357,10 +371,13 @@ pub static LRUTTL_VIVIFY: [fn() -> &'static str];
 /// use this macro.
 #[macro_export]
 macro_rules! declare_cache {
-    ($vis:vis
+    (
+     $(#[doc = $doc:expr])*
+     $vis:vis
         static $sym:ident:
         LruCacheWithTtl<$key:ty, $value:ty>::new($name:expr, $capacity:expr);
     ) => {
+        $(#[doc = $doc])*
         $vis static $sym: ::std::sync::LazyLock<$crate::LruCacheWithTtl<$key, $value>> =
             ::std::sync::LazyLock::new(
                 || $crate::LruCacheWithTtl::new($name, $capacity));
@@ -368,9 +385,13 @@ macro_rules! declare_cache {
         // Link into LRUTTL_VIVIFY
         $crate::paste::paste! {
             #[linkme::distributed_slice($crate::LRUTTL_VIVIFY)]
-            static [<VIVIFY_ $sym>]: fn() -> &'static str = || {
+            static [<VIVIFY_ $sym>]: fn() -> $crate::CacheDefinition = || {
                 ::std::sync::LazyLock::force(&$sym);
-                $name
+                $crate::CacheDefinition {
+                    name: $name,
+                    capacity: $capacity,
+                    doc: $crate::optional_doc!($($doc)*),
+                }
             };
         }
     };
@@ -379,30 +400,48 @@ macro_rules! declare_cache {
 /// Ensure that all caches declared via declare_cache!
 /// have been instantiated and returns the set of names.
 fn vivify() {
-    LazyLock::force(&PREDEFINED_NAMES);
+    LazyLock::force(&PREDEFINED_CACHES);
 }
 
-fn vivify_impl() -> HashSet<&'static str> {
-    let mut set = HashSet::new();
+fn vivify_impl() -> HashMap<&'static str, CacheDefinition> {
+    let mut map = HashMap::new();
 
     for vivify_func in LRUTTL_VIVIFY {
-        let name = vivify_func();
-        assert!(!set.contains(name), "duplicate cache name {name}");
-        set.insert(name);
+        let definition = vivify_func();
+        assert!(
+            !map.contains_key(definition.name),
+            "duplicate cache name {}",
+            definition.name
+        );
+        map.insert(definition.name, definition);
     }
 
-    set
+    map
 }
 
-static PREDEFINED_NAMES: LazyLock<HashSet<&'static str>> = LazyLock::new(vivify_impl);
+#[derive(serde::Serialize)]
+pub struct CacheDefinition {
+    pub name: &'static str,
+    pub capacity: usize,
+    pub doc: Option<&'static str>,
+}
+
+static PREDEFINED_CACHES: LazyLock<HashMap<&'static str, CacheDefinition>> =
+    LazyLock::new(vivify_impl);
+
+pub fn get_definitions() -> Vec<&'static CacheDefinition> {
+    let mut defs = PREDEFINED_CACHES.values().collect::<Vec<_>>();
+    defs.sort_by(|a, b| a.name.cmp(&b.name));
+    defs
+}
 
 pub fn is_name_available(name: &str) -> bool {
-    !PREDEFINED_NAMES.contains(name)
+    !PREDEFINED_CACHES.contains_key(name)
 }
 
 /// Update the capacity value for a pre-defined cache
 pub fn set_cache_capacity(name: &str, capacity: usize) -> bool {
-    if !PREDEFINED_NAMES.contains(name) {
+    if !PREDEFINED_CACHES.contains_key(name) {
         return false;
     }
     let caches = all_caches();
@@ -679,13 +718,18 @@ impl<
         item
     }
 
-    fn clone_item_state(&self, name: &K) -> (ItemState<V>, Instant) {
+    fn clone_item_state(
+        &self,
+        name: &K,
+        deadline: Instant,
+        timeout_duration: Duration,
+    ) -> (ItemState<V>, Instant) {
         let mut is_new = false;
         let mut entry = self.inner.cache.entry(name.clone()).or_insert_with(|| {
             is_new = true;
             Item {
                 item: ItemState::Pending(Arc::new(Semaphore::new(1))),
-                expiration: Instant::now() + Duration::from_secs(60),
+                expiration: deadline,
                 last_tick: self.inc_tick().into(),
             }
         });
@@ -694,6 +738,24 @@ impl<
             ItemState::Pending(sema) => {
                 if sema.is_closed() {
                     entry.value_mut().item = ItemState::Pending(Arc::new(Semaphore::new(1)));
+                } else {
+                    let now = Instant::now();
+                    if now >= entry.expiration {
+                        // Exceeded deadline without closing the semaphore.
+                        // Perhaps there is some blocking issue preventing progress?
+                        // Force it into an error state to help unclog the rest of
+                        // the system
+                        tracing::warn!(
+                            "{} semaphore for {name:?} remains open, \
+                            but the lookup state has not been satisfied within the \
+                            populate deadline. Assuming that something is stuck and \
+                            making the now-active caller responsible for populating \
+                            this entry",
+                            self.inner.name
+                        );
+                        entry.value_mut().item = ItemState::Pending(Arc::new(Semaphore::new(1)));
+                        entry.value_mut().expiration = now + timeout_duration;
+                    }
                 }
             }
             ItemState::Refreshing {
@@ -727,6 +789,7 @@ impl<
                 if now >= entry.expiration {
                     // Expired; we will need to fetch it
                     entry.value_mut().item = ItemState::Pending(Arc::new(Semaphore::new(1)));
+                    entry.value_mut().expiration = now + timeout_duration;
                 }
             }
         }
@@ -767,8 +830,10 @@ impl<
         let deadline = start + timeout_duration;
 
         // Note: the lookup call increments lookup_counter and miss_counter
-        'retry: loop {
-            let (stale_value, sema) = match self.clone_item_state(name) {
+        const MAX_ATTEMPTS: usize = 10;
+        'retry: for _ in 0..MAX_ATTEMPTS {
+            let (stale_value, sema) = match self.clone_item_state(name, deadline, timeout_duration)
+            {
                 (ItemState::Present(item), expiration) => {
                     return Ok(ItemLookup {
                         item,
@@ -830,7 +895,7 @@ impl<
 
             // While we slept, someone else may have satisfied
             // the lookup; check it
-            let current_sema = match self.clone_item_state(name) {
+            let current_sema = match self.clone_item_state(name, deadline, timeout_duration) {
                 (ItemState::Present(item), expiration) => {
                     return Ok(ItemLookup {
                         item,
@@ -926,6 +991,11 @@ impl<
                 }
             }
         }
+
+        return Err(Arc::new(anyhow::anyhow!(
+            "{} lookup for {name:?} failed after {MAX_ATTEMPTS} attempts",
+            self.inner.name
+        )));
     }
 }
 

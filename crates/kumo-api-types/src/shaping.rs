@@ -342,10 +342,16 @@ impl ShapingInner {
     }
 
     pub async fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<Rule>> {
-        use rfc5321::ForwardPath;
+        use rfc5321::parser::ForwardPath;
         // Extract the domain from the recipient.
-        let recipient = ForwardPath::try_from(record.recipient.as_str())
-            .map_err(|err| anyhow::anyhow!("parsing record.recipient: {err}"))?;
+        let recipient = ForwardPath::try_from(
+            record
+                .recipient
+                .first()
+                .ok_or_else(|| anyhow::anyhow!("no recipients!?"))?
+                .as_str(),
+        )
+        .map_err(|err| anyhow::anyhow!("parsing record.recipient: {err}"))?;
 
         let recipient = match recipient {
             ForwardPath::Postmaster => {
@@ -459,7 +465,7 @@ fn from_json<'a, T: Deserialize<'a>>(json: &'a str) -> anyhow::Result<T> {
 
 #[cfg(feature = "lua")]
 fn from_toml<'a, T: Deserialize<'a>>(toml: &'a str) -> anyhow::Result<T> {
-    let d = toml::Deserializer::new(toml);
+    let d = toml::Deserializer::parse(toml)?;
     Ok(serde_path_to_error::deserialize(d)?)
 }
 
@@ -571,7 +577,7 @@ impl Shaping {
 
                 async fn http_get(url: &str, timeout: Duration) -> anyhow::Result<String> {
                     tokio::time::timeout(timeout, async {
-                        reqwest::Client::builder()
+                        let response = reqwest::Client::builder()
                             .timeout(timeout)
                             .connect_timeout(timeout)
                             .read_timeout(timeout)
@@ -579,7 +585,22 @@ impl Shaping {
                             .get(url)
                             .send()
                             .await
-                            .with_context(|| format!("making HTTP request to {url}"))?
+                            .with_context(|| format!("making HTTP request to {url}"))?;
+                        let status = response.status();
+                        if !status.is_success() {
+                            let err_text = match response.text().await {
+                                Ok(text) => text,
+                                Err(err) => {
+                                    format!("Additional error {err:#} while reading response body")
+                                }
+                            };
+                            anyhow::bail!(
+                                "HTTP request to {url} failed: status {status} {reason} {err_text}",
+                                status = status.as_u16(),
+                                reason = status.canonical_reason().unwrap_or("")
+                            );
+                        }
+                        response
                             .text()
                             .await
                             .with_context(|| format!("reading text from {url}"))
@@ -1730,7 +1751,7 @@ match_internal = true
                 kind: RecordType::TransientFailure,
                 id: String::new(),
                 sender: String::new(),
-                recipient: recipient.to_string(),
+                recipient: vec![recipient.to_string()],
                 queue: String::new(),
                 site: site.to_string(),
                 size: 0,
@@ -1961,11 +1982,14 @@ MergedEntry {
             100/m,
         ),
         max_deliveries_per_connection: 100,
+        max_recipients_per_batch: 100,
         prohibited_hosts: {
+            "0.0.0.0",
             "127.0.0.0/8",
-            "::1",
+            "::/127",
         },
         skip_hosts: {},
+        ip_lookup_strategy: Ipv4AndIpv6,
         ehlo_domain: None,
         aggressive_connection_opening: false,
         refresh_interval: 60s,
@@ -1981,6 +2005,7 @@ MergedEntry {
         low_memory_reduction_policy: ShrinkDataAndMeta,
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
+        ignore_8bit_checks: false,
     },
     sources: {},
     automation: [
@@ -2111,11 +2136,14 @@ MergedEntry {
             100/m,
         ),
         max_deliveries_per_connection: 100,
+        max_recipients_per_batch: 100,
         prohibited_hosts: {
+            "0.0.0.0",
             "127.0.0.0/8",
-            "::1",
+            "::/127",
         },
         skip_hosts: {},
+        ip_lookup_strategy: Ipv4AndIpv6,
         ehlo_domain: None,
         aggressive_connection_opening: false,
         refresh_interval: 60s,
@@ -2131,6 +2159,7 @@ MergedEntry {
         low_memory_reduction_policy: ShrinkDataAndMeta,
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
+        ignore_8bit_checks: false,
     },
     sources: {
         "my source name": EgressPathConfig {
@@ -2174,11 +2203,14 @@ MergedEntry {
             additional_source_selection_rates: {},
             max_connection_rate: None,
             max_deliveries_per_connection: 1024,
+            max_recipients_per_batch: 100,
             prohibited_hosts: {
+                "0.0.0.0",
                 "127.0.0.0/8",
-                "::1",
+                "::/127",
             },
             skip_hosts: {},
+            ip_lookup_strategy: Ipv4AndIpv6,
             ehlo_domain: None,
             aggressive_connection_opening: false,
             refresh_interval: 60s,
@@ -2194,6 +2226,7 @@ MergedEntry {
             low_memory_reduction_policy: ShrinkDataAndMeta,
             no_memory_reduction_policy: ShrinkDataAndMeta,
             try_next_host_on_transport_error: false,
+            ignore_8bit_checks: false,
         },
     },
     automation: [
@@ -2330,11 +2363,14 @@ MergedEntry {
             100/m,
         ),
         max_deliveries_per_connection: 20,
+        max_recipients_per_batch: 100,
         prohibited_hosts: {
+            "0.0.0.0",
             "127.0.0.0/8",
-            "::1",
+            "::/127",
         },
         skip_hosts: {},
+        ip_lookup_strategy: Ipv4AndIpv6,
         ehlo_domain: None,
         aggressive_connection_opening: false,
         refresh_interval: 60s,
@@ -2350,6 +2386,7 @@ MergedEntry {
         low_memory_reduction_policy: ShrinkDataAndMeta,
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
+        ignore_8bit_checks: false,
     },
     sources: {},
     automation: [

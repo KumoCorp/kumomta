@@ -115,7 +115,7 @@ There are two ways that this is achieved:
   response to a websocket push from the TSA daemon to cause its configuration
   updates to be picked up.
 
-* [/api/admin/bump-configuration](rapidoc.md#post-/api/admin/bump-config-epoch)
+* [/api/admin/bump-configuration](http/kumod/api_admin_bump_config_epoch_post.md)
   is an HTTP endpoint that can be used to externally bump the configuration
   epoch. This can be useful as part of a deployment process or configuration
   update happening elsewhere in your infrastructure.

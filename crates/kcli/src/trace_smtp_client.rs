@@ -219,8 +219,8 @@ impl TraceSmtpClientCommand {
         let (mut socket, _response) = connect_async(endpoint.to_string()).await?;
 
         socket
-            .send(Message::Text(serde_json::to_string(
-                &TraceSmtpClientV1Request {
+            .send(Message::Text(
+                serde_json::to_string(&TraceSmtpClientV1Request {
                     domain: self.domain.clone(),
                     routing_domain: self.routing_domain.clone(),
                     campaign: self.campaign.clone(),
@@ -234,8 +234,9 @@ impl TraceSmtpClientCommand {
                     source_addr,
                     mx_addr,
                     terse: self.terse,
-                },
-            )?))
+                })?
+                .into(),
+            ))
             .await?;
 
         struct ConnState {

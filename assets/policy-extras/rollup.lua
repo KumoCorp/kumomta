@@ -128,7 +128,7 @@ mx_rollup = false
 ]]
 function mod.reroute_using_ip_rollup(msg, mapping)
   local status, err = pcall(function()
-    local recip_domain = msg:recipient().domain
+    local recip_domain = msg:recipient_list()[1].domain
     local routing_domain = compute_ip_rollup(recip_domain, mapping)
     msg:set_meta('routing_domain', routing_domain)
   end)
@@ -164,7 +164,7 @@ rollup.reroute_based_on_mx_host_suffix(msg, {
 ]]
 function mod.reroute_based_on_mx_host_suffix(msg, mapping)
   local status, err = pcall(function()
-    local recip_domain = msg:recipient().domain
+    local recip_domain = msg:recipient_list()[1].domain
     local mx = kumo.dns.lookup_mx(recip_domain)
     for suffix, routing_domain in pairs(mapping) do
       if all_hosts_match_suffix(mx.hosts, suffix) then

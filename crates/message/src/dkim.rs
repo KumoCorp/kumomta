@@ -2,93 +2,108 @@ use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_sub_module};
 use data_loader::KeySource;
 use kumo_dkim::DkimPrivateKey;
+use kumo_prometheus::declare_metric;
 use lruttl::declare_cache;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, Value};
-use prometheus::{Counter, Histogram};
 use serde::Deserialize;
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, OnceLock};
 use tokio::runtime::Runtime;
-use tokio::time::{Duration, Instant};
+use tokio::time::Duration;
 
 declare_cache! {
+/// Caches dkim signer specs to signer objects
 static SIGNER_CACHE: LruCacheWithTtl<SignerConfig, Arc<CFSigner>>::new("dkim_signer_cache", 1024);
 }
 declare_cache! {
+/// Caches dkim loaded signing keys based on their KeySource spec
 static KEY_CACHE: LruCacheWithTtl<KeySource, Arc<DkimPrivateKey>>::new("dkim_key_cache", 1024);
 }
 
-static SIGNER_KEY_FETCH: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "dkim_signer_key_fetch",
-        "how long it takes to obtain a dkim key"
-    )
-    .unwrap()
-});
-static SIGNER_CREATE: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "dkim_signer_creation",
-        "how long it takes to create a signer on a cache miss"
-    )
-    .unwrap()
-});
-static SIGNER_SIGN: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "dkim_signer_sign",
-        "how long it takes to dkim sign parsed messages"
-    )
-    .unwrap()
-});
-static SIGNER_PARSE: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "dkim_signer_message_parse",
-        "how long it takes to parse messages as prep for signing"
-    )
-    .unwrap()
-});
-static SIGNER_CACHE_HIT: LazyLock<Counter> = LazyLock::new(|| {
-    prometheus::register_counter!(
-        "dkim_signer_cache_hit",
-        "how many cache dkim signer requests hit cache"
-    )
-    .unwrap()
-});
-static SIGNER_CACHE_MISS: LazyLock<Counter> = LazyLock::new(|| {
-    prometheus::register_counter!(
-        "dkim_signer_cache_miss",
-        "how many cache dkim signer requests miss cache"
-    )
-    .unwrap()
-});
-static SIGNER_CACHE_LOOKUP: LazyLock<Counter> = LazyLock::new(|| {
-    prometheus::register_counter!(
-        "dkim_signer_cache_lookup_count",
-        "how many cache dkim signer requests occurred"
-    )
-    .unwrap()
-});
+declare_metric! {
+/// How long it takes to obtain a dkim key.
+///
+/// This measures that time that it takes to load dkim
+/// private keys from whatever storage medium is configured.
+static SIGNER_KEY_FETCH: Histogram("dkim_signer_key_fetch");
+}
 
-static KEY_CACHE_HIT: LazyLock<Counter> = LazyLock::new(|| {
-    prometheus::register_counter!(
-        "dkim_signer_key_cache_hit",
-        "how many cache dkim signer requests hit key cache"
-    )
-    .unwrap()
-});
-static KEY_CACHE_MISS: LazyLock<Counter> = LazyLock::new(|| {
-    prometheus::register_counter!(
-        "dkim_signer_key_cache_miss",
-        "how many cache dkim signer requests miss key cache"
-    )
-    .unwrap()
-});
-static KEY_CACHE_LOOKUP: LazyLock<Counter> = LazyLock::new(|| {
-    prometheus::register_counter!(
-        "dkim_signer_key_cache_lookup_count",
-        "how many cache dkim key requests occurred"
-    )
-    .unwrap()
-});
+declare_metric! {
+/// How many seconds it takes to create a signer on a cache miss.
+static SIGNER_CREATE: Histogram("dkim_signer_creation");
+}
+
+declare_metric! {
+/// How many seconds it takes to dkim sign parsed messages.
+///
+/// Long durations may indicate that the system is over-provisioned
+/// and has insufficient CPU.  You should check whether and how you
+/// might have configured
+/// [kumo.dkim.set_signing_threads](../../kumo.dkim/set_signing_threads.md).
+static SIGNER_SIGN: Histogram("dkim_signer_sign");
+}
+
+declare_metric! {
+/// How many seconds it takes to parse messages as prep for signing.
+///
+/// Long durations may simply indicate that you have very large
+/// messages passing through the system.
+static SIGNER_PARSE: Histogram("dkim_signer_message_parse");
+}
+
+declare_metric! {
+/// How many dkim signer requests hit cache.
+///
+/// This is redundant with the newer
+/// [lruttl_hit_count{cache_name="dkim_signer_cache"}](lruttl_hit_count.md)
+/// counter.
+static SIGNER_CACHE_HIT: IntCounter("dkim_signer_cache_hit");
+}
+
+declare_metric! {
+/// How many dkim signer requests miss cache.
+///
+/// This is redundant with the newer
+/// [lruttl_miss_count{cache_name="dkim_signer_cache"}](lruttl_miss_count.md)
+/// counter.
+static SIGNER_CACHE_MISS: IntCounter("dkim_signer_cache_miss");
+}
+
+declare_metric! {
+/// How many cache dkim signer requests occurred.
+///
+/// This is redundant with the newer
+/// [lruttl_lookup_count{cache_name="dkim_signer_cache"}](lruttl_lookup_count.md)
+/// counter.
+static SIGNER_CACHE_LOOKUP: IntCounter("dkim_signer_cache_lookup_count");
+}
+
+declare_metric! {
+/// How many cache dkim signer requests hit key cache.
+///
+/// This is redundant with the newer
+/// [lruttl_hit_count{cache_name="dkim_key_cache"}](lruttl_hit_count.md)
+/// counter.
+static KEY_CACHE_HIT: IntCounter("dkim_signer_key_cache_hit");
+}
+
+declare_metric! {
+/// How many cache dkim signer requests miss key cache.
+///
+/// This is redundant with the newer
+/// [lruttl_miss_count{cache_name="dkim_key_cache"}](lruttl_miss_count.md)
+/// counter.
+static KEY_CACHE_MISS: IntCounter("dkim_signer_key_cache_miss");
+}
+
+declare_metric! {
+/// How many cache dkim key requests occurred.
+///
+/// This is redundant with the newer
+/// [lruttl_lookup_count{cache_name="dkim_key_cache"}](lruttl_lookup_count.md)
+/// counter.
+static KEY_CACHE_LOOKUP: IntCounter("dkim_signer_key_cache_lookup_count");
+}
 
 #[derive(Deserialize, Hash, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Canon {
@@ -196,28 +211,34 @@ impl Signer {
     pub fn sign(&self, message: &[u8]) -> anyhow::Result<String> {
         self.0.sign(message)
     }
+
+    pub fn signer(&self) -> &kumo_dkim::Signer {
+        self.0.signer()
+    }
 }
 
 impl LuaUserData for Signer {}
 
 async fn cached_key_load(key: &KeySource, ttl: Duration) -> anyhow::Result<Arc<DkimPrivateKey>> {
     KEY_CACHE_LOOKUP.inc();
-    if let Some(pkey) = KEY_CACHE.get(key) {
-        KEY_CACHE_HIT.inc();
-        return Ok(pkey);
-    }
-
-    KEY_CACHE_MISS.inc();
-    let key_fetch_timer = SIGNER_KEY_FETCH.start_timer();
-    let data = key.get().await?;
-
-    let pkey = Arc::new(DkimPrivateKey::key(&data)?);
-    key_fetch_timer.stop_and_record();
-
     KEY_CACHE
-        .insert(key.clone(), pkey.clone(), Instant::now() + ttl)
-        .await;
-    Ok(pkey)
+        .get_or_try_insert(key, |_| ttl, async {
+            let key_fetch_timer = SIGNER_KEY_FETCH.start_timer();
+            let data = key.get().await?;
+            let pkey = Arc::new(DkimPrivateKey::key(&data)?);
+            key_fetch_timer.stop_and_record();
+            Ok::<Arc<DkimPrivateKey>, anyhow::Error>(pkey)
+        })
+        .await
+        .map_err(|err| anyhow::anyhow!("{err:#}"))
+        .map(|lookup| {
+            if !lookup.is_fresh {
+                KEY_CACHE_HIT.inc();
+            } else {
+                KEY_CACHE_MISS.inc();
+            }
+            lookup.item
+        })
 }
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
@@ -238,69 +259,48 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             Ok(())
         })?,
     )?;
+
+    async fn generic_signer_ctor(lua: Lua, params: Value) -> mlua::Result<Signer> {
+        let params: SignerConfig = from_lua_value(&lua, params)?;
+
+        SIGNER_CACHE_LOOKUP.inc();
+        SIGNER_CACHE
+            .get_or_try_insert(&params, |_| params.ttl, async {
+                let signer_creation_timer = SIGNER_CREATE.start_timer();
+
+                let key = cached_key_load(&params.key, params.ttl)
+                    .await
+                    .map_err(|err| anyhow::anyhow!("{:?}: {err:#}", params.key))?;
+
+                let signer = params
+                    .configure_kumo_dkim(key)
+                    .map_err(|err| anyhow::anyhow!("{err:#}"))?;
+
+                let inner = Arc::new(CFSigner { signer });
+
+                signer_creation_timer.stop_and_record();
+                Ok::<Arc<CFSigner>, anyhow::Error>(inner)
+            })
+            .await
+            .map_err(any_err)
+            .map(|lookup| {
+                if !lookup.is_fresh {
+                    SIGNER_CACHE_HIT.inc();
+                } else {
+                    SIGNER_CACHE_MISS.inc();
+                }
+                Signer(lookup.item)
+            })
+    }
+
     dkim_mod.set(
         "rsa_sha256_signer",
-        lua.create_async_function(|lua, params: Value| async move {
-            let params: SignerConfig = from_lua_value(&lua, params)?;
-
-            SIGNER_CACHE_LOOKUP.inc();
-            if let Some(inner) = SIGNER_CACHE.get(&params) {
-                SIGNER_CACHE_HIT.inc();
-                return Ok(Signer(inner));
-            }
-            SIGNER_CACHE_MISS.inc();
-
-            let signer_creation_timer = SIGNER_CREATE.start_timer();
-
-            let key = cached_key_load(&params.key, params.ttl)
-                .await
-                .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;
-
-            let signer = params
-                .configure_kumo_dkim(key)
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
-
-            let inner = Arc::new(CFSigner { signer });
-
-            let expiration = Instant::now() + params.ttl;
-            SIGNER_CACHE
-                .insert(params, Arc::clone(&inner), expiration)
-                .await;
-
-            signer_creation_timer.stop_and_record();
-            Ok(Signer(inner))
-        })?,
+        lua.create_async_function(generic_signer_ctor)?,
     )?;
 
     dkim_mod.set(
         "ed25519_signer",
-        lua.create_async_function(|lua, params: Value| async move {
-            let params: SignerConfig = from_lua_value(&lua, params)?;
-
-            if let Some(inner) = SIGNER_CACHE.get(&params) {
-                return Ok(Signer(inner));
-            }
-
-            let signer_creation_timer = SIGNER_CREATE.start_timer();
-
-            let key = cached_key_load(&params.key, params.ttl)
-                .await
-                .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;
-
-            let signer = params
-                .configure_kumo_dkim(key)
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
-
-            let inner = Arc::new(CFSigner { signer });
-
-            let expiration = Instant::now() + params.ttl;
-            SIGNER_CACHE
-                .insert(params, Arc::clone(&inner), expiration)
-                .await;
-
-            signer_creation_timer.stop_and_record();
-            Ok(Signer(inner))
-        })?,
+        lua.create_async_function(generic_signer_ctor)?,
     )?;
     Ok(())
 }
@@ -313,9 +313,7 @@ pub struct CFSigner {
 impl CFSigner {
     fn sign(&self, message: &[u8]) -> anyhow::Result<String> {
         let parse_timer = SIGNER_PARSE.start_timer();
-        let message_str =
-            std::str::from_utf8(message).context("DKIM signer: message is not ASCII or UTF-8")?;
-        let mail = kumo_dkim::ParsedEmail::parse(message_str)
+        let mail = kumo_dkim::ParsedEmail::parse(message)
             .context("failed to parse message to pass to dkim signer")?;
         parse_timer.stop_and_record();
 
@@ -324,5 +322,9 @@ impl CFSigner {
         sign_timer.stop_and_record();
 
         Ok(dkim_header)
+    }
+
+    fn signer(&self) -> &kumo_dkim::Signer {
+        &self.signer
     }
 }

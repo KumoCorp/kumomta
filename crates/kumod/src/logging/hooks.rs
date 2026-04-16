@@ -5,13 +5,14 @@ use anyhow::Context;
 use config::{declare_event, load_config};
 use flume::Receiver;
 pub use kumo_log_types::*;
+use kumo_prometheus::declare_metric;
 use kumo_template::{Template, TemplateEngine};
-use message::{EnvelopeAddress, Message};
-use prometheus::CounterVec;
+use message::Message;
+use rfc5321::parser::EnvelopeAddress;
 use serde::Deserialize;
 use spool::SpoolId;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use tokio::sync::{Semaphore, TryAcquireError};
 
 declare_event! {
@@ -22,14 +23,13 @@ pub static SHOULD_ENQ_LOG_RECORD_SIG: Multiple(
 ) -> bool;
 }
 
-static HOOK_BACKLOG_COUNT: LazyLock<CounterVec> = LazyLock::new(|| {
-    prometheus::register_counter_vec!(
-        "log_hook_backlog_count",
-        "how many times processing of a log event hit the back_pressure in a hook",
-        &["logger"]
-    )
-    .unwrap()
-});
+declare_metric! {
+/// how many times processing of a log event hit the back_pressure in a hook
+static HOOK_BACKLOG_COUNT: CounterVec(
+    "log_hook_backlog_count",
+    &["logger"]
+);
+}
 
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
@@ -97,7 +97,7 @@ impl LogHookState {
                     tracing::debug!("LogCommand::Terminate received. Stopping writing logs");
                     break;
                 }
-                LogCommand::Record(record) => {
+                LogCommand::Record(record, _msg) => {
                     if let Err(err) = self.do_record(record).await {
                         tracing::error!("failed to log: {err:#}");
                     };
@@ -139,8 +139,7 @@ impl LogHookState {
         };
 
         let mut record_text = Vec::new();
-        self.template_engine
-            .add_global("log_record", kumo_template::Value::from_serialize(&record));
+        self.template_engine.add_global("log_record", &record)?;
 
         if let Some(template) =
             Self::resolve_template(&self.params, &self.template_engine, record.kind)
@@ -155,40 +154,58 @@ impl LogHookState {
 
         let record_json = serde_json::to_value(&record)?;
 
+        let mut recipients = vec![];
+        for recip in &record.recipient {
+            recipients.push(EnvelopeAddress::parse(&recip)?);
+        }
+        anyhow::ensure!(!recipients.is_empty(), "no recips!?");
+
         let id = SpoolId::new();
         let msg = Message::new_dirty(
             id,
             EnvelopeAddress::parse(&record.sender)?,
-            EnvelopeAddress::parse(&record.recipient)?,
+            recipients,
             record.meta.clone().into_iter().collect(),
             Arc::new(record_text.into_boxed_slice()),
         )?;
 
-        msg.set_meta("log_record", record_json)?;
-        msg.set_meta("reception_protocol", "LogRecord")?;
+        msg.set_meta("log_record", record_json).await?;
+        msg.set_meta("reception_protocol", "LogRecord").await?;
         let deferred_spool = self.params.deferred_spool;
         let name = self.params.name.clone();
 
         LOGGING_RUNTIME.spawn("log-hook".to_string(), async move {
-            let mut lua_config = load_config().await?;
+            let result: anyhow::Result<()> = async move {
+                let mut lua_config = load_config().await.context("load_config")?;
 
-            let enqueue: bool = lua_config
-                .async_call_callback(&SHOULD_ENQ_LOG_RECORD_SIG, (msg.clone(), name))
-                .await?;
-            lua_config.put();
+                let enqueue: bool = lua_config
+                    .async_call_callback(&SHOULD_ENQ_LOG_RECORD_SIG, (msg.clone(), name))
+                    .await
+                    .context("async_call_callback")?;
+                lua_config.put();
 
-            // Release permit before we insert, as insertion itself can generate
-            // log pressure if queues are fully and we want to avoid the potential
-            // for deadlock-alike behavior
-            drop(permit);
+                // Release permit before we insert, as insertion itself can generate
+                // log pressure if queues are fully and we want to avoid the potential
+                // for deadlock-alike behavior
+                drop(permit);
 
-            if enqueue {
-                let queue_name = msg.get_queue_name()?;
-                if !deferred_spool {
-                    msg.save(None).await?;
+                if enqueue {
+                    let queue_name = msg.get_queue_name().await.context("get_queue_name")?;
+                    if !deferred_spool {
+                        msg.save(None).await.context("save")?;
+                    }
+                    QueueManager::insert(&queue_name, msg, InsertReason::Received.into())
+                        .await
+                        .context("insert")?;
                 }
-                QueueManager::insert(&queue_name, msg, InsertReason::Received.into()).await?;
+                Ok(())
             }
+            .await;
+
+            if let Err(err) = result {
+                tracing::error!("Error while calling should_enqueue_log_record: {err:#}");
+            }
+
             anyhow::Result::<()>::Ok(())
         })?;
 

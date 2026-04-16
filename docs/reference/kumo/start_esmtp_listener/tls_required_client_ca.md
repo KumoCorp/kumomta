@@ -1,6 +1,6 @@
 # tls_required_client_ca
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Specify the path to a TLS certificate file to use to verify a client
 certificate presented by a client when it issues `STARTTLS`.

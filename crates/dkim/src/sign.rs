@@ -1,7 +1,12 @@
-use crate::header::DKIMHeaderBuilder;
-use crate::{canonicalization, hash, DKIMError, DkimPrivateKey, HeaderList, ParsedEmail, HEADER};
+use crate::arc::ARC_SEAL_HEADER_NAME;
+use crate::header::TaggedHeaderBuilder;
+use crate::{
+    canonicalization, hash, DKIMError, DkimPrivateKey, HeaderList, ParsedEmail,
+    DKIM_SIGNATURE_HEADER_NAME,
+};
 use data_encoding::BASE64;
 use ed25519_dalek::Signer as _;
+use mailparsing::Header;
 use std::sync::Arc;
 
 /// Builder for the Signer
@@ -161,7 +166,17 @@ pub struct Signer {
 impl Signer {
     /// Sign a message
     /// As specified in <https://datatracker.ietf.org/doc/html/rfc6376#section-5>
-    pub fn sign<'b>(&self, email: &'b ParsedEmail<'b>) -> Result<String, DKIMError> {
+    pub fn sign(&self, email: &ParsedEmail<'_>) -> Result<String, DKIMError> {
+        self.sign_impl(email, DKIM_SIGNATURE_HEADER_NAME, &[], None)
+    }
+
+    pub fn sign_impl(
+        &self,
+        email: &ParsedEmail<'_>,
+        header_name: &str,
+        additional_tags: &[(&str, String)],
+        concrete_header_list: Option<Vec<&Header<'_>>>,
+    ) -> Result<String, DKIMError> {
         let over_sign_header_list;
         let effective_header_list = if self.over_sign {
             over_sign_header_list = self.signed_headers.compute_over_signed(email);
@@ -170,11 +185,14 @@ impl Signer {
             &self.signed_headers
         };
 
-        let body_hash = self.compute_body_hash(email)?;
-        let dkim_header_builder = self.dkim_header_builder(&body_hash, effective_header_list)?;
+        let header_builder =
+            self.header_builder(email, effective_header_list, header_name, additional_tags)?;
+
+        let concrete_header_list = concrete_header_list
+            .unwrap_or_else(|| effective_header_list.compute_concrete_header_list(email));
 
         let header_hash =
-            self.compute_header_hash(email, effective_header_list, dkim_header_builder.clone())?;
+            self.compute_header_hash(concrete_header_list, header_builder.clone(), header_name)?;
 
         let signature = match &*self.private_key {
             DkimPrivateKey::Ed25519(signing_key) => {
@@ -196,10 +214,9 @@ impl Signer {
                         match self.hash_algo {
                             hash::HashAlgo::RsaSha1 => openssl_sys::NID_sha1,
                             hash::HashAlgo::RsaSha256 => openssl_sys::NID_sha256,
-                            hash => {
+                            hash @ hash::HashAlgo::Ed25519Sha256 => {
                                 return Err(DKIMError::UnsupportedHashAlgorithm(format!(
-                                    "{:?}",
-                                    hash
+                                    "{hash:?}",
                                 )))
                             }
                         },
@@ -225,35 +242,58 @@ impl Signer {
         };
 
         // add the signature into the DKIM header and generate the header
-        let dkim_header = dkim_header_builder
+        let dkim_header = header_builder
             .add_tag("b", &BASE64.encode(&signature))
             .build();
 
-        Ok(format!("{}: {}", HEADER, dkim_header.raw_bytes))
+        Ok(format!("{header_name}: {}", dkim_header.raw()))
     }
 
-    fn dkim_header_builder(
+    fn header_builder(
         &self,
-        body_hash: &str,
+        email: &ParsedEmail<'_>,
         effective_header_list: &HeaderList,
-    ) -> Result<DKIMHeaderBuilder, DKIMError> {
+        header_name: &str,
+        additional_tags: &[(&str, String)],
+    ) -> Result<TaggedHeaderBuilder, DKIMError> {
         let now = chrono::offset::Utc::now();
 
-        let mut builder = DKIMHeaderBuilder::new()
-            .add_tag("v", "1")
-            .add_tag("a", self.hash_algo.algo_name())
+        let mut builder = TaggedHeaderBuilder::new();
+
+        for (name, value) in additional_tags {
+            builder = builder.add_tag(name, &value);
+        }
+
+        if header_name.eq_ignore_ascii_case(DKIM_SIGNATURE_HEADER_NAME) {
+            builder = builder.add_tag("v", "1");
+        }
+
+        builder = builder.add_tag("a", self.hash_algo.algo_name());
+
+        builder = builder
             .add_tag("d", &self.signing_domain)
-            .add_tag("s", &self.selector)
-            .add_tag(
+            .add_tag("s", &self.selector);
+
+        if !header_name.eq_ignore_ascii_case(ARC_SEAL_HEADER_NAME) {
+            builder = builder.add_tag(
                 "c",
                 &format!(
                     "{}/{}",
                     self.header_canonicalization.canon_name(),
                     self.body_canonicalization.canon_name()
                 ),
-            )
-            .add_tag("bh", body_hash)
-            .set_signed_headers(effective_header_list);
+            );
+        }
+
+        if !header_name.eq_ignore_ascii_case(ARC_SEAL_HEADER_NAME) {
+            let body_hash = self.compute_body_hash(email)?;
+            builder = builder.add_tag("bh", &body_hash);
+        }
+
+        if !header_name.eq_ignore_ascii_case(ARC_SEAL_HEADER_NAME) {
+            builder = builder.set_signed_headers(effective_header_list);
+        }
+
         if let Some(time) = self.time {
             builder = builder.set_time(time);
         } else {
@@ -272,23 +312,27 @@ impl Signer {
         hash::compute_body_hash(canonicalization, length, self.hash_algo, email)
     }
 
-    fn compute_header_hash<'b>(
+    fn compute_header_hash(
         &self,
-        email: &'b ParsedEmail<'b>,
-        effective_header_list: &HeaderList,
-        dkim_header_builder: DKIMHeaderBuilder,
+        concrete_header_list: Vec<&Header<'_>>,
+        header_builder: TaggedHeaderBuilder,
+        header_name: &str,
     ) -> Result<Vec<u8>, DKIMError> {
-        let canonicalization = self.header_canonicalization;
+        let canonicalization = if header_name.eq_ignore_ascii_case(ARC_SEAL_HEADER_NAME) {
+            canonicalization::Type::Relaxed
+        } else {
+            self.header_canonicalization
+        };
 
         // For signing the DKIM-Signature header the signature needs to be null
-        let dkim_header = dkim_header_builder.add_tag("b", "").build();
+        let dkim_header = header_builder.add_tag("b", "").build();
 
         hash::compute_headers_hash(
             canonicalization,
-            effective_header_list,
+            &concrete_header_list,
             self.hash_algo,
             &dkim_header,
-            email,
+            header_name,
         )
     }
 }

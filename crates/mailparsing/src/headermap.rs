@@ -1,9 +1,10 @@
 use crate::{
-    AddressList, AuthenticationResults, Header, Mailbox, MailboxList, MessageID, MimeParameters,
-    Result, SharedString,
+    AddressList, AuthenticationResults, Header, MailParsingError, Mailbox, MailboxList, MessageID,
+    MimeParameters, Result, SharedString,
 };
+use bstr::BString;
 use chrono::{DateTime, FixedOffset, TimeZone};
-use paste::paste;
+use pastey::paste;
 
 /// Represents an ordered list of headers.
 /// Note that there may be multiple headers with the same name.
@@ -29,8 +30,18 @@ impl<'a> std::ops::DerefMut for HeaderMap<'a> {
 
 pub trait EncodeHeaderValue {
     fn encode_value(&self) -> SharedString<'static>;
-    fn as_header(&self, _name: &str) -> Option<Header<'static>> {
+    fn as_header(&self, _name: &[u8]) -> Option<Header<'static>> {
         None
+    }
+}
+
+impl EncodeHeaderValue for &[u8] {
+    fn encode_value(&self) -> SharedString<'static> {
+        unimplemented!();
+    }
+
+    fn as_header(&self, name: &[u8]) -> Option<Header<'static>> {
+        Some(Header::new_unstructured(name.to_vec(), self.to_vec()))
     }
 }
 
@@ -39,8 +50,8 @@ impl EncodeHeaderValue for &str {
         unimplemented!();
     }
 
-    fn as_header(&self, name: &str) -> Option<Header<'static>> {
-        Some(Header::new_unstructured(name.to_string(), self.to_string()))
+    fn as_header(&self, name: &[u8]) -> Option<Header<'static>> {
+        Some(Header::new_unstructured(name.to_vec(), self.to_string()))
     }
 }
 
@@ -58,31 +69,48 @@ macro_rules! accessor {
         pub fn $func_name(&self) -> Result<Option<$ty>> {
             match self.get_first($header_name) {
                 None => Ok(None),
-                Some(header) => Ok(Some(header.$parser()?)),
+                Some(header) => Ok(Some(header.$parser().map_err(|error| {
+                    MailParsingError::InvalidHeaderValueDuringGet {
+                        header_name: $header_name.to_string(),
+                        error: error.into(),
+                    }
+                })?)),
             }
         }
 
         paste! {
-            pub fn [<set_ $func_name>](&mut self, v: impl EncodeHeaderValue) {
-
+            pub fn [<set_ $func_name>](&mut self, v: impl EncodeHeaderValue) -> Result<()> {
                 if let Some(idx) = self
                     .headers
                     .iter()
-                    .position(|header| header.get_name().eq_ignore_ascii_case($header_name))
+                    .position(|header| header.get_name().eq_ignore_ascii_case($header_name.as_bytes()))
                 {
                     if let Some(hdr) = v.as_header(self.headers[idx].get_name()) {
+                        hdr.$parser().map_err(|error| {
+                            MailParsingError::InvalidHeaderValueDuringAssignment {
+                                header_name: $header_name.to_string(),
+                                error: error.into(),
+                            }
+                        })?;
                         self.headers[idx] = hdr;
                     } else {
                         self.headers[idx].assign(v);
                     }
                 } else {
-                    if let Some(hdr) = v.as_header($header_name) {
+                    if let Some(hdr) = v.as_header($header_name.as_bytes()) {
+                        hdr.$parser().map_err(|error| {
+                            MailParsingError::InvalidHeaderValueDuringAssignment {
+                                header_name: $header_name.to_string(),
+                                error: error.into(),
+                            }
+                        })?;
                         self.headers.push(hdr);
                     } else {
-                    self.headers
-                        .push(Header::with_name_value($header_name, v.encode_value()));
+                        self.headers
+                            .push(Header::with_name_value($header_name, v.encode_value()));
                     }
                 }
+                Ok(())
             }
         }
     };
@@ -93,14 +121,25 @@ impl<'a> HeaderMap<'a> {
         Self { headers }
     }
 
+    pub fn to_owned(&'a self) -> HeaderMap<'static> {
+        HeaderMap {
+            headers: self.headers.iter().map(|h: &Header| h.to_owned()).collect(),
+        }
+    }
+
     pub fn remove_all_named(&mut self, name: &str) {
         self.headers
-            .retain(|hdr| !hdr.get_name().eq_ignore_ascii_case(name));
+            .retain(|hdr| !hdr.get_name().eq_ignore_ascii_case(name.as_bytes()));
     }
 
     pub fn prepend<V: Into<SharedString<'a>>>(&mut self, name: &str, v: V) {
         self.headers
             .insert(0, Header::new_unstructured(name.to_string(), v));
+    }
+
+    pub fn append_header<V: Into<SharedString<'a>>>(&mut self, name: &str, v: V) {
+        self.headers
+            .push(Header::new_unstructured(name.to_string(), v));
     }
 
     pub fn get_first(&'a self, name: &str) -> Option<&'a Header<'a>> {
@@ -128,7 +167,7 @@ impl<'a> HeaderMap<'a> {
     {
         self.headers
             .iter()
-            .filter(|header| header.get_name().eq_ignore_ascii_case(name))
+            .filter(|header| header.get_name().eq_ignore_ascii_case(name.as_bytes()))
     }
 
     pub fn iter_named_mut<'name>(
@@ -140,7 +179,7 @@ impl<'a> HeaderMap<'a> {
     {
         self.headers
             .iter_mut()
-            .filter(|header| header.get_name().eq_ignore_ascii_case(name))
+            .filter(|header| header.get_name().eq_ignore_ascii_case(name.as_bytes()))
     }
 
     accessor!(from, "From", MailboxList, as_mailbox_list);
@@ -163,15 +202,15 @@ impl<'a> HeaderMap<'a> {
     accessor!(content_id, "Content-ID", MessageID, as_content_id);
     accessor!(references, "References", Vec<MessageID>, as_message_id_list);
 
-    accessor!(subject, "Subject", String, as_unstructured);
-    accessor!(comments, "Comments", String, as_unstructured);
+    accessor!(subject, "Subject", BString, as_unstructured);
+    accessor!(comments, "Comments", BString, as_unstructured);
     accessor!(
         content_transfer_encoding,
         "Content-Transfer-Encoding",
         MimeParameters,
         as_content_transfer_encoding
     );
-    accessor!(mime_version, "Mime-Version", String, as_unstructured);
+    accessor!(mime_version, "Mime-Version", BString, as_unstructured);
     accessor!(
         content_disposition,
         "Content-Disposition",

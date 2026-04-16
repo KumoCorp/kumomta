@@ -7,7 +7,7 @@ use config::{declare_event, CallbackSignature};
 use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
 use kumo_server_common::start::StartConfig;
 use kumo_server_lifecycle::LifeCycle;
-use kumo_server_runtime::available_parallelism;
+use kumo_server_runtime::{available_parallelism, rt_spawn};
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use nix::unistd::{Uid, User};
 use std::path::PathBuf;
@@ -23,6 +23,7 @@ pub static VALIDATE_SIG: Multiple("validate_config") -> ();
 
 mod accounting;
 mod delivery_metrics;
+mod dmarc;
 mod egress_source;
 mod http_server;
 mod logging;
@@ -35,6 +36,7 @@ mod smtp_dispatcher;
 mod smtp_server;
 mod spf;
 mod spool;
+mod xfer;
 
 /// KumoMTA Daemon.
 ///
@@ -76,6 +78,16 @@ struct Opt {
     /// to stdout.
     #[arg(long)]
     dump_openapi_spec: bool,
+
+    /// Instead of running the daemon, output the list of lruttl caches
+    /// to stdout.
+    #[arg(long)]
+    dump_lruttl_caches: bool,
+
+    /// Instead of running the daemon, output the list of metric metadata
+    /// to stdout.
+    #[arg(long)]
+    dump_metric_metadata: bool,
 
     /// Required if started as root; specifies which user to run as once
     /// privileges have been dropped.
@@ -162,8 +174,22 @@ fn main() -> anyhow::Result<()> {
     let opts = Opt::parse();
 
     if opts.dump_openapi_spec {
-        let api_docs = crate::http_server::make_router().make_docs();
+        let api_docs = crate::http_server::make_router().docs;
         println!("{}", api_docs.to_pretty_json()?);
+        return Ok(());
+    }
+
+    if opts.dump_lruttl_caches {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&lruttl::get_definitions())?
+        );
+        return Ok(());
+    }
+
+    if opts.dump_metric_metadata {
+        let data = kumo_prometheus::export_metadata();
+        println!("{}", serde_json::to_string_pretty(&data)?);
         return Ok(());
     }
 
@@ -258,11 +284,16 @@ async fn perform_init(opts: Opt) -> anyhow::Result<()> {
         let mut script_args = opts.legacy_script_args;
         script_args.append(&mut opts.script_args.clone());
 
-        config
-            .async_call_callback(&main_sig, ParamList(script_args))
-            .await
-            .context("call main callback")?;
-        LifeCycle::request_shutdown().await;
+        // Spawn the main callback in the background so that perform_init
+        // returns immediately. This allows wait_for_shutdown() to run
+        // and properly handle ctrl+c and other shutdown signals.
+        let _ = rt_spawn("main", async move {
+            let result = config
+                .async_call_callback(&main_sig, ParamList(script_args))
+                .await;
+            LifeCycle::request_shutdown(result).await;
+        });
+
         return Ok(());
     }
 
@@ -287,7 +318,7 @@ async fn perform_init(opts: Opt) -> anyhow::Result<()> {
             anyhow::bail!("Validation failed");
         }
 
-        LifeCycle::request_shutdown().await;
+        LifeCycle::request_shutdown(Ok(())).await;
     } else {
         config::epoch::start_monitor();
         lruttl::spawn_memory_monitor();
@@ -300,6 +331,15 @@ async fn perform_init(opts: Opt) -> anyhow::Result<()> {
     config.put();
 
     Ok(())
+}
+
+async fn emit_shutdown_logging_event() {
+    let Ok(mut config) = config::load_config().await else {
+        return;
+    };
+
+    let shutdown_sig = CallbackSignature::<(), ()>::new("shutdown_logging");
+    config.async_call_callback(&shutdown_sig, ()).await.ok();
 }
 
 async fn run(opts: Opt) -> anyhow::Result<()> {
@@ -324,6 +364,8 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             crate::logging::register,
             message::dkim::register,
             crate::spf::register,
+            crate::dmarc::register,
+            crate::xfer::lua::register,
         ],
         policy: &opts.policy,
     }
@@ -334,7 +376,10 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
                 perform_init(opts).await
             }
         },
-        crate::logging::Logger::signal_shutdown(),
+        async move {
+            emit_shutdown_logging_event().await;
+            crate::logging::Logger::signal_shutdown().await;
+        }
     )
     .await;
 

@@ -6,9 +6,11 @@ use crate::queue::{opt_timeout_at, IncrementAttempts, Queue};
 use crate::smtp_server::RejectError;
 use crate::spool::SpoolManager;
 use ::config::{declare_event, load_config};
+use config::SerdeWrappedValue;
 use dashmap::DashMap;
+use kumo_prometheus::declare_metric;
 use message::Message;
-use prometheus::{Histogram, IntGauge};
+use mod_time::TimeDelta;
 use rfc5321::Response;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
@@ -16,32 +18,30 @@ use tokio::sync::Semaphore;
 use tracing::instrument;
 
 pub static MANAGER: LazyLock<QueueManager> = LazyLock::new(|| QueueManager::new());
-static RESOLVE_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "queue_resolve_latency",
-        "latency of QueueManager::resolve operations",
-    )
-    .unwrap()
-});
-static INSERT_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "queue_insert_latency",
-        "latency of QueueManager::insert operations",
-    )
-    .unwrap()
-});
-pub static SCHEDULED_QUEUE_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
-    prometheus::register_int_gauge!(
-        "scheduled_queue_count",
-        "how many scheduled queues are tracked by the QueueManager"
-    )
-    .unwrap()
-});
+
+declare_metric! {
+/// latency of QueueManager::resolve operations
+static RESOLVE_LATENCY: Histogram("queue_resolve_latency");
+}
+
+declare_metric! {
+/// latency of QueueManager::insert operations
+static INSERT_LATENCY: Histogram("queue_insert_latency");
+}
+
+declare_metric! {
+/// how many scheduled queues are tracked by the QueueManager
+pub static SCHEDULED_QUEUE_COUNT: IntGauge("scheduled_queue_count");
+}
+
 declare_event! {
 pub static REQUEUE_MESSAGE_SIG: Multiple(
     "requeue_message",
     message: Message,
-    response: String
+    response: String,
+    insert_context: SerdeWrappedValue<InsertContext>,
+    increment_attempts: bool,
+    delay: Option<TimeDelta>,
 ) -> ();
 }
 
@@ -179,6 +179,7 @@ impl QueueManager {
                     source_address: None,
                     provider: None,
                     session_id: None,
+                    recipient_list: None,
                 })
                 .await;
 
@@ -202,21 +203,27 @@ impl QueueManager {
         if !msg.is_meta_loaded() {
             msg.load_meta().await?;
         }
-        let mut queue_name = msg.get_queue_name()?;
+        let mut queue_name = msg.get_queue_name().await?;
 
         match load_config().await {
             Ok(mut config) => {
                 let result: anyhow::Result<()> = config
                     .async_call_callback(
                         &REQUEUE_MESSAGE_SIG,
-                        (msg.clone(), response.to_single_line()),
+                        (
+                            msg.clone(),
+                            response.to_single_line(),
+                            SerdeWrappedValue(context.clone()),
+                            increment_attempts == IncrementAttempts::Yes,
+                            delay.map(Into::into),
+                        ),
                     )
                     .await;
 
                 match result {
                     Ok(()) => {
                         config.put();
-                        let queue_name_after = msg.get_queue_name()?;
+                        let queue_name_after = msg.get_queue_name().await?;
                         if queue_name != queue_name_after {
                             // We want to avoid the normal due-time adjustment
                             // that would kick in when incrementing attempts
@@ -261,6 +268,7 @@ impl QueueManager {
                                 source_address: None,
                                 provider: None,
                                 session_id: None,
+                                recipient_list: None,
                             })
                             .await;
                             SpoolManager::remove_from_spool(*msg.id()).await.ok();

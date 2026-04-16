@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = ["lua"]
-lua = ["dep:config", "dep:mlua", "dep:reqwest", "dep:dns-resolver"]
+lua = ["dep:config", "dep:mlua", "dep:reqwest"]
 
 [dependencies]
 anyhow = {workspace=true}
@@ -14,7 +14,7 @@ cidr-map = {path="../cidr-map", default-features=false}
 config = {path="../config", optional=true}
 data-encoding = {workspace=true}
 data-loader = {path="../data-loader", default-features=false}
-dns-resolver = {path="../dns-resolver", optional=true}
+dns-resolver = {path="../dns-resolver"}
 duration-serde = {path="../duration-serde"}
 fancy-regex = {workspace=true}
 futures-util = {workspace=true}

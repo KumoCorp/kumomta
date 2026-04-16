@@ -5,20 +5,27 @@ edition = "2021"
 
 [dev-dependencies]
 anyhow = {workspace=true}
+async-nats = {workspace=true}
 axum = {workspace=true}
 axum-server = {workspace=true}
+bstr.workspace = true
 chrono = {workspace=true, default-features=false, features=["std", "clock"]}
+dns-resolver = {path="../dns-resolver"}
 futures.workspace = true
 futures-lite = {workspace=true}
 k9 = {workspace=true}
+kumo-dkim = {path="../dkim"}
+kumo-api-client = {path="../kumo-api-client"}
 kumo-api-types = {path="../kumo-api-types"}
 kumo-log-types = {path="../kumo-log-types"}
+kumo-server-common = {path="../kumo-server-common"}
 lapin.workspace = true
 lipsum = {workspace=true}
 maildir = {path="../maildir"}
 mailparsing = {path="../mailparsing"}
 message = {path="../message"}
 nix = {workspace=true, features=["signal", "user"]}
+parking_lot.workspace = true
 rcgen = "0.14" # NOT workspace at this time! need to upgade helpers before we can bump workspace to 0.14
 rustls-cert-gen.workspace = true
 rfc5321 = {path="../rfc5321"}
@@ -26,7 +33,7 @@ serde = {workspace=true}
 serde_json = {workspace=true}
 sqlite = {workspace=true}
 tempfile = {workspace=true}
-testcontainers-modules = {workspace=true, default-features=false, features=["rabbitmq"]}
+testcontainers-modules = {workspace=true, default-features=false, features=["nats", "rabbitmq"]}
 textwrap = {workspace=true}
 tokio = {workspace=true, features=["full"]}
 tokio-executor-trait = {workspace=true}

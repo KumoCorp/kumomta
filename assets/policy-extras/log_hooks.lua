@@ -13,6 +13,36 @@ local QueueConfig = Record('QueueConfig', {
   _dynamic = queue_module.is_queue_config_option,
 })
 
+local DispHookOptions = Record('DispHookOptions', {
+  name = String,
+  hook = typing.Function,
+})
+
+function mod:new_disposition_hook(options)
+  local options = DispHookOptions(options)
+
+  if mod.CONFIGURED[options.name] then
+    error(
+      string.format(
+        "log_hook with name '%s' has already been configured",
+        options.name
+      )
+    )
+  end
+  mod.CONFIGURED[options.name] = options
+
+  kumo.on('pre_init', function()
+    local log_parameters = {
+      name = options.name,
+    }
+    -- utils.merge_into(options.log_parameters, log_parameters)
+    kumo.configure_log_disposition_hook(log_parameters)
+  end)
+
+  local hook_name = 'log_disposition_' .. options.name
+  kumo.on(hook_name, options.hook)
+end
+
 local LogHookOptions = Record('LogHookOptions', {
   name = String,
   log_parameters = Option(Map(String, Any)),
@@ -21,6 +51,7 @@ local LogHookOptions = Record('LogHookOptions', {
   batch_size = Option(typing.number),
   min_batch_size = Option(typing.number),
   max_batch_latency = Option(String),
+  filter = Option(typing.Function),
 })
 
 --[[
@@ -42,6 +73,20 @@ log_hooks:new {
     retry_interval = "1m",
     max_retry_interval = "20m",
   },
+
+  -- Optional pre-filter function.
+  -- This is called as part of processing the should_enqueue_log_record
+  -- event callback after we have applied the default filter; the msg
+  -- is considered to be eligible to enqueue unless this function
+  -- returns true to indicate that "yes, it should be filtered out".
+  filter = function(msg, hook_name)
+     if should_filter_out(msg) then
+       -- We do not want this record
+       return true
+     end
+     return false
+  end),
+
   constructor = function(domain, tenant, campaign)
     local connection = {}
     local client = kumo.http.build_client {}
@@ -116,6 +161,12 @@ function mod:new(options)
     -- avoid an infinite loop caused by logging that we logged that we logged...
     if log_record.reception_protocol == 'LogRecord' then
       return false
+    end
+
+    if options.filter then
+      if options.filter(msg, hook_name) then
+        return false
+      end
     end
 
     -- was some other event that we want to log via the webhook

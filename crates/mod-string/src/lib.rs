@@ -1,4 +1,6 @@
-use config::get_or_create_sub_module;
+use bstr::ByteSlice;
+use config::{from_lua_value, get_or_create_sub_module};
+use kumo_template::TemplateDialect;
 use mlua::Lua;
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
@@ -35,6 +37,20 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             Ok(s.rsplitn(limit, &pattern)
                 .map(|s| s.to_string())
                 .collect::<Vec<String>>())
+        })?,
+    )?;
+
+    string_mod.set(
+        "starts_with",
+        lua.create_function(move |_, (s, pattern): (mlua::String, mlua::String)| {
+            Ok(s.as_bytes().starts_with_str(pattern.as_bytes()))
+        })?,
+    )?;
+
+    string_mod.set(
+        "ends_with",
+        lua.create_function(move |_, (s, pattern): (mlua::String, mlua::String)| {
+            Ok(s.as_bytes().ends_with_str(pattern.as_bytes()))
         })?,
     )?;
 
@@ -100,11 +116,31 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     string_mod.set(
         "eval_template",
         lua.create_function(
-            move |_, (name, template, context): (String, String, mlua::Value)| {
-                let engine = kumo_template::TemplateEngine::new();
+            move |lua,
+                  (name, template, context, opt_dialect): (
+                String,
+                String,
+                mlua::Value,
+                mlua::Value,
+            )| {
+                let dialect: Option<TemplateDialect> = from_lua_value(lua, opt_dialect)?;
+                let engine =
+                    kumo_template::TemplateEngine::with_dialect(dialect.unwrap_or_default());
                 engine
                     .render(&name, &template, context)
                     .map_err(config::any_err)
+            },
+        )?,
+    )?;
+
+    string_mod.set(
+        "wrap",
+        lua.create_function(
+            move |lua, (text, soft, hard): (mlua::String, Option<usize>, Option<usize>)| {
+                let soft = soft.unwrap_or(75);
+                let hard = hard.unwrap_or(900);
+                let bytes = kumo_wrap::wrap_impl(&*text.as_bytes(), soft, hard);
+                lua.create_string(bytes.trim_end())
             },
         )?,
     )?;

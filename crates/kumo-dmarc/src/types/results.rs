@@ -3,6 +3,8 @@ use crate::types::policy::Policy;
 use crate::types::policy_override::PolicyOverrideReason;
 use instant_xml::{FromXml, ToXml};
 use kumo_spf::SpfDisposition;
+use serde::Serialize;
+use std::fmt;
 use std::net::IpAddr;
 
 #[derive(Debug, Eq, FromXml, PartialEq, ToXml)]
@@ -55,11 +57,69 @@ pub struct DkimAuthResult {
     human_result: Option<String>,
 }
 
-#[derive(Debug, Eq, PartialEq, ToXml)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy, ToXml, Serialize)]
 #[xml(scalar, rename_all = "lowercase")]
 pub enum DmarcResult {
     Pass,
     Fail,
+}
+
+impl DmarcResult {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pass => "pass",
+            Self::Fail => "fail",
+        }
+    }
+}
+
+impl fmt::Display for DmarcResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+// A coverage of both success and various failure modes
+#[derive(Debug, Eq, PartialEq, ToXml, Serialize, Clone, Copy)]
+#[xml(scalar)]
+pub enum Disposition {
+    Pass,
+    None,
+    Quarantine,
+    Reject,
+    TempError,
+    PermError,
+}
+
+impl ToString for Disposition {
+    fn to_string(&self) -> String {
+        match self {
+            Disposition::None => "None".to_string(),
+            Disposition::Pass => "Pass".to_string(),
+            Disposition::Quarantine => "Quarantine".to_string(),
+            Disposition::Reject => "Reject".to_string(),
+            Disposition::TempError => "TempError".to_string(),
+            Disposition::PermError => "PermError".to_string(),
+        }
+    }
+}
+
+impl Into<Disposition> for Policy {
+    fn into(self) -> Disposition {
+        match self {
+            Policy::None => Disposition::None,
+            Policy::Quarantine => Disposition::Quarantine,
+            Policy::Reject => Disposition::Reject,
+        }
+    }
+}
+
+// A synthetic type to bundle the result with a reason
+#[derive(Debug, Eq, PartialEq, ToXml, Serialize)]
+#[xml(rename_all = "lowercase")]
+pub struct DispositionWithContext {
+    pub result: Disposition,
+    pub context: String,
 }
 
 #[derive(Debug, Eq, PartialEq, ToXml)]

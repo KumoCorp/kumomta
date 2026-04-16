@@ -1,17 +1,20 @@
 use crate::logging::classify::{apply_classification, ClassifierParams};
+use crate::logging::disposition_hooks::{DispHookParams, RecordWrapper};
 use crate::logging::files::{LogFileParams, LogThreadState};
 use crate::logging::hooks::{LogHookParams, LogHookState};
 use anyhow::Context;
-use config::{any_err, from_lua_value, get_or_create_module};
+use bstr::ByteSlice;
+use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
 use flume::{bounded, Sender, TrySendError};
 pub use kumo_log_types::*;
+use kumo_prometheus::declare_metric;
+use kumo_prometheus::prometheus::Histogram;
 use kumo_server_common::disk_space::MonitoredPath;
 use kumo_server_runtime::Runtime;
 use kumo_template::TemplateEngine;
 use message::Message;
 use mlua::{Lua, Value as LuaValue};
 use parking_lot::FairMutex as Mutex;
-use prometheus::{CounterVec, Histogram, HistogramVec};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -23,26 +26,26 @@ use tokio::task::JoinHandle;
 
 pub(crate) mod classify;
 pub(crate) mod disposition;
+pub(crate) mod disposition_hooks;
 pub(crate) mod files;
 pub(crate) mod hooks;
 pub(crate) mod rejection;
 
-static SUBMIT_FULL: LazyLock<CounterVec> = LazyLock::new(|| {
-    prometheus::register_counter_vec!(
+declare_metric! {
+/// how many times submission of a log event hit the back_pressure
+static SUBMIT_FULL: CounterVec(
         "log_submit_full",
-        "how many times submission of a log event hit the back_pressure",
         &["logger"]
-    )
-    .unwrap()
-});
-static SUBMIT_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
-    prometheus::register_histogram_vec!(
+    );
+}
+declare_metric! {
+/// latency of log event submission operations
+static SUBMIT_LATENCY: HistogramVec(
         "log_submit_latency",
-        "latency of log event submission operations",
         &["logger"]
-    )
-    .unwrap()
-});
+    );
+}
+
 static LOGGER: LazyLock<Mutex<Vec<Arc<Logger>>>> = LazyLock::new(Mutex::default);
 
 static LOGGING_THREADS: AtomicUsize = AtomicUsize::new(0);
@@ -82,19 +85,32 @@ fn default_true() -> bool {
 
 #[derive(Debug)]
 pub(crate) enum LogCommand {
-    Record(JsonLogRecord),
+    Record(JsonLogRecord, Option<Message>),
     Terminate,
 }
 
+enum LoggerImpl {
+    /// Queued to another thread to dispatch
+    Queue {
+        sender: Sender<LogCommand>,
+        thread: TokioMutex<Option<JoinHandle<()>>>,
+    },
+    /// Processed immediate in the context of log_disposition.
+    /// Necessary for things that might operate on (eg: read) the
+    /// originating message prior to it being removed from the spool.
+    /// We can't queue those operations because the caller might remove
+    /// the message from the spool before the log event would be
+    /// dispatched.
+    Immediate(Arc<CallbackSignature<(Message, RecordWrapper), ()>>),
+}
+
 pub struct Logger {
-    sender: Sender<LogCommand>,
-    thread: TokioMutex<Option<JoinHandle<()>>>,
+    implementation: LoggerImpl,
     meta: Vec<String>,
     headers: Vec<String>,
     enabled: HashMap<RecordType, bool>,
     filter_event: Option<String>,
     hook_name: Option<String>,
-    #[allow(unused)]
     name: String,
     submit_latency: Histogram,
 }
@@ -102,6 +118,46 @@ pub struct Logger {
 impl Logger {
     fn get_loggers() -> Vec<Arc<Logger>> {
         LOGGER.lock().iter().map(Arc::clone).collect()
+    }
+
+    pub async fn init_disp_hook(params: DispHookParams) -> anyhow::Result<()> {
+        let mut loggers = LOGGER.lock();
+
+        if loggers
+            .iter()
+            .any(|existing| existing.hook_name.as_deref() == Some(params.name.as_str()))
+        {
+            anyhow::bail!(
+                "A logging hook with name `{}` has already been registered",
+                params.name
+            );
+        }
+
+        let mut enabled = HashMap::new();
+        for (kind, cfg) in &params.per_record {
+            enabled.insert(*kind, cfg.enable);
+        }
+
+        let hook_name = params.name.to_string();
+        let name = format!("hook-{hook_name}");
+
+        let sig = CallbackSignature::new(format!("log_disposition_{hook_name}"));
+
+        let submit_latency = SUBMIT_LATENCY.get_metric_with_label_values(&[&name])?;
+
+        let logger = Self {
+            implementation: LoggerImpl::Immediate(Arc::new(sig)),
+            meta: Default::default(),
+            headers: Default::default(),
+            enabled,
+            filter_event: None,
+            hook_name: Some(hook_name),
+            name,
+            submit_latency,
+        };
+
+        loggers.push(Arc::new(logger));
+        Ok(())
     }
 
     pub async fn init_hook(params: LogHookParams) -> anyhow::Result<()> {
@@ -150,10 +206,13 @@ impl Logger {
         })?;
 
         let submit_latency = SUBMIT_LATENCY.get_metric_with_label_values(&[&name])?;
-
-        let logger = Self {
+        let implementation = LoggerImpl::Queue {
             sender,
             thread: TokioMutex::new(Some(thread)),
+        };
+
+        let logger = Self {
+            implementation,
             meta,
             headers,
             enabled,
@@ -217,9 +276,13 @@ impl Logger {
 
         let submit_latency = SUBMIT_LATENCY.get_metric_with_label_values(&[&name])?;
 
-        let logger = Self {
+        let implementation = LoggerImpl::Queue {
             sender,
             thread: TokioMutex::new(Some(thread)),
+        };
+
+        let logger = Self {
+            implementation,
             meta,
             headers,
             enabled,
@@ -243,34 +306,54 @@ impl Logger {
         true
     }
 
-    pub async fn log(&self, mut record: JsonLogRecord) -> anyhow::Result<()> {
+    pub async fn log(&self, mut record: JsonLogRecord, msg: Option<Message>) -> anyhow::Result<()> {
         let _timer = self.submit_latency.start_timer();
         apply_classification(&mut record).await;
-        match self.sender.try_send(LogCommand::Record(record)) {
-            Ok(()) => Ok(()),
-            Err(TrySendError::Full(record)) => {
-                SUBMIT_FULL
-                    .get_metric_with_label_values(&[&self.name])
-                    .expect("get counter")
-                    .inc();
-                self.sender.send_async(record).await?;
-                Ok(())
+        match &self.implementation {
+            LoggerImpl::Immediate(sig) => {
+                match msg {
+                    Some(msg) => {
+                        // Need to put this future on the heap, otherwise we can consume
+                        // too much stack
+                        let future = Box::pin(DispHookParams::do_record(sig, msg, record));
+                        future.await
+                    }
+                    None => Ok(()),
+                }
             }
-            Err(TrySendError::Disconnected(_)) => anyhow::bail!("log channel was closed"),
+            LoggerImpl::Queue { sender, .. } => {
+                match sender.try_send(LogCommand::Record(record, msg)) {
+                    Ok(()) => Ok(()),
+                    Err(TrySendError::Full(record)) => {
+                        SUBMIT_FULL
+                            .get_metric_with_label_values(&[&self.name])
+                            .expect("get counter")
+                            .inc();
+                        sender.send_async(record).await?;
+                        Ok(())
+                    }
+                    Err(TrySendError::Disconnected(_)) => anyhow::bail!("log channel was closed"),
+                }
+            }
         }
     }
 
     pub async fn signal_shutdown() {
         let loggers = Self::get_loggers();
         for logger in loggers.iter() {
-            tracing::debug!("Terminating a logger");
-            logger.sender.send_async(LogCommand::Terminate).await.ok();
-            tracing::debug!("Joining that logger");
-            let res = match logger.thread.lock().await.take() {
-                Some(task) => Some(task.await),
-                None => None,
-            };
-            tracing::debug!("Joined -> {res:?}");
+            match &logger.implementation {
+                LoggerImpl::Immediate(_) => {}
+                LoggerImpl::Queue { sender, thread } => {
+                    tracing::debug!("Terminating a logger");
+                    sender.send_async(LogCommand::Terminate).await.ok();
+                    tracing::debug!("Joining that logger");
+                    let res = match thread.lock().await.take() {
+                        Some(task) => Some(task.await),
+                        None => None,
+                    };
+                    tracing::debug!("Joined -> {res:?}");
+                }
+            }
         }
     }
 
@@ -278,7 +361,15 @@ impl Logger {
         let mut result = HashMap::new();
 
         for name in &self.meta {
-            if let Some(value) = meta.get(name) {
+            if let Some(prefix) = name.strip_suffix('*') {
+                if let Some(obj) = meta.as_object() {
+                    for (k, v) in obj {
+                        if k.starts_with(prefix) {
+                            result.insert(k.to_string(), v.clone());
+                        }
+                    }
+                }
+            } else if let Some(value) = meta.get(name) {
                 if !value.is_null() {
                     result.insert(name.to_string(), value.clone());
                 }
@@ -295,15 +386,13 @@ impl Logger {
         let mut headers = HashMap::new();
 
         if !self.headers.is_empty() {
-            msg.load_data_if_needed().await.ok();
-
             let mut all_headers: HashMap<String, (String, Vec<Value>)> = HashMap::new();
-            for (name, value) in msg.get_all_headers().unwrap_or_else(|_| vec![]) {
+            for (name, value) in msg.get_all_headers().await.unwrap_or_else(|_| vec![]) {
                 all_headers
-                    .entry(name.to_ascii_lowercase())
-                    .or_insert_with(|| (name.to_string(), vec![]))
+                    .entry(name.to_ascii_lowercase().to_str_lossy().into())
+                    .or_insert_with(|| (name.to_str_lossy().into(), vec![]))
                     .1
-                    .push(value.into());
+                    .push(value.to_str_lossy().into());
             }
 
             fn capture_header(
@@ -344,7 +433,7 @@ impl Logger {
             }
         }
 
-        let meta = self.extract_meta(&msg.get_meta_obj().unwrap_or(serde_json::Value::Null));
+        let meta = self.extract_meta(&msg.get_meta_obj().await.unwrap_or(serde_json::Value::Null));
 
         (headers, meta)
     }
@@ -374,6 +463,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_async_function(|lua, params: LuaValue| async move {
             let params: LogHookParams = from_lua_value(&lua, params)?;
             Logger::init_hook(params).await.map_err(any_err)
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "configure_log_disposition_hook",
+        lua.create_async_function(|lua, params: LuaValue| async move {
+            let params: DispHookParams = from_lua_value(&lua, params)?;
+            Logger::init_disp_hook(params).await.map_err(any_err)
         })?,
     )?;
 

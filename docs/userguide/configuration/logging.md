@@ -2,7 +2,7 @@
 
 By default, KumoMTA writes to a ([zstd](https://en.wikipedia.org/wiki/Zstd)
 compressed) JSON log format, the details of which can be found on the [Logging
-Reference Page](../../reference/log_record.md),
+Reference Page](../../reference/log_record.md).
 
 ## Basic Log Configuration
 
@@ -21,6 +21,7 @@ kumo.configure_local_logs {
 For multiple log files, the `configure_local_logs` function can be called
 multiple times with different parameters.
 
+<!-- prettier-ignore -->
 !!!note
     Logs can also be published as webhooks. See the [Publishing Log Events Via Webhooks](../operation/webhooks.md) chapter.
 
@@ -112,9 +113,10 @@ end)
 
 ## Customizing the log format
 
-If a non-JSON format is needed for the logs, the *template* option can be used:
+If a non-JSON format is needed for the logs, the _template_ option can be used:
 
 {% raw %}
+
 ```lua
 kumo.configure_local_logs {
   -- ..
@@ -127,10 +129,11 @@ kumo.configure_local_logs {
   },
 }
 ```
+
 {% endraw %}
 
 The Mini Jinja templating engine, with some supplemental
-extensions, is used to evaluate logging templates.  The syntax and
+extensions, is used to evaluate logging templates. The syntax and
 extensions are [documented here](../../reference/template/index.md).
 
 Any key present in the [default log
@@ -139,9 +142,10 @@ templating engine.
 
 ## Configuring Individual Record Types
 
-Sometimes it is necessary to configure logging on a more granular basis, especially when using custom log formats. KumoMTA supports this using the *per_record* option:
+Sometimes it is necessary to configure logging on a more granular basis, especially when using custom log formats. KumoMTA supports this using the _per_record_ option:
 
 {% raw %}
+
 ```lua
 kumo.configure_local_logs {
   per_record = {
@@ -174,6 +178,7 @@ kumo.configure_local_logs {
   },
 }
 ```
+
 {% endraw %}
 
 This can be used to override paths, disable logs, or customize the format of specific event types.

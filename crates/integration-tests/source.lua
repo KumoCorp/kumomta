@@ -11,9 +11,17 @@ local AMQP_HOST_PORT = os.getenv 'KUMOD_AMQP_HOST_PORT'
 local LISTENER_MAP = os.getenv 'KUMOD_LISTENER_DOMAIN_MAP'
 local DEFERRED_SMTP_SERVER_MSG_INJECT =
   os.getenv 'KUMOD_DEFERRED_SMTP_SERVER_MSG_INJECT'
+local BATCH_HANDLING = (os.getenv 'KUMOD_BATCH_HANDLING') or 'BifurcateAlways'
+local MAX_RECIPIENTS_PER_BATCH = (os.getenv 'KUMOD_MAX_RECIPIENTS_PER_BATCH')
+  or 100
+local USE_SPLIT_TXN = os.getenv 'KUMOD_USE_SPLIT_TXN'
 
 kumo.on('init', function()
   kumo.configure_accounting_db_path(TEST_DIR .. '/accounting.db')
+  kumo.aaa.configure_acct_log {
+    log_dir = TEST_DIR .. '/acct',
+    max_segment_duration = '1s',
+  }
 
   local relay_hosts = { '0.0.0.0/0' }
   local RELAY_HOSTS = os.getenv 'KUMOD_RELAY_HOSTS'
@@ -25,6 +33,17 @@ kumo.on('init', function()
     listen = '127.0.0.1:0',
     relay_hosts = relay_hosts,
     deferred_queue = (DEFERRED_SMTP_SERVER_MSG_INJECT and true) or false,
+    peer = {
+      ['127.0.0.1'] = {
+        allow_xclient = true,
+      },
+    },
+    via = {
+      ['42.42.42.42'] = {
+        banner = 'what do you get when you multiply six by nine?',
+      },
+    },
+    batch_handling = BATCH_HANDLING,
   }
 
   kumo.start_http_listener {
@@ -35,6 +54,7 @@ kumo.on('init', function()
     log_dir = TEST_DIR .. '/logs',
     max_segment_duration = '1s',
     headers = { 'X-*', 'Y-*', 'Subject' },
+    meta = { 'xfer*' },
   }
 
   if WEBHOOK_PORT then
@@ -212,9 +232,37 @@ kumo.on('get_listener_domain', function(domain, listener, conn_meta)
   }
 end)
 
+if USE_SPLIT_TXN then
+  kumo.on('smtp_server_split_transaction', function(msg, conn)
+    -- This toy implementation batches by the first letter of
+    -- the local part and the same domain. It is NOT an example
+    -- of a valid production use case, it is merely exercising
+    -- the logic to prove that it is functioning
+    local batches = {}
+
+    local keyed = {}
+    for _, recip in ipairs(msg:recipient_list()) do
+      local key = recip.user:sub(1, 1) .. '@' .. recip.domain:lower()
+      if not keyed[key] then
+        keyed[key] = {}
+      end
+      table.insert(keyed[key], recip)
+    end
+
+    for _, batch in pairs(keyed) do
+      table.insert(batches, batch)
+    end
+
+    return batches
+  end)
+end
+
 kumo.on('smtp_server_message_received', function(msg)
   local result = msg:import_scheduling_header 'X-Schedule'
   kumo.log_info('schedule result', kumo.serde.json_encode(result))
+  -- This tenant header import is used by xfer.rs as a way to set
+  -- the tenant metadata for the incoming message
+  msg:import_x_headers { 'tenant' }
 end)
 
 kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
@@ -243,6 +291,21 @@ kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
         mx_list = {
           { name = 'localhost-1', addr = '127.0.0.1:' .. SINK_PORT },
           { name = 'localhost-2', addr = '127.0.0.1:' .. SINK_PORT },
+        },
+      },
+    }
+  end
+
+  -- This domain is coupled with the broken_first_choice_mx test
+  if domain == 'broken-first-mx.example.com' then
+    protocol = {
+      -- Redirect traffic to the sink, with two hosts in the connection plan,
+      -- but the first one is broken/not routable
+      smtp = {
+        mx_list = {
+          -- 255.255.255.255 should not be reachable/routable on any system
+          { name = 'brokenhost', addr = '255.255.255.255:' .. SINK_PORT },
+          { name = 'workinghost', addr = '127.0.0.1:' .. SINK_PORT },
         },
       },
     }
@@ -313,6 +376,14 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
     ) or false,
     tls_prefer_openssl = ((os.getenv 'KUMOD_PREFER_OPENSSL') and true)
       or false,
+    max_recipients_per_batch = tonumber(MAX_RECIPIENTS_PER_BATCH),
+
+    -- Skip IPv6 addresses that come back for eg: localhost.
+    -- For the most part the integration tests don't care about this,
+    -- but the disconnect_XXX tests do make some assertions on the
+    -- ordering, and in particular, disconnect_terminate_ok will be
+    -- unhappy if the second address in its MX plan is unroutable IPv6.
+    skip_hosts = { '::/0' },
   }
 
   if os.getenv 'KUMOD_CLIENT_CERTIFICATE' then
@@ -366,6 +437,7 @@ end)
 
 if os.getenv 'KUMOD_WANT_REBIND' then
   kumo.on('rebind_message', function(message, data)
+    message:append_header('X-Rebound', 'woot')
     message:set_meta('queue', data.queue)
   end)
 end

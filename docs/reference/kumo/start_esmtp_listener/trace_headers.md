@@ -61,4 +61,8 @@ KumoMTA will automatically extract this supplemental trace header information
 from any `X-` header that is successfully parsed and has the magic marker key
 when processing the original message payload of an incoming ARF report.
 
-
+If you prefer to explicitly and manually insert the supplemental header,
+you can set `supplemental_header = false` in your listener configuration
+and use
+[kumo.apply_supplemental_trace_header](../apply_supplemental_trace_header.md)
+to build and insert the header into a message at the appropriate time.

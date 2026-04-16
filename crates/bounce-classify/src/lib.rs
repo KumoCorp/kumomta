@@ -110,6 +110,9 @@ pub enum PreDefinedBounceClass {
     VirusRelated,
     /// authentication policy was not met
     AuthenticationFailed,
+    /// A session or batch limit on the number of recipients was hit.
+    /// This is a transient error even if it has a 5xx status code!
+    TooManyRecipients,
     /// messages rejected due to other reasons, 4.X.X or 5.X.X error
     Uncategorized,
 }

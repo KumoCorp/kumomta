@@ -72,10 +72,13 @@ impl TraceSmtpServerCommand {
         let (mut socket, _response) = connect_async(endpoint.to_string()).await?;
 
         socket
-            .send(Message::Text(serde_json::to_string(&TraceSmtpV1Request {
-                source_addr,
-                terse: self.terse,
-            })?))
+            .send(Message::Text(
+                serde_json::to_string(&TraceSmtpV1Request {
+                    source_addr,
+                    terse: self.terse,
+                })?
+                .into(),
+            ))
             .await?;
 
         struct ConnState {
@@ -249,8 +252,9 @@ impl TraceSmtpServerCommand {
                             was_arf_or_oob,
                             will_enqueue,
                         } => {
+                            let recip_list = recipient.join(", ");
                             println!(
-                                "[{key}] {delta} === Message from=<{sender}> to=<{recipient}> id={id}"
+                                "[{key}] {delta} === Message from=<{sender}> to=<{recip_list}> id={id}"
                             );
                             println!(
                                 "[{key}] {delta} === Message queue={queue} relay={relay} \

@@ -210,10 +210,13 @@ pub async fn throttle(
     force_local: bool,
 ) -> Result<ThrottleResult, Error> {
     match (force_local, REDIS.get()) {
-        (false, Some(cx)) => match cx.has_redis_cell {
-            true => redis_cell_throttle(&cx, key, limit, period, max_burst, quantity).await,
-            false => redis_script_throttle(&cx, key, limit, period, max_burst, quantity).await,
-        },
+        (false, Some(cx)) => {
+            if cx.has_redis_cell {
+                redis_cell_throttle(&cx, key, limit, period, max_burst, quantity).await
+            } else {
+                redis_script_throttle(&cx, key, limit, period, max_burst, quantity).await
+            }
+        }
         _ => local_throttle(key, limit, period, max_burst, quantity),
     }
 }

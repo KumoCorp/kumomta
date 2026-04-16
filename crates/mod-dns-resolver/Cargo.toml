@@ -5,10 +5,13 @@ edition = "2021"
 
 [dependencies]
 anyhow = {workspace=true}
+async-trait.workspace = true
 config = {path="../config"}
 dns-resolver = {path="../dns-resolver", features=["unbound"]}
 duration-serde = {path="../duration-serde"}
+kumo-address = {path="../kumo-address"}
 libunbound = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
+parking_lot.workspace = true
 serde = {workspace=true}
 hickory-resolver = {workspace=true, features=["serde"]}

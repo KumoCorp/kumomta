@@ -1,3 +1,7 @@
+---
+tags:
+  - debugging
+---
 # kcli inspect-sched-q
 
 

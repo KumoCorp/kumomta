@@ -435,7 +435,7 @@ impl<const SLOTS: usize> TimeQ<SLOTS> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::EnvelopeAddress;
+    use rfc5321::parser::EnvelopeAddress;
     use spool::SpoolId;
     use std::sync::Arc;
 
@@ -503,7 +503,7 @@ mod tests {
         Message::new_dirty(
             SpoolId::new(),
             EnvelopeAddress::parse("sender@example.com").unwrap(),
-            EnvelopeAddress::parse("recip@example.com").unwrap(),
+            vec![EnvelopeAddress::parse("recip@example.com").unwrap()],
             serde_json::json!({}),
             Arc::new("test".as_bytes().to_vec().into_boxed_slice()),
         )

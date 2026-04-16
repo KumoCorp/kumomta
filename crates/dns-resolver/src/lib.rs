@@ -7,9 +7,10 @@ pub use hickory_resolver::Name;
 use kumo_address::host::HostAddress;
 use kumo_address::host_or_socket::HostOrSocketAddress;
 use kumo_log_types::ResolvedAddress;
+use kumo_prometheus::declare_metric;
 use lruttl::declare_cache;
 use rand::prelude::SliceRandom;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv6Addr};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -21,7 +22,10 @@ use tokio::time::timeout;
 mod resolver;
 #[cfg(feature = "unbound")]
 pub use resolver::UnboundResolver;
-pub use resolver::{ptr_host, DnsError, HickoryResolver, IpDisplay, Resolver, TestResolver};
+pub use resolver::{
+    ptr_host, reverse_ip, AggregateResolver, DnsError, HickoryResolver, IpDisplay, Resolver,
+    TestResolver,
+};
 
 // An `ArcSwap` can only hold `Sized` types, so we cannot stuff a `dyn Resolver` directly into it.
 // Instead, the documentation recommends adding a level of indirection, so we wrap the `Resolver`
@@ -31,16 +35,20 @@ static RESOLVER: LazyLock<ArcSwap<Box<dyn Resolver>>> =
     LazyLock::new(|| ArcSwap::from_pointee(Box::new(default_resolver())));
 
 declare_cache! {
+/// Caches domain name to computed set of MailExchanger records
 static MX_CACHE: LruCacheWithTtl<(Name, Option<u16>), Result<Arc<MailExchanger>, String>>::new("dns_resolver_mx", 64 * 1024);
 }
 declare_cache! {
+/// Caches domain name to ipv4 records
 static IPV4_CACHE: LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>::new("dns_resolver_ipv4", 1024);
 }
 declare_cache! {
+/// Caches domain name to ipv6 records
 static IPV6_CACHE: LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>::new("dns_resolver_ipv6", 1024);
 }
 declare_cache! {
-static IP_CACHE: LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>::new("dns_resolver_ip", 1024);
+/// Caches domain name to the combined set of ipv4 and ipv6 records
+static IP_CACHE: LruCacheWithTtl<(Name, IpLookupStrategy), Arc<Vec<IpAddr>>>::new("dns_resolver_ip", 1024);
 }
 
 /// Maximum number of concurrent mx resolves permitted
@@ -54,42 +62,41 @@ static MX_TIMEOUT_MS: AtomicUsize = AtomicUsize::new(5000);
 /// 5 minutes in ms
 static MX_NEGATIVE_TTL: AtomicUsize = AtomicUsize::new(300 * 1000);
 
-static MX_IN_PROGRESS: LazyLock<prometheus::IntGauge> = LazyLock::new(|| {
-    prometheus::register_int_gauge!(
-        "dns_mx_resolve_in_progress",
-        "number of MailExchanger::resolve calls currently in progress"
-    )
-    .unwrap()
-});
-static MX_SUCCESS: LazyLock<prometheus::IntCounter> = LazyLock::new(|| {
-    prometheus::register_int_counter!(
-        "dns_mx_resolve_status_ok",
-        "total number of successful MailExchanger::resolve calls"
-    )
-    .unwrap()
-});
-static MX_FAIL: LazyLock<prometheus::IntCounter> = LazyLock::new(|| {
-    prometheus::register_int_counter!(
-        "dns_mx_resolve_status_fail",
-        "total number of failed MailExchanger::resolve calls"
-    )
-    .unwrap()
-});
-static MX_CACHED: LazyLock<prometheus::IntCounter> = LazyLock::new(|| {
-    prometheus::register_int_counter!(
-        "dns_mx_resolve_cache_hit",
-        "total number of MailExchanger::resolve calls satisfied by level 1 cache"
-    )
-    .unwrap()
-});
-static MX_QUERIES: LazyLock<prometheus::IntCounter> = LazyLock::new(|| {
-    prometheus::register_int_counter!(
-        "dns_mx_resolve_cache_miss",
-        "total number of MailExchanger::resolve calls that resulted in an \
-        MX DNS request to the next level of cache"
-    )
-    .unwrap()
-});
+declare_metric! {
+/// number of `MailExchanger::resolve` calls currently in progress.
+static MX_IN_PROGRESS: IntGauge("dns_mx_resolve_in_progress");
+}
+
+declare_metric! {
+/// Total number of successful `MailExchanger::resolve` calls
+static MX_SUCCESS: IntCounter(
+        "dns_mx_resolve_status_ok");
+}
+
+declare_metric! {
+/// Total number of failed `MailExchanger::resolve` calls.
+///
+/// Spikes may indicate an issue with your DNS configuration
+/// or infrastructure, or may simply indicate that the traffic
+/// is destined for bogus addresses.
+static MX_FAIL: IntCounter("dns_mx_resolve_status_fail");
+}
+
+declare_metric! {
+/// Total number of MailExchanger::resolve calls satisfied by level 1 cache.
+///
+/// Redundant with the newer [lruttl_hit_count{cache_name="dns_resolver_mx"}](lruttl_hit_count.md)
+/// metric.
+static MX_CACHED: IntCounter("dns_mx_resolve_cache_hit");
+}
+
+declare_metric! {
+/// Total number of MailExchanger::resolve calls that resulted in an MX DNS request to the next level of cache
+///
+/// Redundant with the newer [lruttl_miss_count{cache_name="dns_resolver_mx"}](lruttl_miss_count.md)
+/// metric.
+static MX_QUERIES: IntCounter("dns_mx_resolve_cache_miss");
+}
 
 fn default_resolver() -> impl Resolver {
     #[cfg(feature = "default-unbound")]
@@ -164,7 +171,7 @@ pub fn get_resolver() -> Arc<Box<dyn Resolver>> {
 pub async fn resolve_dane(hostname: &str, port: u16) -> anyhow::Result<Vec<TLSA>> {
     let name = fully_qualify(&format!("_{port}._tcp.{hostname}"))?;
     let answer = RESOLVER.load().resolve(name, RecordType::TLSA).await?;
-    tracing::info!("resolve_dane {hostname}:{port} TLSA answer is: {answer:?}");
+    tracing::debug!("resolve_dane {hostname}:{port} TLSA answer is: {answer:?}");
 
     if answer.bogus {
         // Bogus records are either tampered with, or due to misconfiguration
@@ -304,7 +311,11 @@ impl DomainClassification {
     }
 }
 
-pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<ResolvedAddress>> {
+pub async fn resolve_a_or_aaaa(
+    domain_name: &str,
+    resolver: Option<&dyn Resolver>,
+    strategy: IpLookupStrategy,
+) -> anyhow::Result<Vec<ResolvedAddress>> {
     if domain_name.starts_with('[') {
         // It's a literal address, no DNS lookup necessary
 
@@ -356,7 +367,7 @@ pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<Resolved
         }
     }
 
-    match ip_lookup(domain_name).await {
+    match ip_lookup(domain_name, resolver, strategy).await {
         Ok((addrs, _expires)) => {
             let addrs = addrs
                 .iter()
@@ -486,7 +497,7 @@ impl MailExchanger {
     /// order; the first one to try is the last element.
     /// smtp_dispatcher.rs relies on this ordering, as it will pop
     /// off candidates until it has exhausted its connection plan.
-    pub async fn resolve_addresses(&self) -> ResolvedMxAddresses {
+    pub async fn resolve_addresses(&self, strategy: IpLookupStrategy) -> ResolvedMxAddresses {
         let mut result = vec![];
 
         for hosts in self.by_pref.values().rev() {
@@ -515,7 +526,7 @@ impl MailExchanger {
                     continue;
                 }
 
-                match ip_lookup(mx_host).await {
+                match ip_lookup(mx_host, None, strategy).await {
                     Err(err) => {
                         tracing::error!("failed to resolve {mx_host}: {err:#}");
                         continue;
@@ -549,6 +560,8 @@ impl MailExchanger {
 #[derive(Debug, Clone, Serialize)]
 pub enum ResolvedMxAddresses {
     NullMx,
+    /// The list of addresses to which to connect, expressed
+    /// in LIFO order
     Addresses(Vec<ResolvedAddress>),
 }
 
@@ -618,30 +631,83 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
     Ok((records, mx_lookup.expires))
 }
 
-pub async fn ip_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, Hash)]
+#[repr(u8)]
+pub enum IpLookupStrategy {
+    /// Only query for A (Ipv4) records
+    Ipv4Only,
+    /// Only query for AAAA (Ipv6) records
+    Ipv6Only,
+    /// Query for A and AAAA in parallel
+    #[default]
+    Ipv4AndIpv6,
+    /// Query for Ipv6 if that fails, query for Ipv4
+    Ipv6ThenIpv4,
+    /// Query for Ipv4 if that fails, query for Ipv6 (default)
+    Ipv4ThenIpv6,
+}
+
+pub async fn ip_lookup(
+    key: &str,
+    resolver: Option<&dyn Resolver>,
+    strategy: IpLookupStrategy,
+) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(lookup) = IP_CACHE.lookup(&key_fq) {
-        return Ok((lookup.item, lookup.expiration.into()));
+
+    if resolver.is_none() {
+        if let Some(lookup) = IP_CACHE.lookup(&(key_fq.clone(), strategy)) {
+            return Ok((lookup.item, lookup.expiration.into()));
+        }
     }
 
-    let (v4, v6) = tokio::join!(ipv4_lookup(key), ipv6_lookup(key));
+    let (v4, v6) = match strategy {
+        IpLookupStrategy::Ipv4AndIpv6 => {
+            let (v4, v6) = tokio::join!(ipv4_lookup(key, resolver), ipv6_lookup(key, resolver));
+            (Some(v4), Some(v6))
+        }
+        IpLookupStrategy::Ipv4Only => (Some(ipv4_lookup(key, resolver).await), None),
+        IpLookupStrategy::Ipv6Only => (None, Some(ipv6_lookup(key, resolver).await)),
+        IpLookupStrategy::Ipv6ThenIpv4 => {
+            let v6 = ipv6_lookup(key, resolver).await;
+            match v6 {
+                Ok((addrs, exp)) if addrs.is_empty() => (
+                    Some(ipv4_lookup(key, resolver).await),
+                    Some(Ok((addrs, exp))),
+                ),
+                Err(err) => (Some(ipv4_lookup(key, resolver).await), Some(Err(err))),
+                Ok(res) => (None, Some(Ok(res))),
+            }
+        }
+        IpLookupStrategy::Ipv4ThenIpv6 => {
+            let v4 = ipv4_lookup(key, resolver).await;
+            match v4 {
+                Ok((addrs, exp)) if addrs.is_empty() => (
+                    Some(Ok((addrs, exp))),
+                    Some(ipv6_lookup(key, resolver).await),
+                ),
+                Err(err) => (Some(Err(err)), Some(ipv6_lookup(key, resolver).await)),
+                Ok(res) => (Some(Ok(res)), None),
+            }
+        }
+    };
 
     let mut results = vec![];
     let mut errors = vec![];
     let mut expires = None;
 
     match v4 {
-        Ok((addrs, exp)) => {
+        Some(Ok((addrs, exp))) => {
             expires.replace(exp);
             for a in addrs.iter() {
                 results.push(*a);
             }
         }
-        Err(err) => errors.push(err),
+        Some(Err(err)) => errors.push(err),
+        None => {}
     }
 
     match v6 {
-        Ok((addrs, exp)) => {
+        Some(Ok((addrs, exp))) => {
             let exp = match expires.take() {
                 Some(existing) => exp.min(existing),
                 None => exp,
@@ -652,7 +718,8 @@ pub async fn ip_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)>
                 results.push(*a);
             }
         }
-        Err(err) => errors.push(err),
+        Some(Err(err)) => errors.push(err),
+        None => {}
     }
 
     if results.is_empty() && !errors.is_empty() {
@@ -662,43 +729,71 @@ pub async fn ip_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)>
     let addr = Arc::new(results);
     let exp = expires.take().unwrap_or_else(Instant::now);
 
-    IP_CACHE.insert(key_fq, addr.clone(), exp.into()).await;
+    if resolver.is_none() {
+        IP_CACHE
+            .insert((key_fq, strategy), addr.clone(), exp.into())
+            .await;
+    }
     Ok((addr, exp))
 }
 
-pub async fn ipv4_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
+pub async fn ipv4_lookup(
+    key: &str,
+    resolver: Option<&dyn Resolver>,
+) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(lookup) = IPV4_CACHE.lookup(&key_fq) {
-        return Ok((lookup.item, lookup.expiration.into()));
+    if resolver.is_none() {
+        if let Some(lookup) = IPV4_CACHE.lookup(&key_fq) {
+            return Ok((lookup.item, lookup.expiration.into()));
+        }
     }
 
-    let answer = RESOLVER
-        .load()
-        .resolve(key_fq.clone(), RecordType::A)
-        .await?;
+    let answer = match resolver {
+        Some(r) => r.resolve(key_fq.clone(), RecordType::A).await?,
+        None => {
+            RESOLVER
+                .load()
+                .resolve(key_fq.clone(), RecordType::A)
+                .await?
+        }
+    };
     let ips = answer.as_addr();
 
     let ips = Arc::new(ips);
     let expires = answer.expires;
-    IPV4_CACHE.insert(key_fq, ips.clone(), expires.into()).await;
+    if resolver.is_none() {
+        IPV4_CACHE.insert(key_fq, ips.clone(), expires.into()).await;
+    }
     Ok((ips, expires))
 }
 
-pub async fn ipv6_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
+pub async fn ipv6_lookup(
+    key: &str,
+    resolver: Option<&dyn Resolver>,
+) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(lookup) = IPV6_CACHE.lookup(&key_fq) {
-        return Ok((lookup.item, lookup.expiration.into()));
+    if resolver.is_none() {
+        if let Some(lookup) = IPV6_CACHE.lookup(&key_fq) {
+            return Ok((lookup.item, lookup.expiration.into()));
+        }
     }
 
-    let answer = RESOLVER
-        .load()
-        .resolve(key_fq.clone(), RecordType::AAAA)
-        .await?;
+    let answer = match resolver {
+        Some(r) => r.resolve(key_fq.clone(), RecordType::AAAA).await?,
+        None => {
+            RESOLVER
+                .load()
+                .resolve(key_fq.clone(), RecordType::AAAA)
+                .await?
+        }
+    };
     let ips = answer.as_addr();
 
     let ips = Arc::new(ips);
     let expires = answer.expires;
-    IPV6_CACHE.insert(key_fq, ips.clone(), expires.into()).await;
+    if resolver.is_none() {
+        IPV6_CACHE.insert(key_fq, ips.clone(), expires.into()).await;
+    }
     Ok((ips, expires))
 }
 
@@ -809,7 +904,9 @@ MailExchanger {
 "#
         );
         k9::snapshot!(
-            v4_loopback.resolve_addresses().await,
+            v4_loopback
+                .resolve_addresses(IpLookupStrategy::default())
+                .await,
             r#"
 Addresses(
     [
@@ -845,7 +942,9 @@ MailExchanger {
 "#
         );
         k9::snapshot!(
-            v6_loopback_non_conforming.resolve_addresses().await,
+            v6_loopback_non_conforming
+                .resolve_addresses(IpLookupStrategy::default())
+                .await,
             r#"
 Addresses(
     [
@@ -881,7 +980,9 @@ MailExchanger {
 "#
         );
         k9::snapshot!(
-            v6_loopback.resolve_addresses().await,
+            v6_loopback
+                .resolve_addresses(IpLookupStrategy::default())
+                .await,
             r#"
 Addresses(
     [
@@ -1022,7 +1123,7 @@ MailExchanger {
         // We expect the addresses within a given preference level to
         // be randomized, because that is what resolve_addresses does.
         k9::snapshot!(
-            gmail.resolve_addresses().await,
+            gmail.resolve_addresses(IpLookupStrategy::default()).await,
             r#"
 Addresses(
     [
@@ -1263,7 +1364,7 @@ MailExchanger {
     #[cfg(feature = "live-dns-tests")]
     #[tokio::test]
     async fn txt_lookup_gmail() {
-        let name = Name::from_utf8("_mta-sts.gmail.com").unwrap();
+        let name = Name::from_str_relaxed("_mta-sts.gmail.com").unwrap();
         let answer = get_resolver().resolve(name, RecordType::TXT).await.unwrap();
         k9::snapshot!(
             answer.as_txt(),

@@ -6,19 +6,25 @@ edition = "2021"
 [dependencies]
 anyhow = {workspace=true}
 arc-swap = {workspace=true}
+async-trait.workspace = true
 axum = {workspace=true}
+axum-client-ip = {workspace=true, features=["forwarded-header"]}
 axum-server = {workspace=true, features=["tls-rustls"]}
 axum-streams = {workspace=true}
 backtrace = {workspace=true}
+bstr.workspace = true
+chrono.workspace = true
 cidr-map = {path="../cidr-map"}
 clap = {workspace=true}
 config = {path="../config"}
 data-encoding = {workspace=true}
 data-loader = {path="../data-loader"}
 domain-map = {path="../domain-map"}
+duration-serde = {path="../duration-serde"}
 gethostname = {workspace=true}
 human_bytes = {workspace=true}
 kumo-api-types = {path="../kumo-api-types"}
+kumo-machine-info = {path="../kumo-machine-info"}
 kumo-prometheus = {path="../kumo-prometheus"}
 kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
 kumo-server-memory = {path="../kumo-server-memory"}
@@ -31,33 +37,44 @@ metrics-prometheus = {workspace=true}
 metrics-tracing-context = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mod-amqp = {path="../mod-amqp"}
+mod-aws-sigv4 = {path="../mod-aws-sigv4"}
 mod-digest = {path="../mod-digest"}
 mod-dns-resolver = {path="../mod-dns-resolver"}
 mod-encode = {path="../mod-encode"}
+mod-crypto = {path="../mod-crypto"}
 mod-filesystem = {path="../mod-filesystem"}
+mod-file-type = {path="../mod-file-type"}
 mod-http = {path="../mod-http"}
 mod-kafka = {path="../mod-kafka"}
 mod-memoize = {path="../mod-memoize"}
+mod-mimepart = {path="../mod-mimepart"}
 mod-mpsc = {path="../mod-mpsc"}
+mod-nats = {path="../mod-nats"}
 mod-regex = {path="../mod-regex"}
 mod-redis = {path="../mod-redis"}
 mod-serde = {path="../mod-serde"}
+mod-smtp-response-normalize = {path="../mod-smtp-response-normalize"}
 mod-sqlite = {path="../mod-sqlite"}
+kumo-jsonl = {path="../kumo-jsonl", features=["lua"]}
 mod-string = {path="../mod-string"}
 mod-time = {path="../mod-time"}
 mod-uuid = {path="../mod-uuid"}
 nix = {workspace=true, features=["fs", "signal"]}
 num-format = {workspace=true}
+parking_lot.workspace = true
 prometheus = {workspace=true}
 rcgen = {workspace=true}
 regex-set-map = {path="../regex-set-map"}
 rustls = {workspace=true}
 serde = {workspace=true}
 serde_json = {workspace=true}
+sysinfo.workspace = true
 throttle = {path="../throttle"}
 tokio = {workspace=true, features=["full", "tracing"]}
 tokio-metrics = {workspace=true}
 tokio-metrics-collector = {workspace=true}
+tokio-stream.workspace = true
+toml.workspace = true
 tower-http = {workspace=true, features=["compression-deflate", "compression-gzip", "decompression-deflate", "decompression-gzip"]}
 tracing = {workspace=true}
 tracing-appender = {workspace=true}
@@ -67,3 +84,7 @@ utoipa-rapidoc = {workspace=true}
 uuid = {workspace=true, features=["v4", "fast-rng"]}
 uuid-helper = {path="../uuid-helper"}
 version-info = {path="../version-info"}
+zstd.workspace = true
+
+[dev-dependencies]
+k9.workspace = true

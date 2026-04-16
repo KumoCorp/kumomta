@@ -6,7 +6,12 @@ edition = "2021"
 [dependencies]
 anyhow = {workspace=true}
 kumo-server-memory = {path="../kumo-server-memory"}
+kumo-prometheus = {path="../kumo-prometheus"}
+linkme.workspace = true
 parking_lot.workspace = true
 prometheus = {workspace=true}
+[target.'cfg(not(target_os = "linux"))'.dependencies]
 tokio = {workspace=true, features=["full", "tracing"]}
+[target.'cfg(target_os = "linux")'.dependencies]
+tokio = {workspace=true, features=["full", "tracing", "taskdump"]}
 tracing = {workspace=true}

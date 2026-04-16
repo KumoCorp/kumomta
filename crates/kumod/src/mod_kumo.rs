@@ -1,15 +1,23 @@
 use crate::egress_source::{EgressPool, EgressSource};
-use crate::queue::QueueConfig;
+use crate::logging::rfc3464::Report;
+use crate::queue::{InsertReason, QueueConfig, QueueManager};
 use crate::ready_queue::GET_EGRESS_PATH_CONFIG_SIG;
-use crate::smtp_server::{EsmtpDomain, EsmtpListenerParams, RejectDisconnect, RejectError};
+use crate::smtp_server::{
+    EsmtpDomain, EsmtpListenerParams, RejectDisconnect, RejectError, TraceHeaders,
+};
+use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_module};
 use kumo_api_types::egress_path::EgressPathConfig;
+use kumo_log_types::rfc3464::ReportGenerationParams;
+use kumo_log_types::JsonLogRecord;
 use kumo_server_common::http_server::HttpListenerParams;
 use kumo_server_lifecycle::ShutdownSubcription;
-use message::{EnvelopeAddress, Message};
+use mailparsing::MimePart;
+use message::Message;
 use mlua::prelude::*;
 use mlua::{Lua, UserDataMethods, Value};
 use num_format::{Locale, ToFormattedString};
+use rfc5321::parser::EnvelopeAddress;
 use spool::SpoolId;
 use std::sync::Arc;
 use throttle::ThrottleSpec;
@@ -168,16 +176,36 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "invoke_get_egress_source",
+        lua.create_async_function(|lua, source_name: String| async move {
+            let mut config = config::load_config().await.map_err(any_err)?;
+            let source = EgressSource::resolve(&source_name, &mut config)
+                .await
+                .map_err(any_err)?;
+            lua.to_value(&source)
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "invoke_get_egress_pool",
+        lua.create_async_function(|lua, pool_name: Option<String>| async move {
+            let mut config = config::load_config().await.map_err(any_err)?;
+            let pool = EgressPool::resolve(pool_name.as_deref(), &mut config)
+                .await
+                .map_err(any_err)?;
+            lua.to_value(&pool)
+        })?,
+    )?;
+
+    kumo_mod.set(
         "invoke_get_egress_path_config",
         lua.create_async_function(
             |lua, (routing_domain, egress_source, site_name): (String, String, String)| async move {
-                let path_config: EgressPathConfig = config::async_call_callback(
-                    &lua,
-                    &GET_EGRESS_PATH_CONFIG_SIG,
-                    (routing_domain, egress_source, site_name),
-                )
-                .await
-                .map_err(any_err)?;
+                let path_config: EgressPathConfig = GET_EGRESS_PATH_CONFIG_SIG
+                    .call(&lua, (routing_domain, egress_source, site_name))
+                    .await
+                    .map_err(any_err)?
+                    .or_default();
                 lua.to_value(&path_config)
             },
         )?,
@@ -238,6 +266,51 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         })?,
     )?;
 
+    async fn generate_rfc3464_message(
+        params: ReportGenerationParams,
+        log_record: JsonLogRecord,
+        orig_msg: Option<Message>,
+    ) -> anyhow::Result<Option<Message>> {
+        let orig_msg_data;
+        let orig_msg = match orig_msg {
+            Some(msg) => {
+                orig_msg_data = msg.data().await?;
+                Some(MimePart::parse(orig_msg_data.as_ref().as_ref())?)
+            }
+            None => None,
+        };
+
+        let report = Report::generate(&params, orig_msg.as_ref(), &log_record)?;
+        match report {
+            Some(report) => {
+                let recip = EnvelopeAddress::parse(&log_record.sender)
+                    .context("log_record is somehow an invalid EnvelopeAddress")?;
+                let body = report.to_message_bytes();
+
+                let msg = Message::new_dirty(
+                    SpoolId::new(),
+                    EnvelopeAddress::null_sender(),
+                    vec![recip],
+                    serde_json::json!({}),
+                    Arc::new(body.into_boxed_slice()),
+                )?;
+                Ok(Some(msg))
+            }
+            None => Ok(None),
+        }
+    }
+
+    kumo_mod.set("generate_rfc3464_message",
+        lua.create_async_function(
+            move |lua, (params, orig_msg, log_record):
+            (mlua::Value, Option<Message>, mlua::Value)| async move {
+                let params: ReportGenerationParams = lua.from_value(params)?;
+                let log_record: JsonLogRecord = lua.from_value(log_record)?;
+                generate_rfc3464_message(params, log_record, orig_msg).await.map_err(any_err)
+            },
+        )?,
+    )?;
+
     kumo_mod.set(
         "make_message",
         lua.create_function(
@@ -245,11 +318,39 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 Message::new_dirty(
                     SpoolId::new(),
                     EnvelopeAddress::parse(&sender).map_err(any_err)?,
-                    EnvelopeAddress::parse(&recip).map_err(any_err)?,
+                    vec![EnvelopeAddress::parse(&recip).map_err(any_err)?], // FIXME: multiple recips
                     serde_json::json!({}),
                     Arc::new(body.as_bytes().to_vec().into_boxed_slice()),
                 )
                 .map_err(any_err)
+            },
+        )?,
+    )?;
+    kumo_mod.set(
+        "inject_message",
+        lua.create_async_function(
+            move |_lua, (msg, deferred_spool): (Message, Option<bool>)| async move {
+                let deferred_spool = deferred_spool.unwrap_or(false);
+                let queue_name = msg.get_queue_name().await.map_err(any_err)?;
+                if !deferred_spool {
+                    msg.save(None).await.map_err(any_err)?;
+                }
+                QueueManager::insert(&queue_name, msg, InsertReason::Received.into())
+                    .await
+                    .map_err(any_err)
+            },
+        )?,
+    )?;
+
+    kumo_mod.set(
+        "apply_supplemental_trace_header",
+        lua.create_async_function(
+            |lua, (message, params): (Message, Option<mlua::Value>)| async move {
+                let params: TraceHeaders = match params {
+                    Some(params) => from_lua_value(&lua, params)?,
+                    None => TraceHeaders::default(),
+                };
+                params.apply_supplemental(&message).await.map_err(any_err)
             },
         )?,
     )?;

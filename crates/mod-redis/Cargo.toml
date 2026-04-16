@@ -6,8 +6,11 @@ edition = "2021"
 [dependencies]
 anyhow = {workspace=true}
 config = {path="../config"}
+crc32fast.workspace = true
 deadpool = {workspace=true}
 duration-serde = {path="../duration-serde"}
+kumo-prometheus = {path="../kumo-prometheus"}
+linkme.workspace = true
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 redis = {workspace=true}
 serde = {workspace=true}

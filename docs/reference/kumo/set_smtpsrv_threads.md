@@ -3,10 +3,10 @@ tags:
  - threadpool
 ---
 
-# kumo.set_httpinject_threads
+# kumo.set_smtpsrv_threads
 
 ```lua
-kumo.set_httpinject_threads(N)
+kumo.set_smtpsrv_threads(N)
 ```
 
 {{since('2024.09.02-c5476b89')}}

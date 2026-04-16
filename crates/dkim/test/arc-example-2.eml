@@ -1,0 +1,185 @@
+Return-Path: <wez@wezfurlong.org>
+Received: from phl-compute-02.internal (phl-compute-02.internal [10.202.2.42])
+	 by slotpi15m71 (Cyrus 3.13.0-alpha0-1341-g6c10bd1c5-fm-20251013.001-g6c10bd1c) with LMTPA;
+	 Thu, 30 Oct 2025 05:58:08 -0400
+X-Cyrus-Session-Id: slotpi15m71-1761818288-1181264-2-10905896220539992579
+X-Sieve: CMU Sieve 3.0
+X-Spam-known-sender: yes ("Self sent message"); in-addressbook, self-send;
+ 2A9FBB1A-0A50-11F0-953D-C6A695ACF6E2 ("Imported 20250326")
+X-Spam-sender-reputation: 999 (email; noauth)
+X-Spam-score: 0.0
+X-Spam-hits: ALL_TRUSTED -1, BAYES_00 -1.9, ME_FROM_EQ_TO 0.01, ME_SC_SENDERREP -100,
+  ME_SENDERREP_ALLOW -4, SHORTCIRCUIT -0.0001, SPF_PASS -0.001,
+  LANGUAGES unknown, BAYES_USED user, SA_VERSION 4.0.1
+X-Spam-source: IP='Unknown', Host='unk', Country='unk', FromHeader='org', MailFrom='org'
+X-Spam-charsets: 
+X-Resolved-to: wez@wezfurlong.org
+X-Delivered-to: wez@wezfurlong.org
+X-Mail-from: wez@wezfurlong.org
+Received: from phl-mx-07 ([10.202.2.206])
+  by phl-compute-02.internal (LMTPProxy); Thu, 30 Oct 2025 05:58:08 -0400
+Received: from phl-mx-07.messagingengine.com (localhost [127.0.0.1])
+	by mailmx.phl.internal (Postfix) with ESMTP id F38B720E00E0
+	for <wez@wezfurlong.org>; Thu, 30 Oct 2025 05:58:07 -0400 (EDT)
+Received: from mailmx.phl.internal (localhost [127.0.0.1])
+    by phl-mx-07.messagingengine.com (Authentication Milter) with ESMTP
+    id FA4D1679830.F2D1A20E00B4;
+    Thu, 30 Oct 2025 05:58:07 -0400
+ARC-Seal: i=1; a=rsa-sha256; cv=none; d=messagingengine.com; s=fm3; t=
+    1761818287; b=ycwa8bnZ1tzWb6H7JnfvMbAcXQarSXzeH4FF70n897IuqJjpK5
+    m0OEH28pRIMClrC7MyimD9LcccWGTipSLMnEpv0KmI9vR2U6XhP4H4GRjTPllIkA
+    iUmAlS3sBmZTgfYSA/G1EbNaT4Nze7gnls5nRJkzxr1fj8uISFwMxkbNLam4KX/7
+    +LzoKHUjI73wSb163y3j6iPb4haU7pxtuBoStGBlh0iZmnM+uj1akTbJnKr7VHKS
+    Ei84Pwc6wiRDjGwR7L8WUNJ1jOUaxHs+9fBDf03DL/yRmLIuVo14l/vjN/GV/9Ho
+    ZYblFYalGQ/0vYo06nbN1AprpO02h75DX8TA==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=
+    messagingengine.com; h=mime-version:date:from:to:message-id
+    :subject:content-type:content-transfer-encoding; s=fm3; t=
+    1761818287; bh=CuO/UH3bRHVPCZuIP5Cvk96qUDS4wL+5Fe9pIlYTsgg=; b=W
+    a3kfSabLIPfuoIoSAfny5UlDGvvoBePo0x/2cZgy/GMN8FVtYZVJZtZDvzuvk25B
+    O5zNW4x3ygfJ+jH0Y5F4GGkHXV0G2qBL+Qmr+CRZHL3dbEQOD+y55W+E0gdXxrhw
+    anst7erKfRpLu+aJNn6T10YTKKBwRmipOAM4IuyQQI2E8W3cp15jfInM/v+EkiGm
+    NV03GyAWGX+UPhs0BVqvLEN7a+PobwQQiDVLEY7NF4y5E+c810RphyVXHvPqlIF2
+    oTv7SCdoBEIA5Mw0F+HuY3jsK43xXbdolaoXb/u5Qdr8F/rwu3jEOlDP0awfg94e
+    COR4JQJdVrWjpQFxrG4Rw==
+ARC-Authentication-Results: i=1; phl-mx-07.messagingengine.com;
+    x-csa=none;
+    x-me-sender=pass
+    policy.xms=
+    rzYDaZmgN376x5oNMHG94qT3s0y89wRpz7PaOSKeSVnszK_f19i0FzFocbt-07jXzmTQDndlWgz5yZX37AqB44eZE_Zhsr3TWTzd5ssnPy6whnBK6AvQPK-XDevRVZ_bz8E6Fk3RSukcnrmnOPMVHcqttFAAw27cCKjC3tNcZ2w;
+    x-ptr=pass smtp.helo=fout-a1-smtp.messagingengine.com
+    policy.ptr=fout-a1-smtp.messagingengine.com;
+    bimi=skipped (DMARC did not pass);
+    arc=none (no signatures found);
+    dkim=pass (2048-bit rsa key sha256) header.d=messagingengine.com
+    header.i=@messagingengine.com header.b=LeEj0x/z header.a=rsa-sha256
+    header.s=fm3;
+    dkim=pass (2048-bit rsa key sha256) header.d=wezfurlong.org
+    header.i=@wezfurlong.org header.b=ij2uTb0J header.a=rsa-sha256
+    header.s=fm1;
+    dmarc=none policy.published-domain-policy=none
+    policy.applied-disposition=none policy.evaluated-disposition=none
+    (p=none,d=none,d.eval=none) policy.policy-from=p
+    header.from=wezfurlong.org;
+    iprev=pass smtp.remote-ip=103.168.172.144
+    (fout-a1-smtp.messagingengine.com);
+    spf=pass smtp.mailfrom=wez@wezfurlong.org
+    smtp.helo=fout-a1-smtp.messagingengine.com
+X-ME-Authentication-Results: phl-mx-07.messagingengine.com;
+    x-tls=pass smtp.version=TLSv1.3 smtp.cipher=TLS_AES_256_GCM_SHA384
+      smtp.bits=256/256;
+    x-vs=clean score=15 state=0
+Authentication-Results: phl-mx-07.messagingengine.com;
+    x-csa=none;
+    x-me-sender=pass
+      policy.xms=
+      rzYDaZmgN376x5oNMHG94qT3s0y89wRpz7PaOSKeSVnszK_f19i0FzFocbt-07jXzmTQDndlWgz5yZX37AqB44eZE_Zhsr3TWTzd5ssnPy6whnBK6AvQPK-XDevRVZ_bz8E6Fk3RSukcnrmnOPMVHcqttFAAw27cCKjC3tNcZ2w;
+    x-ptr=pass smtp.helo=fout-a1-smtp.messagingengine.com
+      policy.ptr=fout-a1-smtp.messagingengine.com
+Authentication-Results: phl-mx-07.messagingengine.com;
+    bimi=skipped (DMARC did not pass)
+Authentication-Results: phl-mx-07.messagingengine.com;
+    arc=none (no signatures found)
+Authentication-Results: phl-mx-07.messagingengine.com;
+    dkim=pass (2048-bit rsa key sha256) header.d=messagingengine.com
+      header.i=@messagingengine.com header.b=LeEj0x/z header.a=rsa-sha256
+      header.s=fm3;
+    dkim=pass (2048-bit rsa key sha256) header.d=wezfurlong.org
+      header.i=@wezfurlong.org header.b=ij2uTb0J header.a=rsa-sha256
+      header.s=fm1;
+    dmarc=none policy.published-domain-policy=none
+      policy.applied-disposition=none policy.evaluated-disposition=none
+      (p=none,d=none,d.eval=none) policy.policy-from=p
+      header.from=wezfurlong.org;
+    iprev=pass smtp.remote-ip=103.168.172.144
+      (fout-a1-smtp.messagingengine.com);
+    spf=pass smtp.mailfrom=wez@wezfurlong.org
+      smtp.helo=fout-a1-smtp.messagingengine.com
+X-ME-VSCause: gggruggvucftvghtrhhoucdtuddrgeeffedrtdeggdduieeifeduucetufdoteggodetrf
+    dotffvucfrrhhofhhilhgvmecuhfgrshhtofgrihhlpdfurfetoffkrfgpnffqhgenuceu
+    rghilhhouhhtmecufedttdenucgoteeftdduqddtudculdduhedmnecujfgurhepofggff
+    fhvffkufgtgfesthejredtredttdenucfhrhhomhepfdghvgiiucfhuhhrlhhonhhgfdcu
+    oeifvgiiseifvgiifhhurhhlohhnghdrohhrgheqnecuggftrfgrthhtvghrnhepgfdttd
+    efjedvffdthedtgeeufedtgeevkeevvedufeeivedttefhvdeludeltdeinecukfhppedu
+    tdefrdduieekrddujedvrddugeegnecuvehluhhsthgvrhfuihiivgeptdenucfrrghrrg
+    hmpehinhgvthepuddtfedrudeikedrudejvddrudeggedphhgvlhhopehfohhuthdqrgdu
+    qdhsmhhtphdrmhgvshhsrghgihhnghgvnhhgihhnvgdrtghomhdpmhgrihhlfhhrohhmpe
+    eofigviiesfigviihfuhhrlhhonhhgrdhorhhgqedpnhgspghrtghpthhtohepuddprhgt
+    phhtthhopeeofigviiesfigviihfuhhrlhhonhhgrdhorhhgqe
+X-ME-VSScore: 15
+X-ME-VSCategory: clean
+X-ME-CSA: none
+X-ME-Received: <xmx:rzYDaXNm-rDxQDwrK3xagr0LHNGf9mp9zpGrc_Q4TXemuEwSFq9-DA>
+X-ME-Received: <xmx:rzYDaTb-H9y55mXe4CcTXVj9rIGVU5XbQGU29dNqpuv4GHO-xohwOA>
+Received-SPF: pass
+    (wezfurlong.org: Sender is authorized to use 'wez@wezfurlong.org' in 'mfrom' identity (mechanism 'include:spf.messagingengine.com' matched))
+    receiver=phl-mx-07.messagingengine.com;
+    identity=mailfrom;
+    envelope-from="wez@wezfurlong.org";
+    helo=fout-a1-smtp.messagingengine.com;
+    client-ip=103.168.172.144
+Received: from mailfout.phl.internal (phl-outbound-01.internal [10.202.2.181])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (2048 bits))
+	(No client certificate requested)
+	by mailmx.phl.internal (Postfix) with ESMTPS id F2D1A20E00B4
+	for <wez@wezfurlong.org>; Thu, 30 Oct 2025 05:58:06 -0400 (EDT)
+Received: from phl-compute-01.internal (phl-compute-01.internal [10.202.2.41])
+	by mailfout.phl.internal (Postfix) with ESMTP id E5C3FEC01A3
+	for <wez@wezfurlong.org>; Thu, 30 Oct 2025 05:58:06 -0400 (EDT)
+Received: from phl-imap-15 ([10.202.2.104])
+  by phl-compute-01.internal (MEProxy); Thu, 30 Oct 2025 05:58:06 -0400
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=wezfurlong.org;
+	 h=cc:content-transfer-encoding:content-type:content-type:date
+	:date:from:from:in-reply-to:message-id:mime-version:reply-to
+	:subject:subject:to:to; s=fm1; t=1761818286; x=1761904686; bh=Cu
+	O/UH3bRHVPCZuIP5Cvk96qUDS4wL+5Fe9pIlYTsgg=; b=ij2uTb0JGMxJvGQoT0
+	9FxAxNWQ113YYjX1IlhJd8oXCQVLthnji9nzjg8PQ1T39xMqp0qh0J7NTfOFl0si
+	yPWrrFDU3LBtMWll5XwmoC6ghavGy4rxx8uVK/MZT6zqwYzMqmhXWER0JlVDFzf9
+	7SkYJSwJR/sINOP776xZWTPxICxHISPd+pq5mqdKXY/4KemSXwbdF6ugIjI6rHwM
+	vYBF/wwiMjTTjP7uuvQTJIX+UgOUBEukKuQhOcxNo0wmWKP0xm78G8C1sq+gX6nf
+	6y7ildrW2AY1QUgNv5zQXho2RLT1SlkoPfThbfDw/ujuDDQaafn7kxgVID/P6trt
+	1+BQ==
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=
+	messagingengine.com; h=cc:content-transfer-encoding:content-type
+	:content-type:date:date:feedback-id:feedback-id:from:from
+	:in-reply-to:message-id:mime-version:reply-to:subject:subject:to
+	:to:x-me-proxy:x-me-sender:x-me-sender:x-sasl-enc; s=fm3; t=
+	1761818286; x=1761904686; bh=CuO/UH3bRHVPCZuIP5Cvk96qUDS4wL+5Fe9
+	pIlYTsgg=; b=LeEj0x/z/0dOVL2vxLMe45R5kq47+dt/yOGqeZvdMaritIeKOcG
+	DMNHzjiEEWGKvb19AdGuJ/ybq1DgF85W6bivYlr95/BJAz7+BBHrpfC6HYR3b/hs
+	Xu1YT0ksPJ0V+EGUcHrNTIMXXyHTpe2rw4FcKLxF2NX06+T3l7BDVMwitHiluQke
+	vc5ipeFoAL0fQrncLFMeX2eDLQ0L6W9gaxy5TKrcg4JHSGQyZm/5Y545CXKktdrg
+	kE1ky1c+Fat9xwJX3NgEZEmAMG7+tUPxVBWg9nVA95lyvQILDs31r6Q+vZyXopXb
+	2JOF5y5FGkYshq3N+nbSifQwbMMBwRb9uXw==
+X-ME-Sender: <xms:rjYDafszAuHg-2bLeCrbuebWY1Pp0ubOomcYQel2e13sSrmWUJtQIQ>
+    <xme:rjYDabR3ljlnE-cekoa0aG9An5ar_4wwMzy6WAF1Yc0QCHCWcAANLYxpC0AFCOQE6
+    ITSzipJm1-Aswr873zDE9AoNwBcTTMeP0Sh6k1pT6QQ_Fpv1Q>
+X-ME-Proxy-Cause: gggruggvucftvghtrhhoucdtuddrgeeffedrtdeggdduieeifeduucetufdoteggodetrf
+    dotffvucfrrhhofhhilhgvmecuhfgrshhtofgrihhlpdfurfetoffkrfgpnffqhgenuceu
+    rghilhhouhhtmecufedttdenucgoteeftdduqddtudculdduhedmnecujfgurhepofggff
+    fhvffkufgtgfesthejredtredttdenucfhrhhomhepfdghvgiiucfhuhhrlhhonhhgfdcu
+    oeifvgiiseifvgiifhhurhhlohhnghdrohhrgheqnecuggftrfgrthhtvghrnhepgfdttd
+    efjedvffdthedtgeeufedtgeevkeevvedufeeivedttefhvdeludeltdeinecuvehluhhs
+    thgvrhfuihiivgeptdenucfrrghrrghmpehmrghilhhfrhhomhepfigviiesfigviihfuh
+    hrlhhonhhgrdhorhhgpdhnsggprhgtphhtthhopedupdhmohguvgepshhmthhpohhuthdp
+    rhgtphhtthhopeifvgiiseifvgiifhhurhhlohhnghdrohhrgh
+X-ME-Proxy: <xmx:rjYDaXRjNrRbZFF-zGWqlpNMv-fx-ymZDLzQk8xzJq0L3GtIWQfgNQ>
+    <xmx:rjYDafukEobSKGzdrNeZRaQc0dKnSwmYlzyw35j2tsW2l3FbeC2BFw>
+    <xmx:rjYDaScssBPX1Pz3w-xNjSGk7V7TLwPxJoXFOE4g8HosqZ0Ww3SJIA>
+    <xmx:rjYDacJXF5igyBZRR3aDjaL26YlB1YNRtq0NuVdR736vo6hqZIr0EQ>
+    <xmx:rjYDaRbo0rq7zZ8c61Mri_2W4bAMvmQhFJCzp7W0s59p5JDi1h6IX28->
+Feedback-ID: i26884094:Fastmail
+Received: by mailuser.phl.internal (Postfix, from userid 501)
+	id 8D1B3780076; Thu, 30 Oct 2025 05:58:06 -0400 (EDT)
+X-Mailer: MessagingEngine.com Webmail Interface
+MIME-Version: 1.0
+Date: Thu, 30 Oct 2025 09:57:45 +0000
+From: "Wez Furlong" <wez@wezfurlong.org>
+To: "Wez Furlong" <wez@wezfurlong.org>
+Message-Id: <296b6703-4af3-4d92-b5ad-dde20b9ff61d@app.fastmail.com>
+Subject: testing arc
+Content-Type: text/plain
+Content-Transfer-Encoding: 7bit
+
+another test for arc

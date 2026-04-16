@@ -5,18 +5,23 @@ edition = "2021"
 
 [dependencies]
 bitflags = {workspace=true}
-charset = {workspace=true}
+bstr.workspace = true
+charset-normalizer-rs.workspace = true
 chrono = {workspace=true, default-features=false, features=["std", "clock"]}
 data-encoding = {workspace=true}
 data-encoding-macro = {workspace=true}
+kumo-wrap = {path="../kumo-wrap"}
 memchr = {workspace=true}
 nom = {workspace=true}
 nom_locate = {workspace=true}
-paste = {workspace=true}
+nom-utils = {path="../nom-utils"}
+pastey = {workspace=true}
 quoted_printable = {workspace=true}
 serde = {workspace=true}
+serde_with = {workspace=true}
 thiserror = {workspace=true}
 uuid = {workspace=true, features=["v4", "fast-rng"]}
 
 [dev-dependencies]
 k9 = {workspace=true}
+serde_json = {workspace=true}

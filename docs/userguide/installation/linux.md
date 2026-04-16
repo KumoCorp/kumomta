@@ -1,12 +1,12 @@
 # Installing on Linux
 
-Pre-built releases are available for CentOS 7, Rocky Linux 8/9, and Ubuntu 20.04/22.04.
+Pre-built releases are available for Rocky Linux 8/9, Ubuntu 20.04/22.04, and Amazon Linux 2/2023.
 
 A repository is provided to ease installation on supported platforms.
 
 The install instructions for supported platforms are shown below. If your platform is not listed, you can [build from source](source.md).
 
-=== "Rocky"
+=== "Rocky 8/9"
 
     ```console
     $ sudo dnf -y install dnf-plugins-core
@@ -62,7 +62,7 @@ If you want to test the latest additions and improvements to KumoMTA, you can in
 !!! warning
     While we do our best to test all commits, dev repositories should **never** be installed in production environments.
 
-=== "Rocky"
+=== "Rocky 8/9"
 
     ```console
     $ sudo dnf -y install dnf-plugins-core

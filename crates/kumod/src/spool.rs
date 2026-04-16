@@ -1,13 +1,12 @@
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::{InsertReason, Queue, QueueManager};
-use crate::smtp_server::ShuttingDownError;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
 use humansize::{format_size, DECIMAL};
 use humantime::format_duration;
 use kumo_server_common::disk_space::{MinFree, MonitoredPath};
-use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription};
+use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription, ShuttingDownError};
 use kumo_server_memory::subscribe_to_memory_status_changes_async;
 use kumo_server_runtime::spawn;
 use message::Message;
@@ -120,7 +119,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             spawn("define_spool", async move {
                 if let Err(err) = define_spool(params).await {
                     tracing::error!("Error in spool: {err:#}");
-                    LifeCycle::request_shutdown().await;
+                    LifeCycle::request_shutdown(Err(err)).await;
                 }
             })
             .map_err(any_err)?
@@ -296,7 +295,7 @@ impl SpoolManager {
         let num_attempts = queue_config.borrow().infer_num_attempts(age);
         msg.set_num_attempts(num_attempts);
 
-        match msg.get_scheduling().and_then(|sched| sched.expires) {
+        match msg.get_scheduling().await?.and_then(|sched| sched.expires) {
             Some(expires) => {
                 // Per-message expiry
                 let delay = queue_config
@@ -332,6 +331,7 @@ impl SpoolManager {
                             source_address: None,
                             provider: None,
                             session_id: None,
+                            recipient_list: None,
                         })
                         .await;
                         self.remove_from_spool_impl(id).await?;
@@ -375,6 +375,7 @@ impl SpoolManager {
                             source_address: None,
                             provider: None,
                             session_id: None,
+                            recipient_list: None,
                         })
                         .await;
                         self.remove_from_spool_impl(id).await?;
@@ -406,7 +407,7 @@ impl SpoolManager {
 
         loop {
             let entry = tokio::select! {
-                _ = shutdown.shutting_down() => return Err(ShuttingDownError.into()),
+                _ = shutdown.shutting_down() => return Err(ShuttingDownError::new("spool_in_thread").into()),
                 entry = rx.recv_async() => { entry },
             }?;
 
@@ -420,7 +421,7 @@ impl SpoolManager {
                             .async_call_callback(&spool_message_enumerated, msg.clone())
                             .await?;
 
-                        match msg.get_queue_name() {
+                        match msg.get_queue_name().await {
                             Ok(queue_name) => match QueueManager::resolve(&queue_name).await {
                                 Err(err) => {
                                     // We don't remove from the spool in this case, because
@@ -485,6 +486,7 @@ impl SpoolManager {
                                     source_address: None,
                                     provider: None,
                                     session_id: None,
+                                    recipient_list: None,
                                 })
                                 .await;
                                 self.remove_from_spool_impl(id).await?;
@@ -509,8 +511,6 @@ impl SpoolManager {
     }
 
     pub async fn start_spool(&self, start_time: DateTime<Utc>) -> anyhow::Result<()> {
-        self.started.store(true, Ordering::SeqCst);
-
         let (tx, rx) = flume::bounded(1024);
         {
             let mut named = self.named.lock().await;
@@ -560,6 +560,10 @@ impl SpoolManager {
 
             Self::spawn_memory_monitor();
         }
+
+        // It is now safe for the various injection methods to attempt to
+        // store to the spool; both meta and data spools are assigned
+        self.started.store(true, Ordering::SeqCst);
 
         // Ensure that there are no more senders outstanding,
         // otherwise we'll deadlock ourselves in the loop below

@@ -2,15 +2,17 @@ use crate::headermap::{EncodeHeaderValue, HeaderMap};
 use crate::rfc5322_parser::Parser;
 use crate::strings::IntoSharedString;
 use crate::{
-    AddressList, AuthenticationResults, MailParsingError, Mailbox, MailboxList, MessageID,
-    MimeParameters, Result, SharedString,
+    ARCAuthenticationResults, AddressList, AuthenticationResults, MailParsingError, Mailbox,
+    MailboxList, MessageID, MimeParameters, Result, SharedString,
 };
+use bstr::{BStr, BString};
 use chrono::{DateTime, FixedOffset};
+use std::borrow::Cow;
 use std::str::FromStr;
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-    pub struct MessageConformance: u8 {
+    pub struct MessageConformance: u16 {
         const MISSING_COLON_VALUE = 0b0000_0001;
         const NON_CANONICAL_LINE_ENDINGS = 0b0000_0010;
         const NAME_ENDS_WITH_SPACE = 0b0000_0100;
@@ -19,6 +21,7 @@ bitflags::bitflags! {
         const MISSING_DATE_HEADER = 0b0010_0000;
         const MISSING_MESSAGE_ID_HEADER = 0b0100_0000;
         const MISSING_MIME_VERSION = 0b1000_0000;
+        const INVALID_MIME_HEADERS = 0b0001_0000_0000;
     }
 }
 
@@ -93,6 +96,15 @@ impl<'a> Header<'a> {
         }
     }
 
+    pub fn to_owned(&'a self) -> Header<'static> {
+        Header {
+            name: self.name.to_owned(),
+            value: self.value.to_owned(),
+            separator: self.separator.to_owned(),
+            conformance: self.conformance,
+        }
+    }
+
     pub fn new<N: Into<SharedString<'a>>>(name: N, value: impl EncodeHeaderValue) -> Self {
         let name = name.into();
         let value = value.encode_value();
@@ -111,12 +123,11 @@ impl<'a> Header<'a> {
         let name = name.into();
         let value = value.into();
 
-        let value = if value.is_ascii() {
-            crate::textwrap::wrap(&value)
-        } else {
-            crate::rfc5322_parser::qp_encode(&value)
-        }
-        .into();
+        let value: SharedString = match value.to_str() {
+            Ok(value) if value.is_ascii() => kumo_wrap::wrap_bytes(value).into(),
+            Ok(value) => crate::rfc5322_parser::qp_encode(value.as_bytes()).into(),
+            Err(_) => kumo_wrap::wrap_bytes(value.as_bytes()).into(),
+        };
 
         Self {
             name,
@@ -155,12 +166,20 @@ impl<'a> Header<'a> {
         String::from_utf8_lossy(&out).to_string()
     }
 
-    pub fn get_name(&self) -> &str {
-        &self.name
+    pub fn get_name(&self) -> &BStr {
+        BStr::new(self.name.as_bytes())
     }
 
-    pub fn get_raw_value(&self) -> &str {
-        &self.value
+    pub fn get_name_lossy(&self) -> Cow<'_, str> {
+        String::from_utf8_lossy(self.name.as_bytes())
+    }
+
+    pub fn get_raw_value(&self) -> &BStr {
+        BStr::new(self.value.as_bytes())
+    }
+
+    pub fn get_raw_value_string(&self) -> Result<&str> {
+        self.value.to_str().map_err(|_| MailParsingError::EightBit)
     }
 
     pub fn as_content_transfer_encoding(&self) -> Result<MimeParameters> {
@@ -205,7 +224,7 @@ impl<'a> Header<'a> {
         Parser::parse_msg_id_header_list(self.get_raw_value())
     }
 
-    pub fn as_unstructured(&self) -> Result<String> {
+    pub fn as_unstructured(&self) -> Result<BString> {
         Parser::parse_unstructured_header(self.get_raw_value())
     }
 
@@ -213,8 +232,13 @@ impl<'a> Header<'a> {
         Parser::parse_authentication_results_header(self.get_raw_value())
     }
 
+    pub fn as_arc_authentication_results(&self) -> Result<ARCAuthenticationResults> {
+        Parser::parse_arc_authentication_results_header(self.get_raw_value())
+    }
+
     pub fn as_date(&self) -> Result<DateTime<FixedOffset>> {
-        DateTime::parse_from_rfc2822(self.get_raw_value()).map_err(MailParsingError::ChronoError)
+        DateTime::parse_from_rfc2822(self.get_raw_value_string()?)
+            .map_err(MailParsingError::ChronoError)
     }
 
     pub fn parse_headers<S>(header_block: S) -> Result<HeaderParseResult<'a>>
@@ -404,7 +428,7 @@ impl<'a> Header<'a> {
 
         macro_rules! hdr {
             ($header_name:literal, $func_name:ident, encode) => {
-                if name.eq_ignore_ascii_case($header_name) {
+                if name.eq_ignore_ascii_case($header_name.as_bytes()) {
                     let value = self.$func_name().map_err(|err| {
                         MailParsingError::HeaderParse(format!(
                             "rebuilding '{name}' header: {err:#}"
@@ -414,7 +438,7 @@ impl<'a> Header<'a> {
                 }
             };
             ($header_name:literal, unstructured) => {
-                if name.eq_ignore_ascii_case($header_name) {
+                if name.eq_ignore_ascii_case($header_name.as_bytes()) {
                     let value = self.as_unstructured().map_err(|err| {
                         MailParsingError::HeaderParse(format!(
                             "rebuilding '{name}' header: {err:#}"
@@ -552,16 +576,16 @@ Ok(
     fn assign_mailbox() {
         let mut sender = Header::with_name_value("Sender", "");
         sender.assign(Mailbox {
-            name: Some("John Smith".to_string()),
+            name: Some("John Smith".into()),
             address: AddrSpec::new("john.smith", "example.com"),
         });
         assert_eq!(
             sender.to_header_string(),
-            "Sender: John Smith <john.smith@example.com>\r\n"
+            "Sender: \"John Smith\" <john.smith@example.com>\r\n"
         );
 
         sender.assign(Mailbox {
-            name: Some("John \"the smith\" Smith".to_string()),
+            name: Some("John \"the smith\" Smith".into()),
             address: AddrSpec::new("john.smith", "example.com"),
         });
         assert_eq!(
@@ -575,7 +599,7 @@ Ok(
         let sender = Header::new(
             "Sender",
             Mailbox {
-                name: Some("John".to_string()),
+                name: Some("John".into()),
                 address: AddrSpec::new("john.smith", "example.com"),
             },
         );
@@ -587,7 +611,7 @@ Ok(
         let sender = Header::new(
             "Sender",
             Mailbox {
-                name: Some("John".to_string()),
+                name: Some("John".into()),
                 address: AddrSpec::new("john smith", "example.com"),
             },
         );
@@ -602,7 +626,7 @@ Ok(
         let sender = Header::new(
             "Sender",
             Mailbox {
-                name: Some("André Pirard".to_string()),
+                name: Some("André Pirard".into()),
                 address: AddrSpec::new("andre", "example.com"),
             },
         );
@@ -770,6 +794,7 @@ Some(
         k9::assert_equal!(
             MessageConformance::from_str("LINE_TOO_LONG|spoon").unwrap_err(),
             "invalid MessageConformance flag 'spoon', possible values are \
+            'INVALID_MIME_HEADERS', \
             'LINE_TOO_LONG', 'MISSING_COLON_VALUE', 'MISSING_DATE_HEADER', \
             'MISSING_MESSAGE_ID_HEADER', 'MISSING_MIME_VERSION', 'NAME_ENDS_WITH_SPACE', \
             'NEEDS_TRANSFER_ENCODING', 'NON_CANONICAL_LINE_ENDINGS'"

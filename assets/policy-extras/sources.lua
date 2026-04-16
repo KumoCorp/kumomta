@@ -50,13 +50,13 @@ local function load_data_from_file(file_name, target)
   end
 
   for pool, pool_def in pairs(data.pool or {}) do
-    for pool_source, params in pairs(pool_def) do
-      target.pools[pool] = target.pools[pool]
-        or {
-          name = pool,
-          entries = {},
-        }
+    target.pools[pool] = target.pools[pool]
+      or {
+        name = pool,
+        entries = {},
+      }
 
+    for pool_source, params in pairs(pool_def) do
       local entry = {}
       utils.merge_into(params, entry)
       entry.name = pool_source
@@ -223,6 +223,9 @@ source_address = "10.0.0.2"
 [source."ip-3"]
 source_address = "10.0.0.3"
 
+# This pool has nothing in it
+[pool."AlwaysSuspended"]
+
 # Pool containing just ip-1, which has weight=1
 [pool."BestReputation"]
 [pool."BestReputation"."ip-1"]
@@ -237,7 +240,10 @@ weight = 2
 [pool."MediumReputation"."ip-3"]
 weight = 1
   ]]
-  load_data { data }
+  local parsed = load_data { data }
+
+  -- Verify that an empty pool still shows up in the data
+  assert(parsed.pools.AlwaysSuspended)
 
   -- Test that SocketAddr format works
   local status, data_or_error = pcall(load_data, {

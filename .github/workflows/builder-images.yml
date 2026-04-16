@@ -5,16 +5,18 @@ on:
     branches: [ "main" ]
     paths:
       - ".github/workflows/builder-images.yml"
+      - "assets/ci/build-rocksdb.sh"
       - "assets/ci/emit-builder-dockerfile.py"
       - "get-deps.sh"
-      - "assets/ci/build-rocksdb.sh"
+      - "rust-toolchain.toml"
   push:
     branches: [ "main" ]
     paths:
       - ".github/workflows/builder-images.yml"
+      - "assets/ci/build-rocksdb.sh"
       - "assets/ci/emit-builder-dockerfile.py"
       - "get-deps.sh"
-      - "assets/ci/build-rocksdb.sh"
+      - "rust-toolchain.toml"
   workflow_dispatch:
   schedule:
     - cron: "0 0 * * 0"
@@ -82,25 +84,25 @@ jobs:
             runs_on: kumo-linux-16core-amd64
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Compute Docker File
         run: |
           ${{ matrix.ISARM }} assets/ci/emit-builder-dockerfile.py ${{ matrix.IMAGE }}:${{ matrix.VERSION }} > Dockerfile.builder
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       - name: Login to GHCR
         if: ${{ github.event_name != 'pull_request' }}
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: https://ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build Image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.builder
           platforms: ${{ matrix.platform }}
-          tags: ghcr.io/kumocorp/builder-for${{ matrix.REPOARM }}-${{ matrix.IMAGE }}
+          tags: ghcr.io/kumocorp/builder-for${{ matrix.REPOARM }}-${{ matrix.IMAGE }}:${{ matrix.VERSION }}
           push: ${{ github.event_name != 'pull_request' }}
 

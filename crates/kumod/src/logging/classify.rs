@@ -4,22 +4,20 @@ use bounce_classify::{
 };
 use config::epoch::{get_current_epoch, ConfigEpoch};
 use kumo_log_types::JsonLogRecord;
+use kumo_prometheus::declare_metric;
 use kumo_server_runtime::available_parallelism;
 use lru_cache::LruCache;
 use parking_lot::Mutex;
-use prometheus::Histogram;
 use rfc5321::Response;
 use serde::Deserialize;
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, OnceLock};
 use tokio::sync::oneshot;
 
-static CLASSIFY_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "bounce_classify_latency",
-        "latency of bounce classification",
-    )
-    .unwrap()
-});
+declare_metric! {
+/// latency of bounce classification
+static CLASSIFY_LATENCY: Histogram("bounce_classify_latency");
+}
+
 static CLASSIFY: OnceLock<ClassifierWrapper> = OnceLock::new();
 
 #[derive(Deserialize, Clone, Debug)]
@@ -260,6 +258,27 @@ impl ClassifierWrapper {
             })
             .await?;
         Ok(rx.await?)
+    }
+}
+
+pub async fn classify_response(response: &Response) -> BounceClass {
+    // If you have no classifier, you pay no cost
+    let Some(classifier) = CLASSIFY.get() else {
+        return BounceClass::default();
+    };
+
+    let _timer = CLASSIFY_LATENCY.start_timer();
+
+    // Check the caches before we commit any serious resources to
+    // classifying this response
+    if let Some(result) = classifier.check_cache(response) {
+        return result;
+    }
+
+    // clone data and pass to the classifier thread pool
+    match classifier.classify(response.clone()).await {
+        Ok(res) => res,
+        Err(_) => BounceClass::default(),
     }
 }
 

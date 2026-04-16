@@ -1,5 +1,5 @@
 use crate::SpfContext;
-use dns_resolver::IpDisplay;
+use dns_resolver::{IpDisplay, Resolver};
 use std::fmt::{self, Write};
 use std::time::SystemTime;
 
@@ -38,7 +38,7 @@ impl MacroSpec {
 
         fn is_macro_literal(c: char) -> bool {
             let c = c as u32;
-            (0x21..=0x24).contains(&c) || (0x26..=0x7e).contains(&c)
+            (0x20..=0x24).contains(&c) || (0x26..=0x7e).contains(&c)
         }
 
         let mut s = s;
@@ -102,7 +102,7 @@ impl MacroSpec {
             }
 
             if !is_macro_literal(s.chars().next().unwrap()) {
-                return Err(format!("invalid macro char in {s}"));
+                return Err(format!("invalid macro char in '{s}'"));
             }
 
             add_literal(&mut elements, &s[0..1]);
@@ -112,7 +112,11 @@ impl MacroSpec {
         Ok(Self { elements })
     }
 
-    pub(crate) fn expand(&self, cx: &SpfContext<'_>) -> Result<String, String> {
+    pub(crate) async fn expand(
+        &self,
+        cx: &SpfContext<'_>,
+        resolver: &dyn Resolver,
+    ) -> Result<String, String> {
         let (mut result, mut buf) = (String::new(), String::new());
         for element in &self.elements {
             let m = match element {
@@ -129,9 +133,10 @@ impl MacroSpec {
                 MacroName::LocalPart => buf.push_str(cx.local_part),
                 MacroName::SenderDomain => buf.push_str(cx.sender_domain),
                 MacroName::Domain => buf.push_str(cx.domain),
-                MacroName::ReverseDns => buf.push_str(match cx.client_ip.is_ipv4() {
-                    true => "in-addr",
-                    false => "ip6",
+                MacroName::ReverseDns => buf.push_str(if cx.client_ip.is_ipv4() {
+                    "in-addr"
+                } else {
+                    "ip6"
                 }),
                 MacroName::ClientIp => {
                     buf.write_fmt(format_args!("{}", cx.client_ip)).unwrap();
@@ -154,10 +159,21 @@ impl MacroSpec {
                             .unwrap_or(0)
                     ))
                     .unwrap(),
-                MacroName::RelayingHostName
-                | MacroName::HeloDomain
-                | MacroName::ValidatedDomainName => {
-                    return Err(format!("{:?} has not been implemented", m.name))
+                MacroName::HeloDomain => {
+                    buf.push_str(cx.ehlo_domain.unwrap_or(""));
+                }
+                MacroName::RelayingHostName => {
+                    buf.push_str(cx.relaying_host_name);
+                }
+                MacroName::ValidatedDomainName => {
+                    match Box::pin(cx.validated_domain(None, resolver)).await {
+                        Ok(Some(name)) => {
+                            buf.push_str(&name);
+                        }
+                        Ok(None) | Err(_) => {
+                            buf.push_str("unknown");
+                        }
+                    }
                 }
             };
 
@@ -330,13 +346,13 @@ impl MacroName {
 
 #[cfg(test)]
 mod test {
-    use std::net::IpAddr;
-
     use super::*;
     use crate::spec::MacroSpec;
+    use dns_resolver::TestResolver;
+    use std::net::IpAddr;
 
-    #[test]
-    fn test_eval() {
+    #[tokio::test]
+    async fn test_eval() {
         // <https://datatracker.ietf.org/doc/html/rfc7208#section-7.4>
 
         let mut ctx = SpfContext::new(
@@ -344,7 +360,27 @@ mod test {
             "email.example.com",
             IpAddr::from([192, 0, 2, 3]),
         )
-        .unwrap();
+        .unwrap()
+        .with_ehlo_domain(Some("email.example.com"))
+        .with_relaying_host_name(Some("mx.mbp.com"));
+
+        let resolver = TestResolver::default()
+            .with_zone(
+                r#"
+$ORIGIN 2.0.192.in-addr.arpa.
+3   600 PTR email.example.com.
+        "#,
+            )
+            .unwrap()
+            .with_zone(
+                r#"
+$ORIGIN example.com.
+@   600 MX 10 email
+        A     192.0.2.3
+email   A     192.0.2.3
+        "#,
+            )
+            .unwrap();
 
         for (input, expect) in &[
             ("%{s}", "strong-bad@email.example.com"),
@@ -361,9 +397,14 @@ mod test {
             ("%{lr}", "strong-bad"),
             ("%{lr-}", "bad.strong"),
             ("%{l1r-}", "strong"),
+            ("%{h}", "email.example.com"),
+            ("%{h2}", "example.com"),
+            ("%{r}", "mx.mbp.com"),
+            ("%{rr}", "com.mbp.mx"),
+            ("%{p}", "email.example.com"),
         ] {
             let spec = MacroSpec::parse(input).unwrap();
-            let output = spec.expand(&ctx).unwrap();
+            let output = spec.expand(&ctx, &resolver).await.unwrap();
             k9::assert_equal!(&output, expect, "{input}");
         }
 
@@ -388,7 +429,7 @@ mod test {
             ("%{c}", "192.0.2.3"),
         ] {
             let spec = MacroSpec::parse(input).unwrap();
-            let output = spec.expand(&ctx).unwrap();
+            let output = spec.expand(&ctx, &resolver).await.unwrap();
             k9::assert_equal!(&output, expect, "{input}");
         }
 
@@ -403,7 +444,7 @@ mod test {
             ("%{C}", "2001%3adb8%3a%3acb01"),
         ] {
             let spec = MacroSpec::parse(input).unwrap();
-            let output = spec.expand(&ctx).unwrap();
+            let output = spec.expand(&ctx, &resolver).await.unwrap();
             k9::assert_equal!(&output, expect, "{input}");
         }
     }

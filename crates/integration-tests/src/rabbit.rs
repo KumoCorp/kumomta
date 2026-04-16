@@ -2,6 +2,7 @@
 use crate::kumod::{generate_message_text, DaemonWithMaildir, MailGenParams};
 use anyhow::Context;
 use futures_lite::stream::StreamExt;
+use kumo_log_types::RecordType::Delivery;
 use lapin::options::{BasicAckOptions, BasicConsumeOptions, QueueDeclareOptions};
 use lapin::types::FieldTable;
 use lapin::{Connection, ConnectionProperties};
@@ -57,12 +58,31 @@ async fn test_lapin_rabbit() -> anyhow::Result<()> {
     eprintln!("{response:?}");
     anyhow::ensure!(response.code == 250);
 
+    // We get one reception which will be relayed to the sink.
+    // The reception and the delivery will generate 2 amqp log records
+    // which show as 2 additional deliveries, so 3 total deliveries
     daemon
-        .wait_for_maildir_count(1, Duration::from_secs(10))
+        .wait_for_source_summary(
+            |summary| summary.get(&Delivery).copied().unwrap_or(0) >= 3,
+            Duration::from_secs(10),
+        )
         .await;
-
-    daemon.stop_both().await.context("stop_both")?;
-    println!("Stopped!");
+    let delivery_summary = daemon.dump_logs().await.context("dump_logs")?;
+    k9::snapshot!(
+        delivery_summary,
+        "
+DeliverySummary {
+    source_counts: {
+        Reception: 1,
+        Delivery: 3,
+    },
+    sink_counts: {
+        Reception: 1,
+        Delivery: 1,
+    },
+}
+"
+    );
 
     let mut consumer = channel
         .basic_consume(
@@ -76,20 +96,23 @@ async fn test_lapin_rabbit() -> anyhow::Result<()> {
     let timeout = tokio::time::Duration::from_secs(20);
 
     // Wait for Reception record
-    let delivery = tokio::time::timeout(timeout, consumer.next())
+    let reception = tokio::time::timeout(timeout, consumer.next())
         .await?
         .unwrap();
-    let delivery = delivery?;
-    println!("{}", String::from_utf8_lossy(&delivery.data));
-    delivery.ack(BasicAckOptions::default()).await?;
+    let reception = reception?;
+    println!("reception={}", String::from_utf8_lossy(&reception.data));
+    reception.ack(BasicAckOptions::default()).await?;
 
     // Wait for Delivery record
     let delivery = tokio::time::timeout(timeout, consumer.next())
         .await?
         .unwrap();
     let delivery = delivery?;
-    println!("{}", String::from_utf8_lossy(&delivery.data));
+    println!("delivery={}", String::from_utf8_lossy(&delivery.data));
     delivery.ack(BasicAckOptions::default()).await?;
+
+    daemon.stop_both().await.context("stop_both")?;
+    println!("Stopped!");
 
     Ok(())
 }
@@ -148,9 +171,31 @@ async fn test_amqprs_rabbit() -> anyhow::Result<()> {
     eprintln!("{response:?}");
     anyhow::ensure!(response.code == 250);
 
+    // We get one reception which will be relayed to the sink.
+    // The reception and the delivery will generate 2 amqp log records
+    // which show as 2 additional deliveries, so 3 total deliveries
     daemon
-        .wait_for_maildir_count(1, Duration::from_secs(10))
+        .wait_for_source_summary(
+            |summary| summary.get(&Delivery).copied().unwrap_or(0) >= 3,
+            Duration::from_secs(10),
+        )
         .await;
+    let delivery_summary = daemon.dump_logs().await.context("dump_logs")?;
+    k9::snapshot!(
+        delivery_summary,
+        "
+DeliverySummary {
+    source_counts: {
+        Reception: 1,
+        Delivery: 3,
+    },
+    sink_counts: {
+        Reception: 1,
+        Delivery: 1,
+    },
+}
+"
+    );
 
     daemon.stop_both().await.context("stop_both")?;
     println!("Stopped!");

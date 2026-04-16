@@ -1,4 +1,7 @@
 use crate::MessageConformance;
+use bstr::{BStr, BString};
+use std::borrow::Cow;
+use std::str::Utf8Error;
 use std::sync::Arc;
 
 /// Helper for holding either an owned or borrowed string,
@@ -6,51 +9,44 @@ use std::sync::Arc;
 /// allowing for efficient copying and slicing without
 /// making extraneous additional copies
 pub enum SharedString<'a> {
-    Owned(Arc<String>),
-    Borrowed(&'a str),
+    Owned(Arc<Vec<u8>>),
+    Borrowed(&'a [u8]),
     Sliced {
-        other: Arc<String>,
+        other: Arc<Vec<u8>>,
         range: std::ops::Range<usize>,
     },
 }
 
 impl std::cmp::PartialEq<Self> for SharedString<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.as_str().eq(other.as_str())
+        self.as_bytes().eq(other.as_bytes())
     }
 }
 
 impl std::cmp::PartialEq<&str> for SharedString<'_> {
     fn eq(&self, other: &&str) -> bool {
-        self.as_str().eq(*other)
+        self.as_bytes().eq(other.as_bytes())
     }
 }
 
 impl std::fmt::Display for SharedString<'_> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let str = self.as_str();
-        fmt.write_str(str)
+        let s = BStr::new(self.as_bytes());
+        (&s as &dyn std::fmt::Display).fmt(fmt)
     }
 }
 
 impl std::fmt::Debug for SharedString<'_> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let str = self.as_str();
-        write!(fmt, "{str:?}")
-    }
-}
-
-impl std::ops::Deref for SharedString<'_> {
-    type Target = str;
-    fn deref(&self) -> &str {
-        self.as_str()
+        let s = BStr::new(self.as_bytes());
+        (&s as &dyn std::fmt::Debug).fmt(fmt)
     }
 }
 
 impl std::ops::Index<usize> for SharedString<'_> {
     type Output = u8;
     fn index(&self, index: usize) -> &u8 {
-        &self.as_str().as_bytes()[index]
+        &self.as_bytes()[index]
     }
 }
 
@@ -90,17 +86,25 @@ impl SharedString<'_> {
     }
 
     fn assert_slice(&self, slice_range: std::ops::Range<usize>) {
-        if self.as_str().get(slice_range.clone()).is_none() {
+        if self.as_bytes().get(slice_range.clone()).is_none() {
             panic!("slice range {slice_range:?} is invalid for {self:?}");
         }
     }
 
-    pub fn as_str(&self) -> &str {
+    pub fn as_bytes(&self) -> &[u8] {
         match self {
-            Self::Owned(s) => s.as_str(),
+            Self::Owned(s) => s,
             Self::Borrowed(s) => s,
-            Self::Sliced { other, range } => other.as_str().get(range.clone()).unwrap(),
+            Self::Sliced { other, range } => other.get(range.clone()).unwrap(),
         }
+    }
+
+    pub fn to_str(&self) -> Result<&str, Utf8Error> {
+        std::str::from_utf8(self.as_bytes())
+    }
+
+    pub fn to_str_lossy(&self) -> Cow<'_, str> {
+        String::from_utf8_lossy(self.as_bytes())
     }
 
     pub fn len(&self) -> usize {
@@ -110,25 +114,47 @@ impl SharedString<'_> {
             Self::Sliced { range, .. } => range.len(),
         }
     }
+
+    pub fn to_owned(&'_ self) -> SharedString<'static> {
+        match self {
+            SharedString::Owned(s) => SharedString::Owned(Arc::clone(s)),
+            SharedString::Borrowed(s) => SharedString::Owned(Arc::new(s.to_vec())),
+            SharedString::Sliced { other, range } => SharedString::Sliced {
+                other: other.clone(),
+                range: range.clone(),
+            },
+        }
+    }
+}
+
+impl From<BString> for SharedString<'_> {
+    fn from(s: BString) -> Self {
+        let v: Vec<u8> = s.into();
+        v.into()
+    }
 }
 
 impl From<String> for SharedString<'_> {
     fn from(s: String) -> Self {
+        Self::Owned(Arc::new(s.into_bytes()))
+    }
+}
+
+impl From<Vec<u8>> for SharedString<'_> {
+    fn from(s: Vec<u8>) -> Self {
         Self::Owned(Arc::new(s))
     }
 }
 
 impl<'a> From<&'a str> for SharedString<'a> {
     fn from(s: &'a str) -> Self {
-        Self::Borrowed(s)
+        Self::Borrowed(s.as_bytes())
     }
 }
 
-impl<'a> TryFrom<&'a [u8]> for SharedString<'a> {
-    type Error = std::str::Utf8Error;
-    fn try_from(s: &'a [u8]) -> Result<Self, Self::Error> {
-        let s = std::str::from_utf8(s)?;
-        Ok(Self::Borrowed(s))
+impl<'a> From<&'a [u8]> for SharedString<'a> {
+    fn from(s: &'a [u8]) -> Self {
+        Self::Borrowed(s)
     }
 }
 
@@ -145,7 +171,7 @@ impl<'a> IntoSharedString<'a> for SharedString<'a> {
 impl<'a> IntoSharedString<'a> for String {
     fn into_shared_string(self) -> (SharedString<'a>, MessageConformance) {
         (
-            SharedString::Owned(Arc::new(self)),
+            SharedString::Owned(Arc::new(self.into_bytes())),
             MessageConformance::default(),
         )
     }
@@ -153,18 +179,34 @@ impl<'a> IntoSharedString<'a> for String {
 
 impl<'a> IntoSharedString<'a> for &'a str {
     fn into_shared_string(self) -> (SharedString<'a>, MessageConformance) {
-        (SharedString::Borrowed(self), MessageConformance::default())
+        (
+            SharedString::Borrowed(self.as_bytes()),
+            MessageConformance::default(),
+        )
     }
 }
 
 impl<'a> IntoSharedString<'a> for &'a [u8] {
     fn into_shared_string(self) -> (SharedString<'a>, MessageConformance) {
         match std::str::from_utf8(self) {
-            Ok(s) => (SharedString::Borrowed(s), MessageConformance::default()),
+            Ok(s) => (
+                SharedString::Borrowed(s.as_bytes()),
+                MessageConformance::default(),
+            ),
             Err(_) => (
-                SharedString::Owned(Arc::new(String::from_utf8_lossy(self).to_string())),
+                SharedString::Borrowed(self),
                 MessageConformance::NEEDS_TRANSFER_ENCODING,
             ),
+        }
+    }
+}
+
+impl<'a> IntoSharedString<'a> for BString {
+    fn into_shared_string(self) -> (SharedString<'a>, MessageConformance) {
+        let bytes: Vec<u8> = self.into();
+        match std::str::from_utf8(&bytes) {
+            Ok(_) => (bytes.into(), MessageConformance::default()),
+            Err(_) => (bytes.into(), MessageConformance::NEEDS_TRANSFER_ENCODING),
         }
     }
 }

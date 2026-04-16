@@ -63,6 +63,12 @@ pub enum DKIMError {
     CanonicalLineEndingsRequired,
     #[error(transparent)]
     Dns(#[from] DnsError),
+    #[error("ARC instance tag is invalid")]
+    InvalidARCInstance,
+    #[error("ARC Set Instance {0} has duplicate headers")]
+    DuplicateARCInstance(u8),
+    #[error("ARC Set Instance {0} has missing headers")]
+    MissingARCInstance(u8),
 }
 
 impl DKIMError {
@@ -85,6 +91,9 @@ impl DKIMError {
             | BodyHashDidNotVerify
             | MalformedBody
             | CanonicalLineEndingsRequired
+            | InvalidARCInstance
+            | DuplicateARCInstance(_)
+            | MissingARCInstance(_)
             | MailParsingError(_)
             | UnsupportedCanonicalizationType(_)
             | UnsupportedHashAlgorithm(_) => Status::Permfail,

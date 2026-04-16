@@ -1,6 +1,6 @@
 # tls_private_key
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 Specify the path to the TLS private key file that corresponds to the `tls_certificate`.
 

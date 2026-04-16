@@ -48,16 +48,17 @@ sources:setup {
 }
 
 local queue_module = require 'policy-extras.queue'
+
 local queue_helper = queue_module:setup {
   -- '/tmp/invalid/file.toml',
   {
     scheduling_header = 'X-Schedule',
-    tenant = {
+    tenants = {
       mytenant = {
         egress_pool = 'pool0',
       },
     },
-    queue = {
+    queues = {
       default = {
         egress_pool = 'pool0',
         -- refresh_interval = '2 hours',
@@ -140,6 +141,7 @@ kumo.on('init', function()
     peer = {
       ['127.0.0.1'] = {
         banner = 'Welcome to loopback!',
+        allow_xclient = true,
       },
       ['192.168.1.0/24'] = {
         banner = 'Welcome to lan!',

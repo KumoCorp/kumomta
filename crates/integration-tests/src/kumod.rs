@@ -1,20 +1,25 @@
 #![cfg(test)]
 use crate::tsa::{TsaArgs, TsaDaemon};
 use crate::webhook::WebHookServer;
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use futures::stream::FusedStream;
 use futures::{SinkExt, StreamExt};
+use kumo_api_client::KumoApiClient;
 use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Request};
 use kumo_log_types::*;
+use kumo_server_common::acct::AcctLogRecord;
 use maildir::{MailEntry, Maildir};
 use mailparsing::MessageBuilder;
 use nix::unistd::{Uid, User};
-use rfc5321::{ForwardPath, Response, ReversePath, SmtpClient, SmtpClientTimeouts};
+use parking_lot::Mutex;
+use rfc5321::parser::{ForwardPath, ReversePath};
+use rfc5321::{BatchSendSuccess, Response, SmtpClient, SmtpClientTimeouts};
 use sqlite::{Connection, State};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
@@ -31,10 +36,13 @@ pub struct MailGenParams<'a> {
     pub subject: Option<&'a str>,
     pub body: Option<&'a str>,
     pub full_content: Option<&'a str>,
+    pub ignore_8bit_checks: bool,
+    pub recip_list: Option<Vec<&'a str>>,
 }
 
 /// Generate a single nonsense string with no spaces with
 /// length at least that specified
+#[allow(dead_code)]
 pub fn generate_nonsense_string(n_bytes: usize) -> String {
     let mut chain = lipsum::MarkovChain::new();
     chain.learn(lipsum::LIBER_PRIMUS);
@@ -73,17 +81,54 @@ pub fn generate_message_text(n_bytes: usize, wrap: usize) -> String {
 }
 
 impl MailGenParams<'_> {
+    pub fn recipient_list(&self) -> Vec<&str> {
+        let mut recipients = vec![];
+        if let Some(recip) = &self.recip {
+            recipients.push(*recip);
+        }
+        if let Some(recips) = &self.recip_list {
+            for &r in recips {
+                recipients.push(r);
+            }
+        }
+        if recipients.is_empty() {
+            recipients.push("recip@example.com");
+        }
+        recipients
+    }
+
     pub async fn send(&self, client: &mut SmtpClient) -> anyhow::Result<Response> {
+        client.set_ignore_8bit_checks(self.ignore_8bit_checks);
         let sender = self.sender.unwrap_or("sender@example.com");
-        let recip = self.recip.unwrap_or("recip@example.com");
-        let body = self.generate()?;
+        let recips = self.recipient_list();
+        anyhow::ensure!(recips.len() == 1, "use send_batch for multi-recipient!");
+        let recip = recips[0];
+        let body = self
+            .generate()
+            .context("generation of message body failed")?;
 
         Ok(client
             .send_mail(
-                ReversePath::try_from(sender).unwrap(),
-                ForwardPath::try_from(recip).unwrap(),
+                ReversePath::try_from(sender).map_err(|err| anyhow!("invalid sender: {err}"))?,
+                ForwardPath::try_from(recip).map_err(|err| anyhow!("invalid recipient: {err}"))?,
                 &body,
             )
+            .await?)
+    }
+
+    pub async fn send_batch(&self, client: &mut SmtpClient) -> anyhow::Result<BatchSendSuccess> {
+        let sender = self.sender.unwrap_or("sender@example.com");
+        let recips = self
+            .recipient_list()
+            .into_iter()
+            .map(|r| ForwardPath::try_from(r).unwrap())
+            .collect();
+        let body = self
+            .generate()
+            .context("generation of message body failed")?;
+
+        Ok(client
+            .send_mail_multi_recip(ReversePath::try_from(sender).unwrap(), recips, &body)
             .await?)
     }
 
@@ -103,15 +148,16 @@ impl MailGenParams<'_> {
             &body_owner
         };
         let sender = self.sender.unwrap_or("sender@example.com");
-        let recip = self.recip.unwrap_or("recip@example.com");
+        let recip = self.recipient_list().join(", ");
         let mut message = MessageBuilder::new();
-        message.set_from(sender);
-        message.set_to(recip);
-        message.set_subject(self.subject.unwrap_or("Hello! This is a test"));
+        message.set_from(sender)?;
+        message.set_to(&*recip).ok(); // the no_ports test assigns an address that is invalid in To:
+        message.set_subject(self.subject.unwrap_or("Hello! This is a test"))?;
         message.text_plain(body);
         message.prepend("X-Test1", "Test1");
         message.prepend("X-Another", "Another");
-        Ok(message.build()?.to_message_string())
+        message.set_stable_content(true);
+        Ok(String::from_utf8(message.build()?.to_message_bytes())?)
     }
 }
 
@@ -137,31 +183,71 @@ pub fn target_bin(tool: &str) -> anyhow::Result<PathBuf> {
     std::fs::canonicalize(&path).with_context(|| format!("canonicalize {path}"))
 }
 
+pub struct DaemonWithMaildirOptions {
+    policy_file: String,
+    env: Vec<(String, String)>,
+}
+
+impl DaemonWithMaildirOptions {
+    pub fn new() -> Self {
+        Self {
+            policy_file: "source.lua".to_string(),
+            env: vec![],
+        }
+    }
+
+    #[allow(unused)]
+    pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env.push((key.into(), value.into()));
+        self
+    }
+
+    pub fn policy_file(mut self, file: impl Into<String>) -> Self {
+        self.policy_file = file.into();
+        self
+    }
+
+    pub async fn start(self) -> anyhow::Result<DaemonWithMaildir> {
+        DaemonWithMaildir::start_with_options(self).await
+    }
+}
+
 impl DaemonWithMaildir {
     pub async fn start() -> anyhow::Result<Self> {
         Self::start_with_env(vec![]).await
     }
 
-    pub async fn start_with_env(env: Vec<(&str, &str)>) -> anyhow::Result<Self> {
-        let mut env: Vec<(String, String)> = env
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
+    pub async fn start_with_options(options: DaemonWithMaildirOptions) -> anyhow::Result<Self> {
+        let mut env = options.env;
 
         let sink = KumoDaemon::spawn_maildir_env(env.clone())
             .await
             .context("spawn_maildir")?;
         let smtp = sink.listener("smtp");
         env.push(("KUMOD_SMTP_SINK_PORT".to_string(), smtp.port().to_string()));
+        let http = sink.listener("http");
+        env.push(("KUMOD_HTTP_SINK_PORT".to_string(), http.port().to_string()));
 
         let source = KumoDaemon::spawn(KumoArgs {
-            policy_file: "source.lua".to_string(),
+            policy_file: options.policy_file,
             env,
         })
         .await
         .context("KumoDaemon::spawn")?;
 
         Ok(Self { source, sink })
+    }
+
+    pub async fn start_with_env(env: Vec<(&str, &str)>) -> anyhow::Result<Self> {
+        DaemonWithMaildirOptions {
+            env: env
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            ..DaemonWithMaildirOptions::new()
+        }
+        .start()
+        .await
     }
 
     pub async fn smtp_client(&self) -> anyhow::Result<SmtpClient> {
@@ -185,92 +271,26 @@ impl DaemonWithMaildir {
         Ok(status)
     }
 
-    /// Run a server trace and capture the records until the trace is stopped,
-    /// at which point it will return the set of records.
     pub async fn trace_server(&self) -> anyhow::Result<ServerTracer> {
-        let (mut socket, _response) = connect_async(format!(
-            "ws://{}/api/admin/trace-smtp-server/v1",
-            self.source.listener("http")
-        ))
-        .await?;
-        socket
-            .send(Message::Text(serde_json::to_string(&TraceSmtpV1Request {
-                source_addr: None,
-                terse: true,
-            })?))
-            .await?;
+        return Ok(self.source.trace_server().await?);
+    }
 
-        let (signal_close, mut close_signalled) = tokio::sync::oneshot::channel();
-
-        let joiner = tokio::spawn(async move {
-            let mut records = vec![];
-            let mut closed = false;
-
-            while !socket.is_terminated() {
-                tokio::select! {
-                    _ = &mut close_signalled, if !closed => {
-                        closed = true;
-                        if socket.close(None).await.is_err() {
-                            break;
-                        }
-                    }
-                    record = socket.next() => {
-                        match record {
-                            Some(Ok(msg)) => {
-                                match msg {
-                                    Message::Text(s) => {
-                                        let event: TraceSmtpV1Event = serde_json::from_str(&s).expect("TraceSmtpV1Event");
-                                        records.push(event);
-                                    }
-                                    Message::Ping(ping) => {
-                                        if socket.send(Message::Pong(ping)).await.is_err() {
-                                            break;
-                                        }
-                                    }
-                                    wat => {
-                                        eprintln!("WAT: {wat:?}");
-                                        break;
-                                    }
-                                }
-                            }
-                            Some(Err(_)) | None => {
-                                break;
-                            }
-                        }
-                    }
-                };
-            }
-
-            records
-        });
-
-        Ok(ServerTracer {
-            signal_close,
-            joiner,
-        })
+    pub async fn trace_sink(&self) -> anyhow::Result<ServerTracer> {
+        return Ok(self.sink.trace_server().await?);
     }
 
     pub async fn kcli_json<R: for<'a> serde::Deserialize<'a>>(
         &self,
         args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     ) -> anyhow::Result<R> {
-        let path = target_bin("kcli")?;
-        let mut cmd = Command::new(path);
-        cmd.args([
-            "--endpoint",
-            &format!("http://{}", self.source.listener("http")),
-        ]);
-        cmd.args(args);
-        cmd.stdout(std::process::Stdio::piped());
-        let label = format!("{cmd:?}");
-        let child = cmd.spawn()?;
-        let output = child.wait_with_output().await?;
-        anyhow::ensure!(output.status.success(), "{label}: {:?}", output.status);
-        println!(
-            "kcli output is: {}",
-            String::from_utf8_lossy(&output.stdout)
-        );
-        Ok(serde_json::from_slice(&output.stdout)?)
+        self.source.kcli_json(args).await
+    }
+
+    pub async fn sink_kcli_json<R: for<'a> serde::Deserialize<'a>>(
+        &self,
+        args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+    ) -> anyhow::Result<R> {
+        self.sink.kcli_json(args).await
     }
 
     pub fn extract_maildir_messages(&self) -> anyhow::Result<Vec<MailEntry>> {
@@ -346,6 +366,14 @@ impl DaemonWithMaildir {
             sink_counts,
         })
     }
+
+    /// Raise an error if the acct log has any denied access entries.
+    /// That implies that there is an issue with the ACL definitions
+    pub async fn assert_no_acct_deny(&self) -> anyhow::Result<()> {
+        self.source.assert_no_acct_deny().await?;
+        self.sink.assert_no_acct_deny().await?;
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -407,6 +435,7 @@ impl KumoDaemon {
                 "kumod=trace,kumo_server_common=info,kumo_server_runtime=info,amqprs=trace,warn,lua=trace",
             )
             .env("KUMOD_TEST_DIR", dir.path())
+            .env("KUMO_NODE_ID_PATH", dir.path().join("nodeid"))
             .envs(args.env.iter().cloned())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -491,6 +520,75 @@ impl KumoDaemon {
         })
     }
 
+    pub async fn trace_server(&self) -> anyhow::Result<ServerTracer> {
+        let (mut socket, _response) = connect_async(format!(
+            "ws://{}/api/admin/trace-smtp-server/v1",
+            self.listener("http")
+        ))
+        .await?;
+        socket
+            .send(Message::Text(
+                serde_json::to_string(&TraceSmtpV1Request {
+                    source_addr: None,
+                    terse: true,
+                })?
+                .into(),
+            ))
+            .await?;
+
+        let (signal_close, mut close_signalled) = tokio::sync::oneshot::channel();
+
+        let records = Arc::new(Mutex::new(vec![]));
+
+        let joiner = tokio::spawn({
+            let records = records.clone();
+            async move {
+                let mut closed = false;
+
+                while !socket.is_terminated() {
+                    tokio::select! {
+                        _ = &mut close_signalled, if !closed => {
+                            closed = true;
+                            if socket.close(None).await.is_err() {
+                                break;
+                            }
+                        }
+                        record = socket.next() => {
+                            match record {
+                                Some(Ok(msg)) => {
+                                    match msg {
+                                        Message::Text(s) => {
+                                            let event: TraceSmtpV1Event = serde_json::from_str(&s).expect("TraceSmtpV1Event");
+                                            records.lock().push(event);
+                                        }
+                                        Message::Ping(ping) => {
+                                            if socket.send(Message::Pong(ping)).await.is_err() {
+                                                break;
+                                            }
+                                        }
+                                        wat => {
+                                            eprintln!("WAT: {wat:?}");
+                                            break;
+                                        }
+                                    }
+                                }
+                                Some(Err(_)) | None => {
+                                    break;
+                                }
+                            }
+                        }
+                    };
+                }
+            }
+        });
+
+        Ok(ServerTracer {
+            signal_close,
+            joiner,
+            records,
+        })
+    }
+
     pub async fn stop(&mut self) -> anyhow::Result<()> {
         let id = self.child.id().ok_or_else(|| anyhow::anyhow!("no pid!?"))?;
         let pid = nix::unistd::Pid::from_raw(id as _);
@@ -510,6 +608,12 @@ impl KumoDaemon {
             Some(addr) => *addr,
             None => panic!("listener service {service} is not defined. Did it fail to start?"),
         }
+    }
+
+    pub fn api_client(&self) -> KumoApiClient {
+        let endpoint = format!("http://{}", self.listener("http"));
+        let url = kumo_api_client::Url::parse(&endpoint).unwrap();
+        KumoApiClient::new(url)
     }
 
     pub async fn smtp_client(&self, host: &str) -> anyhow::Result<SmtpClient> {
@@ -553,6 +657,78 @@ impl KumoDaemon {
             }
         }
         Ok(())
+    }
+
+    pub async fn collect_acct_logs(&self) -> anyhow::Result<Vec<AcctLogRecord>> {
+        let records = self.collect_acct_logs_impl().await?;
+
+        // and print it in the sorted order for easier understanding
+        eprintln!("--- collect_acct_logs begin");
+        for r in &records {
+            eprintln!("{}", serde_json::to_string(r).unwrap());
+        }
+        eprintln!("--- end of acct logs");
+
+        Ok(records)
+    }
+
+    /// Raise an error if the acct log has any denied access entries.
+    /// That implies that there is an issue with the ACL definitions
+    pub async fn assert_no_acct_deny(&self) -> anyhow::Result<()> {
+        let logs = self.collect_acct_logs().await?;
+
+        for entry in &logs {
+            anyhow::ensure!(entry.is_allow(), "Got a deny acct log entry: {entry:#?}");
+        }
+        Ok(())
+    }
+
+    pub async fn collect_acct_logs_impl(&self) -> anyhow::Result<Vec<AcctLogRecord>> {
+        let dir = self.dir.path().join("acct");
+        tokio::task::spawn_blocking(move || {
+            let mut records = vec![];
+
+            fn read_zstd_file(path: &Path) -> anyhow::Result<String> {
+                let f = std::fs::File::open(path).with_context(|| format!("open {path:?}"))?;
+                let data = zstd::stream::decode_all(f)
+                    .with_context(|| format!("decoding zstd from {path:?}"))?;
+                let text = String::from_utf8(data)?;
+                Ok(text)
+            }
+
+            fn read_zstd_file_with_retry(path: &Path) -> anyhow::Result<String> {
+                let mut error = None;
+                for _ in 0..10 {
+                    match read_zstd_file(path) {
+                        Ok(t) => {
+                            return Ok(t);
+                        }
+                        Err(err) => {
+                            eprintln!("collect_logs: Error reading {path:?}: {err:#}");
+                            error.replace(err);
+                            std::thread::sleep(std::time::Duration::from_secs(1));
+                        }
+                    }
+                }
+                anyhow::bail!("Failed: {error:?}");
+            }
+
+            for entry in std::fs::read_dir(&dir)? {
+                let entry = entry?;
+                if entry.file_type()?.is_file() {
+                    let text = read_zstd_file_with_retry(&entry.path())?;
+                    for line in text.lines() {
+                        let record: AcctLogRecord = serde_json::from_str(line)?;
+                        records.push(record);
+                    }
+                }
+            }
+
+            records.sort_by(|a, b| a.timestamp().cmp(b.timestamp()));
+
+            Ok(records)
+        })
+        .await?
     }
 
     pub async fn collect_logs(&self) -> anyhow::Result<Vec<JsonLogRecord>> {
@@ -677,6 +853,44 @@ impl KumoDaemon {
 
         anyhow::bail!("unexpected state from accounting db");
     }
+
+    pub async fn kcli_text(
+        &self,
+        args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+    ) -> anyhow::Result<String> {
+        let path = target_bin("kcli")?;
+        let mut cmd = Command::new(path);
+        cmd.args(["--endpoint", &format!("http://{}", self.listener("http"))]);
+        cmd.args(args);
+        cmd.stdout(std::process::Stdio::piped());
+        let label = format!("{cmd:?}");
+        let child = cmd.spawn()?;
+        let output = child.wait_with_output().await?;
+        anyhow::ensure!(output.status.success(), "{label}: {:?}", output.status);
+        let output = String::from_utf8_lossy(&output.stdout);
+        println!("kcli output is: {output}");
+        Ok(output.into())
+    }
+
+    pub async fn kcli_json<R: for<'a> serde::Deserialize<'a>>(
+        &self,
+        args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+    ) -> anyhow::Result<R> {
+        let path = target_bin("kcli")?;
+        let mut cmd = Command::new(path);
+        cmd.args(["--endpoint", &format!("http://{}", self.listener("http"))]);
+        cmd.args(args);
+        cmd.stdout(std::process::Stdio::piped());
+        let label = format!("{cmd:?}");
+        let child = cmd.spawn()?;
+        let output = child.wait_with_output().await?;
+        anyhow::ensure!(output.status.success(), "{label}: {:?}", output.status);
+        println!(
+            "kcli output is: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        Ok(serde_json::from_slice(&output.stdout)?)
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -799,12 +1013,37 @@ impl DaemonWithTsa {
 
 pub struct ServerTracer {
     signal_close: tokio::sync::oneshot::Sender<()>,
-    joiner: tokio::task::JoinHandle<Vec<TraceSmtpV1Event>>,
+    joiner: tokio::task::JoinHandle<()>,
+    records: Arc<Mutex<Vec<TraceSmtpV1Event>>>,
 }
 
 impl ServerTracer {
     pub async fn stop(self) -> anyhow::Result<Vec<TraceSmtpV1Event>> {
         self.signal_close.send(()).expect("call stop only once");
-        Ok(self.joiner.await?)
+        self.joiner.await?;
+        Ok(self.records.lock().clone())
+    }
+
+    pub fn with_records<R>(&self, mut apply: impl FnMut(&[TraceSmtpV1Event]) -> R) -> R {
+        let records = self.records.lock();
+        (apply)(&records)
+    }
+
+    pub async fn wait_for(
+        &self,
+        mut condition: impl FnMut(&[TraceSmtpV1Event]) -> bool,
+        timeout: Duration,
+    ) -> bool {
+        tokio::select! {
+            _ = async {
+                loop {
+                    if self.with_records(&mut condition) {
+                        return true;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            } => true,
+            _ = tokio::time::sleep(timeout) => false,
+        }
     }
 }

@@ -10,7 +10,7 @@ tags:
 FILE = kumo.fs.open(FILENAME, OPT_MODE)
 ```
 
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 
 This function is similar to the lua builtin `io.open` function in that
 it can be used to open a file on the filesystem either for reading or writing.

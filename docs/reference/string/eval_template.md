@@ -6,7 +6,7 @@ tags:
 # kumo.string.eval_template
 
 ```lua
-kumo.string.eval_template(NAME, SOURCE, CONTEXT)
+kumo.string.eval_template(NAME, SOURCE, CONTEXT, OPT_DIALECT)
 ```
 
 {{since('2025.03.19-1d3f1f67')}}
@@ -97,3 +97,18 @@ print(kumo.string.eval_template(
   { log_record = log_record }
 ))
 ```
+
+## Template Dialect
+
+{{since('2025.12.02-67ee9e96')}}
+
+It is now possible to specify which template engine will be
+used for template expansion via the `OPT_DIALECT` parameter.
+It can have one of the following values:
+
+ * `Jinja` - this is the implied default.  The Mini Jinja
+   template dialect will be parsed and evaluated.
+ * `Static` - The content is treated as a static string and
+   no template expansion will be performed
+ * `Handlebars` - The content will be evaluated by a handlebars
+   compatible template engine.

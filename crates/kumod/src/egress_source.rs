@@ -7,19 +7,19 @@ use config::{CallbackSignature, LuaConfig};
 use data_loader::KeySource;
 use gcd::Gcd;
 use kumo_log_types::MaybeProxiedSourceAddress;
+use kumo_prometheus::declare_metric;
 use kumo_server_common::config_handle::ConfigHandle;
 use lruttl::declare_cache;
 use message::Message;
 use mlua::prelude::LuaUserData;
 use parking_lot::FairMutex as Mutex;
-use prometheus::IntCounter;
 use serde::{Deserialize, Serialize};
 use socksv5::v5::{
     SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5RequestStatus, SocksV5Response,
 };
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
@@ -144,13 +144,15 @@ impl serde::Serialize for SocketAddrOrHostname {
 }
 
 declare_cache! {
+/// Caches EgressSource information by source name
 static SOURCES: LruCacheWithTtl<String, EgressSource>::new("egress_source_sources", 128);
 }
 declare_cache! {
+/// Caches EgressPool information by pool name
 static POOLS: LruCacheWithTtl<String, EgressPool>::new("egress_source_pools", 128);
 }
 
-#[derive(Deserialize, Debug, Clone, PartialEq, Eq, mlua::FromLua)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, mlua::FromLua)]
 #[serde(deny_unknown_fields)]
 pub struct EgressSource {
     /// Give it a friendly name for use in reporting and referencing
@@ -193,6 +195,48 @@ pub struct EgressSource {
 
 impl LuaUserData for EgressSource {}
 
+#[derive(thiserror::Error, Debug)]
+#[error("bind {source_ip:?} for {source_name} failed: {error:#} while attempting to connect to {connect_context}")]
+pub struct BindError {
+    pub source_ip: IpAddr,
+    pub error: std::io::Error,
+    pub connect_context: String,
+    pub source_name: String,
+}
+
+impl BindError {
+    pub fn is_unplumbed(&self) -> bool {
+        matches!(self.error.kind(), std::io::ErrorKind::AddrNotAvailable)
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+#[error("{reason}")]
+pub struct ConnectError {
+    pub is_proxy: bool,
+    pub reason: String,
+}
+
+#[derive(thiserror::Error, Debug)]
+#[error("{reason}")]
+pub struct ProxyBindError {
+    pub reason: String,
+}
+
+pub fn err_match_anyhow<T: std::error::Error + 'static>(err: &anyhow::Error) -> Option<&T> {
+    err_match(err.root_cause())
+}
+
+pub fn err_match<'a, T: std::error::Error + 'static>(
+    err: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a T> {
+    if let Some(cause) = err.source() {
+        err_match(cause)
+    } else {
+        err.downcast_ref::<T>()
+    }
+}
+
 impl EgressSource {
     pub async fn resolve(name: &str, config: &mut LuaConfig) -> anyhow::Result<Self> {
         SOURCES
@@ -224,7 +268,7 @@ impl EgressSource {
             .map(|lookup| lookup.item)
     }
 
-    async fn resolve_proxy_protocol(&self, address: SocketAddr) -> anyhow::Result<ProxyProto> {
+    fn resolve_proxy_protocol(&'_ self, address: SocketAddr) -> anyhow::Result<ProxyProto<'_>> {
         use ppp::v2::{Addresses, IPv4, IPv6};
         let source_name = &self.name;
 
@@ -331,19 +375,23 @@ impl EgressSource {
 
         if let Some(source) = self.source_address {
             if let Err(err) = socket.bind(SocketAddr::new(source, 0)) {
-                let error = format!(
-                    "bind {source:?} for source:{source_name} failed: {err:#} \
-                    while attempting to connect to {connect_context}"
-                );
-                static FAILED_BIND: LazyLock<IntCounter> = LazyLock::new(|| {
-                    prometheus::register_int_counter!(
-                        "bind_failures",
-                        "how many times that directly binding a source address has failed"
-                    )
-                    .unwrap()
-                });
+                declare_metric! {
+                    /// How many times that directly binding a source address has failed.
+                    ///
+                    /// This generally indicates a configuration error where a source
+                    /// is trying to assign an IP address that is not plumbing on
+                    /// the system on which kumod is running.
+                    static FAILED_BIND: IntCounter("bind_failures");
+                }
+
                 FAILED_BIND.inc();
-                anyhow::bail!("{error}");
+                return Err(BindError {
+                    source_ip: source,
+                    error: err,
+                    connect_context,
+                    source_name: source_name.to_string(),
+                }
+                .into());
             }
         }
 
@@ -355,14 +403,22 @@ impl EgressSource {
             {
                 Err(_) => {
                     inc_failed_proxy_connection_attempts(is_proxy);
-                    anyhow::bail!(
-                        "timeout after {timeout_duration:?} \
-                         while connecting to {transport_context}"
-                    );
+                    return Err(ConnectError {
+                        is_proxy,
+                        reason: format!(
+                            "timeout after {timeout_duration:?} \
+                             while connecting to {transport_context}"
+                        ),
+                    }
+                    .into());
                 }
                 Ok(Err(err)) => {
                     inc_failed_proxy_connection_attempts(is_proxy);
-                    anyhow::bail!("failed to connect to {transport_context}: {err:#}");
+                    return Err(ConnectError {
+                        is_proxy,
+                        reason: format!("failed to connect to {transport_context}: {err:#}"),
+                    }
+                    .into());
                 }
                 Ok(Ok(stream)) => stream,
             };
@@ -389,13 +445,14 @@ fn inc_failed_proxy_connection_attempts(is_proxy: bool) {
         return;
     }
 
-    static FAILED: LazyLock<IntCounter> = LazyLock::new(|| {
-        prometheus::register_int_counter!(
-            "proxy_connection_failures",
-            "how many times a connection attempt to a proxy server has failed"
-        )
-        .unwrap()
-    });
+    declare_metric! {
+        /// How many times a connection attempt to a proxy server has failed.
+        ///
+        /// This might indicate either a configuration error (eg: an
+        /// incorrect proxy server has been configured) or a
+        /// service interruption with that proxy server.
+        static FAILED: IntCounter("proxy_connection_failures");
+    }
     FAILED.inc();
 }
 
@@ -1222,7 +1279,15 @@ impl<'a> ProxyProto<'a> {
                     SocksV5RequestStatus::Success => {
                         tracing::debug!("SOCKS5: bind response: {bind_status:?}");
                     }
-                    _ => anyhow::bail!("failed to bind {source:?} via {self:?}: {bind_status:?}"),
+                    _ => {
+                        return Err(ProxyBindError {
+                            reason: format!(
+                                "The proxy server failed to bind {source:?} \
+                                 via {self:?}: {bind_status:?}"
+                            ),
+                        }
+                        .into())
+                    }
                 }
 
                 tracing::debug!("SOCKS5: requesting connect to {dest_host:?}:{dest_port}");

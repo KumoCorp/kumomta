@@ -2,11 +2,11 @@
 
 This module provides functions for hashing/digesting data.
 
-## The Digest Object
+## The BinaryResult Object
 
-The functions in this module return a `Digest` object.
+The functions in this module return a `BinaryResult` object.
 
-Printing or otherwise explicitly converting a `Digest` object
+Printing or otherwise explicitly converting a `BinaryResult` object
 as a string will produce the digest bytes encoded in hex.
 
 The following fields are available to return the bytes encoded

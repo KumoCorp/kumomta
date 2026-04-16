@@ -156,7 +156,10 @@ impl QueueConfig {
     }
 
     pub fn delay_for_attempt(&self, attempt: u16) -> chrono::Duration {
-        let delay = self.retry_interval.as_secs() * 2u64.saturating_pow(attempt as u32);
+        let delay = self
+            .retry_interval
+            .as_secs()
+            .saturating_mul(2u64.saturating_pow(attempt as u32));
 
         let delay = match self.max_retry_interval.map(|d| d.as_secs()) {
             None => delay,

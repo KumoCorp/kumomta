@@ -169,8 +169,10 @@ impl AsyncFile {
         match mode {
             "r" | "rb" => options.read(true),
             "w" | "wb" => options.write(true).create(true),
+            "a" | "ab" => options.write(true).append(true).create(true),
             "r+" | "r+b" => options.read(true).write(true).create(true),
             "w+" | "w+b" => options.read(true).write(true).truncate(true).create(true),
+            "a+" | "a+b" => options.read(true).write(true).append(true).create(true),
             unsup => {
                 return Err(mlua::Error::external(format!(
                     "unsupported file mode `{unsup}`"

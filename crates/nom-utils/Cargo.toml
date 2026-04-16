@@ -1,0 +1,13 @@
+[package]
+name = "nom-utils"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bstr.workspace = true
+hickory-resolver.workspace = true
+nom = {workspace=true}
+nom_locate = {workspace=true}
+
+[dev-dependencies]
+k9 = {workspace=true}

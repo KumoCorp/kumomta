@@ -4,7 +4,16 @@ use std::time::Duration;
 
 /// This test verifies that a 421 disconnect doesn't cause collateral
 /// damage for the next message in the ready queue by making it
-/// experience a TransientFailure due to a connection error
+/// experience a TransientFailure due to a connection error.
+/// Please note that this test is sensitive to the composition
+/// of the connection plan: it assumes that the disconnect happens
+/// for the last viable candidate address.
+/// If IPv6 address(es) are returned for `localhost` and are present
+/// after the IPv4 address, and IPv6 is non-functional in the test
+/// environment, then this test will fail because that IPv6 address
+/// will (correctly!) produce a TransientFailure.
+/// We assume that skip_hosts is configured to skip IPv6 addresses
+/// in order for this test to pass in spite of that environment.
 #[tokio::test]
 async fn disconnect_terminate_ok() -> anyhow::Result<()> {
     let mut daemon = DaemonWithMaildir::start().await?;

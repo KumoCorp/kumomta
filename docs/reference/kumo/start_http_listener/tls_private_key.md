@@ -38,7 +38,7 @@ For example, you might populate it like this:
 $ vault kv put -mount=secret tls/mail.example.com key=@mail.example.com.key
 ```
 
-If you want to use a different field name, you can specify it with `vault_key` {{since('dev', inline=True)}}:
+If you want to use a different field name, you can specify it with `vault_key` {{since('2025.10.06-5ec871ab', inline=True)}}:
 
 ```lua
 kumo.start_http_listener {
@@ -46,7 +46,7 @@ kumo.start_http_listener {
   tls_private_key = {
     vault_mount = 'secret',
     vault_path = 'tls/mail.example.com.key',
-    vault_key = 'private_key',  -- Look for 'private_key' instead of 'key'
+    vault_key = 'private_key', -- Look for 'private_key' instead of 'key'
   },
 }
 ```

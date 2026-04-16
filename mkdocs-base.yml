@@ -10,6 +10,7 @@ site_dir: gh_pages
 strict: true
 theme:
   name: material
+  logo: assets/images/kumo-logo.png
   custom_dir: docs/overrides
   palette:
     - media: "(prefers-color-scheme: light)"

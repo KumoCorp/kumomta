@@ -81,6 +81,12 @@ fn json_encode(lua: &Lua, value: LuaValue) -> mlua::Result<String> {
 
 fn json_encode_pretty(lua: &Lua, value: LuaValue) -> mlua::Result<String> {
     let value = materialize_to_lua_value(lua, value)?;
+    // This additional conversion to a json value causes any object types
+    // to become backed by a BTreeMap rather than lua's randomly ordered
+    // table type, so that the pretty print will show the keys in sorted order.
+    // We only do that for pretty printing because we don't usually want
+    // to bother with that additional overhead
+    let value = serde_json::to_value(&value).map_err(any_err)?;
     serde_json::to_string_pretty(&value).map_err(any_err)
 }
 

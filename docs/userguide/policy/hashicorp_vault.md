@@ -76,7 +76,7 @@ vault kv put -mount=secret dkim/example.org key=@example-private-dkim-key.pem
 It is important to ensure you are storing Version-2 secrets with a "key=<value>" format. In the preceding example, the `key` points to a filename `example-private-dkim-key.pem`.
 
 ## Using Custom Key Names
-{{since('dev')}}
+{{since('2025.10.06-5ec871ab')}}
 By default, KumoMTA looks for a field named `key` in your vault secret. If you want to use a different field name, you can specify it with the `vault_key` parameter:
 
 ```lua
@@ -84,7 +84,7 @@ local vault_signer = kumo.dkim.rsa_sha256_signer {
   key = {
     vault_mount = 'secret',
     vault_path = 'dkim/' .. msg:from_header().domain,
-    vault_key = 'private_key',  -- Look for 'private_key' instead of 'key'
+    vault_key = 'private_key', -- Look for 'private_key' instead of 'key'
   },
 }
 ```

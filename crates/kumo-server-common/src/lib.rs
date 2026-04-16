@@ -1,6 +1,7 @@
+use bstr::ByteSlice;
 use config::{
     any_err, decorate_callback_name, from_lua_value, get_or_create_module, load_config,
-    CallbackSignature,
+    serialize_options, CallbackSignature,
 };
 use kumo_server_runtime::available_parallelism;
 use mlua::{Function, Lua, LuaSerdeExt, Value, Variadic};
@@ -8,10 +9,13 @@ use mod_redis::RedisConnKey;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicUsize;
 
+pub mod acct;
+pub mod authn_authz;
 pub mod config_handle;
 pub mod diagnostic_logging;
 pub mod disk_space;
 pub mod http_server;
+pub mod log;
 pub mod nodeid;
 pub mod panic;
 pub mod start;
@@ -23,28 +27,37 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         data_loader::register,
         mod_digest::register,
         mod_encode::register,
+        mod_aws_sigv4::register,
         cidr_map::register,
         domain_map::register,
         mod_amqp::register,
         mod_filesystem::register,
+        mod_file_type::register,
         mod_http::register,
         mod_regex::register,
         mod_serde::register,
         mod_sqlite::register,
+        mod_crypto::register,
+        mod_smtp_response_normalize::register,
+        kumo_jsonl::lua::register,
         mod_string::register,
         mod_time::register,
         mod_dns_resolver::register,
         mod_kafka::register,
         mod_memoize::register,
+        mod_mimepart::register,
         mod_mpsc::register,
+        mod_nats::register,
         mod_uuid::register,
         kumo_api_types::shaping::register,
         regex_set_map::register,
+        crate::authn_authz::register,
     ] {
         func(lua)?;
     }
 
     let kumo_mod = get_or_create_module(lua, "kumo")?;
+    kumo_mod.set("version", version_info::kumo_version())?;
 
     fn event_registrar_name(name: &str) -> String {
         format!("kumomta-event-registrars-{name}")
@@ -56,18 +69,20 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         let decorated_name = event_registrar_name(name);
         let mut call_stack = vec![];
         for n in 1.. {
-            match lua.inspect_stack(n) {
+            match lua.inspect_stack(n, |info| {
+                let source = info.source();
+                format!(
+                    "{}:{}",
+                    source
+                        .short_src
+                        .as_ref()
+                        .map(|b| b.to_string())
+                        .unwrap_or_else(String::new),
+                    info.current_line().unwrap_or(0)
+                )
+            }) {
                 Some(info) => {
-                    let source = info.source();
-                    call_stack.push(format!(
-                        "{}:{}",
-                        source
-                            .short_src
-                            .as_ref()
-                            .map(|b| b.to_string())
-                            .unwrap_or_else(String::new),
-                        info.curr_line()
-                    ));
+                    call_stack.push(info);
                 }
                 None => break,
             }
@@ -180,13 +195,19 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             }
 
             match item {
-                Value::String(s) => match s.to_str() {
-                    Ok(s) => output.push_str(&s),
-                    Err(_) => {
-                        let item = s.to_string_lossy();
-                        output.push_str(&item);
+                Value::String(s) => {
+                    let bytes = s.as_bytes();
+                    for (start, end, c) in bytes.char_indices() {
+                        if c == std::char::REPLACEMENT_CHARACTER {
+                            let c_slice = &bytes[start..end];
+                            for &b in c_slice.iter() {
+                                output.push_str(&format!("\\x{b:02X}"));
+                            }
+                        } else {
+                            output.push(c);
+                        }
                     }
-                },
+                }
                 item => match item.to_string() {
                     Ok(s) => output.push_str(&s),
                     Err(_) => output.push_str(&format!("{item:?}")),
@@ -197,23 +218,23 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     }
 
     fn get_caller(lua: &Lua) -> String {
-        match lua.inspect_stack(1) {
-            Some(info) => {
-                let source = info.source();
-                let file_name = source
-                    .short_src
-                    .as_ref()
-                    .map(|b| b.to_string())
-                    .unwrap_or_else(String::new);
-                // Lua returns the somewhat obnoxious `[string "source.lua"]`
-                // Let's fix that up to be a bit nicer
-                let file_name = match file_name.strip_prefix("[string \"") {
-                    Some(name) => name.strip_suffix("\"]").unwrap_or(name),
-                    None => &file_name,
-                };
+        match lua.inspect_stack(1, |info| {
+            let source = info.source();
+            let file_name = source
+                .short_src
+                .as_ref()
+                .map(|b| b.to_string())
+                .unwrap_or_else(String::new);
+            // Lua returns the somewhat obnoxious `[string "source.lua"]`
+            // Let's fix that up to be a bit nicer
+            let file_name = match file_name.strip_prefix("[string \"") {
+                Some(name) => name.strip_suffix("\"]").unwrap_or(name),
+                None => &file_name,
+            };
 
-                format!("{file_name}:{}", info.curr_line())
-            }
+            format!("{file_name}:{}", info.current_line().unwrap_or(0))
+        }) {
+            Some(info) => info,
             None => "?".to_string(),
         }
     }
@@ -356,6 +377,21 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "get_memory_hard_limit",
+        lua.create_function(move |_, _: ()| Ok(kumo_server_memory::get_hard_limit()))?,
+    )?;
+
+    kumo_mod.set(
+        "get_memory_soft_limit",
+        lua.create_function(move |_, _: ()| Ok(kumo_server_memory::get_soft_limit()))?,
+    )?;
+
+    kumo_mod.set(
+        "get_memory_low_thresh",
+        lua.create_function(move |_, _: ()| Ok(kumo_server_memory::get_low_memory_thresh()))?,
+    )?;
+
+    kumo_mod.set(
         "configure_redis_throttles",
         lua.create_async_function(|lua, params: Value| async move {
             let key: RedisConnKey = from_lua_value(&lua, params)?;
@@ -378,28 +414,30 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 line_defined: Option<usize>,
                 last_line_defined: Option<usize>,
                 what: &'static str,
-                curr_line: i32,
+                curr_line: Option<usize>,
                 is_tail_call: bool,
             }
 
             let mut frames = vec![];
             for n in level.. {
-                match lua.inspect_stack(n) {
-                    Some(info) => {
-                        let source = info.source();
-                        let names = info.names();
-                        frames.push(Frame {
-                            curr_line: info.curr_line(),
-                            is_tail_call: info.is_tail_call(),
-                            event: format!("{:?}", info.event()),
-                            last_line_defined: source.last_line_defined,
-                            line_defined: source.line_defined,
-                            name: names.name.as_ref().map(|b| b.to_string()),
-                            name_what: names.name_what.as_ref().map(|b| b.to_string()),
-                            source: source.source.as_ref().map(|b| b.to_string()),
-                            short_src: source.short_src.as_ref().map(|b| b.to_string()),
-                            what: source.what,
-                        });
+                match lua.inspect_stack(n, |info| {
+                    let source = info.source();
+                    let names = info.names();
+                    Frame {
+                        curr_line: info.current_line(),
+                        is_tail_call: info.is_tail_call(),
+                        event: format!("{:?}", info.event()),
+                        last_line_defined: source.last_line_defined,
+                        line_defined: source.line_defined,
+                        name: names.name.as_ref().map(|b| b.to_string()),
+                        name_what: names.name_what.as_ref().map(|b| b.to_string()),
+                        source: source.source.as_ref().map(|b| b.to_string()),
+                        short_src: source.short_src.as_ref().map(|b| b.to_string()),
+                        what: source.what,
+                    }
+                }) {
+                    Some(frame) => {
+                        frames.push(frame);
                     }
                     None => break,
                 }
@@ -502,6 +540,23 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(|_, enable: bool| {
             kumo_server_memory::set_tracking_callstacks(enable);
             Ok(())
+        })?,
+    )?;
+
+    // This function is intended for debugging and testing purposes only.
+    // It is potentially very expensive on a production system with many
+    // thousands of queues.
+    kumo_mod.set(
+        "prometheus_metrics",
+        lua.create_async_function(|lua, ()| async move {
+            use tokio_stream::StreamExt;
+            let mut json_text = String::new();
+            let mut stream = kumo_prometheus::registry::Registry::stream_json();
+            while let Some(text) = stream.next().await {
+                json_text.push_str(&text);
+            }
+            let value: serde_json::Value = serde_json::from_str(&json_text).map_err(any_err)?;
+            lua.to_value_with(&value, serialize_options())
         })?,
     )?;
 

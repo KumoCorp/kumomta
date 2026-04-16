@@ -3,19 +3,123 @@ use crate::types::format::Format;
 use crate::types::mode::Mode;
 use crate::types::policy::Policy;
 use crate::types::report_failure::ReportFailure;
+use crate::types::results::{Disposition, DispositionWithContext};
+use crate::{DmarcContext, SenderDomainAlignment};
+use bstr::{BStr, ByteSlice};
 use std::str::FromStr;
 
+#[derive(Debug)]
 pub struct Record {
-    align_dkim: Mode,
-    align_spf: Mode,
+    pub align_dkim: Mode,
+    pub align_spf: Mode,
     report_failure: ReportFailure,
-    policy: Policy,
+    pub policy: Policy,
     rate: u8,
     format: Format,
     interval: u32,
     aggregate_feedback: Vec<FeedbackAddress>,
     message_failure: Vec<FeedbackAddress>,
-    subdomain_policy: Policy,
+    subdomain_policy: Option<Policy>,
+}
+
+impl Record {
+    pub(crate) async fn evaluate(
+        &self,
+        cx: &DmarcContext<'_>,
+        sender_location: SenderDomainAlignment,
+    ) -> DispositionWithContext {
+        if rand::random::<u8>() % 100 >= self.rate {
+            return DispositionWithContext {
+                result: Disposition::Pass,
+                context: format!("sampled_out due to pct={}", self.rate),
+            };
+        }
+        match self.align_dkim {
+            Mode::Relaxed => {
+                for dkim in cx.dkim {
+                    if let Some(result) = dkim.get("header.d") {
+                        let organizational_domain = psl::domain_str(cx.from_domain);
+
+                        if cx.from_domain.as_bytes() != result.as_bytes()
+                            && organizational_domain.map(BStr::new) != Some(result.as_bstr())
+                        {
+                            return DispositionWithContext {
+                                result: self.select_failure_mode(sender_location),
+                                context: "DMARC: DKIM relaxed check failed".into(),
+                            };
+                        }
+                    } else {
+                        return DispositionWithContext {
+                            result: self.select_failure_mode(sender_location),
+                            context: "DMARC: DKIM signature missing 'd=' tag".into(),
+                        };
+                    }
+                }
+            }
+            Mode::Strict => {
+                for dkim in cx.dkim {
+                    if let Some(result) = dkim.get("header.d") {
+                        if cx.from_domain.as_bytes() != result.as_bytes() {
+                            return DispositionWithContext {
+                                result: self.select_failure_mode(sender_location),
+                                context: "DMARC: DKIM strict check failed".into(),
+                            };
+                        }
+                    } else {
+                        return DispositionWithContext {
+                            result: self.select_failure_mode(sender_location),
+                            context: "DMARC: DKIM signature missing 'd=' tag".into(),
+                        };
+                    }
+                }
+            }
+        }
+
+        match self.align_spf {
+            Mode::Relaxed => {
+                if let Some(mail_from_domain) = cx.mail_from_domain {
+                    let organizational_domain = psl::domain_str(mail_from_domain);
+
+                    if mail_from_domain != cx.from_domain
+                        && organizational_domain != Some(cx.from_domain)
+                    {
+                        return DispositionWithContext {
+                            result: self.select_failure_mode(sender_location),
+                            context: "DMARC: SPF relaxed check failed".into(),
+                        };
+                    }
+                }
+            }
+            Mode::Strict => {
+                if let Some(mail_from_domain) = cx.mail_from_domain {
+                    if mail_from_domain != cx.from_domain {
+                        return DispositionWithContext {
+                            result: self.select_failure_mode(sender_location),
+                            context: "DMARC: SPF strict check failed".into(),
+                        };
+                    }
+                }
+            }
+        }
+
+        DispositionWithContext {
+            result: Disposition::Pass,
+            context: "Success".into(),
+        }
+    }
+
+    fn select_failure_mode(&self, sender_location: SenderDomainAlignment) -> Disposition {
+        match sender_location {
+            SenderDomainAlignment::OrganizationalDomain => {
+                if let Some(policy) = self.subdomain_policy {
+                    policy.into()
+                } else {
+                    self.policy.into()
+                }
+            }
+            SenderDomainAlignment::Exact => self.policy.into(),
+        }
+    }
 }
 
 impl FromStr for Record {
@@ -32,7 +136,7 @@ impl FromStr for Record {
             interval: 86400,
             aggregate_feedback: Vec::new(),
             message_failure: Vec::new(),
-            subdomain_policy: Policy::None,
+            subdomain_policy: None,
         };
 
         let (mut version, mut policy) = (false, false);
@@ -55,7 +159,6 @@ impl FromStr for Record {
             match key {
                 "p" => {
                     new.policy = Policy::from_str(value)?;
-                    new.subdomain_policy = new.policy;
                     policy = true;
                 }
                 "adkim" => new.align_dkim = Mode::from_str(value)?,
@@ -81,14 +184,15 @@ impl FromStr for Record {
                         new.message_failure.push(FeedbackAddress::from_str(addr)?);
                     }
                 }
-                "sp" => new.subdomain_policy = Policy::from_str(value)?,
+                "sp" => new.subdomain_policy = Some(Policy::from_str(value)?),
                 _ => return Err(format!("invalid key {key:?}")),
             }
         }
 
-        match policy {
-            true => Ok(new),
-            false => Err(format!("missing policy in {s:?}")),
+        if policy {
+            Ok(new)
+        } else {
+            Err(format!("missing policy in {s:?}"))
         }
     }
 }

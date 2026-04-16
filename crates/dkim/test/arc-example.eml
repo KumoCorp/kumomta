@@ -1,0 +1,227 @@
+Return-Path: <wez@kumomta.com>
+Received: from phl-compute-02.internal (phl-compute-02.internal [10.202.2.42])
+	 by slotpi15m71 (Cyrus 3.13.0-alpha0-1341-g6c10bd1c5-fm-20251013.001-g6c10bd1c) with LMTPA;
+	 Thu, 30 Oct 2025 05:42:59 -0400
+X-Cyrus-Session-Id: slotpi15m71-1761817379-4093319-2-8826037471221011994
+X-Sieve: CMU Sieve 3.0
+X-Spam-known-sender: yes ("Address wez@kumomta.com in From header is in addressbook");
+ in-addressbook; 42641a0a-c8ba-4e19-870f-1584b9a291f5 ("Autosaved")
+X-Spam-sender-reputation: 1000 (email)
+X-Spam-score: 0.0
+X-Spam-hits: BAYES_00 -1.9, ME_SC_SENDERREP -100, ME_SENDERREP_ALLOW -4,
+  RCVD_IN_DNSWL_NONE -0.0001, RCVD_IN_MSPIKE_H2 0.001,
+  SHORTCIRCUIT -0.0001, SPF_HELO_NONE 0.001, SPF_PASS -0.001,
+  LANGUAGES unknown, BAYES_USED user, SA_VERSION 4.0.1
+X-Spam-source: IP='209.85.222.174', Host='mail-qk1-f174.google.com', Country='US',
+  FromHeader='com', MailFrom='com'
+X-Spam-charsets: 
+X-Resolved-to: wez@wezfurlong.org
+X-Delivered-to: wez@wezfurlong.org
+X-Mail-from: wez@kumomta.com
+Received: from phl-mx-04 ([10.202.2.203])
+  by phl-compute-02.internal (LMTPProxy); Thu, 30 Oct 2025 05:42:59 -0400
+Received: from phl-mx-04.messagingengine.com (localhost [127.0.0.1])
+	by mailmx.phl.internal (Postfix) with ESMTP id 740A61380093
+	for <wez@wezfurlong.org>; Thu, 30 Oct 2025 05:42:58 -0400 (EDT)
+Received: from mailmx.phl.internal (localhost [127.0.0.1])
+    by phl-mx-04.messagingengine.com (Authentication Milter) with ESMTP
+    id 45C04F27DE4.191D31380068;
+    Thu, 30 Oct 2025 05:42:58 -0400
+ARC-Seal: i=1; a=rsa-sha256; cv=none; d=messagingengine.com; s=fm3; t=
+    1761817378; b=xiPk/Etps3qMOwoWhXiJyxGxMtV3XC0U6OtYQX1ORnaq8Bj7jH
+    /OgegZSo4PH1FXl4kuWfqYvVszPrSXLAtxybz2usLE37d2NO531QeoWEHGQK39bI
+    acPCAJV3NzD5GbbtaHI7eCzO0H1GKhEn07yfGbo/VTWalVNXHlXov2mySzEJl/lE
+    Q6do2hF7DbBif5ChICfGmWu/xS90t13D9EYg+eMPmg7QL719nJ66u7txtMCzXQ01
+    ReDn9Xk+/kqwXPFh/6MWvJztPs3j8goi3qHo5gIh7Tj/S7yhGNpDz1lJwlJFrJXW
+    lv+TEnKLfEZ5r+bo9V+DO1RIrHNvrLSs6YFA==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=
+    messagingengine.com; h=mime-version:date:from:to:message-id
+    :subject:content-type:content-transfer-encoding; s=fm3; t=
+    1761817378; bh=B4Sdwm/LsvO9X1e98hS643RXXxvU5oFkgjJHmUF8s3k=; b=X
+    7ABn3lCWF9ZaYd1xPhmzqJFHGCKOP2OJUbmH7osxevxAdHiSkSyeU3NS+mYbYNXZ
+    t8UlZfhdWlX+EBQcbr85qAnYwACjqaCBaX2kIJa/6SRWVS17f1ZLuUX5gWH4lv9l
+    nfoigfvAJWG50gQ51BFKiIthzLg/vWRpgGHh/RyMmmVnQIrPLkar/0rj4f1HQaaO
+    pTUhrAY9uVzXmQT4m/oGt/m05k+GPTGmQq6AHs3QHxmNRDGcGfdgmP3laHwIN4Y7
+    XJ19+f8ZGmfKRCr0scORyXO9iDYbFjnfu7AUnNrBXXZRO1vOKXgV/jL0cdP4Ux2l
+    wabpV6OSsLihL9RSJjVdw==
+ARC-Authentication-Results: i=1; phl-mx-04.messagingengine.com;
+    x-csa=none;
+    x-me-sender=fail;
+    x-ptr=pass smtp.helo=mail-qk1-f174.google.com
+    policy.ptr=mail-qk1-f174.google.com;
+    bimi=pass header.d=kumomta.com header.selector=default;
+    arc=none (no signatures found);
+    dkim=pass (1024-bit rsa key sha256) header.d=kumomta.com
+    header.i=@kumomta.com header.b=ZUrWtUUp header.a=rsa-sha256
+    header.s=gw1024;
+    dmarc=pass policy.published-domain-policy=reject
+    policy.applied-disposition=none policy.evaluated-disposition=none
+    (p=reject,d=none,d.eval=none) policy.policy-from=p
+    header.from=kumomta.com;
+    iprev=pass smtp.remote-ip=209.85.222.174 (mail-qk1-f174.google.com);
+    spf=pass smtp.mailfrom=wez@kumomta.com
+    smtp.helo=mail-qk1-f174.google.com
+X-ME-Authentication-Results: phl-mx-04.messagingengine.com;
+    x-tls=pass smtp.version=TLSv1.3 smtp.cipher=TLS_AES_256_GCM_SHA384
+      smtp.bits=256/256;
+    x-vs=clean score=0 state=0
+Authentication-Results: phl-mx-04.messagingengine.com;
+    x-csa=none;
+    x-me-sender=fail;
+    x-ptr=pass smtp.helo=mail-qk1-f174.google.com
+      policy.ptr=mail-qk1-f174.google.com
+Authentication-Results: phl-mx-04.messagingengine.com;
+    bimi=pass header.d=kumomta.com header.selector=default
+Authentication-Results: phl-mx-04.messagingengine.com;
+    arc=none (no signatures found)
+Authentication-Results: phl-mx-04.messagingengine.com;
+    dkim=pass (1024-bit rsa key sha256) header.d=kumomta.com
+      header.i=@kumomta.com header.b=ZUrWtUUp header.a=rsa-sha256
+      header.s=gw1024;
+    dmarc=pass policy.published-domain-policy=reject
+      policy.applied-disposition=none policy.evaluated-disposition=none
+      (p=reject,d=none,d.eval=none) policy.policy-from=p
+      header.from=kumomta.com;
+    iprev=pass smtp.remote-ip=209.85.222.174 (mail-qk1-f174.google.com);
+    spf=pass smtp.mailfrom=wez@kumomta.com
+      smtp.helo=mail-qk1-f174.google.com
+BIMI-Indicator: PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Inllcy
+    I/Pgo8c3ZnIGJhc2VQcm9maWxlPSJ0aW55LXBzIiB2ZXJzaW9uPSIxLjIiIHZpZXdCb3g9
+    IjAgMCAxMDgwIDEwODAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+Ci
+    AgPHRpdGxlPmJpbWktc3ZnLXRpbnktMTItcHM8L3RpdGxlPgogIDxwYXRoIGlkPSJPcmFu
+    Z2VfQnViYmxlIiBkPSJNMjA0LjM5LDMyOS4yMWMtLjA1LTgxLjAyLDY1LjU5LTE0Ni43My
+    wxNDYuNjEtMTQ2Ljc3bDU1NC4wNy0uMzFjODEuMDItLjA1LDE0Ni43Myw2NS41OSwxNDYu
+    NzcsMTQ2LjYxbC4xNiwyOTMuMzhjLjA0LDgwLjk2LTY1LjY1LDE0Ni43My0xNDYuNjEsMT
+    Q2Ljc3bDUwLjk2LDE0OS43MWMyLjIzLDYuNTUtNS4xNCwxMi4xOS0xMC44OCw4LjMybC0y
+    MzQuMzQtMTU3LjkyLTM1OS44LjJjLTgxLjAxLjA1LTE0Ni43Mi02NS41OS0xNDYuNzctMT
+    Q2LjYxbC0uMTYtMjkzLjM4WiIgZmlsbD0iI2Y4YTYyOCIgZmlsbC1ydWxlPSJldmVub2Rk
+    IiBzdHJva2U9IiNmOGE2MjgiIHN0cm9rZS1taXRlcmxpbWl0PSIxMCIgc3Ryb2tlLXdpZH
+    RoPSIxNiIvPgogIDxwYXRoIGlkPSJFbnZlbG9wZSIgZD0iTTg4OS44OSw0MzRjMC04MS4y
+    OS02NS45LTE0Ny4xOS0xNDcuMTktMTQ3LjE5SDE4OS42M2MtODEuMywwLTE0Ny4yLDY1Lj
+    ktMTQ3LjIsMTQ3LjJ2MjkyLjg3YzAsODAuNzMsNjUuMzUsMTQ2LjMxLDE0NS45OSwxNDYu
+    NjkuMzQsMCwuNTkuMzQuNDguNjZsLTU3LjA3LDE2Ny45NmMtLjE2LjQ2LjM2Ljg2Ljc2Lj
+    U4bDI1MC42Ny0xNjkuMTJjLjA4LS4wNi4xOC0uMDkuMjgtLjA5aDM1OS4xNGM4MS4zLDAs
+    MTQ3LjItNjUuOSwxNDcuMi0xNDcuMnYtMjkyLjM3WiIgZmlsbD0iI2ZmZiIgZmlsbC1ydW
+    xlPSJldmVub2RkIiBzdHJva2U9IiNmMTg5MTUiIHN0cm9rZS1taXRlcmxpbWl0PSIxMCIg
+    c3Ryb2tlLXdpZHRoPSI0MCIvPgogIDxwYXRoIGlkPSJUb3BfQXJyb3ciIGQ9Ik0xMDguMD
+    IsMjQxLjA3czYzLjcxLTEyMy41OSwxNDYtMTQ5Ljc1YzcyLjg4LTIzLjE2LDI4OS42OC0x
+    My4wOSwyODkuNjgtMTMuMDlsLTM5LjE1LTQ0LjIzLDM5LjE1LDQ0LjIzLTM0LjMsMzguMz
+    QiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2Y2Yzk2MiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5k
+    IiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBzdHJva2Utd2lkdGg9IjQwIi8+CiAgPHBhdG
+    ggaWQ9IkJvdHRvbV9BcnJvdyIgZD0iTTgyNi4xMiw5NjQuOTljLTcyLjg4LDIzLjE2LTM1
+    Mi4xNCwxNS43Mi0zNTIuMTQsMTUuNzJsMzkuMTUsNDQuMjQtMzkuMTUtNDQuMjQsMzQuMy
+    0zOC4zNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjZjOTYyIiBzdHJva2UtbGluZWNhcD0i
+    cm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIHN0cm9rZS13aWR0aD0iNDAiLz4KIC
+    A8cG9seWxpbmUgaWQ9IkVudmVsb3BlX0xpZCIgcG9pbnRzPSI4Ny45OSAzMzEuNzUgNDYx
+    LjMzIDY3NC40MSA4NDcuNzcgMzMxLjA4IiBmaWxsPSJub25lIiBzdHJva2U9IiNmMTg5MT
+    UiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIgc3Ry
+    b2tlLXdpZHRoPSI0MCIvPgo8L3N2Zz4=
+BIMI-Location: v=BIMI1;
+    l=https://kumomta.com/hubfs/bimi-svg-tiny-12-ps.svg
+X-ME-VSCause: gggruggvucftvghtrhhoucdtuddrgeeffedrtdeggdduieeivdejucetufdoteggodetrf
+    dotffvucfrrhhofhhilhgvmecuhfgrshhtofgrihhlpdfurfetoffkrfgpnffqhgenuceu
+    rghilhhouhhtmecufedttdenucenucfjughrpefoggffhffvkffutgfgsehtjeertdertd
+    dtnecuhfhrohhmpedfhggviicuhfhurhhlohhnghdfuceofigviieskhhumhhomhhtrgdr
+    tghomheqnecuggftrfgrthhtvghrnhepfffgtdfhgfeiheefteeghfeklefggfetheehle
+    duieeltdekueeivdduheeukeefnecukfhppedvtdelrdekhedrvddvvddrudejgedpuddt
+    fedrudeikedrudejvddrvddtudenucevlhhushhtvghrufhiiigvpedtnecurfgrrhgrmh
+    epihhnvghtpedvtdelrdekhedrvddvvddrudejgedphhgvlhhopehmrghilhdqqhhkuddq
+    fhdujeegrdhgohhoghhlvgdrtghomhdpmhgrihhlfhhrohhmpeeofigviieskhhumhhomh
+    htrgdrtghomheqpdhnsggprhgtphhtthhopedupdhrtghpthhtohepoeifvgiiseifvgii
+    fhhurhhlohhnghdrohhrgheq
+X-ME-VSScore: 0
+X-ME-VSCategory: clean
+X-ME-CSA: none
+X-ME-Received: <xmx:ITMDadu5rhJICsd39G_PeKMkvMx6Zc9xDjCxlnNotmOYonE5L15pxA>
+X-ME-Received: <xmx:ITMDaQU_vE_LQ-8tp2jclyuZ8b112gZ6SAKSMyw9qooGi03lT90kxA>
+Received-SPF: pass
+    (kumomta.com: Sender is authorized to use 'wez@kumomta.com' in 'mfrom' identity (mechanism 'include:_spf.google.com' matched))
+    receiver=phl-mx-04.messagingengine.com;
+    identity=mailfrom;
+    envelope-from="wez@kumomta.com";
+    helo=mail-qk1-f174.google.com;
+    client-ip=209.85.222.174
+Received: from mail-qk1-f174.google.com (mail-qk1-f174.google.com [209.85.222.174])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (2048 bits) server-digest SHA256)
+	(No client certificate requested)
+	by phl-mx-04.messagingengine.com (Postfix) with ESMTPS id 191D31380068
+	for <wez@wezfurlong.org>; Thu, 30 Oct 2025 05:42:57 -0400 (EDT)
+Received: by mail-qk1-f174.google.com with SMTP id af79cd13be357-8a9b1cb735bso80565385a.1
+        for <wez@wezfurlong.org>; Thu, 30 Oct 2025 02:42:57 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=kumomta.com; s=gw1024; t=1761817375; x=1762422175; darn=wezfurlong.org;
+        h=content-transfer-encoding:subject:message-id:to:from:date
+         :mime-version:feedback-id:from:to:cc:subject:date:message-id
+         :reply-to;
+        bh=B4Sdwm/LsvO9X1e98hS643RXXxvU5oFkgjJHmUF8s3k=;
+        b=ZUrWtUUpDLtUvfj2pBptKB+fhkGJyYOup7W3u9f1AQCZMplp+gZF29+d8Mpej01bgt
+         YwBrL3tVYThSNr9lbCGfgxU0yFMAZJqsGmPqibtbOOAwHYLariRqVvwCAbfIBsOqdFbp
+         SflMWfIv04xyfmc9J+NIxjglWuFq8avQMWDQc=
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20230601; t=1761817375; x=1762422175;
+        h=content-transfer-encoding:subject:message-id:to:from:date
+         :mime-version:feedback-id:x-gm-message-state:from:to:cc:subject:date
+         :message-id:reply-to;
+        bh=B4Sdwm/LsvO9X1e98hS643RXXxvU5oFkgjJHmUF8s3k=;
+        b=fY9bkPqG3Lp877M8ge2aaX5GvdOnE8FxQCrJ++8gf9Rg7i3d9QvhaGoS4K23sGgcji
+         dCGlwZH1XRzb+8uIe3vXSjBafz+YAo1QvP83ATA1IZ9Bx277Ir6x3rOGbkmt8G03ZDpq
+         MJeQ0I/swrKGAcum2nUDBxQVdAEoRrXGWumIJyfZHDhfBu40qHzPOYkoOuxB3C9RMQeE
+         r6FKEqcYJJ367HBnlt+DtQCPw4hwxjHmiC1AS6NcYUR379VhPMLpnZvnDVo0hvYoxzgw
+         /0JF6Ms6/28Vwq4MwPeTyj90qbYwsHUoN5jTc11twGEPoVf5tCm7p9NbYrTSjGL2BYGx
+         DZ9Q==
+X-Gm-Message-State: AOJu0YwxTPh5798JYSLr03+uMmd2skNm2eU20oA1hYLShW4imaKmP9zt
+	h34sHKaKcQmA6gKu5RJ3WbXrWptFGl46n6CbKkWLuiH1ynfbpeVUKcnvTCfvrAeadJ8LPtxv7t8
+	OIiWV
+X-Gm-Gg: ASbGncs4LvTcjUTYbJxeMzeDS2YKSVJrBMHsqoKLsfrMjOXAnOKPK43tSxuocGm/Y7N
+	qp4R9JImOxho5wATSsOFrjj/Sk5EVxiAZrKtcB4I9NCP0g/vuwKHNGkFJFGDeR+F0k4YKe4RIL8
+	Akr+ylkKbwy9JV2r2ghlpBVbJMygyFqLJqEvCNIaXdGKd+AgW1hEriN7h9G9UQ3c1hDVqVQsISF
+	PDlYuxyxscyb1jbZd9Ydg96D3RhJLY/KGb8zj4R0Xmt6IyEeF5xqnTWZcuEFZmgUZAZh8FdT2sh
+	QyK2uHaI+I+ubPaB5AN8FFjWHVeXIkYOpyXO6iKtAl3oUrePJaT34kOYvfX9fGUlQqywLZduRjN
+	GJ0+hgGOqijVM2ImUhBmbpgpFWox99Oqvb0qkyjoGRJ7EknwcM5w6u3nmjtxL4aPaOm75WL5aMB
+	si1kc7bQGVD+xCC/9Jcng/ClWnZxs1aUPSjUcu8+DL6ymwgUvlpzSrFwPsO4A=
+X-Google-Smtp-Source: AGHT+IHc20q+08CNfpTLtnwhY38hLyGsYAxu380LFBLlj0ZePkf/hBLRiNhju9rAxFY0JhEY+H8tWw==
+X-Received: by 2002:a05:620a:394f:b0:8a2:a5b2:e3bc with SMTP id af79cd13be357-8aa2ea0cac4mr326831385a.89.1761817375491;
+        Thu, 30 Oct 2025 02:42:55 -0700 (PDT)
+Received: from fauth-a2-smtp.messagingengine.com (fauth-a2-smtp.messagingengine.com. [103.168.172.201])
+        by smtp.gmail.com with ESMTPSA id af79cd13be357-89f26073cedsm1231115385a.52.2025.10.30.02.42.55
+        for <wez@wezfurlong.org>
+        (version=TLS1_3 cipher=TLS_AES_256_GCM_SHA384 bits=256/256);
+        Thu, 30 Oct 2025 02:42:55 -0700 (PDT)
+Received: from phl-compute-01.internal (phl-compute-01.internal [10.202.2.41])
+	by mailfauth.phl.internal (Postfix) with ESMTP id E6F78F40074
+	for <wez@wezfurlong.org>; Thu, 30 Oct 2025 05:42:54 -0400 (EDT)
+Received: from phl-imap-15 ([10.202.2.104])
+  by phl-compute-01.internal (MEProxy); Thu, 30 Oct 2025 05:42:54 -0400
+X-ME-Sender: <xms:HjMDacOgAAJ7Mvc3xEulnDQhP5tiKG0Y_R56cAnSzrB1YymmFQUr6A>
+    <xme:HjMDadx4BpQ8oOoMzz3vEOQxCxXYYfWF_oiCfpolzhTUOdVtS9Ma5Lg_7fLy8Mca4
+    E-ryIIhuNlduKgDjEo1Ai61idNp9hIzg2646OZOdES3w6LkRA>
+X-ME-Proxy-Cause: gggruggvucftvghtrhhoucdtuddrgeeffedrtdeggdduieeivdekucetufdoteggodetrf
+    dotffvucfrrhhofhhilhgvmecuhfgrshhtofgrihhlpdfurfetoffkrfgpnffqhgenuceu
+    rghilhhouhhtmecufedttdenucenucfjughrpefoggffhffvkffutgfgsehtjeertdertd
+    dtnecuhfhrohhmpedfhggviicuhfhurhhlohhnghdfuceofigviieskhhumhhomhhtrgdr
+    tghomheqnecuggftrfgrthhtvghrnhepfffgtdfhgfeiheefteeghfeklefggfetheehle
+    duieeltdekueeivdduheeukeefnecuvehluhhsthgvrhfuihiivgeptdenucfrrghrrghm
+    pehmrghilhhfrhhomhepfigviidomhgvshhmthhprghuthhhphgvrhhsohhnrghlihhthi
+    dqudehheekvddvvdeifedquddvtdehfeejvdehqdifvgiipeepkhhumhhomhhtrgdrtgho
+    mhesfigviihfuhhrlhhonhhgrdhorhhgpdhnsggprhgtphhtthhopedupdhmohguvgepsh
+    hmthhpohhuthdprhgtphhtthhopeifvgiiseifvgiifhhurhhlohhnghdrohhrgh
+X-ME-Proxy: <xmx:HjMDaTyheut7TUdvYTLSIGCcjiibdZpGp7cjBgM28OQS3YwBaj0QJw>
+    <xmx:HjMDaSOjAsIHAYsXou74rBZTTakYVL3OpNwiqUM5VvMnWyC0ebH70Q>
+    <xmx:HjMDaS9TFzRDPkpt8JfoocmmfzvMHvAzE99vsgUXSY4xr03JewsqMg>
+    <xmx:HjMDaSomdPzedkZHR1k8SQMw9XFtAGqCCPBB9FaVgiL3I5QmyJxM5Q>
+    <xmx:HjMDaU7xmhOUd54mxjV9ciS0e2Wuxr2kEX4jkgZ2KESxMXv84ic2SRIk>
+Feedback-ID: i9d6e48e7:Fastmail
+Received: by mailuser.phl.internal (Postfix, from userid 501)
+	id B9A12780076; Thu, 30 Oct 2025 05:42:54 -0400 (EDT)
+X-Mailer: MessagingEngine.com Webmail Interface
+MIME-Version: 1.0
+Date: Thu, 30 Oct 2025 09:42:34 +0000
+From: "Wez Furlong" <wez@kumomta.com>
+To: "Wez Furlong" <wez@wezfurlong.org>
+Message-Id: <1a30158a-fd9e-4a2c-a052-362856fec025@app.fastmail.com>
+Subject: testing to see how arc turns out
+Content-Type: text/plain
+Content-Transfer-Encoding: 7bit
+
+This is a test

@@ -1,5 +1,6 @@
 use cidr_map::CidrSet;
 use data_loader::KeySource;
+use dns_resolver::IpLookupStrategy;
 #[cfg(feature = "lua")]
 use mlua::prelude::*;
 use openssl::ssl::SslOptions;
@@ -269,11 +270,17 @@ pub struct EgressPathConfig {
     #[serde(default = "EgressPathConfig::default_max_deliveries_per_connection")]
     pub max_deliveries_per_connection: usize,
 
+    #[serde(default = "EgressPathConfig::default_max_recipients_per_batch")]
+    pub max_recipients_per_batch: usize,
+
     #[serde(default = "CidrSet::default_prohibited_hosts")]
     pub prohibited_hosts: CidrSet,
 
     #[serde(default)]
     pub skip_hosts: CidrSet,
+
+    #[serde(default)]
+    pub ip_lookup_strategy: IpLookupStrategy,
 
     #[serde(default)]
     pub ehlo_domain: Option<String>,
@@ -344,6 +351,12 @@ pub struct EgressPathConfig {
     /// immediately consider it a transient failure for that message?
     #[serde(default)]
     pub try_next_host_on_transport_error: bool,
+
+    /// If true, don't check for 8bit compatibility issues during
+    /// sending, instead, leave it to the remote host to raise
+    /// an error.
+    #[serde(default)]
+    pub ignore_8bit_checks: bool,
 }
 
 #[cfg(feature = "lua")]
@@ -370,6 +383,7 @@ impl Default for EgressPathConfig {
             max_message_rate: None,
             max_connection_rate: None,
             max_deliveries_per_connection: Self::default_max_deliveries_per_connection(),
+            max_recipients_per_batch: Self::default_max_recipients_per_batch(),
             client_timeouts: SmtpClientTimeouts::default(),
             system_shutdown_timeout: None,
             prohibited_hosts: CidrSet::default_prohibited_hosts(),
@@ -402,6 +416,8 @@ impl Default for EgressPathConfig {
             maintainer_wakeup_strategy: WakeupStrategy::default(),
             dispatcher_wakeup_strategy: WakeupStrategy::default(),
             try_next_host_on_transport_error: false,
+            ignore_8bit_checks: false,
+            ip_lookup_strategy: IpLookupStrategy::default(),
         }
     }
 }
@@ -441,6 +457,10 @@ impl EgressPathConfig {
 
     fn default_max_deliveries_per_connection() -> usize {
         1024
+    }
+
+    fn default_max_recipients_per_batch() -> usize {
+        100
     }
 
     fn default_refresh_interval() -> Duration {

@@ -1,8 +1,10 @@
 //! ARF reports
 use crate::rfc3464::{content_type, RemoteMta};
 use anyhow::anyhow;
+use bstr::{BStr, BString, ByteSlice};
 use chrono::{DateTime, Utc};
 use mailparsing::{Header, HeaderParseResult, MimePart};
+use rfc5321::parser::EnvelopeAddress;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::str::FromStr;
@@ -35,9 +37,9 @@ pub struct ARFReport {
     #[serde(default)]
     pub reported_uri: Vec<String>,
 
-    pub extensions: BTreeMap<String, Vec<String>>,
+    pub extensions: BTreeMap<String, Vec<BString>>,
 
-    pub original_message: Option<String>,
+    pub original_message: Option<BString>,
     pub supplemental_trace: Option<serde_json::Value>,
 }
 
@@ -54,7 +56,8 @@ impl ARFReport {
             return Ok(None);
         }
 
-        if ct.get("report-type").as_deref() != Some("feedback-report") {
+        if ct.get("report-type").as_ref().map(|b| b.as_bstr()) != Some(BStr::new("feedback-report"))
+        {
             return Ok(None);
         }
 
@@ -63,14 +66,18 @@ impl ARFReport {
 
         for part in mail.child_parts() {
             let ct = content_type(part);
-            let ct = ct.as_deref();
-            if ct == Some("message/rfc822") || ct == Some("text/rfc822-headers") {
+            let ct = ct.as_ref().map(|b| b.as_bstr());
+            if ct == Some(BStr::new("message/rfc822"))
+                || ct == Some(BStr::new("text/rfc822-headers"))
+            {
                 if let Ok(HeaderParseResult { headers, .. }) =
                     Header::parse_headers(part.raw_body())
                 {
                     // Look for x-headers that might be our supplemental trace headers
                     for hdr in headers.iter() {
-                        if !(hdr.get_name().starts_with("X-") || hdr.get_name().starts_with("x-")) {
+                        if !(hdr.get_name().starts_with_str("X-")
+                            || hdr.get_name().starts_with_str("x-"))
+                        {
                             continue;
                         }
                         if let Ok(decoded) =
@@ -96,14 +103,16 @@ impl ARFReport {
                     }
                 }
 
-                original_message = Some(part.raw_body().replace("\r\n", "\n"));
+                original_message = Some(BString::new(
+                    part.raw_body().as_bytes().replace("\r\n", "\n"),
+                ));
             }
         }
 
         for part in mail.child_parts() {
             let ct = content_type(part);
-            let ct = ct.as_deref();
-            if ct == Some("message/feedback-report") {
+            let ct = ct.as_ref().map(|b| b.as_bstr());
+            if ct == Some(BStr::new("message/feedback-report")) {
                 return Ok(Some(Self::parse_inner(
                     part,
                     original_message,
@@ -117,7 +126,7 @@ impl ARFReport {
 
     fn parse_inner(
         part: &MimePart,
-        original_message: Option<String>,
+        original_message: Option<BString>,
         supplemental_trace: Option<serde_json::Value>,
     ) -> anyhow::Result<Self> {
         let body = part.raw_body();
@@ -133,11 +142,17 @@ impl ARFReport {
         );
         let incidents = extract_single("incidents", &mut extensions)?;
         let original_envelope_id = extract_single("original-envelope-id", &mut extensions)?;
-        let original_mail_from = extract_single("original-mail-from", &mut extensions)?;
+        let original_mail_from =
+            extract_single::<EnvelopeAddress>("original-mail-from", &mut extensions)?
+                .map(|a| a.to_string());
         let reporting_mta = extract_single("reporting-mta", &mut extensions)?;
         let source_ip = extract_single("source-ip", &mut extensions)?;
         let authentication_results = extract_multiple("authentication-results", &mut extensions)?;
-        let original_rcpto_to = extract_multiple("original-rcpt-to", &mut extensions)?;
+        let original_rcpto_to =
+            extract_multiple::<EnvelopeAddress>("original-rcpt-to", &mut extensions)?
+                .into_iter()
+                .map(|a| a.to_string())
+                .collect();
         let reported_domain = extract_multiple("reported-domain", &mut extensions)?;
         let reported_uri = extract_multiple("reported-uri", &mut extensions)?;
 
@@ -162,13 +177,13 @@ impl ARFReport {
     }
 }
 
-pub(crate) fn extract_headers(part: &[u8]) -> anyhow::Result<BTreeMap<String, Vec<String>>> {
+pub(crate) fn extract_headers(part: &[u8]) -> anyhow::Result<BTreeMap<String, Vec<BString>>> {
     let HeaderParseResult { headers, .. } = Header::parse_headers(part)?;
 
     let mut extensions = BTreeMap::new();
 
     for hdr in headers.iter() {
-        let name = hdr.get_name().to_ascii_lowercase();
+        let name = String::from_utf8_lossy(&hdr.get_name()).to_ascii_lowercase();
         extensions
             .entry(name)
             .or_insert_with(std::vec::Vec::new)
@@ -195,7 +210,7 @@ impl From<DateTimeRfc2822> for DateTime<Utc> {
 
 pub(crate) fn extract_single_req<R>(
     name: &str,
-    extensions: &mut BTreeMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<BString>>,
 ) -> anyhow::Result<R>
 where
     R: FromStr,
@@ -207,7 +222,7 @@ where
 
 pub(crate) fn extract_single<R>(
     name: &str,
-    extensions: &mut BTreeMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<BString>>,
 ) -> anyhow::Result<Option<R>>
 where
     R: FromStr,
@@ -216,6 +231,9 @@ where
     match extensions.remove(name) {
         Some(mut hdrs) if hdrs.len() == 1 => {
             let value = hdrs.remove(0);
+            let value = value
+                .to_str()
+                .map_err(|err| anyhow!("{value} could not be converted to UTF-8: {err:#}"))?;
             let converted = value
                 .parse::<R>()
                 .map_err(|err| anyhow!("failed to convert '{value}': {err:#}"))?;
@@ -228,7 +246,7 @@ where
 
 pub(crate) fn extract_single_conv<R, T>(
     name: &str,
-    extensions: &mut BTreeMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<BString>>,
 ) -> anyhow::Result<Option<T>>
 where
     R: FromStr,
@@ -241,7 +259,7 @@ where
 pub(crate) fn extract_single_conv_fallback<R, T>(
     name: &str,
     fallback: &str,
-    extensions: &mut BTreeMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<BString>>,
 ) -> Option<T>
 where
     R: FromStr,
@@ -259,7 +277,7 @@ where
 
 pub(crate) fn extract_multiple<R>(
     name: &str,
-    extensions: &mut BTreeMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<BString>>,
 ) -> anyhow::Result<Vec<R>>
 where
     R: FromStr,
@@ -269,7 +287,10 @@ where
         Some(hdrs) => {
             let mut results = vec![];
             for h in hdrs {
-                let converted = h
+                let value = h
+                    .to_str()
+                    .map_err(|err| anyhow!("{h} could not be converted to UTF-8: {err:#}"))?;
+                let converted = value
                     .parse::<R>()
                     .map_err(|err| anyhow!("failed to convert {h}: {err:#}"))?;
                 results.push(converted);
@@ -347,7 +368,7 @@ Some(
         incidents: None,
         original_envelope_id: None,
         original_mail_from: Some(
-            "<somespammer@example.net>",
+            "somespammer@example.net",
         ),
         reporting_mta: Some(
             RemoteMta {
@@ -362,7 +383,7 @@ Some(
             "mail.example.com; spf=fail smtp.mail=somespammer@example.com",
         ],
         original_rcpto_to: [
-            "<user@example.com>",
+            "user@example.com",
         ],
         reported_domain: [
             "example.net",
@@ -423,7 +444,7 @@ Some(
         incidents: None,
         original_envelope_id: None,
         original_mail_from: Some(
-            "<test1@example.com>",
+            "test1@example.com",
         ),
         reporting_mta: None,
         source_ip: None,

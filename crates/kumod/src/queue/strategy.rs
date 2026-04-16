@@ -348,14 +348,14 @@ impl Ord for DelayedEntry {
 mod test {
     use super::*;
     use kumo_server_lifecycle::LifeCycle;
-    use message::EnvelopeAddress;
+    use rfc5321::parser::EnvelopeAddress;
     use spool::SpoolId;
 
     async fn insert_past_due(qs: &mut QueueStructure) {
         let msg = Message::new_dirty(
             SpoolId::new(),
             EnvelopeAddress::parse("sender@example.com").unwrap(),
-            EnvelopeAddress::parse("recip@example.com").unwrap(),
+            vec![EnvelopeAddress::parse("recip@example.com").unwrap()],
             serde_json::json!({}),
             Arc::new(
                 "Subject: hello\r\n\r\nwoot"

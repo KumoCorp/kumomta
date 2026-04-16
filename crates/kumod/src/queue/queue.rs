@@ -16,6 +16,8 @@ use crate::queue::{opt_timeout_at, IncrementAttempts, InsertResult, ReadyQueueFu
 use crate::ready_queue::ReadyQueueManager;
 use crate::smtp_server::{make_deferred_queue_config, DEFERRED_QUEUE_NAME};
 use crate::spool::SpoolManager;
+use crate::xfer::request::AdminXferEntry;
+use crate::xfer::{make_xfer_queue, SavedQueueInfo};
 use anyhow::Context;
 use arc_swap::ArcSwap;
 use chrono::Utc;
@@ -23,23 +25,26 @@ use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{declare_event, load_config, LuaConfig};
 use humantime::format_duration;
 use kumo_api_types::egress_path::{ConfigRefreshStrategy, MemoryReductionPolicy};
+use kumo_api_types::xfer::XferProtocol;
+use kumo_chrono_helper::DateTime;
+use kumo_prometheus::declare_metric;
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on};
-use kumo_template::{context, TemplateEngine};
+use kumo_template::TemplateEngine;
 use message::queue_name::QueueNameComponents;
 use message::Message;
 use parking_lot::FairMutex;
-use prometheus::IntGauge;
 use rfc5321::{EnhancedStatusCode, Response};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use throttle::ThrottleResult;
 use timeq::TimerEntryWithDelay;
 use tokio::sync::Notify;
 use tracing::instrument;
+use uuid::Uuid;
 
 pub type QueueHandle = Arc<Queue>;
 
@@ -70,6 +75,10 @@ impl Queue {
 
         if name == DEFERRED_QUEUE_NAME {
             return make_deferred_queue_config();
+        }
+
+        if let Some(xfer) = make_xfer_queue(name) {
+            return Ok(xfer);
         }
 
         if name == "null" {
@@ -382,9 +391,7 @@ impl Queue {
         context: InsertContext,
     ) {
         async fn try_apply(msg: &Message, rebind: &Arc<AdminRebindEntry>) -> anyhow::Result<()> {
-            if !msg.is_meta_loaded() {
-                msg.load_meta().await?;
-            }
+            msg.load_meta_if_needed().await?;
 
             if rebind.request.trigger_rebind_event {
                 let mut config = load_config().await?;
@@ -396,7 +403,7 @@ impl Queue {
                     .await
             } else {
                 for (k, v) in &rebind.request.data {
-                    msg.set_meta(k, v.clone())?;
+                    msg.set_meta(k, v.clone()).await?;
                 }
                 Ok(())
             }
@@ -414,7 +421,7 @@ impl Queue {
 
         let mut delay = None;
 
-        let queue_name = match msg.get_queue_name() {
+        let queue_name = match msg.get_queue_name().await {
             Err(err) => {
                 tracing::error!("failed to determine queue name for msg: {err:#}");
                 if let Err(err) = self
@@ -481,6 +488,7 @@ impl Queue {
                 source_address: None,
                 provider: None,
                 session_id: None,
+                recipient_list: None,
             })
             .await;
         }
@@ -503,6 +511,206 @@ impl Queue {
         if count > 0 {
             for msg in msgs {
                 self.do_rebind(msg, rebind, InsertReason::AdminRebind.into())
+                    .await;
+            }
+        }
+    }
+
+    async fn do_xfer(
+        self: &Arc<Self>,
+        msg: Message,
+        rebind: &Arc<AdminXferEntry>,
+        context: InsertContext,
+    ) {
+        // Don't re-issue save_info if they xfer again to re-target
+        // a queue that they already xfer'd previously
+        if !XferProtocol::is_xfer_queue_name(&self.name) {
+            if let Err(err) = SavedQueueInfo::save_info(&msg).await {
+                tracing::error!("failed to apply xfer: {err:#}");
+            }
+        }
+
+        let queue_name = rebind.request.protocol.to_queue_name();
+        let queue_holder;
+        let queue = match QueueManager::resolve(&queue_name).await {
+            Err(err) => {
+                tracing::error!("failed to resolve queue `{queue_name}`: {err:#}");
+                self
+            }
+            Ok(queue) => {
+                queue_holder = queue;
+                &queue_holder
+            }
+        };
+
+        if let Err(err) = msg.set_meta("queue", queue.name.to_string()).await {
+            tracing::error!("failed to save queue meta: {err:#}");
+        }
+
+        if msg.needs_save() {
+            if let Err(err) = msg.save(None).await {
+                tracing::error!("failed to save msg after rebind: {err:#}");
+            }
+        }
+
+        if queue.name != self.name {
+            log_disposition(LogDisposition {
+                kind: RecordType::AdminRebind,
+                msg: msg.clone(),
+                site: "",
+                peer_address: None,
+                response: Response {
+                    code: 250,
+                    enhanced_code: None,
+                    command: None,
+                    content: format!("Rebound from {} to {queue_name}: {}", self.name, queue.name,),
+                },
+                egress_pool: None,
+                egress_source: None,
+                relay_disposition: None,
+                delivery_protocol: None,
+                tls_info: None,
+                source_address: None,
+                provider: None,
+                session_id: None,
+                recipient_list: None,
+            })
+            .await;
+        }
+
+        if let Err(err) = queue
+            .requeue_message_internal(
+                msg,
+                IncrementAttempts::No,
+                Some(chrono::Duration::seconds(0)),
+                context,
+            )
+            .await
+        {
+            tracing::error!(
+                "failed to requeue message to {} after failed rebind: {err:#}",
+                queue.name
+            );
+        }
+    }
+
+    #[instrument(skip(self))]
+    pub async fn xfer_all(self: &Arc<Self>, xfer: &Arc<AdminXferEntry>) {
+        let msgs = self.drain_timeq();
+        let count = msgs.len();
+        if count > 0 {
+            for msg in msgs {
+                self.do_xfer(msg, xfer, InsertReason::AdminRebind.into())
+                    .await;
+            }
+        }
+    }
+
+    async fn unwind_cancel_xfer(self: &Arc<Self>, msg: Message, context: InsertContext) {
+        // Try to put it back!
+        if let Err(err) = SavedQueueInfo::save_info(&msg).await {
+            tracing::error!("failed to re-apply xfer: {err:#}. Giving up on message; cannot safely do anything more with it until restart");
+            return;
+        }
+
+        if let Err(err) = self
+            .requeue_message_internal(
+                msg,
+                IncrementAttempts::No,
+                Some(chrono::Duration::seconds(0)),
+                context,
+            )
+            .await
+        {
+            tracing::error!(
+                "failed to requeue message to {} after failed xfer cancel: {err:#}",
+                self.name
+            );
+        }
+    }
+
+    async fn undo_xfer(self: &Arc<Self>, msg: Message, context: InsertContext, reason: &str) {
+        if let Err(err) = SavedQueueInfo::restore_info(&msg).await {
+            tracing::error!("failed to cancel xfer: {err:#}");
+        }
+
+        if msg.needs_save() {
+            if let Err(err) = msg.save(None).await {
+                tracing::error!("failed to save msg after cancel xfer: {err:#}");
+            }
+        }
+
+        // Put the message back into its originating queue
+        let queue_name = match msg.get_queue_name().await {
+            Ok(name) => name,
+            Err(err) => {
+                tracing::error!(
+                    "failed to get queue name from message after cancelling xfer: {err:#}"
+                );
+                return self.unwind_cancel_xfer(msg, context).await;
+            }
+        };
+
+        let queue = match QueueManager::resolve(&queue_name).await {
+            Err(err) => {
+                tracing::error!(
+                    "failed to resolve queue `{queue_name}` after cancelling xfer: {err:#}"
+                );
+                return self.unwind_cancel_xfer(msg, context).await;
+            }
+            Ok(queue) => queue,
+        };
+
+        log_disposition(LogDisposition {
+            kind: RecordType::AdminRebind,
+            msg: msg.clone(),
+            site: "",
+            peer_address: None,
+            response: Response {
+                code: 250,
+                enhanced_code: None,
+                command: None,
+                content: format!("Rebound from {} to {queue_name}: {reason}", self.name),
+            },
+            egress_pool: None,
+            egress_source: None,
+            relay_disposition: None,
+            delivery_protocol: None,
+            tls_info: None,
+            source_address: None,
+            provider: None,
+            session_id: None,
+            recipient_list: None,
+        })
+        .await;
+
+        if let Err(err) = queue
+            .requeue_message_internal(
+                msg,
+                IncrementAttempts::No,
+                Some(chrono::Duration::seconds(0)),
+                context,
+            )
+            .await
+        {
+            tracing::error!(
+                "failed to requeue message to {} after failed rebind: {err:#}",
+                queue.name
+            );
+        }
+    }
+
+    #[instrument(skip(self))]
+    pub async fn cancel_xfer_all(self: &Arc<Self>, reason: String) {
+        if !XferProtocol::is_xfer_queue_name(&*self.name) {
+            return;
+        }
+
+        let msgs = self.drain_timeq();
+        let count = msgs.len();
+        if count > 0 {
+            for msg in msgs {
+                self.undo_xfer(msg, InsertReason::AdminRebind.into(), &reason)
                     .await;
             }
         }
@@ -535,6 +743,31 @@ impl Queue {
         }
     }
 
+    /// Utility method exposed for the benefit of xfer processing
+    /// in a requeue_message event handler
+    pub async fn increment_attempts_and_update_delay_without_expiry(
+        &self,
+        msg: &Message,
+    ) -> anyhow::Result<Option<DateTime<Utc>>> {
+        // Pre-calculate the delay, prior to incrementing the number of attempts,
+        // as the delay_for_attempt uses a zero-based attempt number to figure
+        // the interval
+        let num_attempts = msg.get_num_attempts();
+        let delay = self.queue_config.borrow().delay_for_attempt(num_attempts);
+        msg.increment_num_attempts();
+
+        // Compute some jitter. The default retry_interval is 20 minutes for
+        // which 1 minute is desired. To accomodate different intervals we translate
+        // that to allowing up to 1/20th of the retry_interval as jitter, but we
+        // cap it to 1 minute so that it doesn't result in excessive divergence
+        // for very large intervals.
+        let jitter_magnitude =
+            (self.queue_config.borrow().retry_interval.as_secs_f32() / 20.0).min(60.0);
+        let jitter = (rand::random::<f32>() * jitter_magnitude) - (jitter_magnitude / 2.0);
+        let delay = kumo_chrono_helper::seconds(delay.num_seconds() + jitter as i64)?;
+        msg.delay_by(delay).await
+    }
+
     async fn increment_attempts_and_update_delay(
         &self,
         msg: Message,
@@ -557,7 +790,7 @@ impl Queue {
         let jitter = (rand::random::<f32>() * jitter_magnitude) - (jitter_magnitude / 2.0);
         let delay = kumo_chrono_helper::seconds(delay.num_seconds() + jitter as i64)?;
 
-        match msg.get_scheduling().and_then(|sched| sched.expires) {
+        match msg.get_scheduling().await?.and_then(|sched| sched.expires) {
             Some(expires) => {
                 // Per-message expiry
                 match msg.delay_by(delay).await? {
@@ -593,6 +826,7 @@ impl Queue {
                                 source_address: None,
                                 provider: self.queue_config.borrow().provider_name.as_deref(),
                                 session_id: None,
+                                recipient_list: None,
                             })
                             .await;
                             SpoolManager::remove_from_spool(id).await?;
@@ -651,6 +885,7 @@ impl Queue {
                         source_address: None,
                         provider: self.queue_config.borrow().provider_name.as_deref(),
                         session_id: None,
+                        recipient_list: None,
                     })
                     .await;
                     SpoolManager::remove_from_spool(id).await?;
@@ -723,6 +958,7 @@ impl Queue {
                     source_address: None,
                     provider: self.queue_config.borrow().provider_name.as_deref(),
                     session_id: None,
+                    recipient_list: None,
                 })
                 .await;
                 SpoolManager::remove_from_spool(id).await?;
@@ -855,7 +1091,7 @@ impl Queue {
             && !context.contains(InsertReason::LoggedTransientFailure);
 
         if log_delay {
-            if context.only(InsertReason::Received) && msg.get_scheduling().is_some() {
+            if context.only(InsertReason::Received) && msg.get_scheduling().await?.is_some() {
                 context.note(InsertReason::ScheduledForLater);
             }
 
@@ -885,6 +1121,7 @@ impl Queue {
                 source_address: None,
                 provider: None,
                 session_id: None,
+                recipient_list: None,
             })
             .await;
         }
@@ -963,6 +1200,7 @@ impl Queue {
                 tls_info: None,
                 source_address: None,
                 session_id: None,
+                recipient_list: None,
             })
             .await;
 
@@ -1108,6 +1346,7 @@ impl Queue {
         match &self.queue_config.borrow().protocol {
             DeliveryProto::Smtp { .. }
             | DeliveryProto::Lua { .. }
+            | DeliveryProto::Xfer { .. }
             | DeliveryProto::HttpInjectionGenerator => {
                 let source_selector = self.source_selector.load();
                 match source_selector
@@ -1148,6 +1387,7 @@ impl Queue {
                             source_address: None,
                             provider: self.queue_config.borrow().provider_name.as_deref(),
                             session_id: None,
+                            recipient_list: None,
                         })
                         .await;
                         context.note(InsertReason::LoggedTransientFailure);
@@ -1184,6 +1424,7 @@ impl Queue {
                             source_address: None,
                             provider: self.queue_config.borrow().provider_name.as_deref(),
                             session_id: None,
+                            recipient_list: None,
                         })
                         .await;
                         context.note(InsertReason::LoggedTransientFailure);
@@ -1217,6 +1458,7 @@ impl Queue {
                             source_address: None,
                             provider: self.queue_config.borrow().provider_name.as_deref(),
                             session_id: None,
+                            recipient_list: None,
                         })
                         .await;
                         context.note(InsertReason::LoggedTransientFailure);
@@ -1273,6 +1515,7 @@ impl Queue {
                             source_address: None,
                             provider: self.queue_config.borrow().provider_name.as_deref(),
                             session_id: None,
+                            recipient_list: None,
                         })
                         .await;
                         context.note(InsertReason::LoggedTransientFailure);
@@ -1296,114 +1539,162 @@ impl Queue {
                 dir_mode,
                 file_mode,
             } => {
-                opt_timeout_at(deadline, msg.load_data_if_needed()).await?;
+                let msg_data = opt_timeout_at(deadline, msg.data()).await?;
 
-                let engine = TemplateEngine::new();
-                let queue_name = msg.get_queue_name()?;
+                let mut successes = vec![];
+                let mut failures = vec![];
+
+                let queue_name = msg.get_queue_name().await?;
                 let components = QueueNameComponents::parse(&queue_name);
-                let recipient = msg.recipient()?;
-                let sender = msg.sender()?;
-                let expanded_maildir_path = engine.render(
-                    "maildir_path",
-                    maildir_path,
-                    context! {
-                        meta => msg.get_meta_obj()?,
-                        queue => queue_name,
-                        campaign => components.campaign,
-                        tenant => components.tenant,
-                        domain => components.domain,
-                        routing_domain => components.routing_domain,
-                        local_part => recipient.user(),
-                        domain_part => recipient.domain(),
-                        email => recipient.to_string(),
-                        sender_local_part => sender.user(),
-                        sender_domain_part => sender.domain(),
-                        sender_email => sender.to_string(),
-                    },
-                )?;
+                let sender = msg.sender().await?;
 
-                tracing::trace!(
-                    "Deliver msg {} to maildir at {maildir_path} -> {expanded_maildir_path}",
-                    msg.id(),
-                );
-                let dir_mode = *dir_mode;
-                let file_mode = *file_mode;
+                for recipient in msg.recipient_list().await? {
+                    let engine = TemplateEngine::new();
+                    let expanded_maildir_path = engine.render(
+                        "maildir_path",
+                        maildir_path,
+                        serde_json::json! ({
+                            "meta": msg.get_meta_obj().await?,
+                            "queue": queue_name,
+                            "campaign": components.campaign,
+                            "tenant": components.tenant,
+                            "domain": components.domain,
+                            "routing_domain": components.routing_domain,
+                            "local_part": recipient.user(),
+                            "domain_part" : recipient.domain(),
+                            "email": recipient.to_string(),
+                            "sender_local_part": sender.user(),
+                            "sender_domain_part": sender.domain(),
+                            "sender_email": sender.to_string(),
+                        }),
+                    )?;
 
-                let name = self.name.to_string();
-                let result: anyhow::Result<String> = spawn_blocking_on(
-                    "write to maildir",
-                    {
-                        let msg = msg.clone();
-                        move || {
-                            let mut md = maildir::Maildir::with_path(&expanded_maildir_path);
-                            md.set_dir_mode(dir_mode);
-                            md.set_file_mode(file_mode);
-                            md.create_dirs().with_context(|| {
-                                format!(
-                                    "creating dirs for maildir {expanded_maildir_path} in queue {}",
-                                    name
-                                )
-                            })?;
-                            Ok(md.store_new(&msg.get_data())?)
+                    tracing::trace!(
+                        "Deliver msg {} to maildir at {maildir_path} -> {expanded_maildir_path}",
+                        msg.id(),
+                    );
+                    let dir_mode = *dir_mode;
+                    let file_mode = *file_mode;
+
+                    let name = self.name.to_string();
+                    let result: anyhow::Result<String> = spawn_blocking_on(
+                        "write to maildir",
+                        {
+                            let msg_data = msg_data.clone();
+                            move || {
+                                let mut md = maildir::Maildir::with_path(&expanded_maildir_path);
+                                md.set_dir_mode(dir_mode);
+                                md.set_file_mode(file_mode);
+                                md.create_dirs().with_context(|| {
+                                    format!(
+                                        "failed to create maildir \
+                                        {expanded_maildir_path} for queue {name}"
+                                    )
+                                })?;
+                                Ok(md.store_new(&msg_data).with_context(|| {
+                                    format!(
+                                        "failed to store message to maildir \
+                                        {expanded_maildir_path} for queue {name}"
+                                    )
+                                })?)
+                            }
+                        },
+                        &get_main_runtime(),
+                    )?
+                    .await?;
+
+                    match result {
+                        Ok(id) => {
+                            successes.push((recipient, id));
                         }
-                    },
-                    &get_main_runtime(),
-                )?
-                .await?;
+                        Err(err) => {
+                            failures.push((recipient, err));
+                        }
+                    }
+                }
 
-                match result {
-                    Ok(id) => {
-                        log_disposition(LogDisposition {
-                            kind: RecordType::Delivery,
-                            msg: msg.clone(),
-                            site: "",
-                            peer_address: None,
-                            response: Response {
-                                code: 200,
-                                enhanced_code: None,
-                                content: format!("wrote to maildir with id={id}"),
-                                command: None,
-                            },
-                            egress_pool: None,
-                            egress_source: None,
-                            relay_disposition: None,
-                            delivery_protocol: Some("Maildir"),
-                            tls_info: None,
-                            source_address: None,
-                            provider: None,
-                            session_id: None,
-                        })
-                        .await;
-                        spawn("remove from spool", async move {
-                            SpoolManager::remove_from_spool(*msg.id()).await
-                        })?;
-                        Ok(())
+                // Allow correlation of successful and failed attempts from this
+                // same maildir writing "session"
+                let session_id = Uuid::new_v4();
+
+                if !successes.is_empty() {
+                    let mut status = vec![];
+                    for (recipient, id) in successes {
+                        status.push(format!(
+                            "{}: wrote to maildir with id={id}",
+                            recipient.to_string()
+                        ));
                     }
-                    Err(err) => {
-                        log_disposition(LogDisposition {
-                            kind: RecordType::TransientFailure,
-                            msg: msg.clone(),
-                            site: "",
-                            peer_address: None,
-                            response: Response {
-                                code: 400,
-                                enhanced_code: None,
-                                content: format!("failed to write to maildir: {err:#}"),
-                                command: None,
-                            },
-                            egress_pool: None,
-                            egress_source: None,
-                            relay_disposition: None,
-                            delivery_protocol: Some("Maildir"),
-                            tls_info: None,
-                            source_address: None,
-                            provider: None,
-                            session_id: None,
-                        })
-                        .await;
-                        context.note(InsertReason::LoggedTransientFailure);
-                        anyhow::bail!("failed maildir store: {err:#}");
+                    let status = status.join(", ");
+                    log_disposition(LogDisposition {
+                        kind: RecordType::Delivery,
+                        msg: msg.clone(),
+                        site: "",
+                        peer_address: None,
+                        response: Response {
+                            code: 200,
+                            enhanced_code: None,
+                            content: status,
+                            command: None,
+                        },
+                        egress_pool: None,
+                        egress_source: None,
+                        relay_disposition: None,
+                        delivery_protocol: Some("Maildir"),
+                        tls_info: None,
+                        source_address: None,
+                        provider: None,
+                        session_id: Some(session_id),
+                        recipient_list: None,
+                    })
+                    .await;
+                }
+
+                if !failures.is_empty() {
+                    let mut remaining_recipient_list = vec![];
+                    let mut status = vec![];
+                    for (recipient, err) in failures {
+                        status.push(format!(
+                            "{}: failed to write to maildir: {err:#}",
+                            recipient.to_string()
+                        ));
+                        remaining_recipient_list.push(recipient);
                     }
+                    let status = status.join(", ");
+                    log_disposition(LogDisposition {
+                        kind: RecordType::TransientFailure,
+                        msg: msg.clone(),
+                        site: "",
+                        peer_address: None,
+                        response: Response {
+                            code: 400,
+                            enhanced_code: None,
+                            content: status.clone(),
+                            command: None,
+                        },
+                        egress_pool: None,
+                        egress_source: None,
+                        relay_disposition: None,
+                        delivery_protocol: Some("Maildir"),
+                        tls_info: None,
+                        source_address: None,
+                        provider: None,
+                        session_id: Some(session_id),
+                        recipient_list: None,
+                    })
+                    .await;
+                    context.note(InsertReason::LoggedTransientFailure);
+                    // Adjust for remaining recipients
+                    msg.set_recipient_list(remaining_recipient_list).await?;
+                    anyhow::bail!("failed maildir store: {status}");
+                } else {
+                    // Every recipient in the batch was successful; this
+                    // message has reached its final disposition and
+                    // must now be removed
+                    spawn("remove from spool", async move {
+                        SpoolManager::remove_from_spool(*msg.id()).await
+                    })?;
+                    Ok(())
                 }
             }
         }
@@ -1476,13 +1767,10 @@ pub static GET_Q_CONFIG_SIG: Multiple(
     ) -> QueueConfig;
 }
 
-static QMAINT_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
-    prometheus::register_int_gauge!(
-        "scheduled_queue_maintainer_count",
-        "how many scheduled queues have active maintainer tasks"
-    )
-    .unwrap()
-});
+declare_metric! {
+/// How many scheduled queues have active maintainer tasks.
+static QMAINT_COUNT: IntGauge("scheduled_queue_maintainer_count");
+}
 
 declare_event! {
 pub static THROTTLE_INSERT_READY_SIG: Multiple(

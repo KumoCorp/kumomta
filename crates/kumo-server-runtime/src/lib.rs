@@ -1,31 +1,34 @@
 use anyhow::Context;
+use kumo_prometheus::declare_metric;
 use parking_lot::Mutex;
-use prometheus::IntGaugeVec;
+#[cfg(target_os = "linux")]
+use std::collections::BTreeMap;
 use std::collections::HashMap;
+#[cfg(target_os = "linux")]
+use std::fmt::Write;
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
+use tokio::time::Duration;
 
 pub static RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("localset", |cpus| cpus / 4, &LOCALSET_THREADS).unwrap());
-static PARKED_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    prometheus::register_int_gauge_vec!(
+
+declare_metric! {
+/// number of parked (idle) threads in a thread pool
+static PARKED_THREADS: IntGaugeVec(
         "thread_pool_parked",
-        "number of parked(idle) threads in a thread pool",
-        &["pool"]
-    )
-    .unwrap()
-});
-static NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-    prometheus::register_int_gauge_vec!(
+        &["pool"]);
+}
+
+declare_metric! {
+/// number of threads in a thread pool
+static NUM_THREADS: IntGaugeVec(
         "thread_pool_size",
-        "number of threads in a thread pool",
-        &["pool"]
-    )
-    .unwrap()
-});
+        &["pool"]);
+}
 
 static RUNTIMES: LazyLock<Mutex<HashMap<String, Runtime>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -54,6 +57,65 @@ struct RuntimeInner {
     tokio_runtime: tokio::runtime::Runtime,
     n_threads: usize,
     name_prefix: String,
+}
+
+#[cfg(target_os = "linux")]
+fn runtimes_by_name() -> BTreeMap<String, Runtime> {
+    RUNTIMES
+        .lock()
+        .iter()
+        .map(|(name, rt)| (name.clone(), rt.clone()))
+        .collect()
+}
+
+#[cfg(not(target_os = "linux"))]
+pub async fn dump_all_runtimes(_timeout_duration: Duration) -> String {
+    "Runtime state dumping is not supported on this system".into()
+}
+
+// NOTE: at the time of writing, calling this once will prevent a
+// subsequent graceful shutdown from completing.
+//
+// You will need to call this multiple times to allow the graceful
+// shutdown to "clock through" and finish successfully.
+// I do not know what exactly causes that stutter/stickiness.
+#[cfg(target_os = "linux")]
+pub async fn dump_all_runtimes(timeout_duration: Duration) -> String {
+    let runtimes = runtimes_by_name();
+    let mut dumps = vec![];
+
+    async fn collect_dump(
+        label: &str,
+        handle: &tokio::runtime::Handle,
+        timeout_duration: Duration,
+    ) -> String {
+        match tokio::time::timeout(timeout_duration, handle.dump()).await {
+            Err(_) => format!("Runtime {label}: Timeout while collecting runtime dump"),
+            Ok(dump) => {
+                let label = label.to_string();
+                match tokio::task::spawn_blocking(move || {
+                    let mut output = format!("Runtime: {label}\n");
+                    for (i, task) in dump.tasks().iter().enumerate() {
+                        let trace = task.trace();
+                        writeln!(&mut output, "{label} TASK {i}:\n{trace}").ok();
+                    }
+                    output
+                })
+                .await
+                .map_err(|err| format!("spawn_blocking: join failed: {err:#}"))
+                {
+                    Ok(s) | Err(s) => s,
+                }
+            }
+        }
+    }
+
+    dumps.push(collect_dump("main", &get_main_runtime(), timeout_duration).await);
+    for (label, rt) in runtimes {
+        dumps.push(collect_dump(&label, rt.handle(), timeout_duration).await);
+    }
+
+    dumps.join("\n\n")
 }
 
 #[derive(Clone)]
