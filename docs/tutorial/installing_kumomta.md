@@ -9,7 +9,7 @@ sudo dnf -y install dnf-plugins-core
 sudo dnf config-manager \
     --add-repo \
     https://openrepo.kumomta.com/files/kumomta-rocky.repo
-sudo yum install kumomta
+sudo dnf install kumomta
 ```
 
 This installs the KumoMTA daemon to /opt/kumomta/sbin/kumod
