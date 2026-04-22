@@ -3926,6 +3926,7 @@ dependencies = [
  "mlua",
  "mod-amqp",
  "mod-aws-sigv4",
+ "mod-counter-series",
  "mod-crypto",
  "mod-digest",
  "mod-dns-resolver",
@@ -4871,6 +4872,21 @@ dependencies = [
  "data-loader",
  "mlua",
  "percent-encoding",
+ "serde",
+ "tokio",
+]
+
+[[package]]
+name = "mod-counter-series"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "dashmap",
+ "duration-serde",
+ "kumo-counter-series",
+ "mlua",
+ "parking_lot",
  "serde",
  "tokio",
 ]

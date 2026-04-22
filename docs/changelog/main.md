@@ -4,6 +4,10 @@
 
 ## Other Changes and Enhancements
 
+ * New [kumo.counter_series](../reference/kumo.counter_series/index.md)
+   module exposing in-memory rolling counters backed by a fixed-size ring of
+   time buckets. Useful for short-term, per-process bookkeeping of event
+   rates from policy. Thanks to @kayozaki!
  * New [message:import_headers](../reference/message/import_headers.md) method,
    a more flexible alternative to `message:import_x_headers`. Supports exact
    names and trailing-`*` wildcards, first/last/all match modes, optional
