@@ -8,6 +8,7 @@ members = [
   "crates/kcli",
   "crates/kumo-address",
   "crates/kumo-api-client",
+  "crates/mod-audit-series",
   "crates/kumo-chrono-helper",
   "crates/kumo-counter-series",
   "crates/kumo-jsonl",
