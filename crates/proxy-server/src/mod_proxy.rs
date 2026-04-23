@@ -34,7 +34,26 @@ pub struct ProxyListenerParams {
     )]
     pub timeout: Duration,
 
-    /// Whether to use splice(2) on Linux for proxied connections
+    /// If set, tear the passthru session down when no data has flowed in
+    /// either direction for this long. Defaults to 5 minutes so that a
+    /// silently stalled upstream peer (for example, an ISP black-holing
+    /// a connection without sending FIN or RST) cannot pin the two file
+    /// descriptors for the lifetime of the process.
+    ///
+    /// Setting this to `none` (or omitting it in a build that explicitly
+    /// wants the legacy behavior) disables the watchdog and restores the
+    /// previous `copy_bidirectional` / splice path, which relies solely
+    /// on the remote end closing the connection.
+    #[serde(
+        default = "ProxyListenerParams::default_passthru_idle_timeout",
+        with = "duration_serde"
+    )]
+    pub passthru_idle_timeout: Option<Duration>,
+
+    /// Whether to use splice(2) on Linux for proxied connections.
+    /// Note that `passthru_idle_timeout`, when set, forces the userspace
+    /// path so that per-direction progress can be observed; splice is
+    /// only used when the idle timeout is disabled.
     #[serde(default = "default_true")]
     pub use_splice: bool,
 
@@ -69,6 +88,10 @@ impl ProxyListenerParams {
 
     fn default_timeout() -> Duration {
         Duration::from_secs(60)
+    }
+
+    fn default_passthru_idle_timeout() -> Option<Duration> {
+        Some(Duration::from_secs(300))
     }
 
     /// Start the proxy listener
@@ -175,6 +198,7 @@ impl ProxyListenerParams {
             params.timeout,
             params.use_splice,
             params.require_auth,
+            params.passthru_idle_timeout,
         )
         .await;
 
