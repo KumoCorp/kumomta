@@ -12,6 +12,12 @@
 
 ## Fixes
 
+ * proxy-server: TCP keepalive is now configured on inbound and outbound
+   sockets handled by the proxy listener, so unresponsive peers are detected
+   and the connection is closed rather than left open indefinitely.  The
+   probe timing can be tuned (or keepalive disabled) via the new
+   [tcp_keepalive](../reference/proxy/start_proxy_listener/tcp_keepalive.md)
+   field on `proxy.start_proxy_listener`.  Thanks to @jack-atlas! #509
  * A message with multipart/mixed as the root with multipart/related as a child
    part was not structurally parsed correctly, producing incorrect parts when
    using [mimepart:get_simple_structure](../reference/mimepart/get_simple_structure.md).

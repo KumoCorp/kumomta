@@ -3,10 +3,13 @@ use anyhow::Context;
 use kumo_server_common::authn_authz::{AuthInfo, Identity, IdentityContext};
 use kumo_server_common::http_server::auth::AuthKindResult;
 use kumo_tls_helper::AsyncReadAndWrite;
+use socket2::{SockRef, TcpKeepalive};
 use socksv5::v5::{
     SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5Request, SocksV5RequestStatus,
 };
+use std::io;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::timeout;
@@ -31,6 +34,7 @@ pub async fn handle_proxy_client<S>(
     timeout_duration: std::time::Duration,
     #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] use_splice: bool,
     require_auth: bool,
+    keepalive: Arc<Option<TcpKeepalive>>,
 ) -> anyhow::Result<ProxySessionResult>
 where
     S: AsyncReadAndWrite + Unpin + Send + 'static,
@@ -74,7 +78,13 @@ where
         tracing::trace!("peer={peer_address:?} request: {request:?}");
 
         let status = match timeout(timeout_duration, async {
-            handle_request(&request, &mut state, local_address).await
+            handle_request(
+                &request,
+                &mut state,
+                local_address,
+                keepalive.as_ref().as_ref(),
+            )
+            .await
         })
         .await
         {
@@ -153,6 +163,18 @@ where
     }
 }
 
+/// Apply the configured TCP keepalive settings to `stream`.
+/// A `keepalive` of `None` is a no-op.
+pub(crate) fn set_proxy_tcp_keepalive(
+    stream: &TcpStream,
+    keepalive: Option<&TcpKeepalive>,
+) -> io::Result<()> {
+    if let Some(k) = keepalive {
+        SockRef::from(stream).set_tcp_keepalive(k)?;
+    }
+    Ok(())
+}
+
 /// Encapsulates the result of processing a command from the client
 #[derive(Debug)]
 struct RequestStatus {
@@ -204,6 +226,7 @@ async fn handle_request(
     request: &SocksV5Request,
     state: &mut ClientState,
     local_address: SocketAddr,
+    keepalive: Option<&TcpKeepalive>,
 ) -> std::io::Result<RequestStatus> {
     match request.command {
         SocksV5Command::Bind => {
@@ -233,12 +256,14 @@ async fn handle_request(
             let addr = match std::mem::take(state) {
                 ClientState::None => {
                     let stream = TcpStream::connect(host).await?;
+                    set_proxy_tcp_keepalive(&stream, keepalive)?;
                     let addr = stream.local_addr()?;
                     *state = ClientState::Connected(stream);
                     addr
                 }
                 ClientState::Bound(socket) => {
                     let stream = socket.connect(host).await?;
+                    set_proxy_tcp_keepalive(&stream, keepalive)?;
                     let addr = stream.local_addr()?;
                     *state = ClientState::Connected(stream);
                     addr
@@ -536,4 +561,45 @@ where
     anyhow::bail!(
         "client {peer_address:?} requested authentication methods not supported by this proxy"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::mod_proxy::TcpKeepaliveParams;
+
+    async fn make_pair() -> (TcpStream, TcpStream) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (client, server) =
+            tokio::join!(TcpStream::connect(addr), async { listener.accept().await });
+        let (server, _) = server.unwrap();
+        (client.unwrap(), server)
+    }
+
+    #[tokio::test]
+    async fn enabled_sets_so_keepalive_on_socket() {
+        let (client, _server) = make_pair().await;
+        k9::assert_equal!(SockRef::from(&client).keepalive().unwrap(), false);
+
+        let keepalive = TcpKeepaliveParams::default().build();
+        set_proxy_tcp_keepalive(&client, keepalive.as_ref()).unwrap();
+
+        k9::assert_equal!(SockRef::from(&client).keepalive().unwrap(), true);
+    }
+
+    #[tokio::test]
+    async fn disabled_leaves_so_keepalive_off() {
+        let (client, _server) = make_pair().await;
+        let params = TcpKeepaliveParams {
+            enabled: false,
+            ..TcpKeepaliveParams::default()
+        };
+        let keepalive = params.build();
+        k9::assert_equal!(keepalive.is_none(), true);
+        set_proxy_tcp_keepalive(&client, keepalive.as_ref()).unwrap();
+
+        k9::assert_equal!(SockRef::from(&client).keepalive().unwrap(), false);
+    }
 }
