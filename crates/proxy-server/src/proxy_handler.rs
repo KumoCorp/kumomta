@@ -6,7 +6,9 @@ use kumo_tls_helper::AsyncReadAndWrite;
 use socksv5::v5::{
     SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5Request, SocksV5RequestStatus,
 };
+use std::io;
 use std::net::{IpAddr, SocketAddr};
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::timeout;
@@ -31,6 +33,7 @@ pub async fn handle_proxy_client<S>(
     timeout_duration: std::time::Duration,
     #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] use_splice: bool,
     require_auth: bool,
+    passthru_idle_timeout: Option<Duration>,
 ) -> anyhow::Result<ProxySessionResult>
 where
     S: AsyncReadAndWrite + Unpin + Send + 'static,
@@ -120,6 +123,20 @@ where
 
     match state {
         ClientState::Connected(mut remote_stream) => {
+            // When an idle timeout is configured we must observe per-direction
+            // byte progress, which neither `tokio::io::copy_bidirectional` nor
+            // `tokio_splice::zero_copy_bidirectional` expose. In that mode we
+            // always take the userspace path with an idle watchdog so that a
+            // silently stalled peer (for example an ISP black-holing a
+            // connection without sending FIN or RST) is torn down instead of
+            // holding the file descriptors open indefinitely.
+            if let Some(idle) = passthru_idle_timeout {
+                tracing::trace!(
+                    "peer={peer_address:?} -> going to passthru mode with idle timeout {idle:?}"
+                );
+                return passthru_with_idle_timeout(stream, remote_stream, peer_address, idle).await;
+            }
+
             #[cfg(target_os = "linux")]
             if use_splice {
                 // Note: splice(2) only works with raw TcpStream file descriptors,
@@ -150,6 +167,100 @@ where
             })
         }
         _ => anyhow::bail!("Unexpected client state {state:?}"),
+    }
+}
+
+/// Copy bytes between a client stream and the remote stream we've connected
+/// to on its behalf, returning `TimedOut` if neither direction observes any
+/// progress for `idle_timeout`.
+///
+/// We split each stream into read/write halves and run the two directions as
+/// concurrent `tokio::io::copy` loops whose inner `read` call is bounded by
+/// `idle_timeout`. Because each read resets the bound on successful progress,
+/// the timer only fires when the copy is genuinely stalled -- which is what
+/// we want to catch black-holed peers that hold the TCP connection open
+/// without ever responding.
+async fn passthru_with_idle_timeout<S>(
+    stream: S,
+    remote_stream: TcpStream,
+    peer_address: SocketAddr,
+    idle_timeout: Duration,
+) -> anyhow::Result<ProxySessionResult>
+where
+    S: AsyncReadAndWrite + Unpin + Send + 'static,
+{
+    let (mut client_read, mut client_write) = tokio::io::split(stream);
+    let (mut remote_read, mut remote_write) = tokio::io::split(remote_stream);
+
+    let to_remote = copy_with_idle_timeout(
+        &mut client_read,
+        &mut remote_write,
+        idle_timeout,
+        "client->remote",
+    );
+    let to_client = copy_with_idle_timeout(
+        &mut remote_read,
+        &mut client_write,
+        idle_timeout,
+        "remote->client",
+    );
+
+    let (to_remote, to_client) = match tokio::try_join!(to_remote, to_client) {
+        Ok(pair) => pair,
+        Err(err) => {
+            tracing::debug!("peer={peer_address:?}: passthru terminated: {err:#}");
+            return Err(err.into());
+        }
+    };
+
+    Ok(ProxySessionResult {
+        bytes_to_remote: to_remote,
+        bytes_to_client: to_client,
+    })
+}
+
+/// Read from `reader`, write to `writer`, returning the total bytes copied.
+/// Any single `read` that takes longer than `idle_timeout` is treated as a
+/// stalled passthru and converted into `io::ErrorKind::TimedOut`; this then
+/// short-circuits `tokio::try_join!` and drops the other direction, closing
+/// both sides of the session.
+async fn copy_with_idle_timeout<R, W>(
+    reader: &mut R,
+    writer: &mut W,
+    idle_timeout: Duration,
+    direction: &'static str,
+) -> io::Result<u64>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    // 16 KiB matches `tokio::io::copy`'s internal buffer size and keeps the
+    // per-session allocation cost modest even for many concurrent sessions.
+    let mut buf = vec![0u8; 16 * 1024];
+    let mut total: u64 = 0;
+    loop {
+        let read_fut = reader.read(&mut buf);
+        let n = match timeout(idle_timeout, read_fut).await {
+            Ok(Ok(0)) => {
+                // Reader reached EOF; propagate shutdown so the peer sees it
+                // instead of stalling on its next read.
+                let _ = writer.shutdown().await;
+                return Ok(total);
+            }
+            Ok(Ok(n)) => n,
+            Ok(Err(err)) => return Err(err),
+            Err(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    format!(
+                        "proxy passthru idle timeout ({direction}): \
+                         no data for {idle_timeout:?}"
+                    ),
+                ));
+            }
+        };
+        writer.write_all(&buf[..n]).await?;
+        total += n as u64;
     }
 }
 
@@ -285,6 +396,59 @@ async fn request_addr(request: &SocksV5Request) -> std::io::Result<SocketAddr> {
             std::io::ErrorKind::Unsupported,
             "Domain not supported",
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::duplex;
+
+    #[tokio::test]
+    async fn copy_eof_returns_byte_count() {
+        let (mut writer_half, reader_half) = duplex(64);
+        let (sink_half, mut reader_sink) = duplex(64);
+
+        // Write some bytes then close the write end
+        writer_half.write_all(b"hello").await.unwrap();
+        drop(writer_half);
+
+        let mut r = reader_half;
+        let mut w = sink_half;
+        let n = copy_with_idle_timeout(&mut r, &mut w, Duration::from_secs(5), "test")
+            .await
+            .unwrap();
+        assert_eq!(n, 5);
+
+        let mut buf = vec![0u8; 16];
+        let got = reader_sink.read(&mut buf).await.unwrap();
+        assert_eq!(&buf[..got], b"hello");
+    }
+
+    #[tokio::test]
+    async fn copy_idle_timeout_fires() {
+        tokio::time::pause();
+
+        // duplex pair where the writer end is kept alive but never written to,
+        // so `read` on reader_half will block indefinitely.
+        let (_writer, reader_half) = duplex(64);
+        let (sink_half, _reader_sink) = duplex(64);
+
+        let idle = Duration::from_secs(5);
+
+        // Spawn so the task registers the timeout waker before we advance time.
+        let handle = tokio::spawn(async move {
+            let mut r = reader_half;
+            let mut w = sink_half;
+            copy_with_idle_timeout(&mut r, &mut w, idle, "test").await
+        });
+
+        // Advance past the idle window; Tokio's mock clock fires the timeout.
+        tokio::time::advance(idle + Duration::from_millis(1)).await;
+
+        let result = handle.await.expect("task panicked");
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
     }
 }
 
