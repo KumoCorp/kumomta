@@ -1,9 +1,11 @@
 use crate::types::identifier::Identifier;
 use crate::types::policy::Policy;
 use crate::types::policy_override::PolicyOverrideReason;
+use bstr::BString;
 use instant_xml::{FromXml, ToXml};
 use kumo_spf::SpfDisposition;
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::net::IpAddr;
 
@@ -115,11 +117,12 @@ impl Into<Disposition> for Policy {
 }
 
 // A synthetic type to bundle the result with a reason
-#[derive(Debug, Eq, PartialEq, ToXml, Serialize)]
-#[xml(rename_all = "lowercase")]
+#[derive(Debug, Eq, PartialEq, Serialize)]
 pub struct DispositionWithContext {
     pub result: Disposition,
     pub context: String,
+    #[serde(default)]
+    pub props: BTreeMap<BString, BString>,
 }
 
 #[derive(Debug, Eq, PartialEq, ToXml)]

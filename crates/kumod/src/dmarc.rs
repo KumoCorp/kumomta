@@ -101,13 +101,13 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                                 method_version: None,
                                 result: result.result.to_string().to_ascii_lowercase().into(),
                                 reason: Some(result.context.into()),
-                                props: BTreeMap::default(),
+                                props: result.props.clone(),
                             },
                         },
                         serialize_options(),
                     )),
                     disp @ Disposition::Quarantine | disp @ Disposition::Reject => {
-                        let mut props = BTreeMap::default();
+                        let mut props = result.props;
                         props.insert(
                             "policy.published-domain-policy".into(),
                             disp.to_string().to_ascii_lowercase().into(),
