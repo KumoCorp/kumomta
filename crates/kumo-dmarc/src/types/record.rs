@@ -6,6 +6,7 @@ use crate::types::report_failure::ReportFailure;
 use crate::types::results::{Disposition, DispositionWithContext};
 use crate::{DmarcContext, SenderDomainAlignment};
 use bstr::ByteSlice;
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 #[derive(Debug)]
@@ -20,6 +21,7 @@ pub struct Record {
     interval: u32,
     aggregate_feedback: Vec<FeedbackAddress>,
     message_failure: Vec<FeedbackAddress>,
+    tags: BTreeMap<String, String>,
 }
 
 impl Record {
@@ -38,6 +40,7 @@ impl Record {
             return DispositionWithContext {
                 result: Disposition::Pass,
                 context: format!("sampled_out due to pct={}", self.rate),
+                props: BTreeMap::new(),
             };
         }
 
@@ -119,6 +122,7 @@ impl Record {
             return DispositionWithContext {
                 result: Disposition::Pass,
                 context: "Success".into(),
+                props: BTreeMap::new(),
             };
         }
 
@@ -139,12 +143,14 @@ impl Record {
             return DispositionWithContext {
                 result,
                 context: alignment_context,
+                props: BTreeMap::new(),
             };
         }
 
         DispositionWithContext {
             result: Disposition::Pass,
             context: "Success".into(),
+            props: BTreeMap::new(),
         }
     }
 
@@ -159,6 +165,10 @@ impl Record {
             }
             SenderDomainAlignment::Exact => self.policy,
         }
+    }
+
+    pub fn tags(&self) -> &BTreeMap<String, String> {
+        &self.tags
     }
 
     fn disposition(&self, sender_domain_alignment: SenderDomainAlignment) -> Disposition {
@@ -224,6 +234,7 @@ impl FromStr for Record {
             aggregate_feedback: Vec::new(),
             message_failure: Vec::new(),
             subdomain_policy: None,
+            tags: BTreeMap::new(),
         };
 
         let (mut version, mut policy) = (false, false);
@@ -247,6 +258,8 @@ impl FromStr for Record {
                     _ => return Err(format!("invalid key {key:?}")),
                 }
             }
+
+            new.tags.insert(key.to_string(), value.to_string());
 
             match key {
                 "p" => {

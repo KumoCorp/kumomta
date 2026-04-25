@@ -96,9 +96,11 @@ Hello Alice
         props: {
             "header.a": "rsa-sha256",
             "header.b": "vHLsP0n+",
+            "header.c": "simple/simple",
             "header.d": "cloudflare.com",
             "header.i": "@cloudflare.com",
             "header.s": "2022",
+            "header.t": "1609459201",
         },
     },
     AuthenticationResult {
@@ -109,9 +111,11 @@ Hello Alice
         props: {
             "header.a": "rsa-sha256",
             "header.b": "fdUa++8n",
+            "header.c": "simple/simple",
             "header.d": "not.cloudflare.com",
             "header.i": "@not.cloudflare.com",
             "header.s": "2022",
+            "header.t": "1609459201",
         },
     },
     AuthenticationResult {
@@ -124,9 +128,11 @@ Hello Alice
         props: {
             "header.a": "rsa-sha256",
             "header.b": "U0HRrJ9u",
+            "header.c": "simple/simple",
             "header.d": "cloudflare.com",
             "header.i": "@cloudflare.com",
             "header.s": "bogus-selector",
+            "header.t": "1609459201",
         },
     },
 ]
@@ -158,9 +164,11 @@ From: Sven Sauleau <sven@cloudflare.com>
         props: {
             "header.a": "rsa-sha256",
             "header.b": "qSowczhl",
+            "header.c": "simple/simple",
             "header.d": "cloudflare.com",
             "header.i": "@cloudflare.com",
             "header.s": "2022",
+            "header.t": "1609459201",
         },
     },
     AuthenticationResult {
@@ -171,9 +179,11 @@ From: Sven Sauleau <sven@cloudflare.com>
         props: {
             "header.a": "rsa-sha256",
             "header.b": "UZw1wwBY",
+            "header.c": "simple/simple",
             "header.d": "not.cloudflare.com",
             "header.i": "@not.cloudflare.com",
             "header.s": "2022",
+            "header.t": "1609459201",
         },
     },
     AuthenticationResult {
@@ -186,9 +196,11 @@ From: Sven Sauleau <sven@cloudflare.com>
         props: {
             "header.a": "rsa-sha256",
             "header.b": "GI3Q15Rv",
+            "header.c": "simple/simple",
             "header.d": "cloudflare.com",
             "header.i": "@cloudflare.com",
             "header.s": "bogus-selector",
+            "header.t": "1609459201",
         },
     },
 ]
@@ -259,9 +271,11 @@ sentation" style=3D"width:100%;">
         props: {
             "header.a": "rsa-sha256",
             "header.b": "h60+VEgs",
+            "header.c": "simple/simple",
             "header.d": "cloudflare.com",
             "header.i": "@cloudflare.com",
             "header.s": "2022",
+            "header.t": "1609459201",
         },
     },
     AuthenticationResult {
@@ -272,9 +286,11 @@ sentation" style=3D"width:100%;">
         props: {
             "header.a": "rsa-sha256",
             "header.b": "WzP4DTuC",
+            "header.c": "simple/simple",
             "header.d": "not.cloudflare.com",
             "header.i": "@not.cloudflare.com",
             "header.s": "2022",
+            "header.t": "1609459201",
         },
     },
     AuthenticationResult {
@@ -287,9 +303,11 @@ sentation" style=3D"width:100%;">
         props: {
             "header.a": "rsa-sha256",
             "header.b": "WKnfSsMb",
+            "header.c": "simple/simple",
             "header.d": "cloudflare.com",
             "header.i": "@cloudflare.com",
             "header.s": "bogus-selector",
+            "header.t": "1609459201",
         },
     },
 ]

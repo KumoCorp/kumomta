@@ -11,6 +11,7 @@ use crate::types::report_failure::ReportFailure;
 use crate::types::report_metadata::ReportMetadata;
 use crate::types::results::{AuthResults, DmarcResult, PolicyEvaluated, Results, Row};
 pub use crate::types::results::{Disposition, DispositionWithContext};
+use bstr::BString;
 use chrono::{DateTime, Utc};
 use dns_resolver::Resolver;
 use mailparsing::AuthenticationResult;
@@ -404,9 +405,11 @@ impl<'a> DmarcContext<'a> {
         match fetch_dmarc_records(&dmarc_domain, resolver).await {
             DmarcRecordResolution::Records(records) => {
                 for record in records {
-                    return record
+                    let mut result = record
                         .evaluate(self, &dmarc_domain, SenderDomainAlignment::Exact)
                         .await;
+                    result.props.extend(policy_tags(&record));
+                    return result;
                 }
             }
             x => {
@@ -421,23 +424,27 @@ impl<'a> DmarcContext<'a> {
                                         "DNS records could not be resolved for {}",
                                         address
                                     ),
+                                    props: BTreeMap::new(),
                                 }
                             }
                             DmarcRecordResolution::PermError => {
                                 return DispositionWithContext {
                                     result: Disposition::PermError,
                                     context: format!("no DMARC records found for {}", address),
+                                    props: BTreeMap::new(),
                                 }
                             }
                             DmarcRecordResolution::Records(records) => {
                                 for record in records {
-                                    return record
+                                    let mut result = record
                                         .evaluate(
                                             self,
                                             &address,
                                             SenderDomainAlignment::OrganizationalDomain,
                                         )
                                         .await;
+                                    result.props.extend(policy_tags(&record));
+                                    return result;
                                 }
                             }
                         }
@@ -445,6 +452,7 @@ impl<'a> DmarcContext<'a> {
                         return DispositionWithContext {
                             result: x.into(),
                             context: format!("no DMARC records found for {}", &self.from_domain),
+                            props: BTreeMap::new(),
                         };
                     }
                 }
@@ -454,8 +462,19 @@ impl<'a> DmarcContext<'a> {
         DispositionWithContext {
             result: Disposition::None,
             context: format!("no DMARC records found for {}", &self.from_domain),
+            props: BTreeMap::new(),
         }
     }
+}
+
+fn policy_tags(record: &Record) -> BTreeMap<String, BString> {
+    let mut props = BTreeMap::new();
+
+    for (tag, value) in record.tags() {
+        props.insert(format!("policy.{tag}").into(), value.as_str().into());
+    }
+
+    props
 }
 
 // The output is wrapped in a Result to allow matching on errors.
