@@ -258,6 +258,32 @@ pub async fn verify_email_with_resolver<'a>(
     email: &'a ParsedEmail<'a>,
     resolver: &dyn Resolver,
 ) -> Result<Vec<AuthenticationResult>, DKIMError> {
+    fn populate_props(tagged_header: &TaggedHeader) -> BTreeMap<bstr::BString, bstr::BString> {
+        let mut props = BTreeMap::new();
+
+        if let Some(signing_domain) = tagged_header.get_tag("d") {
+            props.insert("header.d".into(), signing_domain.into());
+            props.insert("header.i".into(), format!("@{signing_domain}").into());
+        }
+        if let Some(a_tag) = tagged_header.get_tag("a") {
+            props.insert("header.a".into(), a_tag.into());
+        }
+        if let Some(s_tag) = tagged_header.get_tag("s") {
+            props.insert("header.s".into(), s_tag.into());
+        }
+        if let Some(c_tag) = tagged_header.get_tag("c") {
+            props.insert("header.c".into(), c_tag.into());
+        }
+        if let Some(t_tag) = tagged_header.get_tag("t") {
+            props.insert("header.t".into(), t_tag.into());
+        }
+        if let Some(x_tag) = tagged_header.get_tag("x") {
+            props.insert("header.x".into(), x_tag.into());
+        }
+
+        props
+    }
+
     let mut results = vec![];
 
     let mut dkim_headers = vec![];
@@ -269,21 +295,21 @@ pub async fn verify_email_with_resolver<'a>(
             break;
         }
 
-        match h
-            .get_raw_value_string()
-            .map_err(Into::into)
-            .and_then(DKIMHeader::parse)
-        {
+        let raw_header = h.get_raw_value_string()?;
+        match DKIMHeader::parse(&raw_header) {
             Ok(v) => {
                 dkim_headers.push(v);
             }
             Err(err) => {
+                let props = TaggedHeader::parse(&raw_header)
+                    .map(|tagged| populate_props(&tagged))
+                    .unwrap_or_default();
                 results.push(AuthenticationResult {
                     method: "dkim".into(),
                     method_version: None,
                     result: "permerror".into(),
                     reason: Some(format!("{err}").into()),
-                    props: BTreeMap::new(),
+                    props,
                 });
             }
         }
@@ -315,16 +341,9 @@ pub async fn verify_email_with_resolver<'a>(
     }
 
     for dkim_header in &dkim_headers {
-        let signing_domain = dkim_header.get_required_tag("d");
-        let mut props = BTreeMap::new();
-
-        props.insert("header.d".into(), signing_domain.into());
-        props.insert("header.i".into(), format!("@{signing_domain}").into());
-        props.insert("header.a".into(), dkim_header.get_required_tag("a").into());
-        props.insert("header.s".into(), dkim_header.get_required_tag("s").into());
-
-        let b_tag = compute_header_b(dkim_header.get_required_tag("b"), &dkim_headers);
-        props.insert("header.b".into(), b_tag.into());
+        let header_b = compute_header_b(dkim_header.get_required_tag("b"), &dkim_headers);
+        let mut props = populate_props(dkim_header);
+        props.insert("header.b".into(), header_b.into());
 
         let mut reason = None;
         let result =
@@ -367,6 +386,7 @@ pub async fn verify_email<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bstr::ByteSlice;
     use dns_resolver::TestResolver;
 
     const NEW_ENGLAND_DKIM: (&str, &str) = (
@@ -456,6 +476,80 @@ b=dzdVyOfAKCdLXdJOc9G2q8LoXSlEniSbav+yuU4zGeeruD00lszZ
             DKIMHeader::parse(&header).unwrap_err(),
             DKIMError::SignatureExpired
         );
+    }
+
+    #[tokio::test]
+    async fn test_expired_signature_populates_props() {
+        let x_value = "1";
+
+        let raw_email = format!(
+            "DKIM-Signature: v=1; a=rsa-sha256; c=simple/simple; d=example.net; s=brisbane; h=From; bh=hash; b=abcdefgh12345678; t=1; x={}\r\nFrom: user@example.net\r\n\r\nhello",
+            x_value,
+        );
+
+        let email = ParsedEmail::parse(raw_email).unwrap();
+        let resolver = TestResolver::default();
+
+        let res = verify_email_with_resolver(&email, &resolver).await.unwrap();
+        assert_eq!(res.len(), 1);
+
+        let result = &res[0];
+        assert_eq!(result.result, "permerror");
+        assert_eq!(
+            result
+                .props
+                .get("header.d".as_bytes())
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "example.net"
+        );
+        assert_eq!(
+            result
+                .props
+                .get("header.a".as_bytes())
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "rsa-sha256"
+        );
+        assert_eq!(
+            result
+                .props
+                .get("header.s".as_bytes())
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "brisbane"
+        );
+        assert_eq!(
+            result
+                .props
+                .get("header.c".as_bytes())
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "simple/simple"
+        );
+        assert_eq!(
+            result
+                .props
+                .get("header.t".as_bytes())
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "1"
+        );
+        assert_eq!(
+            result
+                .props
+                .get("header.x".as_bytes())
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            x_value
+        );
+        assert!(result.props.get("header.b".as_bytes()).is_none());
     }
 
     #[tokio::test]

@@ -1,5 +1,6 @@
 use crate::types::results::DispositionWithContext;
 use crate::{Disposition, DmarcContext};
+use bstr::ByteSlice;
 use dns_resolver::{Resolver, TestResolver};
 use std::collections::BTreeMap;
 
@@ -363,6 +364,101 @@ async fn dmarc_pct_rate() {
 
     k9::assert_lesser_than!(total_failures, upper_bound);
     k9::assert_greater_than!(total_failures, lower_bound);
+}
+
+#[tokio::test]
+async fn dmarc_check_includes_record_tags() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "_dmarc.example.com",
+            "v=DMARC1; p=reject; sp=quarantine; adkim=s; aspf=r; pct=100; fo=1; rf=afrf; ri=3600"
+                .to_string(),
+        );
+
+    let result = evaluate_ip(TestData {
+        from_domain: "example.com",
+        mail_from_domain: "example.net",
+        dkim_domains: &[],
+        spf_result: Some("fail"),
+        resolver: &resolver,
+    })
+    .await;
+
+    k9::assert_equal!(result.result, Disposition::Reject);
+    k9::assert_equal!(
+        result
+            .props
+            .get("policy.p".as_bytes())
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "reject"
+    );
+    k9::assert_equal!(
+        result
+            .props
+            .get("policy.sp".as_bytes())
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "quarantine"
+    );
+    k9::assert_equal!(
+        result
+            .props
+            .get("policy.adkim".as_bytes())
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "s"
+    );
+    k9::assert_equal!(
+        result
+            .props
+            .get("policy.aspf".as_bytes())
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "r"
+    );
+    k9::assert_equal!(
+        result
+            .props
+            .get("policy.pct".as_bytes())
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "100"
+    );
+    k9::assert_equal!(
+        result
+            .props
+            .get("policy.fo".as_bytes())
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "1"
+    );
+    k9::assert_equal!(
+        result
+            .props
+            .get("policy.rf".as_bytes())
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "afrf"
+    );
+    k9::assert_equal!(
+        result
+            .props
+            .get("policy.ri".as_bytes())
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "3600"
+    );
 }
 
 async fn evaluate_ip<'a>(

@@ -6,6 +6,7 @@ use crate::types::report_failure::ReportFailure;
 use crate::types::results::{Disposition, DispositionWithContext};
 use crate::{DmarcContext, SenderDomainAlignment};
 use bstr::ByteSlice;
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 #[derive(Debug)]
@@ -20,6 +21,7 @@ pub struct Record {
     aggregate_feedback: Vec<FeedbackAddress>,
     message_failure: Vec<FeedbackAddress>,
     subdomain_policy: Option<Policy>,
+    tags: BTreeMap<String, String>,
 }
 
 impl Record {
@@ -32,6 +34,7 @@ impl Record {
             return DispositionWithContext {
                 result: Disposition::Pass,
                 context: format!("sampled_out due to pct={}", self.rate),
+                props: Default::default(),
             };
         }
 
@@ -124,6 +127,7 @@ impl Record {
             DispositionWithContext {
                 result: Disposition::Pass,
                 context: "Success".into(),
+                props: Default::default(),
             }
         } else {
             let context = if let Some(dkim_error) = dkim_error {
@@ -137,8 +141,13 @@ impl Record {
             DispositionWithContext {
                 result: self.select_failure_mode(sender_location),
                 context,
+                props: Default::default(),
             }
         }
+    }
+
+    pub fn tags(&self) -> &BTreeMap<String, String> {
+        &self.tags
     }
 
     fn select_failure_mode(&self, sender_location: SenderDomainAlignment) -> Disposition {
@@ -206,6 +215,7 @@ impl FromStr for Record {
             aggregate_feedback: Vec::new(),
             message_failure: Vec::new(),
             subdomain_policy: None,
+            tags: BTreeMap::new(),
         };
 
         let (mut version, mut policy) = (false, false);
@@ -229,6 +239,8 @@ impl FromStr for Record {
                     _ => return Err(format!("invalid key {key:?}")),
                 }
             }
+
+            new.tags.insert(key.to_string(), value.to_string());
 
             match key {
                 "p" => {
