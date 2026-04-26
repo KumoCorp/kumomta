@@ -258,7 +258,7 @@ pub async fn verify_email_with_resolver<'a>(
     email: &'a ParsedEmail<'a>,
     resolver: &dyn Resolver,
 ) -> Result<Vec<AuthenticationResult>, DKIMError> {
-    fn populate_props(tagged_header: &TaggedHeader) -> BTreeMap<bstr::BString, bstr::BString> {
+    fn populate_props(tagged_header: &TaggedHeader) -> BTreeMap<String, bstr::BString> {
         let mut props = BTreeMap::new();
 
         if let Some(signing_domain) = tagged_header.get_tag("d") {
@@ -496,60 +496,27 @@ b=dzdVyOfAKCdLXdJOc9G2q8LoXSlEniSbav+yuU4zGeeruD00lszZ
         let result = &res[0];
         assert_eq!(result.result, "permerror");
         assert_eq!(
-            result
-                .props
-                .get("header.d".as_bytes())
-                .unwrap()
-                .to_str()
-                .unwrap(),
+            result.props.get("header.d").unwrap().to_str().unwrap(),
             "example.net"
         );
         assert_eq!(
-            result
-                .props
-                .get("header.a".as_bytes())
-                .unwrap()
-                .to_str()
-                .unwrap(),
+            result.props.get("header.a").unwrap().to_str().unwrap(),
             "rsa-sha256"
         );
         assert_eq!(
-            result
-                .props
-                .get("header.s".as_bytes())
-                .unwrap()
-                .to_str()
-                .unwrap(),
+            result.props.get("header.s").unwrap().to_str().unwrap(),
             "brisbane"
         );
         assert_eq!(
-            result
-                .props
-                .get("header.c".as_bytes())
-                .unwrap()
-                .to_str()
-                .unwrap(),
+            result.props.get("header.c").unwrap().to_str().unwrap(),
             "simple/simple"
         );
+        assert_eq!(result.props.get("header.t").unwrap().to_str().unwrap(), "1");
         assert_eq!(
-            result
-                .props
-                .get("header.t".as_bytes())
-                .unwrap()
-                .to_str()
-                .unwrap(),
-            "1"
-        );
-        assert_eq!(
-            result
-                .props
-                .get("header.x".as_bytes())
-                .unwrap()
-                .to_str()
-                .unwrap(),
+            result.props.get("header.x").unwrap().to_str().unwrap(),
             x_value
         );
-        assert!(result.props.get("header.b".as_bytes()).is_none());
+        assert!(result.props.get("header.b").is_none());
     }
 
     #[tokio::test]

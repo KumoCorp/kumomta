@@ -89,6 +89,12 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 .check(&**resolver)
                 .await;
 
+                let mut props: BTreeMap<String, bstr::BString> = result
+                    .props
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect();
+
                 match result.result {
                     Disposition::Pass
                     | Disposition::None
@@ -101,13 +107,12 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                                 method_version: None,
                                 result: result.result.to_string().to_ascii_lowercase().into(),
                                 reason: Some(result.context.into()),
-                                props: result.props.clone(),
+                                props,
                             },
                         },
                         serialize_options(),
                     )),
                     disp @ Disposition::Quarantine | disp @ Disposition::Reject => {
-                        let mut props = result.props;
                         props.insert(
                             "policy.published-domain-policy".into(),
                             disp.to_string().to_ascii_lowercase().into(),
