@@ -98,7 +98,12 @@ function mod.check(msg, config)
 
   local dmarc_auth_result = nil
   if config.dmarc then
-    local dmarc_disp = kumo.dmarc.check_msg(msg, {}, config.resolver)
+    local dmarc_disp = kumo.dmarc.check_msg(
+      msg,
+      dkim_auth_results,
+      spf_auth_result,
+      config.resolver
+    )
     dmarc_auth_result = dmarc_disp.result
 
     table.insert(auth_results, dmarc_auth_result)

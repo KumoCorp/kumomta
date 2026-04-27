@@ -26,6 +26,9 @@ pub struct CheckHostParams {
 
     /// The results of the DKIM part of the checks
     pub dkim: Vec<BTreeMap<String, BString>>,
+
+    /// The results of the SPF part of the checks
+    pub spf: Option<BTreeMap<String, BString>>,
 }
 
 impl CheckHostParams {
@@ -34,12 +37,14 @@ impl CheckHostParams {
             from_domain,
             mail_from_domain,
             dkim,
+            spf,
         } = self;
 
         match DmarcContext::new(
             &from_domain,
             mail_from_domain.as_ref().map(|x| x.as_str()),
             &dkim[..],
+            spf.as_ref(),
         ) {
             Ok(cx) => cx.check(resolver).await,
             Err(result) => result,
@@ -84,6 +89,7 @@ struct DmarcContext<'a> {
     pub(crate) mail_from_domain: Option<&'a str>,
     pub(crate) now: SystemTime,
     pub(crate) dkim: &'a [BTreeMap<String, BString>],
+    pub(crate) spf: Option<&'a BTreeMap<String, BString>>,
 }
 
 impl<'a> DmarcContext<'a> {
@@ -96,12 +102,14 @@ impl<'a> DmarcContext<'a> {
         from_domain: &'a str,
         mail_from_domain: Option<&'a str>,
         dkim: &'a [BTreeMap<String, BString>],
+        spf: Option<&'a BTreeMap<String, BString>>,
     ) -> Result<Self, DispositionWithContext> {
         Ok(Self {
             from_domain,
             mail_from_domain,
             now: SystemTime::now(),
             dkim,
+            spf,
         })
     }
 
@@ -109,7 +117,9 @@ impl<'a> DmarcContext<'a> {
         match fetch_dmarc_records(&format!("_dmarc.{}", self.from_domain), resolver).await {
             DmarcRecordResolution::Records(records) => {
                 for record in records {
-                    return record.evaluate(self, SenderDomainAlignment::Exact).await;
+                    let mut result = record.evaluate(self, SenderDomainAlignment::Exact).await;
+                    result.props.extend(policy_tags(&record));
+                    return result;
                 }
             }
             x => {
@@ -124,19 +134,23 @@ impl<'a> DmarcContext<'a> {
                                         "DNS records could not be resolved for {}",
                                         address
                                     ),
+                                    props: BTreeMap::default(),
                                 }
                             }
                             DmarcRecordResolution::PermError => {
                                 return DispositionWithContext {
                                     result: Disposition::PermError,
                                     context: format!("no DMARC records found for {}", address),
+                                    props: BTreeMap::default(),
                                 }
                             }
                             DmarcRecordResolution::Records(records) => {
                                 for record in records {
-                                    return record
+                                    let mut result = record
                                         .evaluate(self, SenderDomainAlignment::OrganizationalDomain)
                                         .await;
+                                    result.props.extend(policy_tags(&record));
+                                    return result;
                                 }
                             }
                         }
@@ -144,6 +158,7 @@ impl<'a> DmarcContext<'a> {
                         return DispositionWithContext {
                             result: x.into(),
                             context: format!("no DMARC records found for {}", &self.from_domain),
+                            props: BTreeMap::default(),
                         };
                     }
                 }
@@ -153,8 +168,19 @@ impl<'a> DmarcContext<'a> {
         DispositionWithContext {
             result: Disposition::None,
             context: format!("no DMARC records found for {}", &self.from_domain),
+            props: BTreeMap::default(),
         }
     }
+}
+
+fn policy_tags(record: &Record) -> BTreeMap<BString, BString> {
+    let mut props = BTreeMap::new();
+
+    for (tag, value) in record.tags() {
+        props.insert(format!("policy.{tag}").into(), value.as_str().into());
+    }
+
+    props
 }
 
 pub(crate) async fn fetch_dmarc_records(
@@ -166,7 +192,6 @@ pub(crate) async fn fetch_dmarc_records(
             if answer.records.is_empty() || answer.nxdomain {
                 return DmarcRecordResolution::PermError;
             } else {
-                eprintln!("answer: {:?}", answer);
                 answer.as_txt()
             }
         }
