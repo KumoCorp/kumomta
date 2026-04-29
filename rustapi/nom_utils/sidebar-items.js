@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ParseErrorKind"],"fn":["domain_name","explain_nom","ipv4_address","ipv6_address","make_context_error","make_span","tag","tag_no_case","utf8_non_ascii"],"struct":["DomainString","ParseError","TagParser"],"type":["IResult","Span"]};
