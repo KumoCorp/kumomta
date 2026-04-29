@@ -10,7 +10,7 @@ tags:
 kumo.fs.symlink_metadata_for_path(PATH)
 ```
 
-{{since('dev')}}
+{{since('2026.04.09-ea3b2a9b')}}
 
 This function behaves exactly like [metadata_for_path](metadata_for_path.md),
 except that it does not follow symbolic links and instead returns information

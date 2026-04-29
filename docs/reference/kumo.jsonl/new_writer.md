@@ -19,7 +19,7 @@ local writer = kumo.jsonl.new_writer {
 }
 ```
 
-{{since('dev')}}
+{{since('2026.04.09-ea3b2a9b')}}
 
 Creates a new `LogWriter` that writes zstd-compressed JSONL segment files into
 `log_dir`.  Each record occupies one line in the decompressed output.

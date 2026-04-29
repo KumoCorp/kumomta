@@ -9,7 +9,7 @@ it.
 
 Returns `nil` if no matching header could be found.
 
-{{since('dev')}}
+{{since('2026.04.09-ea3b2a9b')}}
 
 When the structured header parser fails (for example, due to non-conforming
 header content), this method now falls back to returning the raw header value

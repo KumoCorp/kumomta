@@ -32,7 +32,7 @@ local tailer = kumo.jsonl.new_multi_tailer {
 }
 ```
 
-{{since('dev')}}
+{{since('2026.04.09-ea3b2a9b')}}
 
 Creates a multi-consumer log tailer that reads each segment file exactly once
 and distributes records to multiple independent consumers.  Each consumer has

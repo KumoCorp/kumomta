@@ -27,7 +27,7 @@ local tailer2 = kumo.jsonl.new_tailer(
 )
 ```
 
-{{since('dev')}}
+{{since('2026.04.09-ea3b2a9b')}}
 
 Creates a single-consumer log tailer that reads zstd-compressed JSONL segment
 files from `directory` and yields them as batches of parsed JSON values.

@@ -7,7 +7,7 @@ tags:
 
 # LogBatch
 
-{{since('dev')}}
+{{since('2026.04.09-ea3b2a9b')}}
 
 A `LogBatch` is an object yielded by the `:batches()` method of
 [`kumo.jsonl.new_tailer`](new_tailer.md) and

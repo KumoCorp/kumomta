@@ -1,6 +1,6 @@
 # Module `kumo.jsonl`
 
-{{since('dev')}}
+{{since('2026.04.09-ea3b2a9b')}}
 
 This module provides utilities for reading and writing
 [JSONL](https://jsonlines.org/) (newline-delimited JSON) log files stored in

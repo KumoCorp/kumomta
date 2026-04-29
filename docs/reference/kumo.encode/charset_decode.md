@@ -4,7 +4,7 @@
 kumo.encode.charset_decode(CHARSET, BINARY_INPUT)
 ```
 
-{{since('dev')}}
+{{since('2026.04.09-ea3b2a9b')}}
 
 Given an the input string `BINARY_INPUT`, which is likely a binary string,
 attempt to decode the string from the named `CHARSET`,

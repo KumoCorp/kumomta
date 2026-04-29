@@ -471,7 +471,7 @@
           "debugging"
         ],
         "summary": "Returns a dump of the runtime task state.",
-        "description": "{{since('dev')}}\n\nThe output is not machine parseable and may change without notice\nbetween versions of kumomta.\n\nCapturing the dump is very expensive and can take several seconds.\nCapturing a dump is not guaranteed to succeed.\n\nAt the time of writing, capturing a dump can cause a subsequent\ngraceful shutdown to get stuck, unless you repeatedly trigger\nthis API endpoint a few more times to \"clock through\" the shutdown\nprocess and enable it to complete successfully.",
+        "description": "{{since('2026.04.09-ea3b2a9b')}}\n\nThe output is not machine parseable and may change without notice\nbetween versions of kumomta.\n\nCapturing the dump is very expensive and can take several seconds.\nCapturing a dump is not guaranteed to succeed.\n\nAt the time of writing, capturing a dump can cause a subsequent\ngraceful shutdown to get stuck, unless you repeatedly trigger\nthis API endpoint a few more times to \"clock through\" the shutdown\nprocess and enable it to complete successfully.",
         "operationId": "task_dump",
         "responses": {
           "200": {
@@ -1516,7 +1516,7 @@
           },
           "substitutions": {
             "type": "object",
-            "description": "When using templating, this is the map of placeholder\nname to replacement value that should be used by the\ntemplating engine when processing just this recipient.\n\nThe following substitutions are pre-defined:\n\n|Name|Value|Version|\n|----|-----|-------|\n|email|Populated from the recipient `email` field|Always|\n|name|Populated from the recipient `name` field|Always|\n|to_header|A suitable value for use in a `To:` header, constructed from the recipient `email` and `name` fields. eg: `\"John Smith\" <john.smith@mailbox-example.com>`|{{since('dev', inline=True)}}|",
+            "description": "When using templating, this is the map of placeholder\nname to replacement value that should be used by the\ntemplating engine when processing just this recipient.\n\nThe following substitutions are pre-defined:\n\n|Name|Value|Version|\n|----|-----|-------|\n|email|Populated from the recipient `email` field|Always|\n|name|Populated from the recipient `name` field|Always|\n|to_header|A suitable value for use in a `To:` header, constructed from the recipient `email` and `name` fields. eg: `\"John Smith\" <john.smith@mailbox-example.com>`|{{since('2026.04.09-ea3b2a9b', inline=True)}}|",
             "additionalProperties": true,
             "example": {
               "age": 42,
