@@ -139,9 +139,12 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn auth_result_to_props(
-    mut result: AuthenticationResult,
-) -> BTreeMap<bstr::BString, bstr::BString> {
-    result.props.insert("result".into(), result.result);
-    result.props
+fn auth_result_to_props(result: AuthenticationResult) -> BTreeMap<bstr::BString, bstr::BString> {
+    let mut props = result
+        .props
+        .into_iter()
+        .map(|(k, v)| (k.into(), v))
+        .collect::<BTreeMap<bstr::BString, bstr::BString>>();
+    props.insert("result".into(), result.result.into());
+    props
 }
