@@ -233,7 +233,7 @@ tui-prompts = "0.5"
 utoipa = {version="5.4", features=["axum_extras", "time", "uuid", "url", "chrono", "non_strict_integers"]}
 utoipa-rapidoc = { version="6.0", features = ["axum"] }
 url = {version="2.4", features = ["serde"]}
-uuid = "1.4"
+uuid = "1.23.1"
 uuid-helper = { path = "crates/uuid-helper" }
 vaultrs = "0.7"
 walkdir = "2.3"
