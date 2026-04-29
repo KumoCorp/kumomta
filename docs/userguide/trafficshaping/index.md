@@ -22,4 +22,8 @@ To ensure optimum throughput and deliverability, KumoMTA features Traffic Shapin
 
 * [Scoping Traffic Shaping Rules](./scoping.md) — How KumoMTA uses domain, egress source, and site name to scope traffic shaping rules.
 * [Traffic Shaping Configuration Files](./shapingfiles.md) — Configuring shaping rules using the `shaping.lua` helper and TOML/JSON configuration files.
+* [MX Rollups and Provider Blocks](./rollups.md) — How domain entries map to site names, and using provider blocks for pattern-based MX matching.
+* [Shaping Option Resolution Order and Precedence](./resolution.md) — How shaping options are merged and resolved across multiple configuration layers.
+* [Writing Custom Shaping Files](./customshaping.md) — Creating your own traffic shaping rules to supplement or replace the defaults.
 * [Traffic Shaping Automation](./automation.md) — Deploying the TSA daemon for automated, real-time traffic shaping adjustments.
+* [Testing Your Shaping Files](./testing.md) — Validating shaping file syntax using the built-in `validate-shaping` tool.

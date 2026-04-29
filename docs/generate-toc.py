@@ -254,8 +254,24 @@ TOC = [
                         "userguide/trafficshaping/shapingfiles.md",
                     ),
                     Page(
+                        "MX Rollups and Provider Blocks",
+                        "userguide/trafficshaping/rollups.md",
+                    ),
+                    Page(
+                        "Shaping Option Resolution Order and Precedence",
+                        "userguide/trafficshaping/resolution.md",
+                    ),
+                    Page(
+                        "Writing Custom Shaping Files",
+                        "userguide/trafficshaping/customshaping.md",
+                    ),
+                    Page(
                         "Traffic Shaping Automation",
                         "userguide/trafficshaping/automation.md",
+                    ),
+                    Page(
+                        "Testing Your Shaping Files",
+                        "userguide/trafficshaping/testing.md",
                     ),
                 ],
             ),
