@@ -170,7 +170,7 @@ kumo.on(
 -- Configure traffic shaping using the shaping.lua policy helper.
 -- Commented out by default since we recommend using the Traffic Shaping Automation helper loaded below.
 -- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
--- SEE https://docs.kumomta.com/userguide/configuration/trafficshaping/
+-- SEE https://docs.kumomta.com/userguide/trafficshaping/
 -- kumo.on('get_egress_path_config', shaping:setup { '/opt/kumomta/share/policy-extras/shaping.toml', '/opt/kumomta/etc/policy/shaping.toml', })
 
 -- Call the Traffic Shaping Automation Helper to configure shaping rules.

@@ -238,11 +238,25 @@ TOC = [
                         "Configuring Queue Rollup",
                         "userguide/configuration/rollup.md",
                     ),
-                    Page(
-                        "Configuring Traffic Shaping",
-                        "userguide/configuration/trafficshaping.md",
-                    ),
                     Page("Configuring DKIM Signing", "userguide/configuration/dkim.md"),
+                ],
+            ),
+            Page(
+                "Traffic Shaping",
+                "userguide/trafficshaping/index.md",
+                children=[
+                    Page(
+                        "Scoping Traffic Shaping Rules",
+                        "userguide/trafficshaping/scoping.md",
+                    ),
+                    Page(
+                        "Traffic Shaping Configuration Files",
+                        "userguide/trafficshaping/shapingfiles.md",
+                    ),
+                    Page(
+                        "Traffic Shaping Automation",
+                        "userguide/trafficshaping/automation.md",
+                    ),
                 ],
             ),
             Page(
