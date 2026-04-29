@@ -40,6 +40,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         mod_crypto::register,
         mod_smtp_response_normalize::register,
         kumo_jsonl::lua::register,
+        mod_audit_series::register,
         mod_string::register,
         mod_time::register,
         mod_dns_resolver::register,
