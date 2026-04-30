@@ -3,10 +3,13 @@ use anyhow::Context;
 use kumo_server_common::authn_authz::{AuthInfo, Identity, IdentityContext};
 use kumo_server_common::http_server::auth::AuthKindResult;
 use kumo_tls_helper::AsyncReadAndWrite;
+use socket2::{SockRef, TcpKeepalive};
 use socksv5::v5::{
     SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5Request, SocksV5RequestStatus,
 };
+use std::io;
 use std::net::{IpAddr, SocketAddr};
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::timeout;
@@ -153,6 +156,27 @@ where
     }
 }
 
+const TCP_KEEPALIVE_TIME: Duration = Duration::from_secs(300);
+#[cfg(target_os = "linux")]
+const TCP_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
+#[cfg(target_os = "linux")]
+const TCP_KEEPALIVE_RETRIES: u32 = 3;
+
+pub(crate) fn set_proxy_tcp_keepalive(stream: &TcpStream) -> io::Result<()> {
+    SockRef::from(stream).set_tcp_keepalive(&proxy_tcp_keepalive())
+}
+
+fn proxy_tcp_keepalive() -> TcpKeepalive {
+    let keepalive = TcpKeepalive::new().with_time(TCP_KEEPALIVE_TIME);
+
+    #[cfg(target_os = "linux")]
+    let keepalive = keepalive
+        .with_interval(TCP_KEEPALIVE_INTERVAL)
+        .with_retries(TCP_KEEPALIVE_RETRIES);
+
+    keepalive
+}
+
 /// Encapsulates the result of processing a command from the client
 #[derive(Debug)]
 struct RequestStatus {
@@ -233,12 +257,14 @@ async fn handle_request(
             let addr = match std::mem::take(state) {
                 ClientState::None => {
                     let stream = TcpStream::connect(host).await?;
+                    set_proxy_tcp_keepalive(&stream)?;
                     let addr = stream.local_addr()?;
                     *state = ClientState::Connected(stream);
                     addr
                 }
                 ClientState::Bound(socket) => {
                     let stream = socket.connect(host).await?;
+                    set_proxy_tcp_keepalive(&stream)?;
                     let addr = stream.local_addr()?;
                     *state = ClientState::Connected(stream);
                     addr
@@ -285,6 +311,26 @@ async fn request_addr(request: &SocksV5Request) -> std::io::Result<SocketAddr> {
             std::io::ErrorKind::Unsupported,
             "Domain not supported",
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn tcp_keepalive_can_be_enabled_on_tcp_stream() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let client = TcpStream::connect(addr);
+        let server = listener.accept();
+        let (client, server) = tokio::join!(client, server);
+        let client = client.unwrap();
+        let (server, _) = server.unwrap();
+
+        set_proxy_tcp_keepalive(&client).unwrap();
+        set_proxy_tcp_keepalive(&server).unwrap();
     }
 }
 

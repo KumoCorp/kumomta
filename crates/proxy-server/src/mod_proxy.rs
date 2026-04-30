@@ -118,6 +118,9 @@ impl ProxyListenerParams {
 
         loop {
             let (socket, peer_address) = listener.accept().await.context("accept failed")?;
+            crate::proxy_handler::set_proxy_tcp_keepalive(&socket).with_context(|| {
+                format!("failed to enable TCP keepalive for client {peer_address:?}")
+            })?;
 
             let params = params.clone();
             let tls_acceptor = tls_acceptor.clone();
