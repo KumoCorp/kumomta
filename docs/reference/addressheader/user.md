@@ -13,7 +13,7 @@ If the address header is not a single simple address, raises an error.
 
 See also [addressheader.domain](domain.md), [addressheader.name](name.md).
 
-{{since('dev')}}
+{{since('2026.04.09-ea3b2a9b')}}
 
 The `user` field now returns the *normalized/decoded* local part.  Previously,
 quoted local parts such as `"quoted"@example.com` were returned with the

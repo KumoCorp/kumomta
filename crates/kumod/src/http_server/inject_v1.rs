@@ -122,7 +122,7 @@ pub struct Recipient {
     /// |----|-----|-------|
     /// |email|Populated from the recipient `email` field|Always|
     /// |name|Populated from the recipient `name` field|Always|
-    /// |to_header|A suitable value for use in a `To:` header, constructed from the recipient `email` and `name` fields. eg: `"John Smith" <john.smith@mailbox-example.com>`|{{since('dev', inline=True)}}|
+    /// |to_header|A suitable value for use in a `To:` header, constructed from the recipient `email` and `name` fields. eg: `"John Smith" <john.smith@mailbox-example.com>`|{{since('2026.04.09-ea3b2a9b', inline=True)}}|
     #[serde(default)]
     #[schema(additional_properties, example=json!({
         "age": 42,

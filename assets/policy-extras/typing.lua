@@ -259,9 +259,9 @@ function mod.record(name, fields)
     end
 
     for k, def in pairs(ty.fields) do
-      if not obj[k] then
+      if rawget(obj, k) == nil then
         if type(def) == 'table' then
-          if def.default_value then
+          if def.default_value ~= nil then
             obj[k] = def.default_value
           elseif not def.is_optional then
             TypeError
@@ -700,6 +700,28 @@ function mod:test()
   })
   local have_default_layer = WithDefaultLayer {}
   assert(have_default_layer.layer == 'Above')
+
+  -- Verify that explicit false value is retained
+  local WithDefaultBool = mod.record('WithDefaultBool', {
+    enabled = mod.default(mod.boolean, true),
+  })
+
+  local explicit_false = WithDefaultBool { enabled = false }
+  utils.assert_eq(explicit_false.enabled, false)
+
+  local have_default_bool = WithDefaultBool {}
+  utils.assert_eq(have_default_bool.enabled, true)
+
+  -- Verify that default false value inherited correctly
+  local WithDefaultBoolFalse = mod.record('WithDefaultBool', {
+    enabled = mod.default(mod.boolean, false),
+  })
+
+  local explicit_false_is_false = WithDefaultBoolFalse { enabled = false }
+  utils.assert_eq(explicit_false_is_false.enabled, false)
+
+  local have_default_false = WithDefaultBoolFalse {}
+  utils.assert_eq(have_default_false.enabled, false)
 
   local StringList = mod.list(mod.string)
   utils.assert_eq(StringList {}, {})

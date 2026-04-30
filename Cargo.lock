@@ -3777,16 +3777,20 @@ dependencies = [
 name = "kumo-dmarc"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bstr",
  "chrono",
  "dns-resolver",
  "instant-xml",
  "k9",
  "kumo-spf",
+ "mailparsing",
  "psl",
  "rand 0.8.5",
  "serde",
+ "serde_json",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -4014,6 +4018,7 @@ dependencies = [
 name = "kumo-spf"
 version = "0.1.0"
 dependencies = [
+ "bstr",
  "dns-resolver",
  "hickory-resolver",
  "instant-xml",
@@ -9126,9 +9131,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.22.0"
+version = "1.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a68d3c8f01c0cfa54a75291d83601161799e4a89a39e0929f4b0354d88757a37"
+checksum = "ddd74a9687298c6858e9b88ec8935ec45d22e8fd5e6394fa1bd4e99a87789c76"
 dependencies = [
  "atomic",
  "getrandom 0.4.2",

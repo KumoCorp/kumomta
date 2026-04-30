@@ -213,7 +213,7 @@ thiserror = "2"
 tikv-jemallocator = {version="0.5", features=["background_threads", "stats"]}
 tikv-jemalloc-ctl = {version="0.5", features=[]}
 tikv-jemalloc-sys = {version="0.5", features=["profiling", "unprefixed_malloc_on_supported_platforms", "stats"]}
-tokio = "1.32"
+tokio = "^1.49"
 tokio-executor-trait = "2.1.0"
 tokio-metrics = "0.4.5"
 tokio-metrics-collector = "0.3.1"
@@ -233,7 +233,7 @@ tui-prompts = "0.5"
 utoipa = {version="5.4", features=["axum_extras", "time", "uuid", "url", "chrono", "non_strict_integers"]}
 utoipa-rapidoc = { version="6.0", features = ["axum"] }
 url = {version="2.4", features = ["serde"]}
-uuid = "1.4"
+uuid = "1.23.1"
 uuid-helper = { path = "crates/uuid-helper" }
 vaultrs = "0.7"
 walkdir = "2.3"

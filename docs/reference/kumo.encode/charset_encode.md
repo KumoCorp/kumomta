@@ -4,7 +4,7 @@
 kumo.encode.charset_encode(CHARSET, UTF8_INPUT, OPT_IGNORE_ERRORS)
 ```
 
-{{since('dev')}}
+{{since('2026.04.09-ea3b2a9b')}}
 
 Given an the input string `UTF8_INPUT`, which must be a UTF8 string, encodes it
 into the named `CHARSET`, which must be one of the charsets supported by the

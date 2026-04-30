@@ -14,7 +14,7 @@ tags:
     from there and into these docs.
 
 Returns a dump of the runtime task state.
-{{since('dev')}}
+{{since('2026.04.09-ea3b2a9b')}}
 
 The output is not machine parseable and may change without notice
 between versions of kumomta.

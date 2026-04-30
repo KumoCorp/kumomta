@@ -11,7 +11,7 @@ See also [address.domain](domain.md).
 
 ## Quoted Local Part
 
-{{since('dev')}}
+{{since('2026.04.09-ea3b2a9b')}}
 
 Prior releases of KumoMTA had inconsistent behavior around handling envelope
 addresses whose local part was a quoted string.  The behavior has been improved,

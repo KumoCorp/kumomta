@@ -10,7 +10,7 @@ tags:
 kumo.fs.metadata_for_path(PATH)
 ```
 
-{{since('dev')}}
+{{since('2026.04.09-ea3b2a9b')}}
 
 This function returns the file or directory attributes.
 If PATH is a symbolic link, this function will traverse symbolic links and retrieves metadata of the destination file or directory.
