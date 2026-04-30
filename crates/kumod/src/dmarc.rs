@@ -129,37 +129,40 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 .check(&**resolver)
                 .await;
 
-                match result.result {
+                let disposition = result.result;
+                let reason = result.context;
+                let mut props = result.props;
+
+                match disposition {
                     Disposition::Pass
                     | Disposition::None
                     | Disposition::TempError
                     | Disposition::PermError => Ok(lua.to_value_with(
                         &CheckHostOutput {
-                            disposition: result.result.clone(),
+                            disposition,
                             result: AuthenticationResult {
                                 method: "dmarc".into(),
                                 method_version: None,
-                                result: result.result.to_string().to_ascii_lowercase().into(),
-                                reason: Some(result.context.into()),
-                                props: BTreeMap::default(),
+                                result: disposition.to_string().to_ascii_lowercase().into(),
+                                reason: Some(reason.into()),
+                                props,
                             },
                         },
                         serialize_options(),
                     )),
                     disp @ Disposition::Quarantine | disp @ Disposition::Reject => {
-                        let mut props = BTreeMap::default();
                         props.insert(
                             "policy.published-domain-policy".into(),
                             disp.to_string().to_ascii_lowercase().into(),
                         );
                         Ok(lua.to_value_with(
                             &CheckHostOutput {
-                                disposition: result.result.clone(),
+                                disposition,
                                 result: AuthenticationResult {
                                     method: "dmarc".into(),
                                     method_version: None,
                                     result: "fail".into(),
-                                    reason: Some(result.context.into()),
+                                    reason: Some(reason.into()),
                                     props,
                                 },
                             },
