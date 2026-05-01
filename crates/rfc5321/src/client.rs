@@ -1187,7 +1187,7 @@ fn apply_dot_stuffing(data: &[u8]) -> Option<Vec<u8>> {
 /// eg:
 /// ```no_run
 /// ["C=US", "ST=CA", "L=SanFrancisco", "O=Fort-Funston", "OU=MyOrganizationalUnit",
-/// "CN=do.havedane.net", "name=EasyRSA", "emailAddress=me@myhost.mydomain"]
+/// "CN=do.havedane.net", "name=EasyRSA", "emailAddress=me@myhost.mydomain"];
 /// ```
 pub fn subject_name(cert: &X509Ref) -> Vec<String> {
     let mut subject_name = vec![];
