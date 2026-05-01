@@ -106,11 +106,11 @@ impl Record {
                 }
                 Mode::Strict => {
                     if let Some(mail_from_domain) = spf_domain {
-                        if !is_strict_aligned(cx.from_domain, mail_from_domain) {
+                        if is_strict_aligned(cx.from_domain, mail_from_domain) {
+                            cx.spf_aligned = super::results::DmarcResult::Pass;
+                        } else {
                             cx.spf_aligned = super::results::DmarcResult::Fail;
                             spf_errors.push("DMARC: SPF strict check failed".to_string());
-                        } else {
-                            cx.spf_aligned = super::results::DmarcResult::Pass;
                         }
                     }
                 }
@@ -208,14 +208,19 @@ fn spf_alignment_domain<'a>(
 
 // Relaxed alignment: organizational domain match (covers exact match too since org domain of "example.com" is "example.com")
 fn is_relaxed_aligned(from_domain: &str, signing_domain: &str) -> bool {
-    psl::domain_str(from_domain)
-        .zip(psl::domain_str(signing_domain))
-        .is_some_and(|(fd, sd)| fd.eq_ignore_ascii_case(sd))
+    let from = from_domain.trim_end_matches('.').to_ascii_lowercase();
+    let signing = signing_domain.trim_end_matches('.').to_ascii_lowercase();
+
+    psl::domain_str(&from)
+        .zip(psl::domain_str(&signing))
+        .is_some_and(|(fd, sd)| fd == sd)
 }
 
 // Strict alignment: exact domain match only.
 fn is_strict_aligned(from_domain: &str, signing_domain: &str) -> bool {
-    from_domain.eq_ignore_ascii_case(signing_domain)
+    let from = from_domain.trim_end_matches('.').to_ascii_lowercase();
+    let signing = signing_domain.trim_end_matches('.').to_ascii_lowercase();
+    from == signing
 }
 
 impl FromStr for Record {
@@ -304,6 +309,38 @@ impl FromStr for Record {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_is_strict_aligned() {
+        // Exact match, case-insensitive
+        assert!(is_strict_aligned("example.com", "example.com"));
+        assert!(is_strict_aligned("EXAMPLE.COM", "example.com"));
+        assert!(is_strict_aligned("example.com", "EXAMPLE.COM"));
+        // Trailing dot ignored
+        assert!(is_strict_aligned("example.com.", "example.com"));
+        assert!(is_strict_aligned("example.com", "example.com."));
+        assert!(is_strict_aligned("example.com.", "example.com."));
+        // Not a match
+        assert!(!is_strict_aligned("foo.example.com", "example.com"));
+        assert!(!is_strict_aligned("example.com", "foo.example.com"));
+    }
+
+    #[test]
+    fn test_is_relaxed_aligned() {
+        // Organizational domain match (covers exact match)
+        assert!(is_relaxed_aligned("example.com", "example.com"));
+        assert!(is_relaxed_aligned("foo.example.com", "example.com"));
+        assert!(is_relaxed_aligned("example.com", "foo.example.com"));
+        // Case-insensitive
+        assert!(is_relaxed_aligned("EXAMPLE.COM", "example.com"));
+        assert!(is_relaxed_aligned("foo.EXAMPLE.com", "EXAMPLE.COM"));
+        // Trailing dot ignored
+        assert!(is_relaxed_aligned("foo.example.com.", "example.com"));
+        assert!(is_relaxed_aligned("foo.example.com", "example.com."));
+        // Not a match (different org domain)
+        assert!(!is_relaxed_aligned("foo.example.org", "example.com"));
+        assert!(!is_relaxed_aligned("example.org", "example.com"));
+    }
 
     #[test]
     fn parse_b_2_1() {
