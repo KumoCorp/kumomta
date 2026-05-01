@@ -12,6 +12,29 @@ struct TestData<'a> {
 }
 
 #[tokio::test]
+async fn dmarc_both_spf_and_dkim_fail_returns_fail() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "_dmarc.example.com",
+            "v=DMARC1; p=reject; aspf=r; adkim=r; rua=mailto:dmarc-feedback@example.com"
+                .to_string(),
+        );
+
+    let result = evaluate_ip(TestData {
+        from_domain: "example.com",
+        mail_from_domain: "otherdomain.com",
+        dkim_domains: &[Some("otherdomain.com")],
+        resolver: &resolver,
+    })
+    .await;
+
+    k9::snapshot!(result.result, "Reject");
+    k9::snapshot!(result.context, "DMARC: DKIM relaxed check failed");
+}
+
+#[tokio::test]
 async fn dmarc_dkim_relaxed_subdomain() {
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
@@ -27,6 +50,29 @@ async fn dmarc_dkim_relaxed_subdomain() {
         from_domain: "sample.example.com",
         mail_from_domain: "sample.example.com",
         dkim_domains: &[Some("example.com")],
+        resolver: &resolver,
+    })
+    .await;
+
+    k9::snapshot!(result.result, "Pass");
+}
+
+#[tokio::test]
+async fn dmarc_dkim_relaxed_subdomain_reverse() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "_dmarc.example.com",
+            "v=DMARC1; p=reject; adkim=r; \
+            rua=mailto:dmarc-feedback@example.com"
+                .to_string(),
+        );
+
+    let result = evaluate_ip(TestData {
+        from_domain: "example.com",
+        mail_from_domain: "example.com",
+        dkim_domains: &[Some("sample.example.com")],
         resolver: &resolver,
     })
     .await;
@@ -164,11 +210,10 @@ async fn dmarc_dkim_ignores_non_pass_results() {
     let mut dkim_fail = AuthenticationResult {
         method: "dkim".into(),
         method_version: None,
-        result: Default::default(),
+        result: "fail".into(),
         reason: None,
         props: BTreeMap::new(),
     };
-    dkim_fail.props.insert("result".into(), "fail".into());
     dkim_fail
         .props
         .insert("header.d".into(), "example.org".into());
@@ -176,23 +221,21 @@ async fn dmarc_dkim_ignores_non_pass_results() {
     let mut dkim_pass = AuthenticationResult {
         method: "dkim".into(),
         method_version: None,
-        result: Default::default(),
+        result: "pass".into(),
         reason: None,
         props: BTreeMap::new(),
     };
-    dkim_pass.props.insert("result".into(), "pass".into());
     dkim_pass
         .props
         .insert("header.d".into(), "example.com".into());
 
-    let mut spf_result = AuthenticationResult {
+    let spf_result = AuthenticationResult {
         method: "spf".into(),
         method_version: None,
-        result: Default::default(),
+        result: "pass".into(),
         reason: None,
         props: BTreeMap::new(),
     };
-    spf_result.props.insert("result".into(), "pass".into());
 
     let dkim_results = vec![dkim_fail, dkim_pass];
     let mut dmarc_context = DmarcContext::new(
@@ -225,11 +268,10 @@ async fn dmarc_dkim_continues_until_aligned_result() {
     let mut dkim_unaligned = AuthenticationResult {
         method: "dkim".into(),
         method_version: None,
-        result: Default::default(),
+        result: "pass".into(),
         reason: None,
         props: BTreeMap::new(),
     };
-    dkim_unaligned.props.insert("result".into(), "pass".into());
     dkim_unaligned
         .props
         .insert("header.d".into(), "example.org".into());
@@ -237,23 +279,21 @@ async fn dmarc_dkim_continues_until_aligned_result() {
     let mut dkim_aligned = AuthenticationResult {
         method: "dkim".into(),
         method_version: None,
-        result: Default::default(),
+        result: "pass".into(),
         reason: None,
         props: BTreeMap::new(),
     };
-    dkim_aligned.props.insert("result".into(), "pass".into());
     dkim_aligned
         .props
         .insert("header.d".into(), "example.com".into());
 
-    let mut spf_result = AuthenticationResult {
+    let spf_result = AuthenticationResult {
         method: "spf".into(),
         method_version: None,
-        result: Default::default(),
+        result: "fail".into(),
         reason: None,
         props: BTreeMap::new(),
     };
-    spf_result.props.insert("result".into(), "fail".into());
 
     let dkim_results = vec![dkim_unaligned, dkim_aligned];
     let mut dmarc_context = DmarcContext::new(
@@ -426,11 +466,10 @@ async fn dmarc_spf_ignores_non_pass_result() {
     let mut dkim_pass = AuthenticationResult {
         method: "dkim".into(),
         method_version: None,
-        result: Default::default(),
+        result: "pass".into(),
         reason: None,
         props: BTreeMap::new(),
     };
-    dkim_pass.props.insert("result".into(), "pass".into());
     dkim_pass
         .props
         .insert("header.d".into(), "example.com".into());
@@ -438,11 +477,10 @@ async fn dmarc_spf_ignores_non_pass_result() {
     let mut spf_result = AuthenticationResult {
         method: "spf".into(),
         method_version: None,
-        result: Default::default(),
+        result: "fail".into(),
         reason: None,
         props: BTreeMap::new(),
     };
-    spf_result.props.insert("result".into(), "fail".into());
     spf_result
         .props
         .insert("smtp.mailfrom".into(), "helper.example.org".into());
@@ -520,7 +558,7 @@ async fn evaluate_ip<'a>(
         props: BTreeMap::new(),
     };
     if dkim_domains.is_empty() {
-        spf_result.props.insert("result".into(), "pass".into());
+        spf_result.result = "pass".into();
         spf_result
             .props
             .insert("smtp.mailfrom".into(), mail_from_domain.into());
@@ -530,14 +568,10 @@ async fn evaluate_ip<'a>(
         let mut authentication_result = AuthenticationResult {
             method: "dkim".into(),
             method_version: None,
-            result: Default::default(),
+            result: "pass".into(),
             reason: None,
             props: BTreeMap::new(),
         };
-
-        authentication_result
-            .props
-            .insert("result".into(), "pass".into());
 
         if let Some(dkim_domain) = dkim_domain {
             authentication_result

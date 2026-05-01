@@ -6,6 +6,7 @@ use crate::types::report_failure::ReportFailure;
 use crate::types::results::{Disposition, DispositionWithContext};
 use crate::{DmarcContext, SenderDomainAlignment};
 use bstr::ByteSlice;
+use mailparsing::AuthenticationResult;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
@@ -47,7 +48,7 @@ impl Record {
         match self.align_dkim {
             Mode::Relaxed => {
                 for dkim in cx.dkim_results {
-                    if !auth_result_is_pass(&dkim.props) {
+                    if !auth_result_is_pass(&dkim) {
                         continue;
                     }
 
@@ -68,7 +69,7 @@ impl Record {
             }
             Mode::Strict => {
                 for dkim in cx.dkim_results {
-                    if !auth_result_is_pass(&dkim.props) {
+                    if !auth_result_is_pass(&dkim) {
                         continue;
                     }
 
@@ -89,7 +90,7 @@ impl Record {
             }
         }
 
-        if auth_result_is_pass(&cx.spf_result.props) {
+        if auth_result_is_pass(&cx.spf_result) {
             let spf_domain = spf_alignment_domain(&cx.spf_result.props).or(cx.mail_from_domain);
 
             match self.align_spf {
@@ -148,8 +149,8 @@ impl Record {
         }
 
         DispositionWithContext {
-            result: Disposition::Pass,
-            context: "Success".into(),
+            result: self.disposition(sender_domain_alignment),
+            context: "No aligned DKIM or SPF".into(),
             props: BTreeMap::new(),
         }
     }
@@ -185,10 +186,8 @@ impl Record {
     }
 }
 
-fn auth_result_is_pass(auth_result: &std::collections::BTreeMap<String, bstr::BString>) -> bool {
-    auth_result
-        .get("result")
-        .is_some_and(|result| result.eq_ignore_ascii_case(b"pass"))
+fn auth_result_is_pass(auth_result: &AuthenticationResult) -> bool {
+    auth_result.result.eq_ignore_ascii_case("pass")
 }
 
 fn spf_alignment_domain<'a>(
