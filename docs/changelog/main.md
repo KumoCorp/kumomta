@@ -13,3 +13,6 @@
  * typing.lua: couldn't distinguish `false` from unset for a boolean field with
    default of `true`, such as those used in `mail_auth.lua`. Thanks to
    @kayozaki! #505
+ * `postmaster@domain` style addresses would be reject by
+   [kumo.make_message](../reference/kumo/make_message.md). Thanks to @kayozaki!
+   #512

@@ -468,9 +468,9 @@ impl EnvelopeAddress {
         let (_, result) = all_consuming(alt((
             map(tag_no_case("<>"), |_| EnvelopeAddress::Null),
             map(tag_no_case("<Postmaster>"), |_| EnvelopeAddress::Postmaster),
-            map(tag_no_case("Postmaster"), |_| EnvelopeAddress::Postmaster),
             map(path, EnvelopeAddress::Path),
             map(mailbox, EnvelopeAddress::from),
+            map(tag_no_case("Postmaster"), |_| EnvelopeAddress::Postmaster),
         )))
         .parse(input)
         .map_err(|e| explain_nom(input, e))?;
@@ -3723,6 +3723,12 @@ Ok(
         let addr = EnvelopeAddress::Postmaster;
         let debug_str = format!("{:?}", addr);
         k9::assert_equal!(debug_str, "<Postmaster>");
+    }
+
+    #[test]
+    fn test_envelope_address_postmaster_full_address() {
+        let postmaster = EnvelopeAddress::parse(r#"postmaster@example.com"#).unwrap();
+        k9::assert_equal!(postmaster.to_string(), r#"postmaster@example.com"#);
     }
 
     #[test]
