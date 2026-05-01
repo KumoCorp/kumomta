@@ -208,14 +208,16 @@ fn spf_alignment_domain<'a>(
 
 // Relaxed alignment: organizational domain match (covers exact match too since org domain of "example.com" is "example.com")
 fn is_relaxed_aligned(from_domain: &str, signing_domain: &str) -> bool {
-    psl::domain_str(from_domain)
-        .zip(psl::domain_str(signing_domain))
-        .is_some_and(|(fd, sd)| fd.eq_ignore_ascii_case(sd))
+    let from = psl_utils::normalize_domain(from_domain);
+    let signing = psl_utils::normalize_domain(signing_domain);
+    psl_utils::domain_str(&from)
+        .zip(psl_utils::domain_str(&signing))
+        .is_some_and(|(fd, sd)| fd == sd)
 }
 
 // Strict alignment: exact domain match only.
 fn is_strict_aligned(from_domain: &str, signing_domain: &str) -> bool {
-    from_domain.eq_ignore_ascii_case(signing_domain)
+    psl_utils::normalize_domain(from_domain) == psl_utils::normalize_domain(signing_domain)
 }
 
 impl FromStr for Record {

@@ -30,6 +30,7 @@ members = [
   "crates/mod-uuid",
   "crates/mta-sts",
   "crates/proxy-server",
+  "crates/psl-utils",
   "crates/regex-set-map",
   "crates/rfc5321",
   "crates/run-lua-tests",
@@ -173,6 +174,7 @@ pest_derive = "2.7"
 ppp = "2.2"
 prometheus = "0.14"
 psl = "2.1.46"
+psl-utils = {path="crates/psl-utils"}
 quoted_printable = "0.5"
 rand = "0.8"
 ratatui = { version = "0.29.0", features = ["crossterm", "unstable-widget-ref"] }

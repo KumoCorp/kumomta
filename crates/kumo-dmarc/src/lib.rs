@@ -413,8 +413,9 @@ impl<'a> DmarcContext<'a> {
                 }
             }
             x => {
-                if let Some(organizational_domain) = psl::domain_str(self.from_domain) {
-                    if organizational_domain != self.from_domain {
+                let normalized_from = psl_utils::normalize_domain(self.from_domain);
+                if let Some(organizational_domain) = psl_utils::domain_str(&normalized_from) {
+                    if organizational_domain != normalized_from {
                         let address = format!("_dmarc.{}", organizational_domain);
                         match fetch_dmarc_records(&address, resolver).await {
                             DmarcRecordResolution::TempError => {

@@ -3785,7 +3785,7 @@ dependencies = [
  "k9",
  "kumo-spf",
  "mailparsing",
- "psl",
+ "psl-utils",
  "rand 0.8.5",
  "serde",
  "serde_json",
@@ -5130,7 +5130,7 @@ dependencies = [
  "kumo-template",
  "kumo-wrap",
  "mlua",
- "psl",
+ "psl-utils",
 ]
 
 [[package]]
@@ -6339,6 +6339,13 @@ name = "psl-types"
 version = "2.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
+
+[[package]]
+name = "psl-utils"
+version = "0.1.0"
+dependencies = [
+ "psl",
+]
 
 [[package]]
 name = "quanta"
