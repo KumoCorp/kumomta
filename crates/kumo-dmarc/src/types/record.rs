@@ -5,7 +5,9 @@ use crate::types::policy::Policy;
 use crate::types::report_failure::ReportFailure;
 use crate::types::results::{Disposition, DispositionWithContext};
 use crate::{DmarcContext, SenderDomainAlignment};
-use bstr::{BStr, ByteSlice};
+use bstr::ByteSlice;
+use mailparsing::AuthenticationResult;
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 #[derive(Debug)]
@@ -20,6 +22,7 @@ pub struct Record {
     interval: u32,
     aggregate_feedback: Vec<FeedbackAddress>,
     message_failure: Vec<FeedbackAddress>,
+    tags: BTreeMap<String, String>,
 }
 
 impl Record {
@@ -29,102 +32,126 @@ impl Record {
         dmarc_domain: &str,
         sender_domain_alignment: SenderDomainAlignment,
     ) -> DispositionWithContext {
-        let mut alignment_failure = None;
+        cx.dkim_aligned = super::results::DmarcResult::Fail;
+        cx.spf_aligned = super::results::DmarcResult::Fail;
+        let mut dkim_errors = Vec::new();
+        let mut spf_errors = Vec::new();
 
         if rand::random::<u8>() % 100 >= self.rate {
             return DispositionWithContext {
                 result: Disposition::Pass,
                 context: format!("sampled_out due to pct={}", self.rate),
+                props: BTreeMap::new(),
             };
         }
+
         match self.align_dkim {
             Mode::Relaxed => {
                 for dkim in cx.dkim_results {
-                    if let Some(result) = dkim.props.get("header.d") {
-                        let organizational_domain = psl::domain_str(cx.from_domain);
+                    if !auth_result_is_pass(&dkim) {
+                        continue;
+                    }
 
-                        if cx.from_domain.as_bytes() != result.as_bytes()
-                            && organizational_domain.map(BStr::new) != Some(result.as_bstr())
-                        {
-                            cx.dkim_aligned = super::results::DmarcResult::Fail;
-
-                            alignment_failure = Some(DispositionWithContext {
-                                result: self.disposition(sender_domain_alignment),
-                                context: "DMARC: DKIM relaxed check failed".into(),
-                            });
+                    if let Some(dkim_domain) = dkim.props.get("header.d") {
+                        if let Ok(dkim_domain_str) = dkim_domain.to_str() {
+                            if is_relaxed_aligned(cx.from_domain, dkim_domain_str) {
+                                dkim_errors.clear();
+                                cx.dkim_aligned = super::results::DmarcResult::Pass;
+                                break;
+                            }
                         }
+
+                        dkim_errors.push("DMARC: DKIM relaxed check failed".to_string());
                     } else {
-                        alignment_failure = Some(DispositionWithContext {
-                            result: self.disposition(sender_domain_alignment),
-                            context: "DMARC: DKIM signature missing 'd=' tag".into(),
-                        });
+                        dkim_errors.push("DMARC: DKIM signature missing 'd=' tag".to_string());
                     }
                 }
             }
             Mode::Strict => {
                 for dkim in cx.dkim_results {
-                    if let Some(result) = dkim.props.get("header.d") {
-                        if cx.from_domain != result {
-                            alignment_failure = Some(DispositionWithContext {
-                                result: self.disposition(sender_domain_alignment),
-                                context: "DMARC: DKIM strict check failed".into(),
-                            });
+                    if !auth_result_is_pass(&dkim) {
+                        continue;
+                    }
+
+                    if let Some(dkim_domain) = dkim.props.get("header.d") {
+                        if let Ok(dkim_domain_str) = dkim_domain.to_str() {
+                            if is_strict_aligned(cx.from_domain, dkim_domain_str) {
+                                dkim_errors.clear();
+                                cx.dkim_aligned = super::results::DmarcResult::Pass;
+                                break;
+                            }
                         }
+
+                        dkim_errors.push("DMARC: DKIM strict check failed".to_string());
                     } else {
-                        alignment_failure = Some(DispositionWithContext {
-                            result: self.disposition(sender_domain_alignment),
-                            context: "DMARC: DKIM signature missing 'd=' tag".into(),
-                        });
+                        dkim_errors.push("DMARC: DKIM signature missing 'd=' tag".to_string());
                     }
                 }
             }
         }
 
-        match self.align_spf {
-            Mode::Relaxed => {
-                if let Some(mail_from_domain) = cx.mail_from_domain {
-                    let organizational_domain = psl::domain_str(mail_from_domain);
+        if auth_result_is_pass(&cx.spf_result) {
+            let spf_domain = spf_alignment_domain(&cx.spf_result.props).or(cx.mail_from_domain);
 
-                    if mail_from_domain != cx.from_domain
-                        && organizational_domain != Some(cx.from_domain)
-                    {
-                        alignment_failure = Some(DispositionWithContext {
-                            result: self.disposition(sender_domain_alignment),
-                            context: "DMARC: SPF relaxed check failed".into(),
-                        });
+            match self.align_spf {
+                Mode::Relaxed => {
+                    if let Some(mail_from_domain) = spf_domain {
+                        if is_relaxed_aligned(cx.from_domain, mail_from_domain) {
+                            cx.spf_aligned = super::results::DmarcResult::Pass;
+                        } else {
+                            cx.spf_aligned = super::results::DmarcResult::Fail;
+                            spf_errors.push("DMARC: SPF relaxed check failed".to_string());
+                        }
                     }
                 }
-            }
-            Mode::Strict => {
-                if let Some(mail_from_domain) = cx.mail_from_domain {
-                    if mail_from_domain != cx.from_domain {
-                        alignment_failure = Some(DispositionWithContext {
-                            result: self.disposition(sender_domain_alignment),
-                            context: "DMARC: SPF strict check failed".into(),
-                        });
+                Mode::Strict => {
+                    if let Some(mail_from_domain) = spf_domain {
+                        if is_strict_aligned(cx.from_domain, mail_from_domain) {
+                            cx.spf_aligned = super::results::DmarcResult::Pass;
+                        } else {
+                            cx.spf_aligned = super::results::DmarcResult::Fail;
+                            spf_errors.push("DMARC: SPF strict check failed".to_string());
+                        }
                     }
                 }
             }
         }
 
-        if let Some(alignment_failure) = alignment_failure {
+        if cx.dkim_aligned == super::results::DmarcResult::Pass
+            || cx.spf_aligned == super::results::DmarcResult::Pass
+        {
+            return DispositionWithContext {
+                result: Disposition::Pass,
+                context: "Success".into(),
+                props: BTreeMap::new(),
+            };
+        }
+
+        if let Some(alignment_context) = spf_errors
+            .into_iter()
+            .next()
+            .or_else(|| dkim_errors.into_iter().next())
+        {
+            let result = self.disposition(sender_domain_alignment);
             let _ = cx
                 .report_error(
                     self,
                     dmarc_domain,
                     sender_domain_alignment,
-                    &alignment_failure.context,
+                    &alignment_context,
                 )
                 .await;
             return DispositionWithContext {
-                result: alignment_failure.result,
-                context: alignment_failure.context,
+                result,
+                context: alignment_context,
+                props: BTreeMap::new(),
             };
         }
 
         DispositionWithContext {
-            result: Disposition::Pass,
-            context: "Success".into(),
+            result: self.disposition(sender_domain_alignment),
+            context: "No aligned DKIM or SPF".into(),
+            props: BTreeMap::new(),
         }
     }
 
@@ -141,6 +168,10 @@ impl Record {
         }
     }
 
+    pub fn tags(&self) -> &BTreeMap<String, String> {
+        &self.tags
+    }
+
     fn disposition(&self, sender_domain_alignment: SenderDomainAlignment) -> Disposition {
         match sender_domain_alignment {
             SenderDomainAlignment::OrganizationalDomain => {
@@ -153,6 +184,43 @@ impl Record {
             SenderDomainAlignment::Exact => self.policy.into(),
         }
     }
+}
+
+fn auth_result_is_pass(auth_result: &AuthenticationResult) -> bool {
+    auth_result.result.eq_ignore_ascii_case("pass")
+}
+
+fn spf_alignment_domain<'a>(
+    auth_result: &'a std::collections::BTreeMap<String, bstr::BString>,
+) -> Option<&'a str> {
+    auth_result
+        .get("smtp.mailfrom")
+        .filter(|domain| !domain.is_empty())
+        .and_then(|domain| domain.to_str().ok())
+        .map(|s| s.rsplit_once('@').map_or(s, |(_, domain)| domain))
+        .or_else(|| {
+            auth_result
+                .get("smtp.helo")
+                .filter(|domain| !domain.is_empty())
+                .and_then(|domain| domain.to_str().ok())
+        })
+}
+
+// Relaxed alignment: organizational domain match (covers exact match too since org domain of "example.com" is "example.com")
+fn is_relaxed_aligned(from_domain: &str, signing_domain: &str) -> bool {
+    let from = from_domain.trim_end_matches('.').to_ascii_lowercase();
+    let signing = signing_domain.trim_end_matches('.').to_ascii_lowercase();
+
+    psl::domain_str(&from)
+        .zip(psl::domain_str(&signing))
+        .is_some_and(|(fd, sd)| fd == sd)
+}
+
+// Strict alignment: exact domain match only.
+fn is_strict_aligned(from_domain: &str, signing_domain: &str) -> bool {
+    let from = from_domain.trim_end_matches('.').to_ascii_lowercase();
+    let signing = signing_domain.trim_end_matches('.').to_ascii_lowercase();
+    from == signing
 }
 
 impl FromStr for Record {
@@ -170,10 +238,16 @@ impl FromStr for Record {
             aggregate_feedback: Vec::new(),
             message_failure: Vec::new(),
             subdomain_policy: None,
+            tags: BTreeMap::new(),
         };
 
         let (mut version, mut policy) = (false, false);
         for part in s.split(';') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+
             let Some((key, value)) = part.split_once('=') else {
                 return Err(format!("invalid part {part:?}"));
             };
@@ -188,6 +262,8 @@ impl FromStr for Record {
                     _ => return Err(format!("invalid key {key:?}")),
                 }
             }
+
+            new.tags.insert(key.to_string(), value.to_string());
 
             match key {
                 "p" => {
@@ -235,9 +311,41 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_is_strict_aligned() {
+        // Exact match, case-insensitive
+        assert!(is_strict_aligned("example.com", "example.com"));
+        assert!(is_strict_aligned("EXAMPLE.COM", "example.com"));
+        assert!(is_strict_aligned("example.com", "EXAMPLE.COM"));
+        // Trailing dot ignored
+        assert!(is_strict_aligned("example.com.", "example.com"));
+        assert!(is_strict_aligned("example.com", "example.com."));
+        assert!(is_strict_aligned("example.com.", "example.com."));
+        // Not a match
+        assert!(!is_strict_aligned("foo.example.com", "example.com"));
+        assert!(!is_strict_aligned("example.com", "foo.example.com"));
+    }
+
+    #[test]
+    fn test_is_relaxed_aligned() {
+        // Organizational domain match (covers exact match)
+        assert!(is_relaxed_aligned("example.com", "example.com"));
+        assert!(is_relaxed_aligned("foo.example.com", "example.com"));
+        assert!(is_relaxed_aligned("example.com", "foo.example.com"));
+        // Case-insensitive
+        assert!(is_relaxed_aligned("EXAMPLE.COM", "example.com"));
+        assert!(is_relaxed_aligned("foo.EXAMPLE.com", "EXAMPLE.COM"));
+        // Trailing dot ignored
+        assert!(is_relaxed_aligned("foo.example.com.", "example.com"));
+        assert!(is_relaxed_aligned("foo.example.com", "example.com."));
+        // Not a match (different org domain)
+        assert!(!is_relaxed_aligned("foo.example.org", "example.com"));
+        assert!(!is_relaxed_aligned("example.org", "example.com"));
+    }
+
+    #[test]
     fn parse_b_2_1() {
         // https://www.rfc-editor.org/rfc/rfc7489#appendix-B.2.1
-        const B_2_1: &str = "v=DMARC1; p=none; rua=mailto:dmarc-feedback@example.com";
+        const B_2_1: &str = "v=DMARC1; p=none; rua=mailto:dmarc-feedback@example.com;";
         let record = Record::from_str(B_2_1).unwrap();
         assert_eq!(record.policy, Policy::None);
         assert_eq!(record.rate, 100);
