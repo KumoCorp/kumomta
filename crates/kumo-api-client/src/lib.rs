@@ -249,6 +249,20 @@ impl KumoApiClient {
         .await
     }
 
+    /// Inject a message via the HTTP injection API.
+    /// The body is the JSON payload conforming to the InjectV1Request schema.
+    pub async fn inject_v1(
+        &self,
+        body: &impl serde::Serialize,
+    ) -> anyhow::Result<InjectV1Response> {
+        self.request_with_json_response(
+            reqwest::Method::POST,
+            self.endpoint.join("/api/inject/v1")?,
+            body,
+        )
+        .await
+    }
+
     pub async fn request_with_streaming_text_response<T: reqwest::IntoUrl, B: serde::Serialize>(
         &self,
         method: reqwest::Method,

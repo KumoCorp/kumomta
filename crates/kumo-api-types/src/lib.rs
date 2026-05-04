@@ -251,6 +251,21 @@ pub struct SuspendV1CancelRequest {
     pub id: Uuid,
 }
 
+#[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
+pub struct InjectV1Response {
+    /// The number of messages that were injected successfully
+    pub success_count: usize,
+    /// The number of messages that failed to inject
+    pub fail_count: usize,
+
+    /// The list of failed recipients
+    #[schema(format = "email")]
+    pub failed_recipients: Vec<String>,
+
+    /// The list of error messages
+    pub errors: Vec<String>,
+}
+
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct SuspendV1ListEntry {
     /// The id of the suspension. This can be used later to cancel

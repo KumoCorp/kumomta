@@ -21,6 +21,7 @@ mod expires;
 mod http_auth;
 mod http_inject_compression;
 mod http_inject_deferred;
+mod http_inject_per_rcpt_metadata;
 mod http_inject_size_limit;
 mod http_inject_template_syntax_error;
 mod http_liveness;

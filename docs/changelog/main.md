@@ -18,6 +18,10 @@
    disables TLS certificate verification for the resulting client. Intended
    for development and testing against self-signed endpoints; see the
    reference for the security caveats. Thanks to @Fallmay! #504
+ * The HTTP injection API now supports per-recipient metadata via a new
+   `metadata` field on each recipient object. Key-value pairs supplied
+   there are stored on the resulting message under the `extra` metadata
+   key, accessible from Lua hooks via `msg:get_meta('extra')`.
 
 ## Fixes
 

@@ -37,3 +37,4 @@ table tbody tr td:nth-of-type(2) {
 |Message|`tenant`|specify the name/identifier of the tenant, if any. Must be a string value.||
 |Message|`campaign`|specify the name/identifier of the campaign. Must be a string value.||
 |Message|`routing_domain`|Overrides the domain of the recipient domain for routing purposes.|{{since('2023.08.22-4d895015', inline=True)}}|
+|Message|`extra`|Per-recipient metadata supplied via the HTTP injection API's recipient-level `metadata` field. The value is the supplied object; accessible from Lua hooks via `msg:get_meta('extra')`.|{{since('dev', inline=True)}}|

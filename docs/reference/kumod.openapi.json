@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.04.01-becf6f64"
+    "version": "2026.05.07-6b1bc0e0"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -1505,6 +1505,15 @@
             "format": "email",
             "description": "The email address of the recipient",
             "example": "john.smith@mailbox-example.com"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Per-recipient metadata key-value pairs. When non-empty, these are\nstored on the resulting message under the `extra` metadata key,\naccessible from Lua hooks via `msg:get_meta('extra')`.",
+            "additionalProperties": true,
+            "example": {
+              "campaign_id": "promo-2026-q2",
+              "user_segment": "premium"
+            }
           },
           "name": {
             "type": [

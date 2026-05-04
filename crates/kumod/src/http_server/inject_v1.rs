@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use axum::extract::{Json, State};
 use axum_client_ip::ClientIp;
 use config::{any_err, get_or_create_sub_module, load_config, LuaConfig, SerdeWrappedValue};
+use kumo_api_types::InjectV1Response;
 use kumo_chrono_helper::Utc;
 use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::AtomicCounter;
@@ -33,7 +34,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use throttle::ThrottleSpec;
-use utoipa::{ToResponse, ToSchema};
+use utoipa::ToSchema;
 
 config::declare_event! {
 static HTTP_MESSAGE_GENERATED: Single(
@@ -129,6 +130,16 @@ pub struct Recipient {
         "gender": "male",
     }))]
     pub substitutions: HashMap<String, Value>,
+
+    /// Per-recipient metadata key-value pairs. When non-empty, these are
+    /// stored on the resulting message under the `extra` metadata key,
+    /// accessible from Lua hooks via `msg:get_meta('extra')`.
+    #[serde(default)]
+    #[schema(additional_properties, example=json!({
+        "campaign_id": "promo-2026-q2",
+        "user_segment": "premium",
+    }))]
+    pub metadata: HashMap<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
@@ -370,21 +381,6 @@ impl Into<TemplateDialect> for TemplateDialectWithSchema {
             Self::Handlebars => TemplateDialect::Handlebars,
         }
     }
-}
-
-#[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
-pub struct InjectV1Response {
-    /// The number of messages that were injected successfully
-    pub success_count: usize,
-    /// The number of messages that failed to inject
-    pub fail_count: usize,
-
-    /// The list of failed recipients
-    #[schema(format = "email")]
-    pub failed_recipients: Vec<String>,
-
-    /// The list of error messages
-    pub errors: Vec<String>,
 }
 
 /// The message content.
@@ -811,6 +807,14 @@ async fn make_message<'a>(
     }
     if let Some(hostname) = hostname {
         message.set_meta("hostname", hostname.to_string()).await?;
+    }
+    if !recip.metadata.is_empty() {
+        message
+            .set_meta(
+                "extra",
+                serde_json::Value::Object(recip.metadata.clone().into_iter().collect()),
+            )
+            .await?;
     }
     Ok(message)
 }
@@ -1447,6 +1451,7 @@ This is a test message to {{ name }}, with some 👻🍉💩 emoji!
                 email: "user@example.com".to_string(),
                 name: Some("James Smythe".to_string()),
                 substitutions: HashMap::new(),
+                metadata: HashMap::new(),
             }],
             substitutions: HashMap::new(),
             content: Content::Rfc822(input.to_string()),
@@ -1496,6 +1501,7 @@ This is a test message to {{ name }}, with some 👻🍉💩 emoji!
                 email: "user@example.com".to_string(),
                 name: Some("James Smythe".to_string()),
                 substitutions: HashMap::new(),
+                metadata: HashMap::new(),
             }],
             substitutions: HashMap::new(),
             content: Content::Rfc822(input.to_string()),
@@ -1539,6 +1545,7 @@ This is a test message to James Smythe, with some =F0=9F=91=BB=F0=9F=8D=89=\r
                 email: "user@example.com".to_string(),
                 name: Some("James Smythe".to_string()),
                 substitutions: HashMap::new(),
+                metadata: HashMap::new(),
             }],
             substitutions: HashMap::new(),
             content: Content::Builder {
@@ -1624,6 +1631,7 @@ Some(
                 email: "user@example.com".to_string(),
                 name: Some("James Smythe".to_string()),
                 substitutions: HashMap::new(),
+                metadata: HashMap::new(),
             }],
             substitutions: HashMap::new(),
             content: Content::Builder {
@@ -1719,6 +1727,7 @@ Ok(
                 email: "user@example.com".to_string(),
                 name: Some("James Smythe".to_string()),
                 substitutions: HashMap::new(),
+                metadata: HashMap::new(),
             }],
             substitutions: HashMap::new(),
             content: Content::Builder {
@@ -1818,6 +1827,7 @@ Some(
                 email: "user@example.com".to_string(),
                 name: Some("James Smythe".to_string()),
                 substitutions: HashMap::new(),
+                metadata: HashMap::new(),
             }],
             substitutions: HashMap::new(),
             content: Content::Builder {
@@ -1889,6 +1899,7 @@ Some(
                 email: "user@example.com".to_string(),
                 name: Some("James Smythe".to_string()),
                 substitutions: HashMap::new(),
+                metadata: HashMap::new(),
             }],
             substitutions: HashMap::new(),
             content: Content::Builder {
@@ -1960,6 +1971,7 @@ Some(
                     email: "user@example.com".to_string(),
                     name: Some("James Smythe".to_string()),
                     substitutions: HashMap::new(),
+                    metadata: HashMap::new(),
                 },
                 Recipient {
                     email: "second@example.com".to_string(),
@@ -1970,6 +1982,7 @@ Some(
                     )]
                     .into_iter()
                     .collect(),
+                    metadata: HashMap::new(),
                 },
             ],
             substitutions: HashMap::new(),
@@ -2072,6 +2085,7 @@ Some(
                 email: "user@example.com".to_string(),
                 name: Some("James Smythe".to_string()),
                 substitutions: HashMap::new(),
+                metadata: HashMap::new(),
             }],
             substitutions: HashMap::new(),
             content: Content::Builder {
@@ -2149,6 +2163,7 @@ Some(
                 email: "user@example.com".to_string(),
                 name: Some("James Smythe".to_string()),
                 substitutions: HashMap::new(),
+                metadata: HashMap::new(),
             }],
             substitutions: HashMap::new(),
             content: Content::Builder {
