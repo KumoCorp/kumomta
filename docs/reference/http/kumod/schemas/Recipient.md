@@ -30,6 +30,11 @@ This is an object value, with the following properties:
     |name|Populated from the recipient `name` field|Always|
     |to_header|A suitable value for use in a `To:` header, constructed from the recipient `email` and `name` fields. eg: `"John Smith" <john.smith@mailbox-example.com>`|{{since('2026.04.09-ea3b2a9b', inline=True)}}|
 
+  * `metadata` - optional `object`. {{since('dev', inline=True)}} Per-recipient metadata
+    key-value pairs that will be stored in the message's `rcpt_meta` metadata field.
+    These values are preserved through the message lifecycle and are accessible in
+    Lua hooks via `msg:get_meta('rcpt_meta')`
+
 ### Examples
 ```json
 {
@@ -38,6 +43,10 @@ This is an object value, with the following properties:
   "substitutions": {
     "age": 42,
     "gender": "male"
+  },
+  "metadata": {
+    "campaign_id": "promo-2026-q2",
+    "user_segment": "premium"
   }
 }
 ```

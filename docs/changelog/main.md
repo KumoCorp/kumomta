@@ -4,6 +4,11 @@
 
 ## Other Changes and Enhancements
 
+ * The HTTP injection API now supports per-recipient metadata via a new
+   `metadata` field on each recipient object. Key-value pairs supplied
+   there are stored in the message's `rcpt_meta` metadata field, making
+   them accessible in Lua hooks using `msg:get_meta('rcpt_meta')`
+
 ## Fixes
 
  * A message with multipart/mixed as the root with multipart/related as a child
