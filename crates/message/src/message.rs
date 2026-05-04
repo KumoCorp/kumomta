@@ -1167,21 +1167,42 @@ impl Message {
         .await
     }
 
-    pub async fn import_x_headers(&self, names: Vec<String>) -> anyhow::Result<()> {
+    pub async fn import_x_headers(
+        &self,
+        names: Vec<String>,
+        first_named: bool,
+    ) -> anyhow::Result<()> {
         let data = self.data().await?;
         let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
-        for hdr in headers.iter() {
-            let do_import = if names.is_empty() {
-                is_x_header(hdr.get_name())
-            } else {
-                is_header_in_names_list(hdr.get_name(), &names)
-            };
-            if do_import {
-                let name = imported_header_name(&hdr.get_name_lossy());
-                self.set_meta(name, hdr.as_unstructured()?.to_str_lossy())
-                    .await?;
+        if first_named {
+            for hdr in headers.iter().rev() {
+                self.import_x_header_if_match(hdr, &names).await?;
             }
+        } else {
+            for hdr in headers.iter() {
+                self.import_x_header_if_match(hdr, &names).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn import_x_header_if_match(
+        &self,
+        hdr: &Header<'_>,
+        names: &[String],
+    ) -> anyhow::Result<()> {
+        let do_import = if names.is_empty() {
+            is_x_header(hdr.get_name())
+        } else {
+            is_header_in_names_list(hdr.get_name(), names)
+        };
+
+        if do_import {
+            let name = imported_header_name(&hdr.get_name_lossy());
+            self.set_meta(name, hdr.as_unstructured()?.to_str_lossy())
+                .await?;
         }
 
         Ok(())
@@ -1638,8 +1659,8 @@ impl UserData for Message {
         });
         methods.add_async_method(
             "import_x_headers",
-            |_, this, names: Option<Vec<String>>| async move {
-                this.import_x_headers(names.unwrap_or_default())
+            |_, this, (names, first_named): (Option<Vec<String>>, Option<bool>)| async move {
+                this.import_x_headers(names.unwrap_or_default(), first_named.unwrap_or(false))
                     .await
                     .map_err(any_err)
             },
@@ -1782,7 +1803,7 @@ pub(crate) mod test {
     async fn import_all_x_headers() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.import_x_headers(vec![]).await.unwrap();
+        msg.import_x_headers(vec![], false).await.unwrap();
         k9::assert_equal!(
             msg.get_meta_obj().await.unwrap(),
             json!({
@@ -1811,7 +1832,7 @@ pub(crate) mod test {
     async fn import_some_x_headers() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.import_x_headers(vec!["x-hello".to_string()])
+        msg.import_x_headers(vec!["x-hello".to_string()], false)
             .await
             .unwrap();
         k9::assert_equal!(

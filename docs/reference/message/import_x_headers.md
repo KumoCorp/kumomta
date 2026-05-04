@@ -6,7 +6,7 @@ tags:
 # import_x_headers
 
 ```
-message:import_x_headers([NAMES])
+message:import_x_headers([NAMES], FIRST_NAMED)
 ```
 
 When called with no parameters, iterates the headers of the message, and for
@@ -20,6 +20,8 @@ as a way to import an arbitrary list of headers for logging purposes.
 
 When importing an `X-` header, the header name is normalized to lowercase and any
 `-` are transformed to underscores `_`.
+
+When a message consists of multiple headers with same name, the bottom most value is imported. Use an optional boolean paramter of `FIRST_NAMED` to import the top most header.
 
 For example, with a message content of:
 
@@ -45,4 +47,10 @@ but calling:
 message:import_x_headers { 'x-campaign-id' }
 print(message:get_meta 'x_campaign_id') -- prints 12345
 print(message:get_meta 'x_mailer') -- prints nothing
+```
+
+When choosing the top most named header
+
+```lua
+message:import_x_headers { 'x-campaign-id', true }
 ```
