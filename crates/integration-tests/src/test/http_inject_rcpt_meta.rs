@@ -151,7 +151,11 @@ async fn per_recipient_metadata_multiple_recipients() -> anyhow::Result<()> {
         .iter()
         .filter(|r| r.kind == RecordType::Delivery)
         .collect();
-    anyhow::ensure!(deliveries.len() == 2, "expected 2 Delivery records, got {}", deliveries.len());
+    anyhow::ensure!(
+        deliveries.len() == 2,
+        "expected 2 Delivery records, got {}",
+        deliveries.len()
+    );
 
     // Match each delivery record to its recipient by address.
     let find_delivery = |addr: &str| {
@@ -166,16 +170,28 @@ async fn per_recipient_metadata_multiple_recipients() -> anyhow::Result<()> {
         .meta
         .get("rcpt_meta")
         .context("rcpt_meta missing from alice's Delivery record")?;
-    assert_equal!(alice_meta.get("campaign").and_then(|v| v.as_str()), Some("summer-sale"));
-    assert_equal!(alice_meta.get("segment").and_then(|v| v.as_str()), Some("vip"));
+    assert_equal!(
+        alice_meta.get("campaign").and_then(|v| v.as_str()),
+        Some("summer-sale")
+    );
+    assert_equal!(
+        alice_meta.get("segment").and_then(|v| v.as_str()),
+        Some("vip")
+    );
 
     let bob = find_delivery("bob")?;
     let bob_meta = bob
         .meta
         .get("rcpt_meta")
         .context("rcpt_meta missing from bob's Delivery record")?;
-    assert_equal!(bob_meta.get("campaign").and_then(|v| v.as_str()), Some("newsletter"));
-    assert_equal!(bob_meta.get("segment").and_then(|v| v.as_str()), Some("standard"));
+    assert_equal!(
+        bob_meta.get("campaign").and_then(|v| v.as_str()),
+        Some("newsletter")
+    );
+    assert_equal!(
+        bob_meta.get("segment").and_then(|v| v.as_str()),
+        Some("standard")
+    );
 
     Ok(())
 }

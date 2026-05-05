@@ -825,9 +825,7 @@ async fn make_message<'a>(
         message
             .set_meta(
                 "rcpt_meta",
-                serde_json::Value::Object(
-                    recip.metadata.clone().into_iter().collect(),
-                ),
+                serde_json::Value::Object(recip.metadata.clone().into_iter().collect()),
             )
             .await?;
     }

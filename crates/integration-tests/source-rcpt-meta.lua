@@ -26,15 +26,18 @@ kumo.on('init', function()
   }
 end)
 
-kumo.on('get_queue_config', function(domain, _tenant, _campaign, _routing_domain)
-  return kumo.make_queue_config {
-    protocol = {
-      smtp = {
-        mx_list = { 'localhost:' .. SINK_PORT },
+kumo.on(
+  'get_queue_config',
+  function(domain, _tenant, _campaign, _routing_domain)
+    return kumo.make_queue_config {
+      protocol = {
+        smtp = {
+          mx_list = { 'localhost:' .. SINK_PORT },
+        },
       },
-    },
-  }
-end)
+    }
+  end
+)
 
 kumo.on('get_egress_path_config', function(_domain, _source_name, _site_name)
   return kumo.make_egress_path {
