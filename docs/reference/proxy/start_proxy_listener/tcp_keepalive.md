@@ -14,15 +14,11 @@ Accepted keys:
   kernel default (typically off) is used. Default `true`.
 * `time` — duration. Idle period before the first keepalive probe is sent.
   Default `'5 minutes'`.
-* `interval` — duration. Interval between subsequent probes. Linux only.
+* `interval` — duration. Interval between subsequent probes.
   Default `'30 seconds'`.
 * `retries` — integer. Number of unanswered probes before the connection
-  is considered dead and reported to the application as an error. Linux
-  only. Default `3`.
-
-On non-Linux platforms only `time` is configurable; `interval` and
-`retries` are accepted (so the same configuration is portable) but are
-ignored at runtime.
+  is considered dead and reported to the application as an error.
+  Default `3`.
 
 ```lua
 proxy.start_proxy_listener {

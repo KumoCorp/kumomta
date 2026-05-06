@@ -125,10 +125,8 @@ impl TcpKeepaliveParams {
         if !self.enabled {
             return None;
         }
-        let keepalive = TcpKeepalive::new().with_time(self.time);
-
-        #[cfg(target_os = "linux")]
-        let keepalive = keepalive
+        let keepalive = TcpKeepalive::new()
+            .with_time(self.time)
             .with_interval(self.interval)
             .with_retries(self.retries);
 
