@@ -195,13 +195,16 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: name=ghcr.io/kumocorp/kumomta
+          flavor: |
+            latest=false
           tags: |
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha
             type=schedule
             type=ref,event=branch
-            type=ref,event=tag # produce latest tag when tagging
+            type=ref,event=tag
             type=ref,event=pr
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
       - name: Login to GHCR
         if: ${{ github.event_name != 'pull_request' }}
         uses: docker/login-action@v4
