@@ -573,7 +573,7 @@ impl SmtpDispatcher {
 
         if path_config.enable_dane {
             if let Some(mx) = &dispatcher.mx {
-                match dns_resolver::resolve_dane(&mx.domain_name, port).await {
+                match dns_resolver::resolve_dane(&address.name, port).await {
                     Ok(tlsa) => {
                         dane_tlsa = tlsa;
                         self.tracer.diagnostic(Level::INFO, || {
