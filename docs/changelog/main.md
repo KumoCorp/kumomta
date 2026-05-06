@@ -4,6 +4,12 @@
 
 ## Other Changes and Enhancements
 
+ * New [message:import_headers](../reference/message/import_headers.md) method,
+   a more flexible alternative to `message:import_x_headers`. Supports exact
+   names and trailing-`*` wildcards, first/last/all match modes, optional
+   removal of matched headers, and configurable name-transform styles
+   (snake/kebab/camel/pascal case).
+
 ## Fixes
 
  * A message with multipart/mixed as the root with multipart/related as a child
