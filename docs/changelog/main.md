@@ -9,6 +9,11 @@
    names and trailing-`*` wildcards, first/last/all match modes, optional
    removal of matched headers, and configurable name-transform styles
    (snake/kebab/camel/pascal case).
+ * New `accept_invalid_certs` option on
+   [kumo.http.build_client](../reference/kumo.http/build_client.md) that
+   disables TLS certificate verification for the resulting client. Intended
+   for development and testing against self-signed endpoints; see the
+   reference for the security caveats. Thanks to @Fallmay! #504
 
 ## Fixes
 
