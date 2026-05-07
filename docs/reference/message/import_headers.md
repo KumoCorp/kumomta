@@ -72,7 +72,7 @@ Import all `X-` headers into metadata, and strip them from the message:
 
 ```lua
 msg:import_headers {
-  { name = "X-*", remove = true },
+  { name = 'X-*', remove = true },
 }
 ```
 
@@ -80,8 +80,8 @@ Capture every `Received:` header as an array, while also lifting the subject:
 
 ```lua
 msg:import_headers {
-  { name = "Received", match = "all" },
-  { name = "Subject" },
+  { name = 'Received', match = 'all' },
+  { name = 'Subject' },
 }
 ```
 
@@ -90,8 +90,8 @@ Treat one specific header specially, while still importing the rest of the
 
 ```lua
 msg:import_headers {
-  { name = "X-Campaign-Id", target = "campaign_id" },
-  { name = "X-*" },
+  { name = 'X-Campaign-Id', target = 'campaign_id' },
+  { name = 'X-*' },
 }
 ```
 
@@ -99,7 +99,7 @@ Use a different naming style:
 
 ```lua
 msg:import_headers {
-  { name = "X-*", transform = "camel_case" },
+  { name = 'X-*', transform = 'camel_case' },
 }
 -- X-Campaign-Id is captured as `xCampaignId`
 ```
