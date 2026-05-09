@@ -105,12 +105,18 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     string_mod.set(
         "psl_domain",
-        lua.create_function(move |_, s: String| Ok(psl::domain_str(&s).map(|s| s.to_string())))?,
+        lua.create_function(move |_, s: String| {
+            let n = psl_utils::normalize_domain(&s);
+            Ok(psl_utils::domain_str(&n).map(|s| s.to_string()))
+        })?,
     )?;
 
     string_mod.set(
         "psl_suffix",
-        lua.create_function(move |_, s: String| Ok(psl::suffix_str(&s).map(|s| s.to_string())))?,
+        lua.create_function(move |_, s: String| {
+            let n = psl_utils::normalize_domain(&s);
+            Ok(psl_utils::suffix_str(&n).map(|s| s.to_string()))
+        })?,
     )?;
 
     string_mod.set(

@@ -8,9 +8,29 @@
    `metadata` field on each recipient object. Key-value pairs supplied
    there are stored in the message's `rcpt_meta` metadata field, making
    them accessible in Lua hooks using `msg:get_meta('rcpt_meta')`
+ * New [kumo.counter_series](../reference/kumo.counter_series/index.md)
+   module exposing in-memory rolling counters backed by a fixed-size ring of
+   time buckets. Useful for short-term, per-process bookkeeping of event
+   rates from policy. Thanks to @kayozaki!
+ * New [message:import_headers](../reference/message/import_headers.md) method,
+   a more flexible alternative to `message:import_x_headers`. Supports exact
+   names and trailing-`*` wildcards, first/last/all match modes, optional
+   removal of matched headers, and configurable name-transform styles
+   (snake/kebab/camel/pascal case).
+ * New `accept_invalid_certs` option on
+   [kumo.http.build_client](../reference/kumo.http/build_client.md) that
+   disables TLS certificate verification for the resulting client. Intended
+   for development and testing against self-signed endpoints; see the
+   reference for the security caveats. Thanks to @Fallmay! #504
 
 ## Fixes
 
+ * proxy-server: TCP keepalive is now configured on inbound and outbound
+   sockets handled by the proxy listener, so unresponsive peers are detected
+   and the connection is closed rather than left open indefinitely.  The
+   probe timing can be tuned (or keepalive disabled) via the new
+   [tcp_keepalive](../reference/proxy/start_proxy_listener/tcp_keepalive.md)
+   field on `proxy.start_proxy_listener`.  Thanks to @jack-atlas! #509
  * A message with multipart/mixed as the root with multipart/related as a child
    part was not structurally parsed correctly, producing incorrect parts when
    using [mimepart:get_simple_structure](../reference/mimepart/get_simple_structure.md).
@@ -18,3 +38,7 @@
  * typing.lua: couldn't distinguish `false` from unset for a boolean field with
    default of `true`, such as those used in `mail_auth.lua`. Thanks to
    @kayozaki! #505
+ * Regression with `postmaster@domain` style addresses and null sender
+   addresses when constructing messages via
+   [kumo.make_message](../reference/kumo/make_message.md) and its equivalent
+   internal API. Thanks in part to @kayozaki!  #511 #512

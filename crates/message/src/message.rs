@@ -9,7 +9,7 @@ use anyhow::Context;
 use bstr::{BString, ByteSlice, ByteVec};
 use chrono::{DateTime, Utc};
 #[cfg(feature = "impl")]
-use config::{any_err, from_lua_value, serialize_options};
+use config::{any_err, from_lua_value, serialize_options, SerdeWrappedValue};
 use futures::FutureExt;
 use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListAtomicLink};
 use kumo_chrono_helper::*;
@@ -33,6 +33,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::formats::PreferOne;
 use serde_with::{serde_as, OneOrMany};
 use spool::{get_data_spool, get_meta_spool, Spool, SpoolId};
+use std::collections::{BTreeMap, HashSet};
 use std::hash::Hash;
 use std::sync::{Arc, LazyLock, Weak};
 use std::time::{Duration, Instant};
@@ -1130,7 +1131,7 @@ impl Message {
         Ok(values)
     }
 
-    pub async fn retain_headers<F: FnMut(&Header) -> bool>(
+    pub async fn retain_headers<F: FnMut(usize, &Header) -> bool>(
         &self,
         mut func: F,
     ) -> anyhow::Result<()> {
@@ -1141,8 +1142,8 @@ impl Message {
             body_offset,
             ..
         } = Header::parse_headers(data.as_ref().as_ref())?;
-        for hdr in headers.iter() {
-            let retain = (func)(hdr);
+        for (idx, hdr) in headers.iter().enumerate() {
+            let retain = (func)(idx, hdr);
             if !retain {
                 continue;
             }
@@ -1156,7 +1157,7 @@ impl Message {
 
     pub async fn remove_first_named_header(&self, name: &str) -> anyhow::Result<()> {
         let mut removed = false;
-        self.retain_headers(|hdr| {
+        self.retain_headers(|_, hdr| {
             if hdr.get_name().eq_ignore_ascii_case(name.as_bytes()) && !removed {
                 removed = true;
                 false
@@ -1168,38 +1169,80 @@ impl Message {
     }
 
     pub async fn import_x_headers(&self, names: Vec<String>) -> anyhow::Result<()> {
+        let specs = if names.is_empty() {
+            vec![ImportHeaderSpec {
+                name: "X-*".to_string(),
+                ..ImportHeaderSpec::default()
+            }]
+        } else {
+            names
+                .into_iter()
+                .map(|name| ImportHeaderSpec {
+                    name,
+                    ..ImportHeaderSpec::default()
+                })
+                .collect()
+        };
+        self.import_headers(specs).await
+    }
+
+    pub async fn import_headers(&self, specs: Vec<ImportHeaderSpec>) -> anyhow::Result<()> {
+        let compiled: Vec<CompiledImportHeaderSpec> = specs
+            .into_iter()
+            .map(CompiledImportHeaderSpec::compile)
+            .collect::<anyhow::Result<_>>()?;
+
         let data = self.data().await?;
         let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
-        for hdr in headers.iter() {
-            let do_import = if names.is_empty() {
-                is_x_header(hdr.get_name())
-            } else {
-                is_header_in_names_list(hdr.get_name(), &names)
-            };
-            if do_import {
-                let name = imported_header_name(&hdr.get_name_lossy());
-                self.set_meta(name, hdr.as_unstructured()?.to_str_lossy())
-                    .await?;
+        let mut accumulators: Vec<PerSpecAccumulator> = compiled
+            .iter()
+            .map(|s| PerSpecAccumulator::new(s.match_mode))
+            .collect();
+        let mut indices_to_remove: HashSet<usize> = HashSet::new();
+
+        for (idx, hdr) in headers.iter().enumerate() {
+            let hdr_name = hdr.get_name();
+            for (spec_idx, spec) in compiled.iter().enumerate() {
+                if spec.matches(hdr_name) {
+                    let key = spec.target_key(&hdr.get_name_lossy());
+                    let value = hdr.as_unstructured()?.to_str_lossy().to_string();
+                    accumulators[spec_idx].record(key, value);
+                    if spec.remove {
+                        indices_to_remove.insert(idx);
+                    }
+                    break;
+                }
             }
+        }
+
+        for acc in accumulators {
+            acc.write_to(self).await?;
+        }
+
+        if !indices_to_remove.is_empty() {
+            self.retain_headers(|idx, _| !indices_to_remove.contains(&idx))
+                .await?;
         }
 
         Ok(())
     }
 
     pub async fn remove_x_headers(&self, names: Vec<String>) -> anyhow::Result<()> {
-        self.retain_headers(|hdr| {
+        self.retain_headers(|_, hdr| {
             if names.is_empty() {
                 !is_x_header(hdr.get_name())
             } else {
-                !is_header_in_names_list(hdr.get_name(), &names)
+                !names
+                    .iter()
+                    .any(|n| hdr.get_name().eq_ignore_ascii_case(n.as_bytes()))
             }
         })
         .await
     }
 
     pub async fn remove_all_named_headers(&self, name: &str) -> anyhow::Result<()> {
-        self.retain_headers(|hdr| !hdr.get_name().eq_ignore_ascii_case(name.as_bytes()))
+        self.retain_headers(|_, hdr| !hdr.get_name().eq_ignore_ascii_case(name.as_bytes()))
             .await
     }
 
@@ -1334,15 +1377,6 @@ impl Message {
     }
 }
 
-fn is_header_in_names_list(hdr_name: &[u8], names: &[String]) -> bool {
-    for name in names {
-        if hdr_name.eq_ignore_ascii_case(name.as_bytes()) {
-            return true;
-        }
-    }
-    false
-}
-
 fn imported_header_name(name: &str) -> String {
     name.chars()
         .map(|c| match c.to_ascii_lowercase() {
@@ -1354,6 +1388,227 @@ fn imported_header_name(name: &str) -> String {
 
 fn is_x_header(name: &[u8]) -> bool {
     name.starts_with_str("X-") || name.starts_with_str("x-")
+}
+
+#[derive(Default, Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchMode {
+    First,
+    #[default]
+    Last,
+    All,
+}
+
+#[derive(Default, Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NameTransform {
+    #[default]
+    SnakeCase,
+    KebabCase,
+    CamelCase,
+    PascalCase,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImportHeaderSpec {
+    pub name: String,
+    #[serde(default, rename = "match")]
+    pub match_mode: MatchMode,
+    #[serde(default)]
+    pub transform: NameTransform,
+    #[serde(default)]
+    pub target: Option<String>,
+    #[serde(default)]
+    pub remove: bool,
+}
+
+impl Default for ImportHeaderSpec {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            match_mode: MatchMode::default(),
+            transform: NameTransform::default(),
+            target: None,
+            remove: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum HeaderPattern {
+    /// Case-insensitive exact match.
+    Exact(String),
+    /// Matches any header whose name (case-insensitively) starts with the
+    /// given prefix. Built from a pattern like `X-*`.
+    Prefix(String),
+}
+
+#[derive(Debug, Clone)]
+struct CompiledImportHeaderSpec {
+    pattern: HeaderPattern,
+    match_mode: MatchMode,
+    transform: NameTransform,
+    target: Option<String>,
+    remove: bool,
+}
+
+impl CompiledImportHeaderSpec {
+    fn compile(spec: ImportHeaderSpec) -> anyhow::Result<Self> {
+        let pattern = compile_header_pattern(&spec.name)?;
+        if spec.target.is_some() && matches!(pattern, HeaderPattern::Prefix(_)) {
+            anyhow::bail!(
+                "import_headers: `target` cannot be used with wildcard pattern {:?}",
+                spec.name
+            );
+        }
+        Ok(Self {
+            pattern,
+            match_mode: spec.match_mode,
+            transform: spec.transform,
+            target: spec.target,
+            remove: spec.remove,
+        })
+    }
+
+    fn matches(&self, hdr_name: &[u8]) -> bool {
+        match &self.pattern {
+            HeaderPattern::Exact(s) => hdr_name.eq_ignore_ascii_case(s.as_bytes()),
+            HeaderPattern::Prefix(p) => {
+                hdr_name.len() >= p.len() && hdr_name[..p.len()].eq_ignore_ascii_case(p.as_bytes())
+            }
+        }
+    }
+
+    fn target_key(&self, matched_name: &str) -> String {
+        if let Some(target) = &self.target {
+            return target.clone();
+        }
+        apply_name_transform(matched_name, self.transform)
+    }
+}
+
+fn compile_header_pattern(pat: &str) -> anyhow::Result<HeaderPattern> {
+    if pat.is_empty() {
+        anyhow::bail!("import_headers: header name pattern must not be empty");
+    }
+    let star_count = pat.chars().filter(|c| *c == '*').count();
+    if star_count == 0 {
+        return Ok(HeaderPattern::Exact(pat.to_string()));
+    }
+    let Some(prefix) = pat.strip_suffix('*') else {
+        anyhow::bail!(
+            "import_headers: only a single trailing `*` is supported in pattern {:?}",
+            pat
+        );
+    };
+    if star_count > 1 {
+        anyhow::bail!(
+            "import_headers: only a single trailing `*` is supported in pattern {:?}",
+            pat
+        );
+    }
+    if prefix.is_empty() {
+        anyhow::bail!("import_headers: bare `*` patterns are not supported");
+    }
+    Ok(HeaderPattern::Prefix(prefix.to_string()))
+}
+
+fn apply_name_transform(name: &str, transform: NameTransform) -> String {
+    match transform {
+        NameTransform::SnakeCase => imported_header_name(name),
+        NameTransform::KebabCase => name
+            .split('-')
+            .map(|p| p.to_ascii_lowercase())
+            .collect::<Vec<_>>()
+            .join("-"),
+        NameTransform::CamelCase => name
+            .split('-')
+            .enumerate()
+            .map(|(i, p)| {
+                if i == 0 {
+                    p.to_ascii_lowercase()
+                } else {
+                    titlecase_ascii(p)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(""),
+        NameTransform::PascalCase => name
+            .split('-')
+            .map(titlecase_ascii)
+            .collect::<Vec<_>>()
+            .join(""),
+    }
+}
+
+fn titlecase_ascii(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => {
+            let mut out = String::with_capacity(s.len());
+            out.push(first.to_ascii_uppercase());
+            for c in chars {
+                out.push(c.to_ascii_lowercase());
+            }
+            out
+        }
+    }
+}
+
+enum AccValue {
+    Str(String),
+    Arr(Vec<String>),
+}
+
+struct PerSpecAccumulator {
+    mode: MatchMode,
+    by_key: BTreeMap<String, AccValue>,
+}
+
+impl PerSpecAccumulator {
+    fn new(mode: MatchMode) -> Self {
+        Self {
+            mode,
+            by_key: BTreeMap::new(),
+        }
+    }
+
+    fn record(&mut self, key: String, value: String) {
+        match self.mode {
+            MatchMode::First => {
+                self.by_key.entry(key).or_insert(AccValue::Str(value));
+            }
+            MatchMode::Last => {
+                self.by_key.insert(key, AccValue::Str(value));
+            }
+            MatchMode::All => {
+                let entry = self
+                    .by_key
+                    .entry(key)
+                    .or_insert_with(|| AccValue::Arr(Vec::new()));
+                if let AccValue::Arr(v) = entry {
+                    v.push(value);
+                }
+            }
+        }
+    }
+
+    async fn write_to(self, msg: &Message) -> anyhow::Result<()> {
+        for (key, value) in self.by_key {
+            match value {
+                AccValue::Str(s) => msg.set_meta(key, s).await?,
+                AccValue::Arr(arr) => {
+                    let json = serde_json::Value::Array(
+                        arr.into_iter().map(serde_json::Value::String).collect(),
+                    );
+                    msg.set_meta(key, json).await?;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 fn size_header(name: Option<&str>, value: &[u8]) -> usize {
@@ -1644,6 +1899,12 @@ impl UserData for Message {
                     .map_err(any_err)
             },
         );
+        methods.add_async_method(
+            "import_headers",
+            |_, this, specs: SerdeWrappedValue<Vec<ImportHeaderSpec>>| async move {
+                this.import_headers(specs.0).await.map_err(any_err)
+            },
+        );
 
         methods.add_async_method(
             "remove_x_headers",
@@ -1820,6 +2081,143 @@ pub(crate) mod test {
                 "x_hello": "there",
             })
         );
+    }
+
+    #[tokio::test]
+    async fn import_headers_wildcard_remove() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+
+        msg.import_headers(vec![ImportHeaderSpec {
+            name: "X-*".to_string(),
+            remove: true,
+            ..ImportHeaderSpec::default()
+        }])
+        .await
+        .unwrap();
+        k9::assert_equal!(
+            msg.get_meta_obj().await.unwrap(),
+            json!({
+                "x_hello": "there",
+                "x_header": "value",
+            })
+        );
+        k9::assert_equal!(
+            data_as_string(&msg),
+            "Subject: Hello\r\nFrom :Someone\r\n\r\nBody"
+        );
+    }
+
+    #[tokio::test]
+    async fn import_headers_match_modes() {
+        let body =
+            "Received: from a\r\nReceived: from b\r\nReceived: from c\r\nSubject: hi\r\n\r\nBody";
+        for (mode, expected) in [
+            (MatchMode::First, json!("from a")),
+            (MatchMode::Last, json!("from c")),
+            (MatchMode::All, json!(["from a", "from b", "from c"])),
+        ] {
+            let msg = new_msg_body(body);
+            msg.import_headers(vec![ImportHeaderSpec {
+                name: "Received".to_string(),
+                match_mode: mode,
+                ..ImportHeaderSpec::default()
+            }])
+            .await
+            .unwrap();
+            k9::assert_equal!(
+                msg.get_meta_obj().await.unwrap(),
+                json!({ "received": expected })
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn import_headers_no_match_skips_meta() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+        msg.import_headers(vec![ImportHeaderSpec {
+            name: "Nonexistent".to_string(),
+            match_mode: MatchMode::All,
+            ..ImportHeaderSpec::default()
+        }])
+        .await
+        .unwrap();
+        k9::assert_equal!(msg.get_meta_obj().await.unwrap(), json!({}));
+    }
+
+    #[tokio::test]
+    async fn import_headers_specific_before_wildcard() {
+        let body = "X-Campaign-Id: 42\r\nX-Mailer: foo\r\n\r\nBody";
+        let msg = new_msg_body(body);
+        msg.import_headers(vec![
+            ImportHeaderSpec {
+                name: "X-Campaign-Id".to_string(),
+                target: Some("campaign".to_string()),
+                ..ImportHeaderSpec::default()
+            },
+            ImportHeaderSpec {
+                name: "X-*".to_string(),
+                ..ImportHeaderSpec::default()
+            },
+        ])
+        .await
+        .unwrap();
+        k9::assert_equal!(
+            msg.get_meta_obj().await.unwrap(),
+            json!({
+                "campaign": "42",
+                "x_mailer": "foo",
+            })
+        );
+    }
+
+    #[test]
+    fn name_transforms() {
+        let n = "X-Campaign-Id";
+        k9::assert_equal!(
+            apply_name_transform(n, NameTransform::SnakeCase),
+            "x_campaign_id"
+        );
+        k9::assert_equal!(
+            apply_name_transform(n, NameTransform::KebabCase),
+            "x-campaign-id"
+        );
+        k9::assert_equal!(
+            apply_name_transform(n, NameTransform::CamelCase),
+            "xCampaignId"
+        );
+        k9::assert_equal!(
+            apply_name_transform(n, NameTransform::PascalCase),
+            "XCampaignId"
+        );
+    }
+
+    #[test]
+    fn pattern_compile_rejects_bad_patterns() {
+        compile_header_pattern("").unwrap_err();
+        compile_header_pattern("*").unwrap_err();
+        compile_header_pattern("*-Id").unwrap_err();
+        compile_header_pattern("X-*-Id").unwrap_err();
+        compile_header_pattern("X-**").unwrap_err();
+        assert!(matches!(
+            compile_header_pattern("Subject").unwrap(),
+            HeaderPattern::Exact(_)
+        ));
+        assert!(matches!(
+            compile_header_pattern("X-*").unwrap(),
+            HeaderPattern::Prefix(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn import_headers_target_with_wildcard_rejected() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+        msg.import_headers(vec![ImportHeaderSpec {
+            name: "X-*".to_string(),
+            target: Some("oops".to_string()),
+            ..ImportHeaderSpec::default()
+        }])
+        .await
+        .unwrap_err();
     }
 
     #[tokio::test]

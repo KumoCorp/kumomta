@@ -10,4 +10,4 @@ config = {path="../config"}
 kumo-template = {path="../kumo-template"}
 kumo-wrap = {path="../kumo-wrap"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
-psl = {workspace=true}
+psl-utils = {workspace=true}

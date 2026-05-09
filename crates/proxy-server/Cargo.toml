@@ -24,6 +24,7 @@ parking_lot = {workspace=true}
 rustls = {workspace=true}
 serde = {workspace=true}
 serde_json.workspace = true
+socket2 = {workspace=true}
 socksv5 = {workspace=true}
 tempfile = {workspace=true}
 tokio = {workspace=true, features=["full", "tracing"]}
@@ -35,3 +36,6 @@ axum = {workspace=true}
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tokio-splice = {workspace=true}
+
+[dev-dependencies]
+k9 = {workspace=true}

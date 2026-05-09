@@ -464,13 +464,22 @@ impl EnvelopeAddress {
     /// Internal parsing function that returns String error type.
     /// This is used by FromStr (which requires String) and by parse().
     fn parse_impl(input: &str) -> Result<EnvelopeAddress, String> {
+        // Handle empty string as null sender.  The Display impl for
+        // EnvelopeAddress::Null produces "", so we must be able to
+        // round-trip it through parse().  An empty string is NOT a
+        // valid mailbox, but it is a valid representation of the
+        // null reverse path (NDRs per RFC 5321 §4.5.5).
+        if input.is_empty() {
+            return Ok(EnvelopeAddress::Null);
+        }
+
         let input = make_span(input.as_bytes());
         let (_, result) = all_consuming(alt((
             map(tag_no_case("<>"), |_| EnvelopeAddress::Null),
             map(tag_no_case("<Postmaster>"), |_| EnvelopeAddress::Postmaster),
-            map(tag_no_case("Postmaster"), |_| EnvelopeAddress::Postmaster),
             map(path, EnvelopeAddress::Path),
             map(mailbox, EnvelopeAddress::from),
+            map(tag_no_case("Postmaster"), |_| EnvelopeAddress::Postmaster),
         )))
         .parse(input)
         .map_err(|e| explain_nom(input, e))?;
@@ -3726,6 +3735,12 @@ Ok(
     }
 
     #[test]
+    fn test_envelope_address_postmaster_full_address() {
+        let postmaster = EnvelopeAddress::parse(r#"postmaster@example.com"#).unwrap();
+        k9::assert_equal!(postmaster.to_string(), r#"postmaster@example.com"#);
+    }
+
+    #[test]
     fn test_envelope_address_debug_path_with_non_ascii_utf8() {
         // UTF-8 character ü (U+00FC) which is non-ASCII but valid UTF-8
         // should be preserved as-is in debug output
@@ -3825,5 +3840,26 @@ Ok(
         EnvelopeAddress::parse(r#""first".last@example.com"#).unwrap_err();
         EnvelopeAddress::parse(r#"first."last"@example.com"#).unwrap_err();
         EnvelopeAddress::parse(r#""first"."last"@example.com"#).unwrap_err();
+    }
+
+    #[test]
+    fn test_envelope_address_null_sender_roundtrip() {
+        // Regression test for <https://github.com/KumoCorp/kumomta/issues/511>
+        // The Display impl for EnvelopeAddress::Null produces "",
+        // and parse("") must return EnvelopeAddress::Null to round-trip correctly.
+        let null = EnvelopeAddress::Null;
+
+        // Display produces empty string
+        k9::assert_equal!(null.to_string(), "");
+
+        // Parsing empty string returns Null
+        let parsed = EnvelopeAddress::parse("").unwrap();
+        k9::assert_equal!(parsed, EnvelopeAddress::Null);
+
+        // Verify serde round-trip works
+        let json = serde_json::to_string(&null).unwrap();
+        k9::assert_equal!(json, "\"\"");
+        let deserialized: EnvelopeAddress = serde_json::from_str(&json).unwrap();
+        k9::assert_equal!(deserialized, EnvelopeAddress::Null);
     }
 }

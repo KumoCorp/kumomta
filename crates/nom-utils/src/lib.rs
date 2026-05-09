@@ -283,7 +283,7 @@ pub fn explain_nom(input: Span, err: nom::Err<ParseError<Span<'_>>>) -> String {
 /// * <https://datatracker.ietf.org/doc/html/rfc6532#section-3.1>
 /// * <https://datatracker.ietf.org/doc/html/rfc3629#section-4>
 /// which define a bunch of ABNF, but then caps it off with:
-/// > The authoritative definition of UTF-8 is in [UNICODE].  This
+/// > The authoritative definition of UTF-8 is in UNICODE.  This
 /// > grammar is believed to describe the same thing Unicode describes, but
 /// > does not claim to be authoritative.  Implementors are urged to rely
 /// > on the authoritative source, rather than on this ABNF.

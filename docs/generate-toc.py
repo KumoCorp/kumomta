@@ -452,6 +452,10 @@ TOC = [
                 "reference/kumo.cidr",
             ),
             Gen(
+                "module: kumo.counter_series",
+                "reference/kumo.counter_series",
+            ),
+            Gen(
                 "module: kumo.domain_map",
                 "reference/kumo.domain_map",
             ),

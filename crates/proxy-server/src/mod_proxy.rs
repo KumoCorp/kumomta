@@ -9,6 +9,7 @@ use kumo_server_runtime::spawn;
 use kumo_tls_helper::AsyncReadAndWrite;
 use mlua::{IntoLua, Lua, LuaSerdeExt};
 use serde::Deserialize;
+use socket2::TcpKeepalive;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -53,10 +54,84 @@ pub struct ProxyListenerParams {
     /// Require RFC 1929 username/password authentication
     #[serde(default)]
     pub require_auth: bool,
+
+    /// TCP keepalive parameters applied to inbound and outbound proxy
+    /// sockets.  Controls whether and how often the kernel probes an idle
+    /// connection so that unresponsive peers are detected and closed.
+    #[serde(default)]
+    pub tcp_keepalive: TcpKeepaliveParams,
 }
 
 fn default_true() -> bool {
     true
+}
+
+/// Tunable TCP keepalive parameters.
+///
+/// `time` is the idle period before the first probe is sent. On Linux,
+/// `interval` and `retries` control the spacing and count of probes after
+/// the first; on other platforms only `time` is configurable.
+#[derive(Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct TcpKeepaliveParams {
+    /// Whether TCP keepalive is enabled. Defaults to true.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Idle time before the first keepalive probe is sent.
+    #[serde(default = "TcpKeepaliveParams::default_time", with = "duration_serde")]
+    pub time: Duration,
+
+    /// Interval between keepalive probes after the first (Linux only).
+    #[serde(
+        default = "TcpKeepaliveParams::default_interval",
+        with = "duration_serde"
+    )]
+    pub interval: Duration,
+
+    /// Number of unanswered probes before the connection is considered
+    /// dead (Linux only).
+    #[serde(default = "TcpKeepaliveParams::default_retries")]
+    pub retries: u32,
+}
+
+impl Default for TcpKeepaliveParams {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            time: Self::default_time(),
+            interval: Self::default_interval(),
+            retries: Self::default_retries(),
+        }
+    }
+}
+
+impl TcpKeepaliveParams {
+    fn default_time() -> Duration {
+        Duration::from_secs(300)
+    }
+
+    fn default_interval() -> Duration {
+        Duration::from_secs(30)
+    }
+
+    fn default_retries() -> u32 {
+        3
+    }
+
+    /// Build a `socket2::TcpKeepalive` matching these parameters, or
+    /// `None` if keepalive is disabled.
+    pub fn build(&self) -> Option<TcpKeepalive> {
+        if !self.enabled {
+            return None;
+        }
+        let keepalive = TcpKeepalive::new()
+            .with_time(self.time)
+            .with_interval(self.interval)
+            .with_retries(self.retries);
+
+        Some(keepalive)
+    }
 }
 
 impl ProxyListenerParams {
@@ -75,6 +150,7 @@ impl ProxyListenerParams {
     pub async fn start(self) -> anyhow::Result<()> {
         let listener = TcpListener::bind(&self.listen).await?;
         let addr = listener.local_addr()?;
+        let keepalive = Arc::new(self.tcp_keepalive.build());
 
         let tls_acceptor = if self.use_tls {
             let config = kumo_server_common::tls_helpers::make_server_config(
@@ -99,7 +175,7 @@ impl ProxyListenerParams {
         let params = Arc::new(self);
 
         spawn(format!("proxy listener {addr:?}"), async move {
-            if let Err(err) = Self::accept_loop(listener, params, tls_acceptor).await {
+            if let Err(err) = Self::accept_loop(listener, params, tls_acceptor, keepalive).await {
                 tracing::error!("accept loop returned with error: {err:#}");
             }
         })?;
@@ -111,6 +187,7 @@ impl ProxyListenerParams {
         listener: TcpListener,
         params: Arc<Self>,
         tls_acceptor: Option<TlsAcceptor>,
+        keepalive: Arc<Option<TcpKeepalive>>,
     ) -> anyhow::Result<()> {
         let local_address = listener
             .local_addr()
@@ -118,9 +195,14 @@ impl ProxyListenerParams {
 
         loop {
             let (socket, peer_address) = listener.accept().await.context("accept failed")?;
+            crate::proxy_handler::set_proxy_tcp_keepalive(&socket, keepalive.as_ref().as_ref())
+                .with_context(|| {
+                    format!("failed to enable TCP keepalive for client {peer_address:?}")
+                })?;
 
             let params = params.clone();
             let tls_acceptor = tls_acceptor.clone();
+            let keepalive = keepalive.clone();
 
             tokio::spawn(async move {
                 let result: anyhow::Result<()> = async {
@@ -135,9 +217,17 @@ impl ProxyListenerParams {
                                 });
                             }
                         };
-                        Self::handle_client(tls_stream, peer_address, local_address, &params).await
+                        Self::handle_client(
+                            tls_stream,
+                            peer_address,
+                            local_address,
+                            &params,
+                            keepalive,
+                        )
+                        .await
                     } else {
-                        Self::handle_client(socket, peer_address, local_address, &params).await
+                        Self::handle_client(socket, peer_address, local_address, &params, keepalive)
+                            .await
                     }
                 }
                 .await;
@@ -160,6 +250,7 @@ impl ProxyListenerParams {
         peer_address: SocketAddr,
         local_address: SocketAddr,
         params: &ProxyListenerParams,
+        keepalive: Arc<Option<TcpKeepalive>>,
     ) -> anyhow::Result<()>
     where
         S: AsyncReadAndWrite + Unpin + Send + 'static,
@@ -175,6 +266,7 @@ impl ProxyListenerParams {
             params.timeout,
             params.use_splice,
             params.require_auth,
+            keepalive,
         )
         .await;
 
