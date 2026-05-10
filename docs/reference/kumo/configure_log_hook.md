@@ -14,6 +14,8 @@ cause a new [Message](../message/index.md) to be generated and have its body
 assigned to the log record (or to its template expansion if you have configured
 that), and passed to the
 [should_enqueue_log_record](../events/should_enqueue_log_record.md) event.
+For log handling that must run immediately with access to the original message,
+see [kumo.configure_log_disposition_hook](configure_log_disposition_hook.md).
 
 ```lua
 kumo.on('init', function()
