@@ -9,6 +9,8 @@ tags:
 kumo.configure_log_disposition_hook { PARAMS }
 ```
 
+{{since('2025.10.06-5ec871ab')}}
+
 Configures a Lua callback that is invoked synchronously as disposition log
 records are generated. Unlike [kumo.configure_log_hook](configure_log_hook.md),
 this does not create queued log-record messages for later delivery; instead,
@@ -60,4 +62,3 @@ templates.
 
 See [configure_local_logs.per_record](configure_local_logs/per_record.md) for
 the list of record type keys and the general `per_record` structure.
-
