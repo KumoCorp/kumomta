@@ -241,19 +241,38 @@ pub struct Rule {
 }
 
 impl Rule {
-    pub fn matches(&self, is_internal: bool, response: &str) -> bool {
+    pub fn matched_regex(&self, is_internal: bool, response: &str) -> Option<&Regex> {
         if is_internal && !self.match_internal {
-            return false;
+            return None;
         }
         self.regex
             .iter()
-            .any(|r| r.is_match(response).unwrap_or(false))
+            .find(|r| r.is_match(response).unwrap_or(false))
+    }
+
+    pub fn matches(&self, is_internal: bool, response: &str) -> bool {
+        self.matched_regex(is_internal, response).is_some()
     }
 
     pub fn clone_and_set_rollup(&self) -> Self {
         let mut result = self.clone();
         result.was_rollup = true;
         result
+    }
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct MatchedRule {
+    pub rule: Rule,
+    pub matched_regex: String,
+}
+
+impl MatchedRule {
+    fn new(rule: Rule, matched_regex: String) -> Self {
+        Self {
+            rule,
+            matched_regex,
+        }
     }
 }
 
@@ -341,7 +360,7 @@ impl ShapingInner {
         params
     }
 
-    pub async fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<Rule>> {
+    pub async fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<MatchedRule>> {
         use rfc5321::parser::ForwardPath;
         // Extract the domain from the recipient.
         let recipient = ForwardPath::try_from(
@@ -391,7 +410,7 @@ impl ShapingInner {
         record: &JsonLogRecord,
         domain: &str,
         site_name: &str,
-    ) -> Vec<Rule> {
+    ) -> Vec<MatchedRule> {
         let mut result = vec![];
         let response = record.response.to_single_line();
         tracing::trace!("Consider rules for {response}");
@@ -401,14 +420,15 @@ impl ShapingInner {
         if let Some(default) = self.by_domain.get("default") {
             for rule in &default.automation {
                 tracing::trace!("Consider \"default\" rule {rule:?} for {response}");
-                if rule.matches(is_internal, &response) {
+                if let Some(matched_regex) = rule.matched_regex(is_internal, &response) {
+                    let matched_regex = matched_regex.to_string();
                     // For automation under `default`, we always
                     // assume that mx_rollup should be true.
                     // If you somehow have a domain where that isn't
                     // true, you should avoid using `default` for
                     // automation.  Honestly, it's best to avoid
                     // using `default` for automation.
-                    result.push(rule.clone_and_set_rollup());
+                    result.push(MatchedRule::new(rule.clone_and_set_rollup(), matched_regex));
                 }
             }
         }
@@ -420,8 +440,9 @@ impl ShapingInner {
                         "Consider provider \"{}\" rule {rule:?} for {response}",
                         prov.provider_name
                     );
-                    if rule.matches(is_internal, &response) {
-                        result.push(rule.clone());
+                    if let Some(matched_regex) = rule.matched_regex(is_internal, &response) {
+                        let matched_regex = matched_regex.to_string();
+                        result.push(MatchedRule::new(rule.clone(), matched_regex));
                     }
                 }
             }
@@ -431,8 +452,9 @@ impl ShapingInner {
         if let Some(by_site) = self.by_site.get(site_name) {
             for rule in &by_site.automation {
                 tracing::trace!("Consider \"{site_name}\" rule {rule:?} for {response}");
-                if rule.matches(is_internal, &response) {
-                    result.push(rule.clone_and_set_rollup());
+                if let Some(matched_regex) = rule.matched_regex(is_internal, &response) {
+                    let matched_regex = matched_regex.to_string();
+                    result.push(MatchedRule::new(rule.clone_and_set_rollup(), matched_regex));
                 }
             }
         }
@@ -441,8 +463,9 @@ impl ShapingInner {
         if let Some(by_domain) = self.by_domain.get(domain) {
             for rule in &by_domain.automation {
                 tracing::trace!("Consider \"{domain}\" rule {rule:?} for {response}");
-                if rule.matches(is_internal, &response) {
-                    result.push(rule.clone());
+                if let Some(matched_regex) = rule.matched_regex(is_internal, &response) {
+                    let matched_regex = matched_regex.to_string();
+                    result.push(MatchedRule::new(rule.clone(), matched_regex));
                 }
             }
         }
@@ -937,7 +960,7 @@ impl Shaping {
         &self.inner.warnings
     }
 
-    pub async fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<Rule>> {
+    pub async fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<MatchedRule>> {
         self.inner.match_rules(record).await
     }
 
@@ -1002,7 +1025,7 @@ impl LuaUserData for Shaping {
             let rules = this.match_rules(&record).await.map_err(any_err)?;
             let mut result = vec![];
             for rule in rules {
-                result.push(lua.to_value(&rule)?);
+                result.push(lua.to_value(&rule.rule)?);
             }
             Ok(result)
         });
@@ -1741,6 +1764,18 @@ action = {SetConfig={name="connection_limit", value=3}}
 duration = "1hr"
 match_internal = true
 
+["multi.example"]
+mx_rollup = false
+
+[["multi.example".automation]]
+regex=[
+  "first pattern",
+  "second pattern",
+  "third pattern"
+]
+action = "Suspend"
+duration = "1hr"
+
 "#])
         .await;
 
@@ -1788,7 +1823,7 @@ match_internal = true
             .await
             .unwrap();
         k9::assert_equal!(
-            matches[0].regex[0].to_string(),
+            matches[0].rule.regex[0].to_string(),
             "default",
             "matches against default automation rule"
         );
@@ -1812,7 +1847,7 @@ match_internal = true
             .await
             .unwrap();
         k9::assert_equal!(
-            matches[0].regex[0].to_string(),
+            matches[0].rule.regex[0].to_string(),
             "woot_domain",
             "matches against domain rule with mx_rollup=false"
         );
@@ -1822,7 +1857,7 @@ match_internal = true
             .await
             .unwrap();
         k9::assert_equal!(
-            matches[0].regex[0].to_string(),
+            matches[0].rule.regex[0].to_string(),
             "fake_rollup",
             "matches against domain rule with mx_rollup=true"
         );
@@ -1832,7 +1867,7 @@ match_internal = true
             .await
             .unwrap();
         k9::assert_equal!(
-            matches[0].regex[0].to_string(),
+            matches[0].rule.regex[0].to_string(),
             "provider",
             "matches against provider rule"
         );
@@ -1846,9 +1881,28 @@ match_internal = true
             .await
             .unwrap();
         k9::assert_equal!(
-            matches[0].regex[0].to_string(),
+            matches[0].rule.regex[0].to_string(),
             "provider",
             "internal response matches against provider rule"
+        );
+
+        let matches = shaping
+            .match_rules(&make_record(
+                "smtp replied with second pattern",
+                "user@multi.example",
+                "dummy_site",
+            ))
+            .await
+            .unwrap();
+        k9::assert_equal!(
+            matches[0].matched_regex,
+            "second pattern",
+            "records the regex that matched without losing the full rule"
+        );
+        k9::assert_equal!(
+            matches[0].rule.regex.len(),
+            3,
+            "keeps the full rule available for hashing and action handling"
         );
     }
 
