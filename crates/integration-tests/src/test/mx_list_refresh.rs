@@ -112,7 +112,7 @@ DeliverySummary {
     );
 
     let logs = daemon.source.collect_logs().await?;
-    let deliv_and_site: Vec<(String, String, String)> = logs
+    let mut deliv_and_site: Vec<(String, String, String)> = logs
         .into_iter()
         .filter_map(|r| match r.kind {
             Delivery => Some((
@@ -123,6 +123,8 @@ DeliverySummary {
             _ => None,
         })
         .collect();
+    // Delivery logs can be emitted in completion order; stabilize the snapshot.
+    deliv_and_site.sort_by(|a, b| a.2.cmp(&b.2).then_with(|| a.0.cmp(&b.0)));
 
     k9::snapshot!(
         deliv_and_site,
