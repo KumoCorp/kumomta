@@ -7,11 +7,26 @@ tags:
 
 KumoMTA provides the ability to set and retrieve metadata at both the connection and message level.
 
-By leveraging metadata, information can be made available to policy running at different phases in the life of a message, where the [connection metadata](./connectionmeta.md) is used for data that is shared in common with all messages injected over a given connection, and the [message metadata](./message/set_meta.md) is for all data related to a given individual message.
+By leveraging metadata, information can be made available to policy running at
+different phases in the life of a message, where the [connection
+metadata](connectionmeta.md) is used for data that is shared in common with
+all messages injected over a given connection, and the [message
+metadata](message/set_meta.md) is for all data related to a given individual
+message.
 
-There are get and set functions available for both connection and message metadata, and when a message is received **all connection metadata is also copied into the message metadata**, meaning that for retrieving connection metadata the user can opt to only access message metadata for any value that doesn't change over the life of the connection.
+There are get and set functions available for both connection and message
+metadata, and when a message is received **all connection metadata is also
+copied into the message metadata**, meaning that for retrieving connection
+metadata the user can opt to only access message metadata for any value that
+doesn't change over the life of the connection.
 
-The following metadata values are predefined by KumoMTA and are available to retrieve:
+The following metadata values are predefined by KumoMTA and are available to
+retrieve. When defining your own meta keys via
+[msg:set_meta](message/set_meta.md) or
+[conn_meta:set_meta](connectionmeta.md), prefix them with `x_` to avoid
+collisions with current and future predefined names; see the [naming
+convention](message/set_meta.md#naming-convention-for-user-defined-keys) for
+details.
 
 <style>
 table tbody tr td:nth-of-type(2) {

@@ -22,6 +22,17 @@
    `metadata` field on each recipient object. Key-value pairs supplied
    there are stored on the resulting message under the `extra` metadata
    key, accessible from Lua hooks via `msg:get_meta('extra')`.
+ * Documented a naming convention for user-defined message and connection
+   meta keys: prefix application-specific keys with `x_` to avoid
+   collisions with current and future KumoMTA-predefined meta names. This
+   aligns with the `x_*` keys produced by
+   [message:import_x_headers](../reference/message/import_x_headers.md) and
+   the default `snake_case` transform used by
+   [message:import_headers](../reference/message/import_headers.md);
+   KumoMTA's own predefined meta keys will never start with `x_`. See the
+   [naming convention](../reference/message/set_meta.md#naming-convention-for-user-defined-keys)
+   for details. Existing meta names continue to work; the `x_` prefix is a
+   recommendation, not a hard requirement.
 
 ## Fixes
 
