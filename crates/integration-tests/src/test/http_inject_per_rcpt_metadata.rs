@@ -34,11 +34,7 @@ async fn per_recipient_metadata_captured_in_logs() -> anyhow::Result<()> {
         }
     });
 
-    let body = daemon
-        .source
-        .api_client()
-        .inject_v1(&payload)
-        .await?;
+    let body = daemon.source.api_client().inject_v1(&payload).await?;
     assert_equal!(body.success_count, 1);
     assert_equal!(body.fail_count, 0);
 
@@ -107,11 +103,7 @@ async fn per_recipient_metadata_multiple_recipients() -> anyhow::Result<()> {
         }
     });
 
-    let body = daemon
-        .source
-        .api_client()
-        .inject_v1(&payload)
-        .await?;
+    let body = daemon.source.api_client().inject_v1(&payload).await?;
     assert_equal!(body.success_count, 2);
     assert_equal!(body.fail_count, 0);
 
@@ -191,11 +183,7 @@ async fn absent_metadata_is_not_in_logs() -> anyhow::Result<()> {
         }
     });
 
-    let body = daemon
-        .source
-        .api_client()
-        .inject_v1(&payload)
-        .await?;
+    let body = daemon.source.api_client().inject_v1(&payload).await?;
     assert_equal!(body.success_count, 1);
 
     daemon
