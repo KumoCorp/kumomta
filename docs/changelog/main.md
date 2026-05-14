@@ -6,6 +6,33 @@
 
 ## Fixes
 
+ * [kumo.crypto.aws_sign_v4](../reference/kumo.crypto/aws_sign_v4.md) had
+   several issues with its SigV4 implementation:
+
+     * The `x-amz-content-sha256` header logic was inverted: it was being
+       added to the signed header set for every service *except* S3, when
+       AWS actually requires it specifically for S3 (and does not expect
+       it for most other services).  S3 requests now correctly include
+       `x-amz-content-sha256` in the signed headers, and other services
+       no longer have it added implicitly.
+     * Header value canonicalization now implements the AWS *Trimall*
+       rule (strip leading/trailing space and tab, collapse internal runs
+       of space and tab to a single space, preserving whitespace inside
+       quoted strings) rather than only trimming the ends.
+     * The `host` header is now required to be supplied by the caller;
+       previously a misleading empty `host:` placeholder would be signed
+       if it was omitted.  Header names supplied by the caller are
+       matched case-insensitively, so `Host` and `host` are both
+       accepted.
+
+   The implementation is now verified against vectors from the official
+   AWS SigV4 test suite.  If you are calling this function for a non-S3
+   service (for example SNS, SQS, or Firehose) and were also sending
+   `x-amz-content-sha256` on the wire, you should now either pass it
+   explicitly in `headers` so it is included in the signed set, or stop
+   sending it on the wire to match the signed request.
+   Thanks to @AdityaAudi! #522
+
  * The `feedback_report.original_message` field, and the values in the
    associated `extensions` map, in `Feedback` log records produced for
    incoming ARF reports were being serialized as a JSON array of byte

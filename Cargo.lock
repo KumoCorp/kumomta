@@ -4871,6 +4871,7 @@ dependencies = [
  "config",
  "data-encoding",
  "data-loader",
+ "k9",
  "mlua",
  "percent-encoding",
  "serde",
