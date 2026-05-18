@@ -98,7 +98,7 @@ local function should_enq(publish, msg, hook_name, options)
   end
 
   if options.custom_filter then
-    local status, result = pcall(options.custom_filter, log_record)
+    local status, result = pcall(options.custom_filter, log_record, hook_name)
     if not status or not result then
       return false
     end
