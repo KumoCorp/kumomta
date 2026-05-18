@@ -973,6 +973,10 @@ pub struct DaemonWithTsa {
 
 impl DaemonWithTsa {
     pub async fn start() -> anyhow::Result<Self> {
+        Self::start_with_source_policy("tsa_source.lua").await
+    }
+
+    pub async fn start_with_source_policy(source_policy_file: &str) -> anyhow::Result<Self> {
         let tsa = TsaDaemon::spawn(TsaArgs {
             policy_file: "tsa_init.lua".to_string(),
             env: vec![],
@@ -983,7 +987,7 @@ impl DaemonWithTsa {
         let sink = KumoDaemon::spawn_maildir().await?;
         let smtp = sink.listener("smtp");
         let source = KumoDaemon::spawn(KumoArgs {
-            policy_file: "tsa_source.lua".to_string(),
+            policy_file: source_policy_file.to_string(),
             env: vec![
                 ("KUMOD_SMTP_SINK_PORT".to_string(), smtp.port().to_string()),
                 (

@@ -327,7 +327,7 @@ impl SuspendReadyQueueV1Request {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, ToSchema)]
+#[derive(Serialize, Deserialize, Debug, ToSchema, PartialEq, Eq)]
 pub struct SuspendReadyQueueV1ListEntry {
     /// The id for the suspension. Can be used to cancel the suspension.
     pub id: Uuid,

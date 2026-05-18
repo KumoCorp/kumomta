@@ -4,6 +4,14 @@
 
 ## Other Changes and Enhancements
 
+ * The `shaping.lua` helper's `setup_with_automation` now accepts optional
+   `skip_log_record_types` and `additional_skip_log_record_types` tables,
+   allowing users to customise which log record types are suppressed from TSA
+   publishing. `skip_log_record_types` replaces the default set, while
+   `additional_skip_log_record_types` extends it. eg:
+   `additional_skip_log_record_types = {'Delivery'}`.
+   Thanks to @Harshjha3006!  #525
+
 ## Fixes
 
  * [kumo.crypto.aws_sign_v4](../reference/kumo.crypto/aws_sign_v4.md) had

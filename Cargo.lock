@@ -3381,6 +3381,7 @@ dependencies = [
  "nix 0.30.1",
  "parking_lot",
  "rcgen 0.14.7",
+ "regex",
  "reqwest",
  "rfc5321",
  "rustls-cert-gen",
@@ -3394,6 +3395,7 @@ dependencies = [
  "tokio-executor-trait",
  "tokio-reactor-trait",
  "tokio-tungstenite 0.28.0",
+ "uuid",
  "zstd",
 ]
 
