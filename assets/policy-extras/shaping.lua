@@ -97,6 +97,13 @@ local function should_enq(publish, msg, hook_name, options)
     return false
   end
 
+  if options.custom_filter then
+    local status, result = pcall(options.custom_filter, log_record)
+    if not status or not result then
+      return false
+    end
+  end
+
   if options.pre_filter then
     -- Only bother shipping the log record over if it matches
     -- a TSA rule, so that we can avoid increasing IO pressure

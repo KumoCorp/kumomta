@@ -4,6 +4,13 @@
 
 ## Other Changes and Enhancements
 
+ * The `shaping.lua` helper's `setup_with_automation` now accepts an optional
+   `custom_filter` function. When set, it is called in the
+   `should_enqueue_log_record` hook **before** the built-in regex-based
+   `pre_filter` step, allowing cheap user-defined checks to short-circuit the
+   more expensive rule-matching scan and reduce CPU usage on high-volume
+   deployments.
+
  * New [kumo.counter_series](../reference/kumo.counter_series/index.md)
    module exposing in-memory rolling counters backed by a fixed-size ring of
    time buckets. Useful for short-term, per-process bookkeeping of event
