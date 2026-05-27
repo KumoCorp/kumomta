@@ -9,7 +9,7 @@ tags:
 series:observe(value)
 ```
 
-{{since('dev')}}
+{{since('2026.05.12-a6845223')}}
 
 Sets the current bucket of the series to `value`, replacing any prior value
 recorded for the current time window.
