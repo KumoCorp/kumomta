@@ -3823,6 +3823,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
+ "tracing",
  "zstd",
  "zstd-safe",
 ]
