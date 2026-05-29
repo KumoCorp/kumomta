@@ -61,7 +61,7 @@ end
 -- purposes: these represent messages coming into the system,
 -- or movement through internal queues, rather than interactions
 -- with a destination system
-local UNINTERESTING_LOG_RECORD_TYPES = {
+local DEFAULT_UNINTERESTING_LOG_RECORD_TYPES = {
   AdminRebind = true,
   DeferredInjectionRebind = true,
   Delayed = true,
@@ -93,15 +93,8 @@ local function should_enq(publish, msg, hook_name, options)
     end
   end
 
-  if UNINTERESTING_LOG_RECORD_TYPES[log_record.type] then
+  if options.uninteresting_log_record_types[log_record.type] then
     return false
-  end
-
-  if options.custom_filter then
-    local status, result = pcall(options.custom_filter, log_record, hook_name)
-    if not status or not result then
-      return false
-    end
   end
 
   if options.pre_filter then
@@ -420,6 +413,11 @@ function mod:setup_with_automation(options)
     options.pre_filter = true
   end
 
+  if options.uninteresting_log_record_types == nil then
+    options.uninteresting_log_record_types =
+      DEFAULT_UNINTERESTING_LOG_RECORD_TYPES
+  end
+
   local cached_load_data = kumo.memoize(load_shaping_data, {
     name = 'shaping_data',
     ttl = options.cache_ttl or '1 minute',
@@ -473,7 +471,7 @@ function mod:setup_with_automation(options)
 
   local function setup_publish()
     local per_record = {}
-    for record_type, _true in pairs(UNINTERESTING_LOG_RECORD_TYPES) do
+    for record_type, _true in pairs(options.uninteresting_log_record_types) do
       per_record[record_type] = {
         enable = false,
       }

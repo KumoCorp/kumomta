@@ -4,6 +4,10 @@
 
 ## Other Changes and Enhancements
 
+ * The `shaping.lua` helper's `setup_with_automation` now accepts an optional
+   `uninteresting_log_record_types` table, allowing users to customise
+   which log record types are suppressed from TSA publishing.
+
 ## Fixes
 
  * [kumo.crypto.aws_sign_v4](../reference/kumo.crypto/aws_sign_v4.md) had
