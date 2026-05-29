@@ -248,7 +248,7 @@ duration = "15 minutes"
 
 # 421 [HCM1] Your mail from x.y.z.a was deferred.
 [[provider."apple".automation]]
-regex = "\\[HCM1\\] Your mail from \d+\.\d+\.\d+\.\d+ was deferred"
+regex = '''\\[HCM1\\] Your mail from \d+\.\d+\.\d+\.\d+ was deferred'''
 trigger = {Threshold="3/hr"}
 action = "Suspend"
 duration = "15 minutes"
