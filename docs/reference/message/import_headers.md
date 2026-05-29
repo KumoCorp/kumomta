@@ -9,7 +9,7 @@ tags:
 message:import_headers(SPECS)
 ```
 
-{{since('dev')}}
+{{since('2026.05.12-a6845223')}}
 
 Iterates the headers of the message, importing matching header values into the
 message metadata. `SPECS` is an array of tables, one per header name or pattern,

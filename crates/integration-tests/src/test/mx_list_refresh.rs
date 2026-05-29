@@ -1,9 +1,10 @@
 use crate::kumod::{DaemonWithMaildirOptions, MailGenParams};
 use anyhow::Context;
+use kumo_api_types::InspectQueueV1Request;
 use kumo_log_types::RecordType::Delivery;
 use rfc5321::SmtpClient;
 use serde_json::json;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[tokio::test]
 async fn mx_list_refresh() -> anyhow::Result<()> {
@@ -80,7 +81,40 @@ async fn mx_list_refresh() -> anyhow::Result<()> {
     )?;
 
     daemon.source.api_client().admin_bump_config_epoch().await?;
-    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Wait for the epoch bump to actually propagate into the
+    // one.example.com queue's resolved config, rather than relying
+    // on a fixed sleep that races under load.  Once the queue's
+    // config reflects the new mx_list (the `255.255.255.255:2`
+    // marker), or the queue has been reaped (in which case the
+    // next send rebuilds it from the new config), we can proceed.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        match daemon
+            .source
+            .api_client()
+            .admin_inspect_sched_q_v1(&InspectQueueV1Request {
+                queue_name: "one.example.com".to_string(),
+                want_body: false,
+                limit: Some(0),
+            })
+            .await
+        {
+            Ok(resp) => {
+                if resp.queue_config.to_string().contains("255.255.255.255:2") {
+                    break;
+                }
+            }
+            // Queue not found: it was reaped, so the next send will
+            // rebuild it from the freshly-loaded config.
+            Err(_) => break,
+        }
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "timed out waiting for one.example.com config refresh"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 
     send(&mut client, "three@one.example.com").await?;
     send(&mut client, "four@two.example.com").await?;

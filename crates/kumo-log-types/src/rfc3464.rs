@@ -7,9 +7,10 @@ use crate::{JsonLogRecord, RecordType};
 use anyhow::{anyhow, Context};
 use bstr::{BStr, BString, ByteSlice};
 use chrono::{DateTime, Utc};
-use mailparsing::MimePart;
+use mailparsing::{BStringUtf8, MimePart};
 use rfc5321::parser::EnvelopeAddress;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
@@ -218,6 +219,7 @@ impl FromStr for DiagnosticCode {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct PerRecipientReportEntry {
     pub final_recipient: Recipient,
@@ -229,6 +231,7 @@ pub struct PerRecipientReportEntry {
     pub last_attempt_date: Option<DateTime<Utc>>,
     pub final_log_id: Option<String>,
     pub will_retry_until: Option<DateTime<Utc>>,
+    #[serde_as(as = "BTreeMap<_, Vec<BStringUtf8>>")]
     pub extensions: BTreeMap<String, Vec<BString>>,
 }
 
@@ -301,6 +304,7 @@ impl PerRecipientReportEntry {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct PerMessageReportEntry {
     pub original_envelope_id: Option<String>,
@@ -308,6 +312,7 @@ pub struct PerMessageReportEntry {
     pub dsn_gateway: Option<RemoteMta>,
     pub received_from_mta: Option<RemoteMta>,
     pub arrival_date: Option<DateTime<Utc>>,
+    #[serde_as(as = "BTreeMap<_, Vec<BStringUtf8>>")]
     pub extensions: BTreeMap<String, Vec<BString>>,
 }
 
@@ -359,10 +364,12 @@ impl PerMessageReportEntry {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct Report {
     pub per_message: PerMessageReportEntry,
     pub per_recipient: Vec<PerRecipientReportEntry>,
+    #[serde_as(as = "Option<BStringUtf8>")]
     pub original_message: Option<BString>,
 }
 
@@ -1742,5 +1749,50 @@ To: redacted@example.com
 )
 "#
         );
+    }
+
+    #[test]
+    fn original_message_serializes_as_json_string() {
+        let report = Report {
+            per_message: PerMessageReportEntry {
+                original_envelope_id: None,
+                reporting_mta: RemoteMta {
+                    mta_type: "dns".to_string(),
+                    name: "mta.example.com".to_string(),
+                },
+                dsn_gateway: None,
+                received_from_mta: None,
+                arrival_date: None,
+                extensions: BTreeMap::new(),
+            },
+            per_recipient: vec![],
+            original_message: Some(BString::from("Subject: hi\n\nhello")),
+        };
+        let json = serde_json::to_value(&report).unwrap();
+        k9::assert_equal!(
+            json["original_message"],
+            serde_json::Value::String("Subject: hi\n\nhello".to_string())
+        );
+    }
+
+    #[test]
+    fn original_message_non_utf8_falls_back_to_bytes() {
+        let report = Report {
+            per_message: PerMessageReportEntry {
+                original_envelope_id: None,
+                reporting_mta: RemoteMta {
+                    mta_type: "dns".to_string(),
+                    name: "mta.example.com".to_string(),
+                },
+                dsn_gateway: None,
+                received_from_mta: None,
+                arrival_date: None,
+                extensions: BTreeMap::new(),
+            },
+            per_recipient: vec![],
+            original_message: Some(BString::from(&b"abc\x80\xffxyz"[..])),
+        };
+        let json = serde_json::to_value(&report).unwrap();
+        assert!(json["original_message"].is_array());
     }
 }

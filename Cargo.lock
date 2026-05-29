@@ -3823,6 +3823,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
+ "tracing",
  "zstd",
  "zstd-safe",
 ]
@@ -4870,6 +4871,7 @@ dependencies = [
  "config",
  "data-encoding",
  "data-loader",
+ "k9",
  "mlua",
  "percent-encoding",
  "serde",
@@ -5039,6 +5041,7 @@ dependencies = [
  "mlua",
  "parking_lot",
  "serde",
+ "serde_with",
 ]
 
 [[package]]
