@@ -2,14 +2,15 @@ use crate::header::{HeaderParseResult, MessageConformance};
 use crate::headermap::HeaderMap;
 use crate::strings::IntoSharedString;
 use crate::{
-    has_lone_cr_or_lf, Header, MailParsingError, MessageID, MimeParameterEncoding, MimeParameters,
-    Result, SharedString,
+    has_lone_cr_or_lf, BStringUtf8, Header, MailParsingError, MessageID, MimeParameterEncoding,
+    MimeParameters, Result, SharedString,
 };
 use bstr::{BStr, BString, ByteSlice};
 use charset_normalizer_rs::entity::NormalizerSettings;
 use charset_normalizer_rs::Encoding;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use std::borrow::Cow;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -1240,13 +1241,16 @@ pub struct SimplifiedStructure<'a> {
     pub attachments: Vec<MimePart<'a>>,
 }
 
+#[serde_as]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AttachmentOptions {
+    #[serde_as(as = "Option<BStringUtf8>")]
     #[serde(default)]
     pub file_name: Option<BString>,
     #[serde(default)]
     pub inline: bool,
+    #[serde_as(as = "Option<BStringUtf8>")]
     #[serde(default)]
     pub content_id: Option<BString>,
 }

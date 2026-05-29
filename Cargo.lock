@@ -5040,6 +5040,7 @@ dependencies = [
  "mlua",
  "parking_lot",
  "serde",
+ "serde_with",
 ]
 
 [[package]]
