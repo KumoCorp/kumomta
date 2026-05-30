@@ -4,6 +4,7 @@ use crate::parser::{Command, Domain, EsmtpParameter, ForwardPath, ReversePath};
 use crate::{AsyncReadAndWrite, BoxedAsyncReadAndWrite};
 use bstr::ByteSlice;
 use hickory_proto::rr::rdata::TLSA;
+use hickory_proto::rr::Name;
 use memchr::memmem::Finder;
 use nom_utils::DomainString;
 use openssl::x509::{X509Ref, X509};
@@ -834,11 +835,7 @@ impl SmtpClient {
                     error: error.to_string(),
                 }
             })?;
-            let server_name = match IpAddr::from_str(self.hostname.as_str()) {
-                Ok(ip) => ServerName::IpAddress(ip.into()),
-                Err(_) => ServerName::try_from(self.hostname.clone())
-                    .map_err(|_| ClientError::InvalidDnsName(self.hostname.clone()))?,
-            };
+            let server_name = parse_server_name(self.hostname.as_str())?;
 
             match connector
                 .connect(
@@ -1201,6 +1198,18 @@ pub fn subject_name(cert: &X509Ref) -> Vec<String> {
     subject_name
 }
 
+fn parse_server_name(input: &str) -> Result<ServerName<'static>, ClientError> {
+    match IpAddr::from_str(input) {
+        Ok(ip) => Ok(ServerName::IpAddress(ip.into())),
+        Err(_) => {
+            let name = Name::from_str_relaxed(input)
+                .map_err(|_| ClientError::InvalidDnsName(input.to_string()))?;
+            ServerName::try_from(name.to_ascii())
+                .map_err(|_| ClientError::InvalidDnsName(name.to_ascii()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -1400,5 +1409,10 @@ mod test {
             ),
             r#"Timed Out waiting 10s for response to cmd=MAIL FROM:<user@host>"#
         );
+    }
+
+    #[test]
+    fn test_issue_533() {
+        let _name = parse_server_name("münchen.de").unwrap();
     }
 }

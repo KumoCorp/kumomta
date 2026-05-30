@@ -25,6 +25,7 @@ mod http_inject_per_rcpt_metadata;
 mod http_inject_size_limit;
 mod http_inject_template_syntax_error;
 mod http_liveness;
+mod idna_starttls;
 mod log_oob_arf;
 mod maildir_batch;
 mod maildir_batch_452;

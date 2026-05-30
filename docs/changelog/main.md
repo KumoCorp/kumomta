@@ -58,3 +58,6 @@
    tailer so they are not re-attempted and cannot hide later segments
    whose names sort before them.
 
+ * The SMTP client, when attempting to STARTTLS to an IDNA domain expressed in
+   its unicode form could encounter an error like `münchen.de is not a valid
+   DNS name`. #533
