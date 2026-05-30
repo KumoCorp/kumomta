@@ -73,6 +73,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - builder_image: docker://ghcr.io/kumocorp/builder-for-ubuntu:24.04
+            base_image: ubuntu:24.04
+            runs_on: kumo-linux-16core-amd64
+            arch: amd64
+            artifact_name: ubuntu_2404_amd64
+            build_docker: true
+            docker_platform: linux/amd64
+            test_containers: 1
+          - builder_image: docker://ghcr.io/kumocorp/builder-for-aarch64-ubuntu:24.04
+            base_image: ubuntu:24.04
+            runs_on: kumo-linux-16core-arm64
+            arch: aarch64
+            artifact_name: ubuntu_2404_aarch64
+            build_docker: true
+            docker_platform: linux/arm64
+            test_containers: 0
           - builder_image: docker://ghcr.io/kumocorp/builder-for-ubuntu:22.04
             base_image: ubuntu:22.04
             runs_on: kumo-linux-16core-amd64
