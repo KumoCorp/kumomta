@@ -3792,6 +3792,7 @@ dependencies = [
  "k9",
  "kumo-spf",
  "mailparsing",
+ "parking_lot",
  "psl-utils",
  "rand 0.8.6",
  "serde",

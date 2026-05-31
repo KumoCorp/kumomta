@@ -11,10 +11,12 @@ dns-resolver = { path = "../dns-resolver" }
 instant-xml = { workspace = true }
 kumo-spf = { path = "../kumo-spf" }
 mailparsing = { path = "../mailparsing" }
+parking_lot = { workspace = true }
 psl-utils = { workspace = true }
+rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-rand = { workspace = true }
+tokio = { workspace = true, features = ["fs", "rt", "sync", "time"] }
 uuid = { workspace = true, features = ["v4", "fast-rng"] }
 
 [dev-dependencies]
