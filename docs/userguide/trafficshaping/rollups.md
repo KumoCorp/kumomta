@@ -43,7 +43,7 @@ The *mx_rollup* option indicates whether or not the settings should apply to the
 
 While the default max_deliveries_per_connection is 100, it is overridden for yahoo.com (and all domains that share the same site name as the yahoo.com domain) to 20. The foo.com domain is part of the same site name as yahoo.com, but because mx_rollup is set to false the foo.com domain is treated separately and instead is set to 50. Because there is a sources entry for IP-1, the max_deliveries_per_connection is further overridden to 5 for that source's traffic in particular.
 
-## Pattern Matching Rollups
+## Pattern Matching Rollups Using Providers
 
 {{since('2024.11.08-d383b033')}}
 
@@ -130,10 +130,10 @@ domain that blends multiple different providers together.
 !!!note
     The suffix matching is *not* a regex operation, it is purely based on whether the string specified appears at the end of the MX or domain being tested. Do not use any wildcard characters.
 
+!!!warning
+    When a provider is defined, it does ***not*** merge the various `site_name` queues covered by the provider together, which means that the `connection_limit` and `max_message_rate` options will not be enforced across all matching queues, but will be applied separately to each ready queue covered by the provider block.
 
-The provider block introduces two new options: `provider_connection_limit` and `provider_max_message_rate`. When a provider is defined, it does not merge the various `site_name` queues covered by the provider together, which means that the `connection_limit` and `max_message_rate` options will not be enforced across all matching queues, but will be applied separately to each ready queue covered by the provider block.
-
-When the `provider_connection_limit` and `provider_max_message_rate` options are set, the throttles defined will be enforced across all matching site_name ready queues for that provider. This is typically the desired behavior. One example of a scenario where the provider_ options would not be used is Mimecast: each regional MX pattern used by Mimecast is a separate set of servers in that region, but traffic shaping expectations are the same for all regions. To address this we use a provider block without the `provider_` throttles:
+The provider block introduces two new options: `provider_connection_limit` and `provider_max_message_rate`. When the `provider_connection_limit` and `provider_max_message_rate` options are set, the throttles defined will be enforced across all matching site_name ready queues for that provider. This is typically the desired behavior. One example of a scenario where the provider_ options would not be used is Mimecast: each regional MX pattern used by Mimecast is a separate set of servers in that region, but traffic shaping expectations are the same for all regions. To address this we use a provider block without the `provider_` throttles:
 
 {% call toml_data() %}
 [provider."mimecast"]
@@ -145,4 +145,4 @@ connection_limit = 10
 In this case we can define traffic shaping rules that apply to Mimecast globally, but which are still enforced by each region's ready queue without limiting worldwide traffic.
 
 !!!note
-    Both the `provider_` and regular throttles can be set, where `connection_limit` would be for the individual site names, and `provider_connection_limit` would cap the overall connection count. The same would apply for `max_message_rate` and `provider_max_message_rate`.
+    Both the `provider_` and regular throttles can be set, where `connection_limit` would be for the individual site names, and `provider_connection_limit` would cap the overall connection count. The same would apply for `max_message_rate` and `provider_max_message_rate`. Combining the `provider_` and regular throttles should be done with care, as it easy to over-constrain the server if the settings are not aligned correctly.

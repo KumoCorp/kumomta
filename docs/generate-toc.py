@@ -249,13 +249,13 @@ TOC = [
                         "Scoping Traffic Shaping Rules",
                         "userguide/trafficshaping/scoping.md",
                     ),
+                     Page(
+                        "MX Rollups and Provider Blocks",
+                        "userguide/trafficshaping/rollups.md",
+                    ),
                     Page(
                         "Traffic Shaping Configuration Files",
                         "userguide/trafficshaping/shapingfiles.md",
-                    ),
-                    Page(
-                        "MX Rollups and Provider Blocks",
-                        "userguide/trafficshaping/rollups.md",
                     ),
                     Page(
                         "Shaping Option Resolution Order and Precedence",

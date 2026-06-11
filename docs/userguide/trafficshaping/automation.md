@@ -110,6 +110,35 @@ end)
 !!!note
     The `tsa_init.lua` has no implicit loading of the default `shaping.toml` file. To avoid loading the default file simply omit it.
 
+## Writing Automation Rules to `shaping.toml`
+
+Automation rules are written to the same shaping configuration files used for regular traffic shaping, under the same domain or provider scopes. Each rule defines a regex to be matched, an action to be taken in the event of a match, the trigger conditions for triggering the regex match, and the duration that the action should be applied for.
+
+{% call toml_data() %}
+
+[["gmail.com".automation]]
+regex = "This message does not have authentication information"
+action = "SuspendTenant"
+duration = "3 hours"
+
+[[provider."yahoo".automation]]
+regex = "\\[TS04\\]"
+action = "Suspend"
+duration = "2 hours"
+
+[["comcast.net".automation]]
+regex = "RL0000"
+# sets max_connection_rate="10,000 per hour"
+action = {SetConfig={name="max_connection_rate", value="10000/h"}}
+# if we see 2 or more matches in an hour. Unlike throttles, this
+# doesn't divide down to per-second rates.
+trigger = {Threshold="2/hr"}
+# The config override will last for 2 hours
+duration = "2 hours"
+{% endcall %}
+
+The full set of Traffic Shaping Automation actions is available on the [traffic shaping](../../reference/kumo.shaping/load.md#traffic-shaping-automation-rules) page of the Reference Manual.
+
 ## Monitoring the TSA Daemon
 
 Adjustments to the traffic shaping rules are achieved by creating a custom `shaping.toml` file that is maintained by the TSA daemon and loaded as an overlay on the existing `shaping.toml file created by the user.
