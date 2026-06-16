@@ -476,6 +476,14 @@ struct Compiled<'a> {
     attached: Vec<MimePart<'a>>,
 }
 
+fn validate_header_value(header_name: &str, value: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !value.as_bytes().contains(&b'\r') && !value.as_bytes().contains(&b'\n'),
+        "content.headers['{header_name}'] must not contain newline characters"
+    );
+    Ok(())
+}
+
 impl<'a> Compiled<'a> {
     pub fn expand_for_recip(
         &self,
@@ -557,6 +565,7 @@ impl<'a> Compiled<'a> {
                         need_to = false;
                     }
                     let expanded = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
+                    validate_header_value(name, &expanded)?;
                     id += 1;
                     builder.push(mailparsing::Header::new_unstructured(
                         name.to_string(),
@@ -1621,6 +1630,50 @@ Some(
         );
 
         k9::assert_equal!(structure.attachments.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_generate_builder_rejects_newline_in_header_value() {
+        let mut request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: Some("James Smythe".to_string()),
+                substitutions: HashMap::new(),
+                metadata: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Builder {
+                text_body: Some("I am the plain text".to_string()),
+                amp_html_body: None,
+                html_body: None,
+                attachments: vec![],
+                subject: Some("hello\n\nHello there".to_string()),
+                from: None,
+                reply_to: None,
+                headers: Default::default(),
+            },
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+            template_dialect: Default::default(),
+        };
+
+        request.normalize().unwrap();
+        let compiled = request.compile().unwrap();
+        let err = compiled
+            .expand_for_recip(
+                &request.recipients[0],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("content.headers['Subject'] must not contain newline characters"),
+            "unexpected error: {err:#}"
+        );
     }
 
     #[tokio::test]
