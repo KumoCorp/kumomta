@@ -105,6 +105,14 @@ impl KumoApiClient {
     );
 
     method!(
+        admin_spool_compact_v1,
+        TEXT,
+        POST,
+        "/api/admin/spool-compact/v1",
+        SpoolCompactV1Request
+    );
+
+    method!(
         admin_inspect_sched_q_v1,
         GET,
         "/api/admin/inspect-sched-q/v1",

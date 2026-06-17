@@ -1018,6 +1018,25 @@ impl ReadyQueue {
             return;
         }
 
+        // Spool-health check goes before the admin-suspend check.
+        // The ready->scheduled drain reuses the same machinery; each
+        // re-inserted message is funneled back through insert_ready,
+        // which itself short-circuits on unhealthy and produces a
+        // per-message TransientFailure record there.
+        if crate::spool::delivery_suspension_reason().is_some() {
+            tracing::trace!(
+                "{} draining ready queue: spool unhealthy",
+                self.name,
+            );
+            self.reinsert_ready_queue(
+                "spool unhealthy",
+                InsertReason::ReadyQueueWasSuspended.into(),
+            )
+            .await;
+            self.wakeup_all_dispatchers();
+            return;
+        }
+
         if let Some(suspend) = suspend {
             let duration = suspend.get_duration();
             tracing::trace!(
@@ -2049,6 +2068,13 @@ impl Dispatcher {
     /// The batch latency is NOT considered by this function.
     #[instrument(skip(self))]
     async fn obtain_message(&mut self, queue_dispatcher: &mut dyn QueueDispatcher) -> bool {
+        // Spool-health check goes before we look at the ready queue
+        // at all.  Bulk drain is the maintainer's job; here we just
+        // refuse to take new work so the dispatcher's normal "no
+        // batch ready" path closes the session.
+        if crate::spool::delivery_suspension_reason().is_some() {
+            return false;
+        }
         if self.msgs.len() >= queue_dispatcher.min_batch_size() {
             tracing::trace!(
                 "already have {} messages which is >= min batch {}",

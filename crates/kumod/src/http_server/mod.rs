@@ -7,6 +7,7 @@ pub mod admin_inspect_message;
 pub mod admin_inspect_scheduled_queue;
 pub mod admin_ready_queue_states;
 pub mod admin_rebind_v1;
+pub mod admin_spool_compact_v1;
 pub mod admin_suspend_ready_q_v1;
 pub mod admin_suspend_v1;
 pub mod admin_trace_smtp_client_v1;
@@ -26,6 +27,7 @@ pub fn make_router() -> RouterAndDocs {
             admin_inspect_scheduled_queue::inspect_v1,
             admin_ready_queue_states::readyq_states,
             admin_rebind_v1::rebind_v1,
+            admin_spool_compact_v1::spool_compact_v1,
             admin_suspend_ready_q_v1::delete,
             admin_suspend_ready_q_v1::list,
             admin_suspend_ready_q_v1::suspend,

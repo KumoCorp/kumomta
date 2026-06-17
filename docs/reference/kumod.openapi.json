@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.05.07-6b1bc0e0"
+    "version": "2026.06.18-83e69a7b"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -305,6 +305,32 @@
         "responses": {
           "200": {
             "description": "Diagnostic level set successfully"
+          }
+        }
+      }
+    },
+    "/api/admin/spool-compact/v1": {
+      "post": {
+        "tags": [
+          "spool",
+          "kcli:spool-compact"
+        ],
+        "summary": "Force a flush and major compaction of the named spool.",
+        "description": "Primarily intended for operational diagnostics and integration\ntests.  For rocksdb-backed spools this performs a flush of the\nmemtable followed by a full-keyspace compaction.  For other spool\nkinds it is a no-op.\n\nReturns an error if the named spool is not defined, or if the\nunderlying storage reports an error (for example, a missing or\ncorrupt SST file encountered during compaction).",
+        "operationId": "spool_compact_v1",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpoolCompactV1Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Compaction completed successfully"
           }
         }
       }
@@ -1545,6 +1571,18 @@
             "type": "string",
             "description": "The diagnostic filter spec to use",
             "example": "kumod=trace"
+          }
+        }
+      },
+      "SpoolCompactV1Request": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the spool to compact, matching a `kumo.define_spool` name."
           }
         }
       },

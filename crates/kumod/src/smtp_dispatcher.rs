@@ -1120,6 +1120,29 @@ impl QueueDispatcher for SmtpDispatcher {
             }
         }
 
+        // Race protection: the load-shedding gate may have latched
+        // between obtain_message and here.  If so, do not start a
+        // new SMTP transaction -- log the hold against this message
+        // and let the dispatcher's normal "no more messages" path
+        // (obtain_message at the top of the next loop iteration)
+        // close the SMTP session.
+        if let Some(reason) = crate::spool::delivery_suspension_reason() {
+            let id = *msg.id();
+            if let Err(err) = crate::spool::log_and_requeue_for_unhealthy_spool(
+                msg,
+                &dispatcher.name,
+                Some(dispatcher.session_id),
+                reason,
+            )
+            .await
+            {
+                tracing::error!(
+                    "failed to requeue {id} while spool is unhealthy: {err:#}"
+                );
+            }
+            return Ok(());
+        }
+
         let send_result = self
             .client
             .as_mut()

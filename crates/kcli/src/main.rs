@@ -13,6 +13,7 @@ mod logfilter;
 mod provider_summary;
 mod queue_summary;
 mod rebind;
+mod spool_compact;
 mod suspend;
 mod suspend_cancel;
 mod suspend_list;
@@ -60,6 +61,7 @@ enum SubCommand {
     BounceList(bounce_list::BounceListCommand),
     BounceCancel(bounce_cancel::BounceCancelCommand),
     Rebind(rebind::RebindCommand),
+    SpoolCompact(spool_compact::SpoolCompactCommand),
     Suspend(suspend::SuspendCommand),
     SuspendList(suspend_list::SuspendListCommand),
     SuspendCancel(suspend_cancel::SuspendCancelCommand),
@@ -110,6 +112,7 @@ impl SubCommand {
                     ("trace-smtp-client", &["ops", "debugging"]),
                     ("trace-smtp-server", &["ops", "debugging"]),
                     ("top", &["ops", "debugging"]),
+                    ("spool-compact", &["ops", "debugging"]),
                     ("xfer", &["ops", "xfer"]),
                     ("xfer-cancel", &["ops", "xfer"]),
                 ];
@@ -157,6 +160,7 @@ impl SubCommand {
             Self::BounceCancel(cmd) => cmd.run(endpoint).await,
             Self::BounceList(cmd) => cmd.run(endpoint).await,
             Self::Rebind(cmd) => cmd.run(endpoint).await,
+            Self::SpoolCompact(cmd) => cmd.run(endpoint).await,
             Self::Suspend(cmd) => cmd.run(endpoint).await,
             Self::SuspendCancel(cmd) => cmd.run(endpoint).await,
             Self::SuspendList(cmd) => cmd.run(endpoint).await,

@@ -85,6 +85,8 @@ pub enum InsertReason {
     /// The delivery protocol associated with the queue implicitly via the
     /// scheduled queue configuration changed
     ProtocolChanged,
+    /// The spool subsystem is unhealthy and delivery cannot safely proceed
+    SpoolUnhealthy,
 }
 
 #[cfg(test)]

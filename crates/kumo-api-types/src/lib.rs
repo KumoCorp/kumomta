@@ -190,6 +190,12 @@ pub struct BounceV1CancelRequest {
 }
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
+pub struct SpoolCompactV1Request {
+    /// Name of the spool to compact, matching a `kumo.define_spool` name.
+    pub name: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct SuspendV1Request {
     /// The campaign name to match. If omitted, any campaign will match.
     #[serde(default)]

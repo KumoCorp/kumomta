@@ -26,6 +26,8 @@ Full docs available at: <https://docs.kumomta.com>
 
 * `rebind` — Rebind messages from matching queues into different queue(s)
 
+* `spool-compact` — Forces a flush and full compaction of the named spool
+
 * `suspend` — Administratively suspend messages in matching queues
 
 * `suspend-list` — Returns list of current administrative suspend rules

@@ -1138,6 +1138,9 @@ pub fn activity_for_peer(
             "waiting for spool startup",
         ));
     }
+    if let Some(reason) = SpoolManager::get().spool_unhealthy_reason() {
+        return Err(AppError::new(StatusCode::SERVICE_UNAVAILABLE, reason));
+    }
 
     Ok(activity)
 }
