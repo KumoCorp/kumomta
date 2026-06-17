@@ -1,4 +1,5 @@
 #![cfg(test)]
+mod allow_plaintext_auth;
 mod arc;
 mod auth_deliver;
 mod auth_deliver_invalid_password;
