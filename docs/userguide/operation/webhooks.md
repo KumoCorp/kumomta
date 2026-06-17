@@ -48,7 +48,7 @@ log_hooks:new_json {
     working layout for the `init.lua` file.
 
 !!!Warning
-    The default traffic shaping rules that are likely present in your [Shaping Helper](../configuration/trafficshaping.md) configuration will also affect messages queued for delivery via webhooks. To avoid issues, add throttle configuration specific to your webhook queue (based on the name provided when creating a webhook):
+    The default traffic shaping rules that are likely present in your [Shaping Helper](../trafficshaping/shapingfiles.md) configuration will also affect messages queued for delivery via webhooks. To avoid issues, add throttle configuration specific to your webhook queue (based on the name provided when creating a webhook):
 
 ```toml
 ['webhook.log_hook']

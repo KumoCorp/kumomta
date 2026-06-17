@@ -7,10 +7,12 @@ use futures::Stream;
 use notify::event::{CreateKind, ModifyKind};
 use notify::{Event, EventKind, Watcher};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Notify;
+use tracing::warn;
 
 // ---------------------------------------------------------------------------
 // Default helpers
@@ -456,6 +458,7 @@ fn build_plan(
     checkpoint_paths: &[Option<Utf8PathBuf>],
     last_processed: &Option<Utf8PathBuf>,
     checkpoint: &Option<CheckpointData>,
+    bad_files: &HashSet<Utf8PathBuf>,
 ) -> anyhow::Result<Vec<Utf8PathBuf>> {
     let glob = Glob::new(pattern)?;
     let mut result = vec![];
@@ -463,6 +466,11 @@ fn build_plan(
         let path = directory.join(Utf8PathBuf::try_from(path).map_err(|e| anyhow::anyhow!("{e}"))?);
         // Skip checkpoint files
         if checkpoint_paths.iter().any(|cp| cp.as_ref() == Some(&path)) {
+            continue;
+        }
+        // Skip files we've previously determined to be unreadable
+        // (foreign content or unrecoverable corruption).
+        if bad_files.contains(&path) {
             continue;
         }
         if path.is_file() {
@@ -520,6 +528,13 @@ fn make_multi_stream(
         let mut global_checkpoint = earliest_checkpoint;
         let mut skip_lines: usize;
         let retry_delay = Duration::from_millis(200);
+        // Files that produced unrecoverable read errors (foreign content,
+        // corruption, etc).  Kept in-memory for the lifetime of the tailer
+        // so we don't re-attempt them on every directory rescan.  Unlike
+        // `last_processed`, this does not interact with file ordering, so
+        // a bad file whose name sorts after future legitimate segments
+        // does not hide them.
+        let mut bad_files: HashSet<Utf8PathBuf> = HashSet::new();
 
         // Per-consumer skip lines (for the first file only, when
         // resuming from checkpoint).  The global skip_lines is the
@@ -539,6 +554,7 @@ fn make_multi_stream(
                 &cp_paths,
                 &last_processed,
                 &global_checkpoint,
+                &bad_files,
             )?;
 
             if plan.is_empty() {
@@ -624,102 +640,142 @@ fn make_multi_stream(
                     let d = decomp.as_mut().expect("checked above");
                     let path = current_path.expect("set with decomp");
 
+                    // When set after processing the current decompressor
+                    // call, advance to the next file in the plan.
+                    // `Some(true)`  -> mark the file as bad (foreign or
+                    //                  unrecoverable corruption); do not
+                    //                  update `last_processed`.
+                    // `Some(false)` -> file completed normally; update
+                    //                  `last_processed`.
+                    let mut advance_file: Option<bool> = None;
+
                     match d.next_line(skip_lines) {
                         Ok(Some(line)) => {
-                            let value: serde_json::Value = serde_json::from_str(&line.text)
-                                .map_err(|err| {
-                                    anyhow::anyhow!(
-                                        "Failed to parse a line from {path} (byte offset {}) \
-                                         as json: {err}. Is the file corrupt? You may need \
-                                         to move the file aside to make progress",
-                                        line.byte_offset
-                                    )
-                                })?;
-
-                            for i in 0..num_consumers {
-                                if global_line_in_file < consumer_skip[i] {
-                                    continue;
-                                }
-                                if let Some(ref f) = filters[i] {
-                                    if !f(&value)? {
-                                        continue;
+                            match serde_json::from_str::<serde_json::Value>(&line.text) {
+                                Ok(value) => {
+                                    for i in 0..num_consumers {
+                                        if global_line_in_file < consumer_skip[i] {
+                                            continue;
+                                        }
+                                        if let Some(ref f) = filters[i] {
+                                            if !f(&value)? {
+                                                continue;
+                                            }
+                                        }
+                                        batches[i].push_value(
+                                            value.clone(),
+                                            path,
+                                            line.byte_offset,
+                                        );
+                                        // Start the deadline timer on first record
+                                        if deadlines[i].is_none() {
+                                            deadlines[i] = Some(
+                                                tokio::time::Instant::now() + max_batch_latencies[i],
+                                            );
+                                        }
                                     }
+                                    global_line_in_file += 1;
                                 }
-                                batches[i].push_value(
-                                    value.clone(),
-                                    path,
-                                    line.byte_offset,
-                                );
-                                // Start the deadline timer on first record
-                                if deadlines[i].is_none() {
-                                    deadlines[i] = Some(
-                                        tokio::time::Instant::now() + max_batch_latencies[i],
+                                Err(err) => {
+                                    warn!(
+                                        "Failed to parse a line from {path} (byte offset {}) \
+                                         as json: {err}. Skipping remainder of this file; \
+                                         move it aside if it is not a kumo-jsonl segment.",
+                                        line.byte_offset
                                     );
+                                    advance_file = Some(true);
                                 }
                             }
-                            global_line_in_file += 1;
                         }
                         Ok(None) => {
                             // EOF on current file
                             if is_file_done(path) {
                                 if d.has_partial_data() {
-                                    Err(anyhow::anyhow!(
-                                        "unexpected EOF for {} with partial line data remaining",
+                                    // The writer was killed before it
+                                    // could finish the zstd stream and the
+                                    // segment was later marked done by the
+                                    // producer's startup sweep over
+                                    // abandoned segments.  Discard the
+                                    // partial trailing line and treat the
+                                    // file as complete.
+                                    warn!(
+                                        "unexpected EOF for {} with partial line data remaining; \
+                                         the writer exited without flushing the zstd stream. \
+                                         Discarding partial trailing data and advancing to next \
+                                         segment.",
                                         path
-                                    ))?;
+                                    );
                                 }
-                                last_lines_consumed = d.lines_consumed;
-                                last_processed = Some(path.clone());
-                                skip_lines = 0;
-                                global_line_in_file = 0;
-                                for cs in consumer_skip.iter_mut() {
-                                    *cs = 0;
-                                }
-
-                                plan_index += 1;
-                                if let Some(next_path) = plan.get(plan_index) {
-                                    let path_std = next_path.as_std_path().to_owned();
-                                    decomp = Some(FileDecompressor::open(&path_std)?);
-                                    current_path = Some(next_path);
-                                    continue 'fill;
-                                } else {
-                                    decomp = None;
-                                    current_path = None;
-                                    break 'fill;
-                                }
-                            }
-
-                            // File not done; find the earliest deadline
-                            // among non-empty batches to bound the wait.
-                            let earliest_deadline = (0..num_consumers)
-                                .filter(|&i| !batches[i].is_empty())
-                                .filter_map(|i| deadlines[i])
-                                .min();
-
-                            if let Some(deadline) = earliest_deadline {
-                                let remaining = deadline.saturating_duration_since(
-                                    tokio::time::Instant::now(),
-                                );
-                                if remaining.is_zero() {
-                                    break 'fill;
-                                }
-                                tokio::select! {
-                                    _ = shared.close_notify.notified() => break 'outer,
-                                    _ = tokio::time::sleep(remaining.min(retry_delay)) => {},
-                                    _ = fs_notify.notified() => {},
-                                }
+                                advance_file = Some(false);
                             } else {
-                                // All batches empty, file not done — wait
-                                tokio::select! {
-                                    _ = shared.close_notify.notified() => break 'outer,
-                                    _ = tokio::time::sleep(retry_delay) => {},
-                                    _ = fs_notify.notified() => {},
+                                // File not done; find the earliest deadline
+                                // among non-empty batches to bound the wait.
+                                let earliest_deadline = (0..num_consumers)
+                                    .filter(|&i| !batches[i].is_empty())
+                                    .filter_map(|i| deadlines[i])
+                                    .min();
+
+                                if let Some(deadline) = earliest_deadline {
+                                    let remaining = deadline.saturating_duration_since(
+                                        tokio::time::Instant::now(),
+                                    );
+                                    if remaining.is_zero() {
+                                        break 'fill;
+                                    }
+                                    tokio::select! {
+                                        _ = shared.close_notify.notified() => break 'outer,
+                                        _ = tokio::time::sleep(remaining.min(retry_delay)) => {},
+                                        _ = fs_notify.notified() => {},
+                                    }
+                                } else {
+                                    // All batches empty, file not done — wait
+                                    tokio::select! {
+                                        _ = shared.close_notify.notified() => break 'outer,
+                                        _ = tokio::time::sleep(retry_delay) => {},
+                                        _ = fs_notify.notified() => {},
+                                    }
                                 }
+                                d.reset_eof();
                             }
-                            d.reset_eof();
                         }
                         Err(e) => {
-                            Err(e)?;
+                            // Any decompression error means this file is
+                            // not consumable -- either it is foreign
+                            // content that was dropped into the directory,
+                            // or its bytes are corrupt in a way that
+                            // waiting cannot resolve (an incomplete-but-
+                            // well-formed stream surfaces as Ok(None), not
+                            // Err).  Log and skip.
+                            warn!(
+                                "Error decompressing {path}: {e:#}. Skipping this file; \
+                                 move it aside if it is not a kumo-jsonl segment."
+                            );
+                            advance_file = Some(true);
+                        }
+                    }
+
+                    if let Some(mark_bad) = advance_file {
+                        if mark_bad {
+                            bad_files.insert(path.clone());
+                        } else {
+                            last_lines_consumed = d.lines_consumed;
+                            last_processed = Some(path.clone());
+                        }
+                        skip_lines = 0;
+                        global_line_in_file = 0;
+                        for cs in consumer_skip.iter_mut() {
+                            *cs = 0;
+                        }
+                        plan_index += 1;
+                        if let Some(next_path) = plan.get(plan_index) {
+                            let path_std = next_path.as_std_path().to_owned();
+                            decomp = Some(FileDecompressor::open(&path_std)?);
+                            current_path = Some(next_path);
+                            continue 'fill;
+                        } else {
+                            decomp = None;
+                            current_path = None;
+                            break 'fill;
                         }
                     }
                 }

@@ -25,6 +25,7 @@ chrono-tz = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
 zstd = { workspace = true }
 tokio = { version = "1.32", features = ["fs", "io-util", "rt", "time", "sync", "macros"] }
 tokio-stream = { workspace = true }

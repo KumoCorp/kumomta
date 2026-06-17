@@ -238,11 +238,41 @@ TOC = [
                         "Configuring Queue Rollup",
                         "userguide/configuration/rollup.md",
                     ),
-                    Page(
-                        "Configuring Traffic Shaping",
-                        "userguide/configuration/trafficshaping.md",
-                    ),
                     Page("Configuring DKIM Signing", "userguide/configuration/dkim.md"),
+                ],
+            ),
+            Page(
+                "Traffic Shaping",
+                "userguide/trafficshaping/index.md",
+                children=[
+                    Page(
+                        "Scoping Traffic Shaping Rules",
+                        "userguide/trafficshaping/scoping.md",
+                    ),
+                     Page(
+                        "MX Rollups and Provider Blocks",
+                        "userguide/trafficshaping/rollups.md",
+                    ),
+                    Page(
+                        "Traffic Shaping Configuration Files",
+                        "userguide/trafficshaping/shapingfiles.md",
+                    ),
+                    Page(
+                        "Shaping Option Resolution Order and Precedence",
+                        "userguide/trafficshaping/resolution.md",
+                    ),
+                    Page(
+                        "Writing Custom Shaping Files",
+                        "userguide/trafficshaping/customshaping.md",
+                    ),
+                    Page(
+                        "Traffic Shaping Automation",
+                        "userguide/trafficshaping/automation.md",
+                    ),
+                    Page(
+                        "Testing Your Shaping Files",
+                        "userguide/trafficshaping/testing.md",
+                    ),
                 ],
             ),
             Page(

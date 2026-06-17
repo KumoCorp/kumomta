@@ -9,7 +9,7 @@ tags:
 series:delta(value)
 ```
 
-{{since('dev')}}
+{{since('2026.05.12-a6845223')}}
 
 Adjusts the current bucket of the series by a signed amount.
 

@@ -4,52 +4,60 @@
 
 ## Other Changes and Enhancements
 
- * New [kumo.counter_series](../reference/kumo.counter_series/index.md)
-   module exposing in-memory rolling counters backed by a fixed-size ring of
-   time buckets. Useful for short-term, per-process bookkeeping of event
-   rates from policy. Thanks to @kayozaki!
- * New [message:import_headers](../reference/message/import_headers.md) method,
-   a more flexible alternative to `message:import_x_headers`. Supports exact
-   names and trailing-`*` wildcards, first/last/all match modes, optional
-   removal of matched headers, and configurable name-transform styles
-   (snake/kebab/camel/pascal case).
- * New `accept_invalid_certs` option on
-   [kumo.http.build_client](../reference/kumo.http/build_client.md) that
-   disables TLS certificate verification for the resulting client. Intended
-   for development and testing against self-signed endpoints; see the
-   reference for the security caveats. Thanks to @Fallmay! #504
- * The HTTP injection API now supports per-recipient metadata via a new
-   `metadata` field on each recipient object. Key-value pairs supplied
-   there are stored on the resulting message under the `extra` metadata
-   key, accessible from Lua hooks via `msg:get_meta('extra')`.
- * Documented a naming convention for user-defined message and connection
-   meta keys: prefix application-specific keys with `x_` to avoid
-   collisions with current and future KumoMTA-predefined meta names. This
-   aligns with the `x_*` keys produced by
-   [message:import_x_headers](../reference/message/import_x_headers.md) and
-   the default `snake_case` transform used by
-   [message:import_headers](../reference/message/import_headers.md);
-   KumoMTA's own predefined meta keys will never start with `x_`. See the
-   [naming convention](../reference/message/set_meta.md#naming-convention-for-user-defined-keys)
-   for details. Existing meta names continue to work; the `x_` prefix is a
-   recommendation, not a hard requirement.
+ * The `shaping.lua` helper's `setup_with_automation` now accepts optional
+   `skip_log_record_types` and `additional_skip_log_record_types` tables,
+   allowing users to customise which log record types are suppressed from TSA
+   publishing. `skip_log_record_types` replaces the default set, while
+   `additional_skip_log_record_types` extends it. eg:
+   `additional_skip_log_record_types = {'Delivery'}`.
+   Thanks to @Harshjha3006!  #525
 
 ## Fixes
 
- * proxy-server: TCP keepalive is now configured on inbound and outbound
-   sockets handled by the proxy listener, so unresponsive peers are detected
-   and the connection is closed rather than left open indefinitely.  The
-   probe timing can be tuned (or keepalive disabled) via the new
-   [tcp_keepalive](../reference/proxy/start_proxy_listener/tcp_keepalive.md)
-   field on `proxy.start_proxy_listener`.  Thanks to @jack-atlas! #509
- * A message with multipart/mixed as the root with multipart/related as a child
-   part was not structurally parsed correctly, producing incorrect parts when
-   using [mimepart:get_simple_structure](../reference/mimepart/get_simple_structure.md).
-   Thanks to @kayozaki! #506
- * typing.lua: couldn't distinguish `false` from unset for a boolean field with
-   default of `true`, such as those used in `mail_auth.lua`. Thanks to
-   @kayozaki! #505
- * Regression with `postmaster@domain` style addresses and null sender
-   addresses when constructing messages via
-   [kumo.make_message](../reference/kumo/make_message.md) and its equivalent
-   internal API. Thanks in part to @kayozaki!  #511 #512
+ * [kumo.crypto.aws_sign_v4](../reference/kumo.crypto/aws_sign_v4.md) had
+   several issues with its SigV4 implementation:
+
+     * The `x-amz-content-sha256` header logic was inverted: it was being
+       added to the signed header set for every service *except* S3, when
+       AWS actually requires it specifically for S3 (and does not expect
+       it for most other services).  S3 requests now correctly include
+       `x-amz-content-sha256` in the signed headers, and other services
+       no longer have it added implicitly.
+     * Header value canonicalization now implements the AWS *Trimall*
+       rule (strip leading/trailing space and tab, collapse internal runs
+       of space and tab to a single space, preserving whitespace inside
+       quoted strings) rather than only trimming the ends.
+     * The `host` header is now required to be supplied by the caller;
+       previously a misleading empty `host:` placeholder would be signed
+       if it was omitted.  Header names supplied by the caller are
+       matched case-insensitively, so `Host` and `host` are both
+       accepted.
+
+   The implementation is now verified against vectors from the official
+   AWS SigV4 test suite.  If you are calling this function for a non-S3
+   service (for example SNS, SQS, or Firehose) and were also sending
+   `x-amz-content-sha256` on the wire, you should now either pass it
+   explicitly in `headers` so it is included in the signed set, or stop
+   sending it on the wire to match the signed request.
+   Thanks to @AdityaAudi! #522
+
+ * The `feedback_report.original_message` field, and the values in the
+   associated `extensions` map, in `Feedback` log records produced for
+   incoming ARF reports were being serialized as a JSON array of byte
+   values rather than the string shape documented in the
+   [log_record](../reference/log_record.md) reference. They are now
+   emitted as a JSON string when the underlying bytes are valid UTF-8,
+   falling back to a byte array only for non-UTF-8 content. #529
+
+ * [kumo.jsonl.new_tailer](../reference/kumo.jsonl/new_tailer.md) and
+   [kumo.jsonl.new_multi_tailer](../reference/kumo.jsonl/new_multi_tailer.md)
+   no longer shut down on a truncated trailing record from a killed
+   producer, a file that is not a valid zstd stream, or a file whose
+   decompressed contents are not JSONL.  The offending file is logged and
+   skipped, and unreadable files are remembered for the lifetime of the
+   tailer so they are not re-attempted and cannot hide later segments
+   whose names sort before them.
+
+ * The SMTP client, when attempting to STARTTLS to an IDNA domain expressed in
+   its unicode form could encounter an error like `münchen.de is not a valid
+   DNS name`. #533

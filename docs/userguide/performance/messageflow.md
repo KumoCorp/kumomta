@@ -48,7 +48,7 @@ graph TD
 
   * As part of this process the appropriate ready queue will be compared to the corresponding [max_ready](../../reference/kumo/make_egress_path/max_ready.md) setting to ensure there is room for the message. If there is not the message will be delayed by a random amount, returned to the Scheduled queue, and a [`Delayed`](../../reference/log_record.md#record-types) log entry will be generated (potentially with a corresponding queued message to route the log entry over Webhook/AMQP/Kafka).
   
-  * Traffic shaping and other similar options are configured based on this combination, see the [Configuring Traffic Shaping](../configuration/trafficshaping.md) chapter for more information.
+  * Traffic shaping and other similar options are configured based on this combination, see the [Traffic Shaping](../trafficshaping/index.md) chapter for more information.
 
   * The **egress source** is a configured structure that defines the name, source IP, and ehlo domain of a given pathway, and it is added to an egress pool, which the message is assigned to as part of the queue config. **Note:** While routing is assigned at the *egress pool* level, traffic shaping happens at the *egress source* level.
 

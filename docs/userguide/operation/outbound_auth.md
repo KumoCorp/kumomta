@@ -75,4 +75,4 @@ smtp_auth_plain_username = "daniel"
 smtp_auth_plain_password = { vault_mount = "secret", vault_path = "smtp-auth/local", vault_key = "password" }
 {% endcall %}
 
-See the [traffic shaping](../configuration/trafficshaping.md#using-the-shapinglua-helper) section of the User Guide for additional information.
+See the [Traffic Shaping](../trafficshaping/index.md) chapter of the User Guide for additional information.
