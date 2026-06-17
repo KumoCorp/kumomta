@@ -249,7 +249,7 @@ TOC = [
                         "Scoping Traffic Shaping Rules",
                         "userguide/trafficshaping/scoping.md",
                     ),
-                     Page(
+                    Page(
                         "MX Rollups and Provider Blocks",
                         "userguide/trafficshaping/rollups.md",
                     ),
