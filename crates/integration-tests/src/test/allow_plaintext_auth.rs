@@ -41,7 +41,11 @@ async fn auth_advertised_before_tls_when_plaintext_auth_enabled() -> anyhow::Res
     let caps = client.ehlo_lhlo("there", false).await?;
     assert!(
         caps.contains_key("AUTH"),
-        "AUTH should be advertised before TLS when allow_plaintext_auth is true"
+        "AUTH should be advertised when allow_plaintext_auth is true"
+    );
+    assert!(
+        !caps.contains_key("STARTTLS"),
+        "STARTTLS should not be advertised when allow_plaintext_auth is true"
     );
 
     daemon.stop().await?;

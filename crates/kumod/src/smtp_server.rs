@@ -1808,7 +1808,7 @@ impl SmtpServerSession {
 
                     let mut extensions =
                         vec!["PIPELINING", "ENHANCEDSTATUSCODES", "8BITMIME", "SMTPUTF8"];
-                    if self.tls_active.is_none() {
+                    if self.tls_active.is_none() && !self.params.allow_plaintext_auth {
                         extensions.push("STARTTLS");
                     }
                     if self.tls_active.is_some() || self.params.allow_plaintext_auth {
