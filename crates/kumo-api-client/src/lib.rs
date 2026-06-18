@@ -3,7 +3,7 @@ use futures::{Stream, StreamExt};
 use kumo_api_types::rebind::{RebindV1Request, RebindV1Response};
 use kumo_api_types::xfer::*;
 use kumo_api_types::*;
-use kumo_prometheus::parser::Metric;
+pub use kumo_prometheus::parser::Metric;
 use std::time::Duration;
 
 pub use reqwest::Url;

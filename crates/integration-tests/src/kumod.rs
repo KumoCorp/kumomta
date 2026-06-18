@@ -5,6 +5,7 @@ use anyhow::{anyhow, Context};
 use futures::stream::FusedStream;
 use futures::{SinkExt, StreamExt};
 use kumo_api_client::KumoApiClient;
+pub use kumo_api_client::Metric;
 use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Request};
 use kumo_log_types::*;
 use kumo_server_common::acct::AcctLogRecord;
@@ -20,7 +21,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
@@ -614,6 +615,36 @@ impl KumoDaemon {
         let endpoint = format!("http://{}", self.listener("http"));
         let url = kumo_api_client::Url::parse(&endpoint).unwrap();
         KumoApiClient::new(url)
+    }
+
+    /// Poll the prometheus `/metrics` endpoint until `condition` returns
+    /// true for the values of the metrics selected by `filter`, or until
+    /// `timeout` elapses (in which case an error is returned).
+    ///
+    /// `filter` is invoked for every metric scraped on each poll; metrics
+    /// for which it returns true have their `value()` collected and passed
+    /// to `condition`.
+    pub async fn wait_for_metric(
+        &self,
+        timeout: Duration,
+        filter: impl Fn(&Metric) -> bool,
+        condition: impl Fn(&[f64]) -> bool,
+    ) -> anyhow::Result<()> {
+        let client = self.api_client();
+        let deadline = Instant::now() + timeout;
+        loop {
+            let values: Vec<f64> = client
+                .get_metrics(|m| if filter(m) { Some(m.value()) } else { None })
+                .await?;
+            if condition(&values) {
+                return Ok(());
+            }
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "timed out after {timeout:?} waiting for metric condition"
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
     }
 
     pub async fn smtp_client(&self, host: &str) -> anyhow::Result<SmtpClient> {

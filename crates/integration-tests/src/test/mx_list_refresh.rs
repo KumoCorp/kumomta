@@ -116,6 +116,27 @@ async fn mx_list_refresh() -> anyhow::Result<()> {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
+    // In round 1 both queues share a ready queue (same resolved MX
+    // addresses), so a single idle connection sits in that pool
+    // tagged with one.example.com's mx hostname (`1.1.sink`).  After
+    // the epoch bump, two.example.com's site is unchanged.  If we
+    // dispatch round 2 before that idle connection has been reaped
+    // it gets reused, and four@two.example.com ends up logged as
+    // `1.1.sink` instead of `2.1.sink`.  Wait for the shared ready
+    // queue's connection_count to reach 0 so the next send opens a
+    // fresh connection picking up two.example.com's own mx_list.
+    let shared_service =
+        format!("smtp_client:unspecified->mx_list:{sink_listener},255.255.255.255:1@smtp_client");
+    daemon
+        .source
+        .wait_for_metric(
+            Duration::from_secs(30),
+            |m| m.name().as_str() == "connection_count" && m.label_is("service", &shared_service),
+            |conns| conns.iter().sum::<f64>() == 0.0,
+        )
+        .await
+        .context("waiting for shared site connection pool to drain")?;
+
     send(&mut client, "three@one.example.com").await?;
     send(&mut client, "four@two.example.com").await?;
 
