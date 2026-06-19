@@ -62,6 +62,15 @@
    diagnostic and operational helper; surfaces underlying storage
    errors to the caller.
 
+ * Ready queues now run a per-dispatcher progress watchdog that aborts
+   dispatcher tasks that have stopped making forward progress, catching
+   wedges that escape the normal SMTP timeouts. The threshold is
+   configurable via
+   [dispatcher_progress_watchdog_timeout](../reference/kumo/make_egress_path/dispatcher_progress_watchdog_timeout.md)
+   and aborts are surfaced via the
+   [dispatcher_watchdog_aborted_total](../reference/metrics/kumod/dispatcher_watchdog_aborted_total.md)
+   metric.  #539
+
 ## Fixes
 
  * `Message::save_to` was silently discarding errors returned from the

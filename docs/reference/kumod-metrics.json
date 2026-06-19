@@ -164,6 +164,17 @@
     "pruning": "NonPruning"
   },
   {
+    "name": "dispatcher_watchdog_aborted_total",
+    "help": "total number of dispatcher tasks aborted by the progress watchdog",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Counter",
+    "label_names": [
+      "service"
+    ],
+    "buckets": [],
+    "pruning": "Pruning"
+  },
+  {
     "name": "dkim_signer_cache_hit",
     "help": "How many dkim signer requests hit cache.",
     "doc": "This is redundant with the newer\n[lruttl_hit_count{cache_name=\"dkim_signer_cache\"}](lruttl_hit_count.md)\ncounter.",

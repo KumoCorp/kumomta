@@ -2006,6 +2006,7 @@ MergedEntry {
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
         ignore_8bit_checks: false,
+        dispatcher_progress_watchdog_timeout: None,
     },
     sources: {},
     automation: [
@@ -2160,6 +2161,7 @@ MergedEntry {
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
         ignore_8bit_checks: false,
+        dispatcher_progress_watchdog_timeout: None,
     },
     sources: {
         "my source name": EgressPathConfig {
@@ -2227,6 +2229,7 @@ MergedEntry {
             no_memory_reduction_policy: ShrinkDataAndMeta,
             try_next_host_on_transport_error: false,
             ignore_8bit_checks: false,
+            dispatcher_progress_watchdog_timeout: None,
         },
     },
     automation: [
@@ -2387,6 +2390,7 @@ MergedEntry {
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
         ignore_8bit_checks: false,
+        dispatcher_progress_watchdog_timeout: None,
     },
     sources: {},
     automation: [

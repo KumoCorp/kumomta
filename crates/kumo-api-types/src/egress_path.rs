@@ -357,6 +357,18 @@ pub struct EgressPathConfig {
     /// an error.
     #[serde(default)]
     pub ignore_8bit_checks: bool,
+
+    /// When set, dispatcher tasks for this egress path that fail to
+    /// make any forward progress for this duration are aborted by the
+    /// maintainer. When omitted the effective value is derived at
+    /// runtime from the protocol:
+    ///   * SMTP / Xfer: max(2 * longest of mail_from, rcpt_to, data,
+    ///     data_dot timeouts, 60s)
+    ///   * Lua / HttpInjectionGenerator / DeferredSmtpInjection: 600s
+    /// Users with a large `max_batch_latency` should set this
+    /// explicitly so the watchdog does not flag batch accumulation.
+    #[serde(default, with = "duration_serde")]
+    pub dispatcher_progress_watchdog_timeout: Option<Duration>,
 }
 
 #[cfg(feature = "lua")]
@@ -418,6 +430,7 @@ impl Default for EgressPathConfig {
             try_next_host_on_transport_error: false,
             ignore_8bit_checks: false,
             ip_lookup_strategy: IpLookupStrategy::default(),
+            dispatcher_progress_watchdog_timeout: None,
         }
     }
 }

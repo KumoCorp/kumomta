@@ -3524,6 +3524,7 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
             "DeferredSmtpInjectionDispatcher only supports a batch size of 1"
         );
         let msg = msgs.pop().expect("just verified that there is one");
+        dispatcher.set_detail("deferred_smtp_inject");
 
         msg.set_meta("queue", serde_json::Value::Null).await?;
 

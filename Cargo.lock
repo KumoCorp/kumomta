@@ -3395,6 +3395,7 @@ dependencies = [
  "maildir",
  "mailparsing",
  "message",
+ "mod-smtp-response-normalize",
  "nix 0.30.1",
  "parking_lot",
  "rcgen 0.14.8",

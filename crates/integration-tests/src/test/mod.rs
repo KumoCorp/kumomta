@@ -10,6 +10,7 @@ mod disconnect_in_mail_from;
 mod disconnect_peer_idle_out;
 mod disconnect_reconnect_same_host;
 mod disconnect_terminate_ok;
+mod dispatcher_watchdog;
 mod eightbitmime;
 mod end_to_end;
 mod end_to_end_deferred_queue;
