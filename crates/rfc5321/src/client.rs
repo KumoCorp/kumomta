@@ -17,7 +17,7 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, ToSocketAddrs};
-use tokio::time::timeout;
+use tokio::time::{timeout, timeout_at, Instant};
 use tokio_rustls::rustls::pki_types::ServerName;
 use tracing::Level;
 
@@ -432,32 +432,54 @@ impl SmtpClient {
         command: Option<&Command>,
         timeout_duration: Duration,
     ) -> Result<Response, ClientError> {
+        let deadline = Instant::now() + timeout_duration;
+
         if let Some(sock) = self.socket.as_mut() {
-            if let Err(err) = sock.flush().await {
-                self.socket.take();
-                if let Some(tracer) = &self.tracer {
-                    tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
-                        level: Level::ERROR,
-                        message: format!("Error during flush: {err:#}"),
+            match timeout_at(deadline, sock.flush()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => {
+                    self.socket.take();
+                    if let Some(tracer) = &self.tracer {
+                        tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
+                            level: Level::ERROR,
+                            message: format!("Error during flush: {err:#}"),
+                        });
+                        tracer.trace_event(SmtpClientTraceEvent::Closed);
+                    }
+                    return Err(ClientError::FlushError {
+                        error: format!("{err:#}"),
                     });
-                    tracer.trace_event(SmtpClientTraceEvent::Closed);
                 }
-                return Err(ClientError::FlushError {
-                    error: format!("{err:#}"),
-                });
+                Err(_elapsed) => {
+                    self.socket.take();
+                    if let Some(tracer) = &self.tracer {
+                        tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
+                            level: Level::ERROR,
+                            message: format!(
+                                "Flush timed out after {timeout_duration:?}"
+                            ),
+                        });
+                        tracer.trace_event(SmtpClientTraceEvent::Closed);
+                    }
+                    return Err(ClientError::TimeOutResponse {
+                        command: command.cloned(),
+                        duration: timeout_duration,
+                    });
+                }
             }
         }
 
-        let mut line = self.read_line(timeout_duration, command).await?;
+        let mut line = self
+            .read_line(deadline.saturating_duration_since(Instant::now()), command)
+            .await?;
         tracing::trace!("recv<-{}: {line}", self.hostname);
         let mut parsed = parse_response_line(&line)?;
         let mut response_builder = ResponseBuilder::new(&parsed);
 
-        let subsequent_line_timeout_duration = Duration::from_secs(60).min(timeout_duration);
         while !parsed.is_final {
-            line = self
-                .read_line(subsequent_line_timeout_duration, command)
-                .await?;
+            let per_line = Duration::from_secs(60)
+                .min(deadline.saturating_duration_since(Instant::now()));
+            line = self.read_line(per_line, command).await?;
             parsed = parse_response_line(&line)?;
             response_builder
                 .add_line(&parsed)
@@ -797,8 +819,35 @@ impl SmtpClient {
 
             let mut ssl_stream = tokio_openssl::SslStream::new(ssl, stream)?;
 
-            if let Err(err) = std::pin::Pin::new(&mut ssl_stream).connect().await {
-                handshake_error.replace(format!("{err:#}"));
+            match timeout(
+                self.timeouts.starttls_timeout,
+                std::pin::Pin::new(&mut ssl_stream).connect(),
+            )
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => {
+                    handshake_error.replace(format!("{err:#}"));
+                }
+                Err(_elapsed) => {
+                    // The plaintext fallback below cannot succeed against
+                    // a peer whose TLS state is mid-handshake; hard-fail
+                    // like the rustls path does.
+                    if let Some(tracer) = &self.tracer {
+                        tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
+                            level: Level::ERROR,
+                            message: format!(
+                                "openssl handshake timed out after {:?}",
+                                self.timeouts.starttls_timeout
+                            ),
+                        });
+                        tracer.trace_event(SmtpClientTraceEvent::Closed);
+                    }
+                    return Err(ClientError::TimeOutResponse {
+                        command: Some(Command::StartTls),
+                        duration: self.timeouts.starttls_timeout,
+                    });
+                }
             }
 
             tls_info.provider_name = "openssl".to_string();
@@ -837,18 +886,14 @@ impl SmtpClient {
             })?;
             let server_name = parse_server_name(self.hostname.as_str())?;
 
-            match connector
-                .connect(
-                    server_name,
-                    match self.socket.take() {
-                        Some(s) => s,
-                        None => return Err(ClientError::NotConnected),
-                    },
-                )
-                .into_fallible()
-                .await
-            {
-                Ok(stream) => {
+            let socket = match self.socket.take() {
+                Some(s) => s,
+                None => return Err(ClientError::NotConnected),
+            };
+
+            let connect_future = connector.connect(server_name, socket).into_fallible();
+            match timeout(self.timeouts.starttls_timeout, connect_future).await {
+                Ok(Ok(stream)) => {
                     let (_, conn) = stream.get_ref();
                     tls_info.cipher = match conn.negotiated_cipher_suite() {
                         Some(suite) => suite.suite().as_str().unwrap_or("UNKNOWN").to_string(),
@@ -868,9 +913,25 @@ impl SmtpClient {
 
                     Box::new(stream)
                 }
-                Err((err, stream)) => {
+                Ok(Err((err, stream))) => {
                     handshake_error.replace(format!("{err:#}"));
                     stream
+                }
+                Err(_elapsed) => {
+                    if let Some(tracer) = &self.tracer {
+                        tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
+                            level: Level::ERROR,
+                            message: format!(
+                                "rustls handshake timed out after {:?}",
+                                self.timeouts.starttls_timeout
+                            ),
+                        });
+                        tracer.trace_event(SmtpClientTraceEvent::Closed);
+                    }
+                    return Err(ClientError::TimeOutResponse {
+                        command: Some(Command::StartTls),
+                        duration: self.timeouts.starttls_timeout,
+                    });
                 }
             }
         };
