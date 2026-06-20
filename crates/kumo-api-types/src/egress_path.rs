@@ -1,6 +1,6 @@
 use cidr_map::CidrSet;
 use data_loader::KeySource;
-use dns_resolver::IpLookupStrategy;
+use dns_resolver::{IpLookupStrategy, MailExchanger};
 #[cfg(feature = "lua")]
 use mlua::prelude::*;
 use openssl::ssl::SslOptions;
@@ -9,6 +9,7 @@ use rfc5321::SmtpClientTimeouts;
 use rustls::crypto::aws_lc_rs::ALL_CIPHER_SUITES;
 use rustls::SupportedCipherSuite;
 use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::time::Duration;
 use throttle::{LimitSpec, ThrottleSpec};
@@ -644,6 +645,79 @@ pub enum CeilingSource {
     /// `max_connection_rate`, so the product is a hard ceiling on
     /// system-wide message rate independent of `max_message_rate`.
     ReconnectCycling,
+}
+
+/// Summary of an MX resolution attempt for a destination.
+///
+/// {{since('dev')}}
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema)]
+pub struct MxResolution {
+    /// Canonical site name; the value used as the queue grouping
+    /// key for this destination.
+    pub site_name: String,
+
+    /// MX hostnames grouped by preference. Lower preference is
+    /// preferred. Empty when DNS returned no MX records and the
+    /// resolver synthesised A/AAAA against `domain` directly.
+    pub by_preference: BTreeMap<u16, Vec<String>>,
+
+    /// True if real MX records were found in DNS. False when the
+    /// resolver synthesised an A/AAAA lookup against the domain.
+    pub is_mx: bool,
+
+    /// True if the destination was a domain literal like `[1.2.3.4]`.
+    pub is_domain_literal: bool,
+
+    /// True if the DNS result was DNSSEC validated.
+    pub is_secure: bool,
+}
+
+impl From<&MailExchanger> for MxResolution {
+    fn from(mx: &MailExchanger) -> Self {
+        Self {
+            site_name: mx.site_name.clone(),
+            by_preference: mx.by_pref.clone(),
+            is_mx: mx.is_mx,
+            is_domain_literal: mx.is_domain_literal,
+            is_secure: mx.is_secure,
+        }
+    }
+}
+
+impl MxResolution {
+    /// Render a one-line header summarising the MX result, plus an
+    /// indented preference→host listing beneath. Shared by
+    /// `kcli inspect-ready-q` and `kcli resolve-egress-path` so the
+    /// two surfaces produce identical output for the same input.
+    pub fn render(&self, out: &mut dyn Write) -> std::fmt::Result {
+        let mut flags: Vec<&str> = vec![];
+        if !self.is_mx {
+            flags.push("synthesised");
+        }
+        if self.is_domain_literal {
+            flags.push("domain literal");
+        }
+        if self.is_secure {
+            flags.push("dnssec verified");
+        }
+        write!(out, "mx (site: {}", self.site_name)?;
+        if !flags.is_empty() {
+            write!(out, ", {}", flags.join(", "))?;
+        }
+        writeln!(out, "):")?;
+        for (pref, hosts) in &self.by_preference {
+            for host in hosts {
+                writeln!(out, "  {pref:>4}  {host}")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn to_human_string(&self) -> String {
+        let mut s = String::new();
+        let _ = self.render(&mut s);
+        s
+    }
 }
 
 /// Steady-state ceilings implied by an `EgressPathConfig`. Each

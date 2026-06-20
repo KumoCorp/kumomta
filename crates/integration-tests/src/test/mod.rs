@@ -28,6 +28,7 @@ mod http_inject_template_syntax_error;
 mod http_liveness;
 mod idna_starttls;
 mod inspect_ready_q;
+mod resolve_egress_path;
 mod log_oob_arf;
 mod maildir_batch;
 mod maildir_batch_452;

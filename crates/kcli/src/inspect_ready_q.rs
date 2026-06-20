@@ -80,18 +80,15 @@ fn render_summary(r: &InspectReadyQV1Response, out: &mut dyn Write) -> anyhow::R
     writeln!(out)?;
 
     // Text fields, one per line, label-padded to the longest label.
-    let mut text_fields: Vec<(&str, String)> = vec![
+    let text_fields: Vec<(&str, String)> = vec![
         ("egress pool", r.egress_pool.clone()),
         ("egress source", r.egress_source.clone()),
         ("protocol", r.protocol.clone()),
+        (
+            "watchdog threshold",
+            fmt_duration(r.state.watchdog_threshold),
+        ),
     ];
-    if let Some(site) = &r.site_name {
-        text_fields.push(("site", site.clone()));
-    }
-    text_fields.push((
-        "watchdog threshold",
-        fmt_duration(r.state.watchdog_threshold),
-    ));
 
     let label_w = text_fields
         .iter()
@@ -106,6 +103,11 @@ fn render_summary(r: &InspectReadyQV1Response, out: &mut dyn Write) -> anyhow::R
             value,
             label_w = label_w
         )?;
+    }
+
+    if let Some(mx) = &r.mx {
+        writeln!(out)?;
+        write!(out, "{}", mx.to_human_string())?;
     }
 
     // `connections` lives further down with the dispatcher detail.
@@ -295,11 +297,22 @@ mod tests {
     }
 
     fn build_response() -> InspectReadyQV1Response {
+        use kumo_api_types::egress_path::MxResolution;
         let path_config = EgressPathConfig::default();
         let constraints = path_config.compute_constraints();
+        let mut by_preference: std::collections::BTreeMap<u16, Vec<String>> = Default::default();
+        by_preference.insert(10, vec!["gmail-smtp-in.l.google.com".to_string()]);
+        by_preference.insert(20, vec!["alt1.gmail-smtp-in.l.google.com".to_string()]);
+        let mx = Some(MxResolution {
+            site_name: "gmail-smtp-in.l.google.com".to_string(),
+            by_preference,
+            is_mx: true,
+            is_domain_literal: false,
+            is_secure: true,
+        });
         InspectReadyQV1Response {
             queue_name: "my-source->gmail.com@smtp_client".to_string(),
-            site_name: Some("gmail.com".to_string()),
+            mx,
             egress_source: "my-source".to_string(),
             egress_pool: "default".to_string(),
             protocol: "smtp_client".to_string(),
@@ -338,8 +351,11 @@ queue: my-source->gmail.com@smtp_client
 egress pool:        default
 egress source:      my-source
 protocol:           smtp_client
-site:               gmail.com
 watchdog threshold: 10m
+
+mx (site: gmail-smtp-in.l.google.com, dnssec verified):
+    10  gmail-smtp-in.l.google.com
+    20  alt1.gmail-smtp-in.l.google.com
 
 ready: 1,142
 
@@ -375,8 +391,11 @@ queue: my-source->gmail.com@smtp_client
 egress pool:        default
 egress source:      my-source
 protocol:           smtp_client
-site:               gmail.com
 watchdog threshold: 10m
+
+mx (site: gmail-smtp-in.l.google.com, dnssec verified):
+    10  gmail-smtp-in.l.google.com
+    20  alt1.gmail-smtp-in.l.google.com
 
 ready: 1,142
 
@@ -463,8 +482,11 @@ queue: my-source->gmail.com@smtp_client
 egress pool:        default
 egress source:      my-source
 protocol:           smtp_client
-site:               gmail.com
 watchdog threshold: 10m
+
+mx (site: gmail-smtp-in.l.google.com, dnssec verified):
+    10  gmail-smtp-in.l.google.com
+    20  alt1.gmail-smtp-in.l.google.com
 
 ready: 1,142
 
@@ -516,8 +538,11 @@ queue: my-source->gmail.com@smtp_client
 egress pool:        default
 egress source:      my-source
 protocol:           smtp_client
-site:               gmail.com
 watchdog threshold: 10m
+
+mx (site: gmail-smtp-in.l.google.com, dnssec verified):
+    10  gmail-smtp-in.l.google.com
+    20  alt1.gmail-smtp-in.l.google.com
 
 ready: 1,142
 

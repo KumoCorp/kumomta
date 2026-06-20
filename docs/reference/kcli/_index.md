@@ -50,6 +50,8 @@ Full docs available at: <https://docs.kumomta.com>
 
 * `inspect-sched-q` — Returns information about a scheduled queue
 
+* `resolve-egress-path` — Resolve the effective egress path configuration and throughput ceilings for a destination domain and egress source
+
 * `provider-summary` — Prints a summary of the aggregate state of the queues from the perspective of the provider or destination site
 
 * `queue-summary` — Prints a summary of the state of the queues, for a human to read

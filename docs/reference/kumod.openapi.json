@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.06.20-ddda90d1"
+    "version": "2026.06.20-911f1d17"
   },
   "paths": {
     "/api/admin/abort-ready-q-conn/v1": {
@@ -343,6 +343,52 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RebindV1Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/resolve-egress-path/v1": {
+      "get": {
+        "tags": [
+          "inspect",
+          "kcli:resolve-egress-path"
+        ],
+        "summary": "Resolve the effective egress path configuration and throughput\nceilings for a destination domain and egress source.",
+        "description": "{{since('dev')}}\n\nMirrors the diagnostic that `kcli inspect-ready-q` provides for\nlive ready queues, but operates from the configuration side: it\ninvokes the `get_queue_config` and `get_egress_path_config` event\ncallbacks for the supplied `domain`/`source` pair, performs the\nassociated MX lookup, and returns the resulting configuration,\nderived ceilings and the ready-queue name that would be used.",
+        "operationId": "resolve_v1",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "query",
+            "description": "Destination domain. Drives the MX lookup and is passed\nthrough to the `get_egress_path_config` event callback.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Egress source name. Defaults to \"unspecified\" if omitted.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resolved egress path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveEgressPathV1Response"
                 }
               }
             }
@@ -1653,6 +1699,17 @@
           "egress_source": {
             "type": "string"
           },
+          "mx": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MxResolution",
+                "description": "MX resolution result for the destination. `None` for\nprotocols that don't use MX (e.g. Lua-protocol queues) or\nwhen MX resolution wasn't applicable."
+              }
+            ]
+          },
           "now": {
             "type": "string",
             "format": "date-time"
@@ -1668,13 +1725,6 @@
           },
           "queue_name": {
             "type": "string"
-          },
-          "site_name": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "MX site name. Only meaningful for protocols that resolve MX\nrecords; otherwise None."
           },
           "state": {
             "$ref": "#/components/schemas/ReadyQueueStateSnapshot"
@@ -1835,6 +1885,50 @@
             "type": "string",
             "description": "The envelope sender",
             "example": "sender@sender.example.com"
+          }
+        }
+      },
+      "MxResolution": {
+        "type": "object",
+        "description": "Summary of an MX resolution attempt for a destination.\n\n{{since('dev')}}",
+        "required": [
+          "site_name",
+          "by_preference",
+          "is_mx",
+          "is_domain_literal",
+          "is_secure"
+        ],
+        "properties": {
+          "by_preference": {
+            "type": "object",
+            "description": "MX hostnames grouped by preference. Lower preference is\npreferred. Empty when DNS returned no MX records and the\nresolver synthesised A/AAAA against `domain` directly.",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "type": "integer",
+              "format": "u-int16",
+              "minimum": 0
+            }
+          },
+          "is_domain_literal": {
+            "type": "boolean",
+            "description": "True if the destination was a domain literal like `[1.2.3.4]`."
+          },
+          "is_mx": {
+            "type": "boolean",
+            "description": "True if real MX records were found in DNS. False when the\nresolver synthesised an A/AAAA lookup against the domain."
+          },
+          "is_secure": {
+            "type": "boolean",
+            "description": "True if the DNS result was DNSSEC validated."
+          },
+          "site_name": {
+            "type": "string",
+            "description": "Canonical site name; the value used as the queue grouping\nkey for this destination."
           }
         }
       },
@@ -2040,6 +2134,46 @@
           }
         },
         "additionalProperties": false
+      },
+      "ResolveEgressPathV1Response": {
+        "type": "object",
+        "description": "Response body for the resolve-egress-path endpoint.\n\n{{since('dev')}}",
+        "required": [
+          "domain",
+          "source",
+          "queue_name",
+          "path_config",
+          "constraints"
+        ],
+        "properties": {
+          "constraints": {
+            "$ref": "#/components/schemas/EgressPathConfigConstraints"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "mx": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MxResolution",
+                "description": "MX resolution result. `None` when MX lookup wasn't applicable\n(e.g. non-SMTP protocols) or failed (e.g. internal sentinel\ndomains, network errors)."
+              }
+            ]
+          },
+          "path_config": {
+            "type": "object"
+          },
+          "queue_name": {
+            "type": "string",
+            "description": "The ready-queue name that this domain/source pair would\nresolve to. Lets the caller pivot to inspect-ready-q for\nlive runtime detail when the queue exists."
+          },
+          "source": {
+            "type": "string"
+          }
+        }
       },
       "SetDiagnosticFilterRequest": {
         "type": "object",

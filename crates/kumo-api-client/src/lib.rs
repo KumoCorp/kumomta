@@ -215,6 +215,14 @@ impl KumoApiClient {
     );
 
     method!(
+        admin_resolve_egress_path_v1,
+        GET,
+        "/api/admin/resolve-egress-path/v1",
+        ResolveEgressPathV1Request,
+        ResolveEgressPathV1Response
+    );
+
+    method!(
         admin_abort_ready_q_conn_v1,
         TEXT,
         POST,

@@ -49,6 +49,8 @@ This is an object value, with the following properties:
 
   * `egress_source` - required `string`. 
 
+  * `mx` - optional nullable [MxResolution](schemas/MxResolution.md). 
+
   * `now` - required `string` (`date-time`). 
 
   * `path_config` - required `object`. Snapshot of the egress path configuration in effect for this
@@ -57,9 +59,6 @@ This is an object value, with the following properties:
   * `protocol` - required `string`. Protocol identifier as it appears in the ready queue name.
 
   * `queue_name` - required `string`. 
-
-  * `site_name` - optional nullable `string`. MX site name. Only meaningful for protocols that resolve MX
-    records; otherwise None.
 
   * `state` - required [ReadyQueueStateSnapshot](schemas/ReadyQueueStateSnapshot.md). Snapshot of the operational state of a ready queue.
     
@@ -116,11 +115,17 @@ This is an object value, with the following properties:
   ],
   "egress_pool": "string",
   "egress_source": "string",
+  "mx": {
+    "by_preference": {},
+    "is_domain_literal": false,
+    "is_mx": false,
+    "is_secure": false,
+    "site_name": "string"
+  },
   "now": "1990-12-31T23:59:60Z",
   "path_config": {},
   "protocol": "smtp_client",
   "queue_name": "string",
-  "site_name": "string",
   "state": {
     "connection_count": 42,
     "connection_limited": {

@@ -728,9 +728,10 @@ pub struct DispatcherSummary {
 #[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
 pub struct InspectReadyQV1Response {
     pub queue_name: String,
-    /// MX site name. Only meaningful for protocols that resolve MX
-    /// records; otherwise None.
-    pub site_name: Option<String>,
+    /// MX resolution result for the destination. `None` for
+    /// protocols that don't use MX (e.g. Lua-protocol queues) or
+    /// when MX resolution wasn't applicable.
+    pub mx: Option<crate::egress_path::MxResolution>,
     pub egress_source: String,
     pub egress_pool: String,
     /// Protocol identifier as it appears in the ready queue name.
@@ -758,6 +759,51 @@ pub struct InspectReadyQV1Response {
 pub struct AbortReadyQConnV1Request {
     pub queue_name: String,
     pub session_id: Uuid,
+}
+
+/// Query parameters for the resolve-egress-path endpoint.
+///
+/// {{since('dev')}}
+#[derive(Serialize, Deserialize, Debug, IntoParams, ToSchema)]
+pub struct ResolveEgressPathV1Request {
+    /// Destination domain. Drives the MX lookup and is passed
+    /// through to the `get_egress_path_config` event callback.
+    #[schema(example = "gmail.com")]
+    pub domain: String,
+
+    /// Egress source name. Defaults to "unspecified" if omitted.
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+impl ApplyToUrl for ResolveEgressPathV1Request {
+    fn apply_to_url(&self, url: &mut Url) {
+        let mut query = url.query_pairs_mut();
+        query.append_pair("domain", &self.domain);
+        if let Some(source) = &self.source {
+            query.append_pair("source", source);
+        }
+    }
+}
+
+/// Response body for the resolve-egress-path endpoint.
+///
+/// {{since('dev')}}
+#[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
+pub struct ResolveEgressPathV1Response {
+    pub domain: String,
+    pub source: String,
+    /// MX resolution result. `None` when MX lookup wasn't applicable
+    /// (e.g. non-SMTP protocols) or failed (e.g. internal sentinel
+    /// domains, network errors).
+    pub mx: Option<crate::egress_path::MxResolution>,
+    /// The ready-queue name that this domain/source pair would
+    /// resolve to. Lets the caller pivot to inspect-ready-q for
+    /// live runtime detail when the queue exists.
+    pub queue_name: String,
+    #[schema(value_type = Object)]
+    pub path_config: crate::egress_path::EgressPathConfig,
+    pub constraints: crate::egress_path::EgressPathConfigConstraints,
 }
 
 #[derive(Serialize, Clone, Deserialize, Debug, PartialEq, ToSchema)]

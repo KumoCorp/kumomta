@@ -11,6 +11,7 @@ mod bounce_list;
 mod inspect_message;
 mod inspect_ready_q;
 mod inspect_sched_q;
+mod resolve_egress_path;
 mod logfilter;
 mod provider_summary;
 mod queue_summary;
@@ -75,6 +76,7 @@ enum SubCommand {
     InspectMessage(inspect_message::InspectMessageCommand),
     InspectReadyQ(inspect_ready_q::InspectReadyQCommand),
     InspectSchedQ(inspect_sched_q::InspectQueueCommand),
+    ResolveEgressPath(resolve_egress_path::ResolveEgressPathCommand),
     ProviderSummary(provider_summary::ProviderSummaryCommand),
     QueueSummary(queue_summary::QueueSummaryCommand),
     TraceSmtpClient(trace_smtp_client::TraceSmtpClientCommand),
@@ -178,6 +180,7 @@ impl SubCommand {
             Self::InspectMessage(cmd) => cmd.run(endpoint).await,
             Self::InspectReadyQ(cmd) => cmd.run(endpoint).await,
             Self::InspectSchedQ(cmd) => cmd.run(endpoint).await,
+            Self::ResolveEgressPath(cmd) => cmd.run(endpoint).await,
             Self::ProviderSummary(cmd) => cmd.run(endpoint).await,
             Self::QueueSummary(cmd) => cmd.run(endpoint).await,
             Self::TraceSmtpClient(cmd) => cmd.run(endpoint).await,
