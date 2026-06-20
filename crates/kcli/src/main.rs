@@ -4,10 +4,12 @@ use reqwest::Url;
 use std::collections::HashMap;
 use std::time::Duration;
 
+mod abort_ready_q_conn;
 mod bounce;
 mod bounce_cancel;
 mod bounce_list;
 mod inspect_message;
+mod inspect_ready_q;
 mod inspect_sched_q;
 mod logfilter;
 mod provider_summary;
@@ -69,7 +71,9 @@ enum SubCommand {
     SuspendReadyQList(suspend_ready_q_list::SuspendReadyQListCommand),
     SuspendReadyQCancel(suspend_ready_q_cancel::SuspendReadyQCancelCommand),
     SetLogFilter(logfilter::SetLogFilterCommand),
+    AbortReadyQConn(abort_ready_q_conn::AbortReadyQConnCommand),
     InspectMessage(inspect_message::InspectMessageCommand),
+    InspectReadyQ(inspect_ready_q::InspectReadyQCommand),
     InspectSchedQ(inspect_sched_q::InspectQueueCommand),
     ProviderSummary(provider_summary::ProviderSummaryCommand),
     QueueSummary(queue_summary::QueueSummaryCommand),
@@ -105,7 +109,9 @@ impl SubCommand {
                     ("suspend-ready-q-list", &["suspend"]),
                     ("suspend-ready-q-cancel", &["suspend"]),
                     ("set-log-filter", &["logging", "debugging"]),
+                    ("abort-ready-q-conn", &["ops", "debugging"]),
                     ("inspect-message", &["message", "debugging"]),
+                    ("inspect-ready-q", &["ops", "debugging"]),
                     ("inspect-sched-q", &["debugging"]),
                     ("provider-summary", &["ops"]),
                     ("queue-summary", &["ops"]),
@@ -168,7 +174,9 @@ impl SubCommand {
             Self::SuspendReadyQCancel(cmd) => cmd.run(endpoint).await,
             Self::SuspendReadyQList(cmd) => cmd.run(endpoint).await,
             Self::SetLogFilter(cmd) => cmd.run(endpoint).await,
+            Self::AbortReadyQConn(cmd) => cmd.run(endpoint).await,
             Self::InspectMessage(cmd) => cmd.run(endpoint).await,
+            Self::InspectReadyQ(cmd) => cmd.run(endpoint).await,
             Self::InspectSchedQ(cmd) => cmd.run(endpoint).await,
             Self::ProviderSummary(cmd) => cmd.run(endpoint).await,
             Self::QueueSummary(cmd) => cmd.run(endpoint).await,

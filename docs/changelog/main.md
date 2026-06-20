@@ -71,6 +71,21 @@
    [dispatcher_watchdog_aborted_total](../reference/metrics/kumod/dispatcher_watchdog_aborted_total.md)
    metric.  #539
 
+ * Added the
+   [kcli inspect-ready-q](../reference/kcli/inspect-ready-q.md)
+   command and corresponding
+   [admin/inspect-ready-q/v1](../reference/http/kumod/api_admin_inspect_ready_q_v1_get.md)
+   HTTP endpoint, which return a snapshot of a ready queue's state,
+   effective configuration and the dispatcher tasks currently handling
+   its connections.
+
+ * Added the
+   [kcli abort-ready-q-conn](../reference/kcli/abort-ready-q-conn.md)
+   command and corresponding
+   [admin/abort-ready-q-conn/v1](../reference/http/kumod/api_admin_abort_ready_q_conn_v1_post.md)
+   HTTP endpoint, which abort a specific dispatcher task by
+   `session_id`, as shown by the `inspect-ready-q` output.
+
 ## Fixes
 
  * `Message::save_to` was silently discarding errors returned from the

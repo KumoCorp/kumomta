@@ -31,6 +31,7 @@ reqwest = {workspace=true, default-features=false, features=["json", "rustls-tls
 serde = {workspace=true}
 serde_json = {workspace=true}
 tabout = {workspace=true}
+toml = {workspace=true}
 tokio = {workspace=true, features=["full", "tracing"]}
 tokio-tungstenite = {workspace=true}
 tui-prompts.workspace = true
@@ -38,4 +39,5 @@ uuid = {workspace=true}
 version-info = {path="../version-info"}
 
 [dev-dependencies]
+k9 = {workspace=true}
 indoc = {workspace=true}

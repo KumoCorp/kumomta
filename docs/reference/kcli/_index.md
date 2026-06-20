@@ -42,7 +42,11 @@ Full docs available at: <https://docs.kumomta.com>
 
 * `set-log-filter` — Changes the diagnostic log filter
 
+* `abort-ready-q-conn` — Aborts the dispatcher task within a ready queue identified by its session_id. The dispatcher's drop path returns any in-flight message to the scheduled queue for another delivery attempt
+
 * `inspect-message` — Returns information about a message in the spool
+
+* `inspect-ready-q` — Returns information about a ready queue: its egress identity, effective state (throttles, suspensions, ready and connection counts), and, optionally, the dispatcher tasks that are currently handling its connections plus the egress path configuration in effect
 
 * `inspect-sched-q` — Returns information about a scheduled queue
 

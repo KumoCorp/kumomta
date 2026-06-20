@@ -43,7 +43,7 @@ use message::message::{MessageList, QueueNameComponents};
 use message::Message;
 use parking_lot::FairMutex;
 use rfc5321::{EnhancedStatusCode, Response};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::fmt::Debug;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -754,19 +754,7 @@ pub struct ReadyQueueStates {
     pub connection_limited: Option<QueueState>,
 }
 
-/// Cooperative phase reported by a dispatcher task.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum DispatcherPhase {
-    Starting,
-    AcquiringLease { label: String },
-    Idle,
-    AccumulatingBatch { have: u32, want: u32 },
-    ConnectionRateThrottled,
-    MessageRateThrottled,
-    AttemptingConnection,
-    DeliveringMessage,
-    Closing,
-}
+pub use kumo_api_types::DispatcherPhase;
 
 /// Monotonic timestamp suitable for lock-free liveness tracking,
 /// stored as nanoseconds since process start.
@@ -802,9 +790,7 @@ pub struct DispatcherState {
     pub session_id: Uuid,
     pub started_at: Instant,
     pub aborted_by_watchdog: AtomicBool,
-    // Will be read by the inspect-ready-q API; prefixed to suppress
-    // the dead-code warning until then.
-    pub _disposition_counters: DispatcherDispositionCounters,
+    pub disposition_counters: DispatcherDispositionCounters,
 }
 
 impl DispatcherState {
@@ -816,7 +802,7 @@ impl DispatcherState {
             session_id,
             started_at: Instant::now(),
             aborted_by_watchdog: AtomicBool::new(false),
-            _disposition_counters: counters,
+            disposition_counters: counters,
         })
     }
 
@@ -885,6 +871,113 @@ pub struct ReadyQueue {
 impl ReadyQueue {
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Build the response payload for the inspect-ready-q endpoint.
+    pub fn build_inspect_response(&self) -> kumo_api_types::InspectReadyQV1Response {
+        use chrono::Utc;
+        let now = Utc::now();
+        let watchdog_threshold = self.calculate_dispatcher_progress_watchdog_timeout();
+
+        let (connection_rate_throttled, connection_limited) = {
+            let s = self.states.lock();
+            (
+                s.connection_rate_throttled.as_ref().map(|st| {
+                    kumo_api_types::QueueState {
+                        context: st.context.clone(),
+                        since: st.since,
+                    }
+                }),
+                s.connection_limited.as_ref().map(|st| {
+                    kumo_api_types::QueueState {
+                        context: st.context.clone(),
+                        since: st.since,
+                    }
+                }),
+            )
+        };
+
+        let suspended = crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry::get_all_v1()
+            .into_iter()
+            .find(|entry| entry.name == self.name);
+
+        let state = kumo_api_types::ReadyQueueStateSnapshot {
+            ready_count: self.ready_count(),
+            connection_count: self.num_connections.load(Ordering::Relaxed),
+            connection_rate_throttled,
+            connection_limited,
+            suspended,
+            watchdog_threshold,
+        };
+
+        let dispatchers = {
+            let connections = self.connections.lock();
+            connections
+                .iter()
+                .filter(|slot| !slot.handle.is_finished())
+                .map(|slot| {
+                    let age = slot.state.started_at.elapsed();
+                    let time_in_current_phase = slot.state.last_activity.elapsed();
+                    let phase = (**slot.state.phase.load()).clone();
+                    let detail = slot.state.detail.load_full().as_deref().map(|s| s.to_string());
+                    let messages_delivered = slot.state.disposition_counters.delivered.get() as u64;
+                    let messages_transfailed =
+                        slot.state.disposition_counters.transfail.get() as u64;
+                    let messages_failed = slot.state.disposition_counters.fail.get() as u64;
+                    let total_actions =
+                        messages_delivered + messages_transfailed + messages_failed;
+                    let age_secs = age.as_secs_f64();
+                    let overall_rate_per_sec = if age_secs > 0.0 {
+                        total_actions as f64 / age_secs
+                    } else {
+                        0.0
+                    };
+                    kumo_api_types::DispatcherSummary {
+                        session_id: slot.state.session_id,
+                        started_at: now
+                            - chrono::Duration::from_std(age)
+                                .unwrap_or(chrono::Duration::zero()),
+                        age,
+                        phase,
+                        detail,
+                        time_in_current_phase,
+                        messages_delivered,
+                        messages_transfailed,
+                        messages_failed,
+                        delivered_this_connection: 0,
+                        overall_rate_per_sec,
+                    }
+                })
+                .collect()
+        };
+
+        let site_name = self.mx.as_ref().map(|mx| mx.site_name.to_string());
+        let protocol = self.protocol.metrics_protocol_name().to_string();
+
+        kumo_api_types::InspectReadyQV1Response {
+            queue_name: self.name.clone(),
+            site_name,
+            egress_source: self.egress_source.name.clone(),
+            egress_pool: self.egress_pool.clone(),
+            protocol,
+            state,
+            path_config: (**self.path_config.borrow()).clone(),
+            dispatchers,
+            now,
+        }
+    }
+
+    /// Abort the dispatcher slot whose state has the given session_id.
+    /// Returns true if a matching slot was found.
+    pub fn abort_dispatcher_by_session(&self, session_id: uuid::Uuid) -> bool {
+        let connections = self.connections.lock();
+        for slot in connections.iter() {
+            if slot.state.session_id == session_id && !slot.handle.is_finished() {
+                slot.handle.abort();
+                return true;
+            }
+        }
+        false
     }
 
     /// Effective progress watchdog timeout, honoring the per-egress

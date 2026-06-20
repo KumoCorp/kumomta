@@ -6,9 +6,38 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.06.18-83e69a7b"
+    "version": "2026.06.19-b95da281"
   },
   "paths": {
+    "/api/admin/abort-ready-q-conn/v1": {
+      "post": {
+        "tags": [
+          "inspect",
+          "kcli:abort-ready-q-conn"
+        ],
+        "summary": "Abort the dispatcher task identified by `session_id` within the\nnamed ready queue.",
+        "description": "{{since('dev')}}\n\nReturns 404 if either the queue or the session is unknown.",
+        "operationId": "abort_v1",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AbortReadyQConnV1Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Aborted"
+          },
+          "404": {
+            "description": "No matching queue or session"
+          }
+        }
+      }
+    },
     "/api/admin/bounce/v1": {
       "get": {
         "tags": [
@@ -143,6 +172,43 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/admin/inspect-ready-q/v1": {
+      "get": {
+        "tags": [
+          "inspect",
+          "kcli:inspect-ready-q"
+        ],
+        "summary": "Retrieve a snapshot of a ready queue's state, configuration, and\nthe dispatcher tasks that are currently handling connections on\nits behalf.",
+        "description": "{{since('dev')}}",
+        "operationId": "inspect_v1",
+        "parameters": [
+          {
+            "name": "queue_name",
+            "in": "query",
+            "description": "The name of the ready queue to inspect.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ready queue snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectReadyQV1Response"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such ready queue"
           }
         }
       }
@@ -731,6 +797,23 @@
   },
   "components": {
     "schemas": {
+      "AbortReadyQConnV1Request": {
+        "type": "object",
+        "description": "Request body for the abort-ready-q-conn endpoint.\n\n{{since('dev')}}",
+        "required": [
+          "queue_name",
+          "session_id"
+        ],
+        "properties": {
+          "queue_name": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "Attachment": {
         "type": "object",
         "required": [
@@ -1073,6 +1156,164 @@
         ],
         "description": "The message content.\nCan either be a fully formed MIME message, or a json\nobject describing the MIME structure that should be created."
       },
+      "DispatcherPhase": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "Starting"
+            ]
+          },
+          {
+            "type": "object",
+            "required": [
+              "AcquiringLease"
+            ],
+            "properties": {
+              "AcquiringLease": {
+                "type": "object",
+                "required": [
+                  "label"
+                ],
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "string",
+            "enum": [
+              "Idle"
+            ]
+          },
+          {
+            "type": "object",
+            "required": [
+              "AccumulatingBatch"
+            ],
+            "properties": {
+              "AccumulatingBatch": {
+                "type": "object",
+                "required": [
+                  "have",
+                  "want"
+                ],
+                "properties": {
+                  "have": {
+                    "type": "integer",
+                    "format": "u-int32",
+                    "minimum": 0
+                  },
+                  "want": {
+                    "type": "integer",
+                    "format": "u-int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "string",
+            "enum": [
+              "ConnectionRateThrottled"
+            ]
+          },
+          {
+            "type": "string",
+            "enum": [
+              "MessageRateThrottled"
+            ]
+          },
+          {
+            "type": "string",
+            "enum": [
+              "AttemptingConnection"
+            ]
+          },
+          {
+            "type": "string",
+            "enum": [
+              "DeliveringMessage"
+            ]
+          },
+          {
+            "type": "string",
+            "enum": [
+              "Closing"
+            ]
+          }
+        ],
+        "description": "Phase of a dispatcher task within a ready queue.\n\n{{since('dev')}}"
+      },
+      "DispatcherSummary": {
+        "type": "object",
+        "description": "Per-dispatcher summary returned by the inspect-ready-q endpoint.\n\n{{since('dev')}}",
+        "required": [
+          "session_id",
+          "started_at",
+          "age",
+          "phase",
+          "time_in_current_phase",
+          "messages_delivered",
+          "messages_transfailed",
+          "messages_failed",
+          "delivered_this_connection",
+          "overall_rate_per_sec"
+        ],
+        "properties": {
+          "age": {
+            "type": "string"
+          },
+          "delivered_this_connection": {
+            "type": "integer",
+            "format": "u-int64",
+            "minimum": 0
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "messages_delivered": {
+            "type": "integer",
+            "format": "u-int64",
+            "minimum": 0
+          },
+          "messages_failed": {
+            "type": "integer",
+            "format": "u-int64",
+            "minimum": 0
+          },
+          "messages_transfailed": {
+            "type": "integer",
+            "format": "u-int64",
+            "minimum": 0
+          },
+          "overall_rate_per_sec": {
+            "type": "number",
+            "format": "double"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/DispatcherPhase"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "time_in_current_phase": {
+            "type": "string"
+          }
+        }
+      },
       "FromHeader": {
         "type": "object",
         "required": [
@@ -1251,6 +1492,60 @@
           "queue_name": {
             "type": "string",
             "example": "campaign_name:tenant_name@example.com"
+          }
+        }
+      },
+      "InspectReadyQV1Response": {
+        "type": "object",
+        "description": "Response body for the inspect-ready-q endpoint.\n\n{{since('dev')}}",
+        "required": [
+          "queue_name",
+          "egress_source",
+          "egress_pool",
+          "protocol",
+          "state",
+          "path_config",
+          "dispatchers",
+          "now"
+        ],
+        "properties": {
+          "dispatchers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DispatcherSummary"
+            }
+          },
+          "egress_pool": {
+            "type": "string"
+          },
+          "egress_source": {
+            "type": "string"
+          },
+          "now": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "path_config": {
+            "type": "object",
+            "description": "Snapshot of the egress path configuration in effect for this\nqueue."
+          },
+          "protocol": {
+            "type": "string",
+            "description": "Protocol identifier as it appears in the ready queue name.",
+            "example": "smtp_client"
+          },
+          "queue_name": {
+            "type": "string"
+          },
+          "site_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "MX site name. Only meaningful for protocols that resolve MX\nrecords; otherwise None."
+          },
+          "state": {
+            "$ref": "#/components/schemas/ReadyQueueStateSnapshot"
           }
         }
       },
@@ -1448,6 +1743,59 @@
             "propertyNames": {
               "type": "string"
             }
+          }
+        }
+      },
+      "ReadyQueueStateSnapshot": {
+        "type": "object",
+        "description": "Snapshot of the operational state of a ready queue.\n\n{{since('dev')}}",
+        "required": [
+          "ready_count",
+          "connection_count",
+          "watchdog_threshold"
+        ],
+        "properties": {
+          "connection_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "connection_limited": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QueueState"
+              }
+            ]
+          },
+          "connection_rate_throttled": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QueueState"
+              }
+            ]
+          },
+          "ready_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "suspended": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SuspendReadyQueueV1ListEntry"
+              }
+            ]
+          },
+          "watchdog_threshold": {
+            "type": "string",
+            "description": "Effective progress watchdog timeout for this queue, honoring\nthe per-egress-path config or the protocol-derived default."
           }
         }
       },

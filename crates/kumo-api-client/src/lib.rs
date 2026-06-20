@@ -207,6 +207,22 @@ impl KumoApiClient {
     );
 
     method!(
+        admin_inspect_ready_q_v1,
+        GET,
+        "/api/admin/inspect-ready-q/v1",
+        InspectReadyQV1Request,
+        InspectReadyQV1Response
+    );
+
+    method!(
+        admin_abort_ready_q_conn_v1,
+        TEXT,
+        POST,
+        "/api/admin/abort-ready-q-conn/v1",
+        AbortReadyQConnV1Request
+    );
+
+    method!(
         admin_set_diagnostic_log_filter_v1,
         TEXT,
         POST,
