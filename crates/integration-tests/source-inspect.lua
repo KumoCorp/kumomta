@@ -55,22 +55,34 @@ end)
 
 kumo.on(
   'get_queue_config',
-  function(_domain, _tenant, _campaign, _routing_domain)
-    return kumo.make_queue_config {
+  function(domain, _tenant, _campaign, _routing_domain)
+    local cfg = {
       protocol = {
         custom_lua = {
           constructor = 'make.slow_send',
         },
       },
     }
+    -- For the scheduled-queue-constraint integration test.
+    if domain == 'sched-rate.example.com' then
+      cfg.max_message_rate = '100/s'
+    end
+    return kumo.make_queue_config(cfg)
   end
 )
 
-kumo.on('get_egress_path_config', function(_domain, _source_name, _site_name)
-  return kumo.make_egress_path {
+kumo.on('get_egress_path_config', function(domain, _source_name, _site_name)
+  local cfg = {
     connection_limit = 1,
     -- A large value so the watchdog cannot interfere; the test
     -- aborts the dispatcher itself via the admin API.
     dispatcher_progress_watchdog_timeout = '1h',
   }
+  -- For the scheduled-queue-constraint integration test: the path
+  -- declares a max_message_rate of 1000/s, which the scheduled
+  -- queue's 100/s rate then shadows.
+  if domain == 'sched-rate.example.com' then
+    cfg.max_message_rate = '1000/s'
+  end
+  return kumo.make_egress_path(cfg)
 end)

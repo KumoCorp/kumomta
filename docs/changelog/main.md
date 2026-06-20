@@ -97,20 +97,26 @@
    command and corresponding
    [admin/resolve-egress-path/v1](../reference/http/kumod/api_admin_resolve_egress_path_v1_get.md)
    HTTP endpoint, which report the effective egress path config,
-   MX resolution, ready-queue name and throughput ceilings for a
-   destination domain and egress source. Equivalent to running
+   scheduled-queue config, MX resolution, ready-queue name and the
+   throughput ceilings derived from both configs for a destination
+   domain and egress source. Equivalent to running
    `resolve-shaping-domain` against the live runtime instead of a
    static policy file.
 
  * Added new lua functions:
    [kumo.compute_egress_path_config_constraints](../reference/kumo/compute_egress_path_config_constraints.md),
+   [kumo.compute_egress_path_config_constraints](../reference/kumo/compute_egress_path_config_constraints.md),
+   [kumo.compute_queue_config_constraints](../reference/kumo/compute_queue_config_constraints.md),
    [kumo.format_egress_path_config_constraints](../reference/kumo/format_egress_path_config_constraints.md),
    [kumo.format_egress_path_config_toml](../reference/kumo/format_egress_path_config_toml.md),
    [kumo.serde.toml_encode_pretty_compact](../reference/kumo.serde/toml_encode_pretty_compact.md).
 
  * `resolve-shaping-domain` now shows the resolved configuration in
-   a pretty toml output and shows the same throughput-ceiling
-   diagnostic as `kcli inspect-ready-q`.
+   a pretty toml output, including both the scheduled-queue config
+   and the egress path config, and shows the same throughput-ceiling
+   diagnostic as `kcli inspect-ready-q` with constraints from both
+   configs folded in. A new `--json-queue-config` flag emits the
+   queue config as pretty JSON.
 
 ## Fixes
 

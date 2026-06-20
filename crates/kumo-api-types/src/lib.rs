@@ -747,7 +747,7 @@ pub struct InspectReadyQV1Response {
     /// produced it, so operators can tell whether a plateau in the
     /// observed rate is the result of shaping configuration or the
     /// remote side.
-    pub constraints: crate::egress_path::EgressPathConfigConstraints,
+    pub constraints: crate::egress_path::EffectiveConstraints,
     pub dispatchers: Vec<DispatcherSummary>,
     pub now: DateTime<Utc>,
 }
@@ -801,9 +801,15 @@ pub struct ResolveEgressPathV1Response {
     /// resolve to. Lets the caller pivot to inspect-ready-q for
     /// live runtime detail when the queue exists.
     pub queue_name: String,
+    /// Snapshot of the resolved scheduled-queue configuration for
+    /// this domain. Carried as an untyped JSON object because
+    /// `QueueConfig` contains protocol variants that don't all
+    /// round-trip cleanly through the OpenAPI schema.
+    #[schema(value_type = Object)]
+    pub queue_config: serde_json::Value,
     #[schema(value_type = Object)]
     pub path_config: crate::egress_path::EgressPathConfig,
-    pub constraints: crate::egress_path::EgressPathConfigConstraints,
+    pub constraints: crate::egress_path::EffectiveConstraints,
 }
 
 #[derive(Serialize, Clone, Deserialize, Debug, PartialEq, ToSchema)]

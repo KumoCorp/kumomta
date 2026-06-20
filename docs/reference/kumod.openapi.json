@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.06.20-911f1d17"
+    "version": "2026.06.20-d08d4e25"
   },
   "paths": {
     "/api/admin/abort-ready-q-conn/v1": {
@@ -1163,6 +1163,25 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "description": "A constraint contributed from a configuration layer outside\nthe egress path config. `name` is a free-form, human-readable\ndescription of where the constraint came from (for example,\n`\"scheduled queue max_message_rate\"`).",
+            "required": [
+              "name",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "other"
+                ]
+              },
+              "name": {
+                "type": "string"
+              }
+            }
           }
         ],
         "description": "Which configuration term produced an `EffectiveCeiling`.\n\n{{since('dev')}}"
@@ -1437,7 +1456,7 @@
           }
         }
       },
-      "EgressPathConfigConstraints": {
+      "EffectiveConstraints": {
         "type": "object",
         "description": "Steady-state ceilings implied by an `EgressPathConfig`. Each\nceiling carries a tag for which configuration term produced it.\n\n{{since('dev')}}\n\nThese are per-queue ceilings; shared limits in `additional_*`\nmaps are reported at their full value and may be tighter in\npractice when the bucket is contended.",
         "required": [
@@ -1684,7 +1703,7 @@
         ],
         "properties": {
           "constraints": {
-            "$ref": "#/components/schemas/EgressPathConfigConstraints",
+            "$ref": "#/components/schemas/EffectiveConstraints",
             "description": "Steady-state throughput ceilings implied by `path_config`.\nEach axis is tagged with the configuration term that\nproduced it, so operators can tell whether a plateau in the\nobserved rate is the result of shaping configuration or the\nremote side."
           },
           "dispatchers": {
@@ -2142,12 +2161,13 @@
           "domain",
           "source",
           "queue_name",
+          "queue_config",
           "path_config",
           "constraints"
         ],
         "properties": {
           "constraints": {
-            "$ref": "#/components/schemas/EgressPathConfigConstraints"
+            "$ref": "#/components/schemas/EffectiveConstraints"
           },
           "domain": {
             "type": "string"
@@ -2165,6 +2185,10 @@
           },
           "path_config": {
             "type": "object"
+          },
+          "queue_config": {
+            "type": "object",
+            "description": "Snapshot of the resolved scheduled-queue configuration for\nthis domain. Carried as an untyped JSON object because\n`QueueConfig` contains protocol variants that don't all\nround-trip cleanly through the OpenAPI schema."
           },
           "queue_name": {
             "type": "string",

@@ -37,29 +37,33 @@ If SOURCE_NAME is omitted, 'unspecified' will be used for the
 source name.
 
 Output format:
-  By default, the egress path config is printed as pretty TOML
-  followed by a human-readable ceilings block. The flags below
-  request machine-readable JSON instead.
+  By default, the scheduled-queue config, egress path config and a
+  human-readable ceilings block are printed as pretty TOML. The
+  ceilings fold in constraints from both configs. The flags below
+  request machine-readable JSON for individual sections instead.
 
 Options:
-  --json-config       Print the egress path config as pretty JSON
-                      instead of TOML. Equivalent to the legacy
-                      output of this script.
-  --json-constraints  Print the computed throughput ceilings as
-                      pretty JSON instead of the human-readable
-                      block.
-  -h, --help          Show this help text.
+  --json-config        Print the egress path config as pretty JSON
+                       instead of TOML. Equivalent to the legacy
+                       output of this script.
+  --json-queue-config  Print the scheduled-queue config as pretty
+                       JSON instead of TOML.
+  --json-constraints   Print the computed throughput ceilings as
+                       pretty JSON instead of the human-readable
+                       block.
+  -h, --help           Show this help text.
 
-If --json-config and --json-constraints are both passed, both
-JSON documents are emitted in order. The combined output is two
-separate JSON values, not a single document; consumers should
-parse them independently.
+If multiple --json-* flags are passed, the JSON documents are
+emitted in order. The combined output is several separate JSON
+values, not a single document; consumers should parse them
+independently.
 ]]
 end
 
 kumo.on('main', function(...)
   local args = { ... }
   local json_config = false
+  local json_queue_config = false
   local json_constraints = false
   local positional = {}
 
@@ -69,6 +73,8 @@ kumo.on('main', function(...)
       return
     elseif arg == '--json-config' then
       json_config = true
+    elseif arg == '--json-queue-config' then
+      json_queue_config = true
     elseif arg == '--json-constraints' then
       json_constraints = true
     elseif string.sub(arg, 1, 2) == '--' then
@@ -93,32 +99,45 @@ kumo.on('main', function(...)
     site_name = mx.site_name
   end
 
+  local queue_config = kumo.invoke_get_queue_config(domain)
   local path_config =
     kumo.invoke_get_egress_path_config(domain, source, site_name)
-  local constraints =
-    kumo.compute_egress_path_config_constraints(path_config)
+  local queue_constraints =
+    kumo.compute_queue_config_constraints(queue_config)
+  local constraints = kumo.compute_egress_path_config_constraints(
+    path_config,
+    queue_constraints
+  )
 
-  local emit_config_section = not (json_config or json_constraints)
-  local emit_constraints_section = not (json_config or json_constraints)
+  local any_json = json_config or json_queue_config or json_constraints
+  local emit_text_sections = not any_json
 
-  if emit_config_section then
+  if emit_text_sections then
+    print '--- scheduled queue config ---'
+    print ''
+    print(kumo.format_queue_config_toml(queue_config))
     print '--- egress path config ---'
     print ''
     print(kumo.format_egress_path_config_toml(path_config))
-  end
-
-  if emit_constraints_section then
     print '--- effective ceilings ---'
     print ''
     io.write(kumo.format_egress_path_config_constraints(constraints))
   end
 
-  if json_config then
-    print(kumo.serde.json_encode_pretty(path_config))
+  local emitted_any_json = false
+  if json_queue_config then
+    print(kumo.serde.json_encode_pretty(queue_config))
+    emitted_any_json = true
   end
-
+  if json_config then
+    if emitted_any_json then
+      print ''
+    end
+    print(kumo.serde.json_encode_pretty(path_config))
+    emitted_any_json = true
+  end
   if json_constraints then
-    if json_config then
+    if emitted_any_json then
       print ''
     end
     print(kumo.serde.json_encode_pretty(constraints))

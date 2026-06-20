@@ -45,7 +45,7 @@ Response body for the resolve-egress-path endpoint.
 This is an object value, with the following properties:
 
 
-  * `constraints` - required [EgressPathConfigConstraints](schemas/EgressPathConfigConstraints.md). Steady-state ceilings implied by an `EgressPathConfig`. Each
+  * `constraints` - required [EffectiveConstraints](schemas/EffectiveConstraints.md). Steady-state ceilings implied by an `EgressPathConfig`. Each
     ceiling carries a tag for which configuration term produced it.
     
     {{since('dev')}}
@@ -59,6 +59,11 @@ This is an object value, with the following properties:
   * `mx` - optional nullable [MxResolution](schemas/MxResolution.md). 
 
   * `path_config` - required `object`. 
+
+  * `queue_config` - required `object`. Snapshot of the resolved scheduled-queue configuration for
+    this domain. Carried as an untyped JSON object because
+    `QueueConfig` contains protocol variants that don't all
+    round-trip cleanly through the OpenAPI schema.
 
   * `queue_name` - required `string`. The ready-queue name that this domain/source pair would
     resolve to. Lets the caller pivot to inspect-ready-q for
@@ -109,6 +114,7 @@ This is an object value, with the following properties:
     "site_name": "string"
   },
   "path_config": {},
+  "queue_config": {},
   "queue_name": "string",
   "source": "string"
 }

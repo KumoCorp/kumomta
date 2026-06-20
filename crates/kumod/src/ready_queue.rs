@@ -959,7 +959,7 @@ impl ReadyQueue {
             .map(|m| kumo_api_types::egress_path::MxResolution::from(&**m));
         let protocol = self.protocol.metrics_protocol_name().to_string();
         let path_config = (**self.path_config.borrow()).clone();
-        let constraints = path_config.compute_constraints();
+        let constraints = path_config.compute_constraints(None);
 
         kumo_api_types::InspectReadyQV1Response {
             queue_name: self.name.clone(),

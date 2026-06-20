@@ -2,9 +2,10 @@ use crate::queue::Queue;
 use crate::ready_queue::{ReadyQueueManager, GET_EGRESS_PATH_CONFIG_SIG};
 use axum::extract::{Json, Query};
 use kumo_api_types::egress_path::{
-    EgressPathConfig, EgressPathConfigConstraints, MxResolution,
+    EgressPathConfig, EffectiveConstraints, MxResolution,
 };
 use kumo_api_types::{ResolveEgressPathV1Request, ResolveEgressPathV1Response};
+use serde_json::Value;
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_common::http_server::AppError;
 
@@ -35,6 +36,8 @@ pub async fn resolve_v1(
 
     let mut config = config::load_config().await?;
     let queue_config = Queue::call_get_queue_config(&request.domain, &mut config).await?;
+    let queue_constraints = queue_config.compute_constraints();
+    let queue_config_value: Value = serde_json::to_value(&queue_config)?;
     let queue_config = ConfigHandle::new(queue_config);
 
     let (queue_name, site_name, mx) =
@@ -65,13 +68,15 @@ pub async fn resolve_v1(
         .await?;
     config.put();
 
-    let constraints: EgressPathConfigConstraints = path_config.compute_constraints();
+    let constraints: EffectiveConstraints =
+        path_config.compute_constraints(Some(&queue_constraints));
 
     Ok(Json(ResolveEgressPathV1Response {
         domain: request.domain,
         source,
         mx,
         queue_name,
+        queue_config: queue_config_value,
         path_config,
         constraints,
     }))

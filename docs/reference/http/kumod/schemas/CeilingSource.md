@@ -49,10 +49,29 @@ This is an object value, with the following properties:
 
   * `kind` - required `string`. 
 
+## Option 4
+A constraint contributed from a configuration layer outside
+the egress path config. `name` is a free-form, human-readable
+description of where the constraint came from (for example,
+`"scheduled queue max_message_rate"`).
+
+This is an object value, with the following properties:
+
+
+  * `kind` - required `string`. 
+
+  * `name` - required `string`. 
+
 ### Examples
 ```json
 {
   "kind": "additional",
+  "name": "string"
+}
+```
+```json
+{
+  "kind": "other",
   "name": "string"
 }
 ```

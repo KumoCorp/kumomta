@@ -487,7 +487,23 @@ impl EgressPathConfig {
     /// configuration. Per-axis, each ceiling carries a tag for which
     /// configuration term produced it, so operators can see which
     /// knob to turn.
-    pub fn compute_constraints(&self) -> EgressPathConfigConstraints {
+    ///
+    /// If `additional` is supplied, its ceilings are merged in via
+    /// `EffectiveConstraints::merge`. This is the entry point for
+    /// folding in constraints from other configuration layers, such
+    /// as the scheduled-queue rate from `QueueConfig`.
+    pub fn compute_constraints(
+        &self,
+        additional: Option<&EffectiveConstraints>,
+    ) -> EffectiveConstraints {
+        let mut constraints = self.compute_path_constraints();
+        if let Some(extra) = additional {
+            constraints.merge(extra);
+        }
+        constraints
+    }
+
+    fn compute_path_constraints(&self) -> EffectiveConstraints {
         let max_concurrent_dispatchers = {
             let mut best = EffectiveCeiling {
                 value: self.connection_limit.limit as f64,
@@ -584,7 +600,7 @@ impl EgressPathConfig {
                 .min_by(|a, b| a.value.total_cmp(&b.value))
         };
 
-        EgressPathConfigConstraints {
+        EffectiveConstraints {
             max_concurrent_dispatchers,
             max_message_rate,
             max_message_rate_declared,
@@ -645,6 +661,11 @@ pub enum CeilingSource {
     /// `max_connection_rate`, so the product is a hard ceiling on
     /// system-wide message rate independent of `max_message_rate`.
     ReconnectCycling,
+    /// A constraint contributed from a configuration layer outside
+    /// the egress path config. `name` is a free-form, human-readable
+    /// description of where the constraint came from (for example,
+    /// `"scheduled queue max_message_rate"`).
+    Other { name: String },
 }
 
 /// Summary of an MX resolution attempt for a destination.
@@ -729,7 +750,7 @@ impl MxResolution {
 /// maps are reported at their full value and may be tighter in
 /// practice when the bucket is contended.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema)]
-pub struct EgressPathConfigConstraints {
+pub struct EffectiveConstraints {
     pub max_concurrent_dispatchers: EffectiveCeiling,
     /// None when neither `max_message_rate` nor any
     /// `additional_message_rate_throttles` entry nor
@@ -744,7 +765,7 @@ pub struct EgressPathConfigConstraints {
     pub max_source_selection_rate: Option<EffectiveCeiling>,
 }
 
-impl EgressPathConfigConstraints {
+impl EffectiveConstraints {
     /// Render a human-readable multi-line block. The same formatting
     /// is used by `kcli inspect-ready-q` and by the
     /// `resolve-shaping-domain` script, so operators see the same
@@ -761,6 +782,7 @@ impl EgressPathConfigConstraints {
                     CeilingSource::ReconnectCycling => {
                         "max_deliveries_per_connection × max_connection_rate"
                     }
+                    CeilingSource::Other { name } => name.as_str(),
                 };
                 writeln!(w, "    source: {s}")
             };
@@ -809,6 +831,54 @@ impl EgressPathConfigConstraints {
         let _ = self.render(&mut s);
         s
     }
+
+    /// Fold another `EffectiveConstraints` into this one by taking
+    /// the per-axis minimum. The losing ceiling is shadowed; the
+    /// winner's `source` tag is preserved. The
+    /// `max_message_rate_declared` annotation is re-evaluated so a
+    /// rate that is now shadowed by an external source gets the
+    /// "declared but unreachable" treatment.
+    pub fn merge(&mut self, other: &EffectiveConstraints) {
+        // Remember the path's declared rate before merging; if a
+        // tighter external source wins, we need to surface the
+        // declared value as the unreachable annotation.
+        let path_declared = self
+            .max_message_rate
+            .as_ref()
+            .filter(|c| matches!(c.source, CeilingSource::Primary))
+            .map(|c| c.display.clone())
+            .or_else(|| self.max_message_rate_declared.clone());
+
+        merge_axis(&mut self.max_concurrent_dispatchers, &other.max_concurrent_dispatchers);
+        merge_optional(&mut self.max_message_rate, &other.max_message_rate);
+        merge_optional(&mut self.max_connection_rate, &other.max_connection_rate);
+        merge_optional(
+            &mut self.max_source_selection_rate,
+            &other.max_source_selection_rate,
+        );
+
+        if let Some(merged) = &self.max_message_rate {
+            if !matches!(merged.source, CeilingSource::Primary) {
+                if let Some(declared) = path_declared {
+                    self.max_message_rate_declared = Some(declared);
+                }
+            }
+        }
+    }
+}
+
+fn merge_axis(a: &mut EffectiveCeiling, b: &EffectiveCeiling) {
+    if b.value.total_cmp(&a.value).is_lt() {
+        *a = b.clone();
+    }
+}
+
+fn merge_optional(a: &mut Option<EffectiveCeiling>, b: &Option<EffectiveCeiling>) {
+    match (a.as_mut(), b) {
+        (Some(av), Some(bv)) if bv.value.total_cmp(&av.value).is_lt() => *av = bv.clone(),
+        (None, Some(bv)) => *a = Some(bv.clone()),
+        _ => {}
+    }
 }
 
 #[cfg(test)]
@@ -855,6 +925,16 @@ mod constraints_tests {
         }
     }
 
+    fn other(name: &str, display: &str) -> EffectiveCeiling {
+        EffectiveCeiling {
+            value: value_from_display(display),
+            source: CeilingSource::Other {
+                name: name.to_string(),
+            },
+            display: display.to_string(),
+        }
+    }
+
     fn reconnect_cycling(display: &str) -> EffectiveCeiling {
         EffectiveCeiling {
             value: value_from_display(display),
@@ -882,8 +962,8 @@ mod constraints_tests {
     #[test]
     fn defaults_only_concurrency() {
         assert_eq!(
-            cfg().compute_constraints(),
-            EgressPathConfigConstraints {
+            cfg().compute_constraints(None),
+            EffectiveConstraints {
                 max_concurrent_dispatchers: primary("32"),
                 max_message_rate: None,
                 max_message_rate_declared: None,
@@ -899,8 +979,8 @@ mod constraints_tests {
         p.additional_connection_limits
             .insert("provider_shared".to_string(), LimitSpec::new(10));
         assert_eq!(
-            p.compute_constraints(),
-            EgressPathConfigConstraints {
+            p.compute_constraints(None),
+            EffectiveConstraints {
                 max_concurrent_dispatchers: additional("provider_shared", "10"),
                 max_message_rate: None,
                 max_message_rate_declared: None,
@@ -917,8 +997,8 @@ mod constraints_tests {
         p.additional_connection_limits
             .insert("large_pool".to_string(), LimitSpec::new(100));
         assert_eq!(
-            p.compute_constraints(),
-            EgressPathConfigConstraints {
+            p.compute_constraints(None),
+            EffectiveConstraints {
                 max_concurrent_dispatchers: primary("4"),
                 max_message_rate: None,
                 max_message_rate_declared: None,
@@ -933,8 +1013,8 @@ mod constraints_tests {
         let mut p = cfg();
         p.max_message_rate = Some(throttle("1000/s"));
         assert_eq!(
-            p.compute_constraints(),
-            EgressPathConfigConstraints {
+            p.compute_constraints(None),
+            EffectiveConstraints {
                 max_concurrent_dispatchers: primary("32"),
                 max_message_rate: Some(primary("1000/s")),
                 max_message_rate_declared: None,
@@ -951,8 +1031,8 @@ mod constraints_tests {
         p.additional_message_rate_throttles
             .insert("provider_cap".to_string(), throttle("250/s"));
         assert_eq!(
-            p.compute_constraints(),
-            EgressPathConfigConstraints {
+            p.compute_constraints(None),
+            EffectiveConstraints {
                 max_concurrent_dispatchers: primary("32"),
                 max_message_rate: Some(additional("provider_cap", "250/s")),
                 max_message_rate_declared: Some("1000/s".to_string()),
@@ -976,8 +1056,8 @@ mod constraints_tests {
         p.additional_message_rate_throttles
             .insert("per_second".to_string(), throttle("5/s"));
         assert_eq!(
-            p.compute_constraints(),
-            EgressPathConfigConstraints {
+            p.compute_constraints(None),
+            EffectiveConstraints {
                 max_concurrent_dispatchers: primary("32"),
                 max_message_rate: Some(additional("per_hour", "10/h")),
                 max_message_rate_declared: None,
@@ -996,8 +1076,8 @@ mod constraints_tests {
         let mut p = cfg();
         p.max_message_rate = Some(throttle("10000/hr"));
         assert_eq!(
-            p.compute_constraints(),
-            EgressPathConfigConstraints {
+            p.compute_constraints(None),
+            EffectiveConstraints {
                 max_concurrent_dispatchers: primary("32"),
                 max_message_rate: Some(primary("10000/h")),
                 max_message_rate_declared: None,
@@ -1016,8 +1096,8 @@ mod constraints_tests {
         p.max_deliveries_per_connection = 10;
         p.max_connection_rate = Some(throttle("10/s"));
         assert_eq!(
-            p.compute_constraints(),
-            EgressPathConfigConstraints {
+            p.compute_constraints(None),
+            EffectiveConstraints {
                 max_concurrent_dispatchers: primary("32"),
                 max_message_rate: Some(reconnect_cycling("10 × 10/s = 100/s")),
                 max_message_rate_declared: Some("1000/s".to_string()),
@@ -1036,8 +1116,8 @@ mod constraints_tests {
         p.max_message_rate = Some(throttle("1000/s"));
         p.max_connection_rate = Some(throttle("10/s"));
         assert_eq!(
-            p.compute_constraints(),
-            EgressPathConfigConstraints {
+            p.compute_constraints(None),
+            EffectiveConstraints {
                 max_concurrent_dispatchers: primary("32"),
                 max_message_rate: Some(primary("1000/s")),
                 max_message_rate_declared: None,
@@ -1056,8 +1136,8 @@ mod constraints_tests {
         p.max_deliveries_per_connection = 5;
         p.max_connection_rate = Some(throttle("2/s"));
         assert_eq!(
-            p.compute_constraints(),
-            EgressPathConfigConstraints {
+            p.compute_constraints(None),
+            EffectiveConstraints {
                 max_concurrent_dispatchers: primary("32"),
                 max_message_rate: Some(reconnect_cycling("5 × 2/s = 10/s")),
                 max_message_rate_declared: None,
@@ -1068,12 +1148,108 @@ mod constraints_tests {
     }
 
     #[test]
+    fn merge_external_message_rate_wins() {
+        // Path config declares max_message_rate = 1000/s, but an
+        // external source (e.g. a scheduled queue) declares 100/s.
+        // The merged result picks the external term and surfaces the
+        // path's declared rate as "effectively unreachable".
+        let mut p = cfg();
+        p.max_message_rate = Some(throttle("1000/s"));
+        let external = EffectiveConstraints {
+            max_concurrent_dispatchers: EffectiveCeiling {
+                value: f64::INFINITY,
+                source: CeilingSource::Other {
+                    name: "queue config".to_string(),
+                },
+                display: "∞".to_string(),
+            },
+            max_message_rate: Some(other("scheduled queue max_message_rate", "100/s")),
+            max_message_rate_declared: None,
+            max_connection_rate: None,
+            max_source_selection_rate: None,
+        };
+        assert_eq!(
+            p.compute_constraints(Some(&external)),
+            EffectiveConstraints {
+                max_concurrent_dispatchers: primary("32"),
+                max_message_rate: Some(other("scheduled queue max_message_rate", "100/s")),
+                max_message_rate_declared: Some("1000/s".to_string()),
+                max_connection_rate: None,
+                max_source_selection_rate: None,
+            }
+        );
+    }
+
+    #[test]
+    fn merge_external_does_not_bind() {
+        // Path config declares max_message_rate = 100/s; external
+        // declares 1000/s. Path's primary wins; no annotation.
+        let mut p = cfg();
+        p.max_message_rate = Some(throttle("100/s"));
+        let external = EffectiveConstraints {
+            max_concurrent_dispatchers: EffectiveCeiling {
+                value: f64::INFINITY,
+                source: CeilingSource::Other {
+                    name: "queue config".to_string(),
+                },
+                display: "∞".to_string(),
+            },
+            max_message_rate: Some(other("scheduled queue max_message_rate", "1000/s")),
+            max_message_rate_declared: None,
+            max_connection_rate: None,
+            max_source_selection_rate: None,
+        };
+        assert_eq!(
+            p.compute_constraints(Some(&external)),
+            EffectiveConstraints {
+                max_concurrent_dispatchers: primary("32"),
+                max_message_rate: Some(primary("100/s")),
+                max_message_rate_declared: None,
+                max_connection_rate: None,
+                max_source_selection_rate: None,
+            }
+        );
+    }
+
+    #[test]
+    fn render_external_wins_with_annotation() {
+        let mut p = cfg();
+        p.max_message_rate = Some(throttle("1000/s"));
+        let external = EffectiveConstraints {
+            max_concurrent_dispatchers: EffectiveCeiling {
+                value: f64::INFINITY,
+                source: CeilingSource::Other {
+                    name: "queue config".to_string(),
+                },
+                display: "∞".to_string(),
+            },
+            max_message_rate: Some(other("scheduled queue max_message_rate", "100/s")),
+            max_message_rate_declared: None,
+            max_connection_rate: None,
+            max_source_selection_rate: None,
+        };
+        let c = p.compute_constraints(Some(&external));
+        k9::snapshot!(
+            c.to_human_string(),
+            "
+ceilings:
+  concurrent dispatchers: 32
+    source: connection_limit
+  message rate:           100/s
+    source: scheduled queue max_message_rate
+    declared: max_message_rate = 1000/s ← effectively unreachable
+
+"
+        );
+    }
+
+    #[test]
     fn source_selection_rate() {
         let mut p = cfg();
         p.source_selection_rate = Some(throttle("5/s"));
         assert_eq!(
-            p.compute_constraints(),
-            EgressPathConfigConstraints {
+            p.compute_constraints(None),
+            EffectiveConstraints {
                 max_concurrent_dispatchers: primary("32"),
                 max_message_rate: None,
                 max_message_rate_declared: None,
@@ -1085,7 +1261,7 @@ mod constraints_tests {
 
     #[test]
     fn render_defaults() {
-        let c = cfg().compute_constraints();
+        let c = cfg().compute_constraints(None);
         k9::snapshot!(
             c.to_human_string(),
             "
@@ -1103,7 +1279,7 @@ ceilings:
         // unreachable annotation should appear.
         let mut p = cfg();
         p.max_message_rate = Some(throttle("1000/s"));
-        let c = p.compute_constraints();
+        let c = p.compute_constraints(None);
         k9::snapshot!(
             c.to_human_string(),
             "
@@ -1123,7 +1299,7 @@ ceilings:
         p.max_message_rate = Some(throttle("1000/s"));
         p.max_deliveries_per_connection = 10;
         p.max_connection_rate = Some(throttle("10/s"));
-        let c = p.compute_constraints();
+        let c = p.compute_constraints(None);
         k9::snapshot!(
             c.to_human_string(),
             "
@@ -1146,7 +1322,7 @@ ceilings:
         p.max_message_rate = Some(throttle("1000/s"));
         p.additional_message_rate_throttles
             .insert("provider_cap".to_string(), throttle("250/s"));
-        let c = p.compute_constraints();
+        let c = p.compute_constraints(None);
         k9::snapshot!(
             c.to_human_string(),
             "

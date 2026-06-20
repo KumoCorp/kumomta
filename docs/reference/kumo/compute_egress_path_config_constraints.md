@@ -1,7 +1,8 @@
 # kumo.compute_egress_path_config_constraints
 
 ```lua
-local constraints = kumo.compute_egress_path_config_constraints(path_config)
+local constraints =
+  kumo.compute_egress_path_config_constraints(path_config, additional)
 ```
 
 {{since('dev')}}
@@ -11,6 +12,10 @@ Given an egress path configuration table (as returned by
 or constructed via
 [kumo.make_egress_path](make_egress_path/index.md)), returns the
 steady-state throughput ceilings implied by that configuration.
+
+The optional `additional` argument accepts another constraints table whose
+ceilings are merged in via per-axis minimum. This is useful when merging in
+[kumo.compute_queue_config_constraints](compute_queue_config_constraints.md).
 
 The returned value has the following shape:
 
@@ -43,7 +48,9 @@ Each axis carries an `EffectiveCeiling` with:
   * `source`: tagged enum identifying which configuration term
     produced the ceiling. `kind` is one of `"primary"`,
     `"additional"` (with a `name` field naming the entry in the
-    corresponding `additional_*` map), or `"reconnect_cycling"`.
+    corresponding `additional_*` map), `"reconnect_cycling"`, or
+    `"other"` (with a `name` field naming a constraint contributed
+    from a configuration layer outside the egress path config).
   * `display`: human-readable string preserving the operator's
     original configuration units.
 

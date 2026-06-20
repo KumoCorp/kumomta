@@ -299,7 +299,7 @@ mod tests {
     fn build_response() -> InspectReadyQV1Response {
         use kumo_api_types::egress_path::MxResolution;
         let path_config = EgressPathConfig::default();
-        let constraints = path_config.compute_constraints();
+        let constraints = path_config.compute_constraints(None);
         let mut by_preference: std::collections::BTreeMap<u16, Vec<String>> = Default::default();
         by_preference.insert(10, vec!["gmail-smtp-in.l.google.com".to_string()]);
         by_preference.insert(20, vec!["alt1.gmail-smtp-in.l.google.com".to_string()]);
@@ -525,7 +525,7 @@ connections: 4
         path_config.max_message_rate = Some(throttle::ThrottleSpec::try_from("1000/s").unwrap());
         path_config.max_deliveries_per_connection = 10;
         path_config.max_connection_rate = Some(throttle::ThrottleSpec::try_from("10/s").unwrap());
-        let constraints = path_config.compute_constraints();
+        let constraints = path_config.compute_constraints(None);
         let mut r = build_response();
         r.path_config = path_config;
         r.constraints = constraints;

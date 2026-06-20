@@ -15,7 +15,7 @@ Response body for the inspect-ready-q endpoint.
 This is an object value, with the following properties:
 
 
-  * `constraints` - required [EgressPathConfigConstraints](EgressPathConfigConstraints.md). Steady-state throughput ceilings implied by `path_config`.
+  * `constraints` - required [EffectiveConstraints](EffectiveConstraints.md). Steady-state throughput ceilings implied by `path_config`.
     Each axis is tagged with the configuration term that
     produced it, so operators can tell whether a plateau in the
     observed rate is the result of shaping configuration or the
