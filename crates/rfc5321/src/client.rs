@@ -455,9 +455,7 @@ impl SmtpClient {
                     if let Some(tracer) = &self.tracer {
                         tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
                             level: Level::ERROR,
-                            message: format!(
-                                "Flush timed out after {timeout_duration:?}"
-                            ),
+                            message: format!("Flush timed out after {timeout_duration:?}"),
                         });
                         tracer.trace_event(SmtpClientTraceEvent::Closed);
                     }
@@ -477,8 +475,8 @@ impl SmtpClient {
         let mut response_builder = ResponseBuilder::new(&parsed);
 
         while !parsed.is_final {
-            let per_line = Duration::from_secs(60)
-                .min(deadline.saturating_duration_since(Instant::now()));
+            let per_line =
+                Duration::from_secs(60).min(deadline.saturating_duration_since(Instant::now()));
             line = self.read_line(per_line, command).await?;
             parsed = parse_response_line(&line)?;
             response_builder

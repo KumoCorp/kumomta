@@ -51,15 +51,18 @@ kumo.on('make.wedge_send', function(_domain, _tenant, _campaign)
   return sender
 end)
 
-kumo.on('get_queue_config', function(_domain, _tenant, _campaign, _routing_domain)
-  return kumo.make_queue_config {
-    protocol = {
-      custom_lua = {
-        constructor = 'make.wedge_send',
+kumo.on(
+  'get_queue_config',
+  function(_domain, _tenant, _campaign, _routing_domain)
+    return kumo.make_queue_config {
+      protocol = {
+        custom_lua = {
+          constructor = 'make.wedge_send',
+        },
       },
-    },
-  }
-end)
+    }
+  end
+)
 
 kumo.on('get_egress_path_config', function(_domain, _source_name, _site_name)
   return kumo.make_egress_path {

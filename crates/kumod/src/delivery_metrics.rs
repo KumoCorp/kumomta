@@ -200,8 +200,9 @@ impl DeliveryMetrics {
             connection_total: crate::metrics_helper::connection_total_for_service(&service),
             global_connection_total: globals.global_connection_total.clone(),
             ready_full: crate::metrics_helper::ready_full_counter_for_service(&service),
-            watchdog_aborted:
-                crate::metrics_helper::dispatcher_watchdog_aborted_for_service(&service),
+            watchdog_aborted: crate::metrics_helper::dispatcher_watchdog_aborted_for_service(
+                &service,
+            ),
             ready_count,
             deliver_message_rollup: crate::metrics_helper::deliver_message_rollup_for_service(
                 service_type,

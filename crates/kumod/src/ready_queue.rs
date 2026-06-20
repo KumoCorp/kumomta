@@ -1,6 +1,4 @@
-use crate::delivery_metrics::{
-    DeliveryMetrics, DispatcherDispositionCounters, ReadyCountBundle,
-};
+use crate::delivery_metrics::{DeliveryMetrics, DispatcherDispositionCounters, ReadyCountBundle};
 use crate::egress_source::{
     err_match_anyhow, BindError, ConnectError, EgressSource, ProxyBindError,
 };
@@ -882,24 +880,25 @@ impl ReadyQueue {
         let (connection_rate_throttled, connection_limited) = {
             let s = self.states.lock();
             (
-                s.connection_rate_throttled.as_ref().map(|st| {
-                    kumo_api_types::QueueState {
+                s.connection_rate_throttled
+                    .as_ref()
+                    .map(|st| kumo_api_types::QueueState {
                         context: st.context.clone(),
                         since: st.since,
-                    }
-                }),
-                s.connection_limited.as_ref().map(|st| {
-                    kumo_api_types::QueueState {
+                    }),
+                s.connection_limited
+                    .as_ref()
+                    .map(|st| kumo_api_types::QueueState {
                         context: st.context.clone(),
                         since: st.since,
-                    }
-                }),
+                    }),
             )
         };
 
-        let suspended = crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry::get_all_v1()
-            .into_iter()
-            .find(|entry| entry.name == self.name);
+        let suspended =
+            crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry::get_all_v1()
+                .into_iter()
+                .find(|entry| entry.name == self.name);
 
         let state = kumo_api_types::ReadyQueueStateSnapshot {
             ready_count: self.ready_count(),
@@ -919,13 +918,17 @@ impl ReadyQueue {
                     let age = slot.state.started_at.elapsed();
                     let time_in_current_phase = slot.state.last_activity.elapsed();
                     let phase = (**slot.state.phase.load()).clone();
-                    let detail = slot.state.detail.load_full().as_deref().map(|s| s.to_string());
+                    let detail = slot
+                        .state
+                        .detail
+                        .load_full()
+                        .as_deref()
+                        .map(|s| s.to_string());
                     let messages_delivered = slot.state.disposition_counters.delivered.get() as u64;
                     let messages_transfailed =
                         slot.state.disposition_counters.transfail.get() as u64;
                     let messages_failed = slot.state.disposition_counters.fail.get() as u64;
-                    let total_actions =
-                        messages_delivered + messages_transfailed + messages_failed;
+                    let total_actions = messages_delivered + messages_transfailed + messages_failed;
                     let age_secs = age.as_secs_f64();
                     let overall_rate_per_sec = if age_secs > 0.0 {
                         total_actions as f64 / age_secs
@@ -935,8 +938,7 @@ impl ReadyQueue {
                     kumo_api_types::DispatcherSummary {
                         session_id: slot.state.session_id,
                         started_at: now
-                            - chrono::Duration::from_std(age)
-                                .unwrap_or(chrono::Duration::zero()),
+                            - chrono::Duration::from_std(age).unwrap_or(chrono::Duration::zero()),
                         age,
                         phase,
                         detail,
@@ -1483,7 +1485,9 @@ impl ReadyQueue {
                     );
                 }
             }) {
-                self.connections.lock().push(DispatcherSlot { handle, state });
+                self.connections
+                    .lock()
+                    .push(DispatcherSlot { handle, state });
             }
         }
     }
@@ -1684,11 +1688,7 @@ impl Drop for Dispatcher {
         let state = self.state.clone();
         let session_id = self.state.session_id;
         let watchdog = self.state.aborted_by_watchdog.load(Ordering::Relaxed);
-        let provider_name = self
-            .path_config
-            .borrow()
-            .provider_name
-            .clone();
+        let provider_name = self.path_config.borrow().provider_name.clone();
         let egress_pool = self.egress_pool.clone();
         let egress_source = self.egress_source.name.clone();
         let delivery_protocol = self.delivery_protocol.clone();

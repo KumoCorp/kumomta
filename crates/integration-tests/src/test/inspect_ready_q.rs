@@ -105,5 +105,3 @@ async fn inspect_and_abort() -> anyhow::Result<()> {
     daemon.stop_both().await.context("stop_both")?;
     Ok(())
 }
-
-

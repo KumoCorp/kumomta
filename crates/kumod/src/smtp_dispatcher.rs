@@ -378,9 +378,8 @@ impl SmtpDispatcher {
                     .await?;
 
                 if let Some(delay) = result.retry_after {
-                    dispatcher.enter_phase(
-                        crate::ready_queue::DispatcherPhase::ConnectionRateThrottled,
-                    );
+                    dispatcher
+                        .enter_phase(crate::ready_queue::DispatcherPhase::ConnectionRateThrottled);
                     dispatcher
                         .states
                         .lock()

@@ -154,9 +154,9 @@ pub fn toml_encode_pretty_compact<T: serde::Serialize>(value: &T) -> anyhow::Res
         for key in empty_keys {
             table.insert(
                 &key,
-                toml_edit::Item::Value(toml_edit::Value::InlineTable(
-                    toml_edit::InlineTable::new(),
-                )),
+                toml_edit::Item::Value(
+                    toml_edit::Value::InlineTable(toml_edit::InlineTable::new()),
+                ),
             );
         }
 

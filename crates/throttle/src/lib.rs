@@ -519,8 +519,7 @@ impl<'de> Deserialize<'de> for LimitSpec {
                     }
                 }
                 Ok(LimitSpec {
-                    limit: limit
-                        .ok_or_else(|| serde::de::Error::missing_field("limit"))?,
+                    limit: limit.ok_or_else(|| serde::de::Error::missing_field("limit"))?,
                     force_local: force_local.unwrap_or(false),
                 })
             }
@@ -673,11 +672,9 @@ mod test {
         assert_eq!(restored, original);
 
         // Unknown fields are rejected.
-        let err = serde_json::from_str::<LimitSpec>(
-            r#"{"limit":1,"force_local":false,"oops":1}"#,
-        )
-        .unwrap_err()
-        .to_string();
+        let err = serde_json::from_str::<LimitSpec>(r#"{"limit":1,"force_local":false,"oops":1}"#)
+            .unwrap_err()
+            .to_string();
         assert_eq!(
             err,
             "unknown field `oops`, expected `limit` or `force_local` at line 1 column 37"

@@ -793,8 +793,6 @@ mod constraints_tests {
         ThrottleSpec::try_from(s).unwrap()
     }
 
-
-
     #[test]
     fn rust_compact_round_trips() {
         // Calling the compact TOML renderer directly on a typed

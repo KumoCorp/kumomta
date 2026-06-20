@@ -213,21 +213,16 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     kumo_mod.set(
         "compute_egress_path_config_constraints",
-        lua.create_function(
-            |lua, path_config: SerdeWrappedValue<EgressPathConfig>| {
-                lua.to_value(&path_config.0.compute_constraints())
-            },
-        )?,
+        lua.create_function(|lua, path_config: SerdeWrappedValue<EgressPathConfig>| {
+            lua.to_value(&path_config.0.compute_constraints())
+        })?,
     )?;
 
     kumo_mod.set(
         "format_egress_path_config_toml",
-        lua.create_function(
-            |_lua, path_config: SerdeWrappedValue<EgressPathConfig>| {
-                mod_serde::toml_encode_pretty_compact(&path_config.0)
-                    .map_err(any_err)
-            },
-        )?,
+        lua.create_function(|_lua, path_config: SerdeWrappedValue<EgressPathConfig>| {
+            mod_serde::toml_encode_pretty_compact(&path_config.0).map_err(any_err)
+        })?,
     )?;
 
     kumo_mod.set(
