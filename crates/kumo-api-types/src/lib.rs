@@ -741,6 +741,12 @@ pub struct InspectReadyQV1Response {
     /// queue.
     #[schema(value_type = Object)]
     pub path_config: crate::egress_path::EgressPathConfig,
+    /// Steady-state throughput ceilings implied by `path_config`.
+    /// Each axis is tagged with the configuration term that
+    /// produced it, so operators can tell whether a plateau in the
+    /// observed rate is the result of shaping configuration or the
+    /// remote side.
+    pub constraints: crate::egress_path::EgressPathConfigConstraints,
     pub dispatchers: Vec<DispatcherSummary>,
     pub now: DateTime<Utc>,
 }

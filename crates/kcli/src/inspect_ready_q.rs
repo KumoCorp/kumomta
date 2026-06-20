@@ -52,12 +52,19 @@ impl InspectReadyQCommand {
         let mut out = std::io::stdout().lock();
         render_summary(&response, &mut out)?;
         render_states(&response, &mut out)?;
+        render_ceilings(&response, &mut out)?;
         render_dispatchers(&response, self.connections, &mut out)?;
         if self.config {
             render_config(&response, &mut out)?;
         }
         Ok(())
     }
+}
+
+fn render_ceilings(r: &InspectReadyQV1Response, out: &mut dyn Write) -> anyhow::Result<()> {
+    writeln!(out)?;
+    write!(out, "{}", r.constraints.to_human_string())?;
+    Ok(())
 }
 
 fn fmt_duration(d: Duration) -> String {
@@ -288,6 +295,8 @@ mod tests {
     }
 
     fn build_response() -> InspectReadyQV1Response {
+        let path_config = EgressPathConfig::default();
+        let constraints = path_config.compute_constraints();
         InspectReadyQV1Response {
             queue_name: "my-source->gmail.com@smtp_client".to_string(),
             site_name: Some("gmail.com".to_string()),
@@ -302,7 +311,8 @@ mod tests {
                 suspended: None,
                 watchdog_threshold: Duration::from_secs(10 * 60),
             },
-            path_config: EgressPathConfig::default(),
+            path_config,
+            constraints,
             dispatchers: vec![],
             now: fixed_time(),
         }
@@ -312,6 +322,7 @@ mod tests {
         let mut out = Vec::<u8>::new();
         render_summary(r, &mut out).unwrap();
         render_states(r, &mut out).unwrap();
+        render_ceilings(r, &mut out).unwrap();
         render_dispatchers(r, connections, &mut out).unwrap();
         String::from_utf8(out).unwrap()
     }
@@ -331,6 +342,10 @@ site:               gmail.com
 watchdog threshold: 10m
 
 ready: 1,142
+
+ceilings:
+  concurrent dispatchers: 32
+    source: connection_limit
 
 connections: 3
 
@@ -370,6 +385,10 @@ connection rate throttled: max_connection_rate throttling for 5s
 
 suspended: working with destination postmaster
   expires in: 1h 27m
+
+ceilings:
+  concurrent dispatchers: 32
+    source: connection_limit
 
 connections: 3
 
@@ -449,6 +468,10 @@ watchdog threshold: 10m
 
 ready: 1,142
 
+ceilings:
+  concurrent dispatchers: 32
+    source: connection_limit
+
 connections: 4
   SESSION                              DELIV TRANS FAIL    AGE   RATE         
   9e4b6a01-2345-6789-abcd-ef0123456789 1,391     0    0 47m 8s  0.5/s ⚠ STUCK 
@@ -466,6 +489,48 @@ connections: 4
   c2d35e10-aaaa-bbbb-cccc-dddddddddddd     0     0    0    31s  0.0/s         
   Idle for 31s
 
+
+"
+        );
+    }
+
+    #[test]
+    fn ceilings_with_reconnect_cycling_annotation() {
+        // A configuration that hits the K × C trap: max_message_rate
+        // declared as 1000/s but reconnect cycling caps actual
+        // throughput at 100/s. The annotation should surface.
+        let mut path_config = EgressPathConfig::default();
+        path_config.max_message_rate = Some(throttle::ThrottleSpec::try_from("1000/s").unwrap());
+        path_config.max_deliveries_per_connection = 10;
+        path_config.max_connection_rate = Some(throttle::ThrottleSpec::try_from("10/s").unwrap());
+        let constraints = path_config.compute_constraints();
+        let mut r = build_response();
+        r.path_config = path_config;
+        r.constraints = constraints;
+
+        k9::snapshot!(
+            render_all(&r, false),
+            "
+queue: my-source->gmail.com@smtp_client
+
+egress pool:        default
+egress source:      my-source
+protocol:           smtp_client
+site:               gmail.com
+watchdog threshold: 10m
+
+ready: 1,142
+
+ceilings:
+  concurrent dispatchers: 32
+    source: connection_limit
+  message rate:           10 × 10/s = 100/s
+    source: max_deliveries_per_connection × max_connection_rate
+    declared: max_message_rate = 1000/s ← effectively unreachable
+  connection rate:        10/s
+    source: max_connection_rate
+
+connections: 3
 
 "
         );

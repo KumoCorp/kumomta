@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.06.19-b95da281"
+    "version": "2026.06.20-ddda90d1"
   },
   "paths": {
     "/api/admin/abort-ready-q-conn/v1": {
@@ -1067,6 +1067,60 @@
           }
         }
       },
+      "CeilingSource": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "The primary configured term for this axis:\n`connection_limit`, `max_message_rate`,\n`max_connection_rate`, or `source_selection_rate`.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "primary"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A named entry from the corresponding `additional_*` map.",
+            "required": [
+              "name",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "additional"
+                ]
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Synthetic ceiling formed from\n`max_deliveries_per_connection × max_connection_rate`.\nApplies only to the message-rate axis: each connection\ndelivers at most `max_deliveries_per_connection` messages\nbefore reconnecting, and new connections are throttled by\n`max_connection_rate`, so the product is a hard ceiling on\nsystem-wide message rate independent of `max_message_rate`.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "reconnect_cycling"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Which configuration term produced an `EffectiveCeiling`.\n\n{{since('dev')}}"
+      },
       "Content": {
         "oneOf": [
           {
@@ -1314,6 +1368,79 @@
           }
         }
       },
+      "EffectiveCeiling": {
+        "type": "object",
+        "description": "Steady-state ceiling for a single throughput axis, with a tag\nfor which configuration term produced it.\n\n{{since('dev')}}",
+        "required": [
+          "value",
+          "source",
+          "display"
+        ],
+        "properties": {
+          "display": {
+            "type": "string",
+            "description": "Pre-formatted human display preserving the operator's\noriginal configuration units. A rate configured as\n`10000/hr` renders here as `10000/h` rather than `2.78/s`.\nFor concurrency, the integer count. For the synthetic\nreconnect-cycling ceiling, the formula\n`max_deliveries_per_connection × <connection_rate>`."
+          },
+          "source": {
+            "$ref": "#/components/schemas/CeilingSource"
+          },
+          "value": {
+            "type": "number",
+            "format": "double",
+            "description": "Canonical value. For rate axes: events per second; useful\nfor numeric comparison. For concurrency: a count."
+          }
+        }
+      },
+      "EgressPathConfigConstraints": {
+        "type": "object",
+        "description": "Steady-state ceilings implied by an `EgressPathConfig`. Each\nceiling carries a tag for which configuration term produced it.\n\n{{since('dev')}}\n\nThese are per-queue ceilings; shared limits in `additional_*`\nmaps are reported at their full value and may be tighter in\npractice when the bucket is contended.",
+        "required": [
+          "max_concurrent_dispatchers"
+        ],
+        "properties": {
+          "max_concurrent_dispatchers": {
+            "$ref": "#/components/schemas/EffectiveCeiling"
+          },
+          "max_connection_rate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EffectiveCeiling"
+              }
+            ]
+          },
+          "max_message_rate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EffectiveCeiling",
+                "description": "None when neither `max_message_rate` nor any\n`additional_message_rate_throttles` entry nor\n`max_connection_rate` is configured."
+              }
+            ]
+          },
+          "max_message_rate_declared": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pre-formatted display of the declared `max_message_rate` when\na different term (typically `ReconnectCycling`) wins the\nminimum. Lets renderers show a \"declared but unreachable\"\nannotation. Uses the operator's original units."
+          },
+          "max_source_selection_rate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EffectiveCeiling"
+              }
+            ]
+          }
+        }
+      },
       "FromHeader": {
         "type": "object",
         "required": [
@@ -1505,10 +1632,15 @@
           "protocol",
           "state",
           "path_config",
+          "constraints",
           "dispatchers",
           "now"
         ],
         "properties": {
+          "constraints": {
+            "$ref": "#/components/schemas/EgressPathConfigConstraints",
+            "description": "Steady-state throughput ceilings implied by `path_config`.\nEach axis is tagged with the configuration term that\nproduced it, so operators can tell whether a plateau in the\nobserved rate is the result of shaping configuration or the\nremote side."
+          },
           "dispatchers": {
             "type": "array",
             "items": {

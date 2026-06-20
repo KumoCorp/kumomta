@@ -40,4 +40,5 @@ version-info = {path="../version-info"}
 
 [dev-dependencies]
 k9 = {workspace=true}
+throttle = {path="../throttle", default-features=false}
 indoc = {workspace=true}

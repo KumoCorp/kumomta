@@ -953,6 +953,8 @@ impl ReadyQueue {
 
         let site_name = self.mx.as_ref().map(|mx| mx.site_name.to_string());
         let protocol = self.protocol.metrics_protocol_name().to_string();
+        let path_config = (**self.path_config.borrow()).clone();
+        let constraints = path_config.compute_constraints();
 
         kumo_api_types::InspectReadyQV1Response {
             queue_name: self.name.clone(),
@@ -961,7 +963,8 @@ impl ReadyQueue {
             egress_pool: self.egress_pool.clone(),
             protocol,
             state,
-            path_config: (**self.path_config.borrow()).clone(),
+            path_config,
+            constraints,
             dispatchers,
             now,
         }

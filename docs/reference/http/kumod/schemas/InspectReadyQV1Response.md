@@ -15,6 +15,12 @@ Response body for the inspect-ready-q endpoint.
 This is an object value, with the following properties:
 
 
+  * `constraints` - required [EgressPathConfigConstraints](EgressPathConfigConstraints.md). Steady-state throughput ceilings implied by `path_config`.
+    Each axis is tagged with the configuration term that
+    produced it, so operators can tell whether a plateau in the
+    observed rate is the result of shaping configuration or the
+    remote side.
+
   * `dispatchers` - required array of [DispatcherSummary](DispatcherSummary.md). 
 
   * `egress_pool` - required `string`. 
@@ -40,6 +46,37 @@ This is an object value, with the following properties:
 ### Examples
 ```json
 {
+  "constraints": {
+    "max_concurrent_dispatchers": {
+      "display": "string",
+      "source": {
+        "kind": "primary"
+      },
+      "value": 4.2
+    },
+    "max_connection_rate": {
+      "display": "string",
+      "source": {
+        "kind": "primary"
+      },
+      "value": 4.2
+    },
+    "max_message_rate": {
+      "display": "string",
+      "source": {
+        "kind": "primary"
+      },
+      "value": 4.2
+    },
+    "max_message_rate_declared": "string",
+    "max_source_selection_rate": {
+      "display": "string",
+      "source": {
+        "kind": "primary"
+      },
+      "value": 4.2
+    }
+  },
   "dispatchers": [
     {
       "age": "string",
