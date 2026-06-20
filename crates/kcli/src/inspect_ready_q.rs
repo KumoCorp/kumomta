@@ -254,7 +254,7 @@ fn render_dispatchers(
 fn render_config(r: &InspectReadyQV1Response, out: &mut dyn Write) -> anyhow::Result<()> {
     writeln!(out)?;
     writeln!(out, "config:")?;
-    let text = toml::to_string_pretty(&r.path_config)?;
+    let text = mod_serde::toml_encode_pretty_compact(&r.path_config)?;
     for line in text.lines() {
         writeln!(out, "  {line}")?;
     }

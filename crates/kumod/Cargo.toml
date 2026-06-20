@@ -51,6 +51,7 @@ memchr = {workspace=true}
 message = {path="../message"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mod-dns-resolver = {path="../mod-dns-resolver"}
+mod-serde = {path="../mod-serde"}
 mod-time = {path="../mod-time"}
 mta-sts = {path="../mta-sts"}
 nix = {workspace=true, features=["resource", "user"]}

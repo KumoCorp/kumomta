@@ -8,6 +8,11 @@
    [store_deadline](../reference/kumo/define_spool/rocks_params.md#store_deadline)
    rocks_params field.
 
+ * The `resolve-shaping-domain` script's default output has changed.
+   Pass `--json-config` to restore the previous byte-for-byte
+   pretty-JSON output of the path config. Run
+   `resolve-shaping-domain --help` for the full flag list.
+
 ## Other Changes and Enhancements
 
  * Egress sources can now be configured to auto-suspend when their
@@ -76,8 +81,9 @@
    command and corresponding
    [admin/inspect-ready-q/v1](../reference/http/kumod/api_admin_inspect_ready_q_v1_get.md)
    HTTP endpoint, which return a snapshot of a ready queue's state,
-   effective configuration and the dispatcher tasks currently handling
-   its connections.
+   effective configuration, the dispatcher tasks currently handling
+   its connections, and the steady-state throughput ceilings implied
+   by the egress path config.
 
  * Added the
    [kcli abort-ready-q-conn](../reference/kcli/abort-ready-q-conn.md)
@@ -85,6 +91,16 @@
    [admin/abort-ready-q-conn/v1](../reference/http/kumod/api_admin_abort_ready_q_conn_v1_post.md)
    HTTP endpoint, which abort a specific dispatcher task by
    `session_id`, as shown by the `inspect-ready-q` output.
+
+ * Added new lua functions:
+   [kumo.compute_egress_path_config_constraints](../reference/kumo/compute_egress_path_config_constraints.md),
+   [kumo.format_egress_path_config_constraints](../reference/kumo/format_egress_path_config_constraints.md),
+   [kumo.format_egress_path_config_toml](../reference/kumo/format_egress_path_config_toml.md),
+   [kumo.serde.toml_encode_pretty_compact](../reference/kumo.serde/toml_encode_pretty_compact.md).
+
+ * `resolve-shaping-domain` now shows the resolved configuration in
+   a pretty toml output and shows the same throughput-ceiling
+   diagnostic as `kcli inspect-ready-q`.
 
 ## Fixes
 

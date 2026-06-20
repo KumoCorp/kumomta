@@ -20,30 +20,72 @@ fi
 
 script=$(mktemp)
 trap "rm -f -- '$script'" EXIT
-cat >${script} <<-EOT
+cat >${script} <<-'EOT'
 local kumo = require 'kumo'
-dofile "${POLICY_PATH}"
+dofile(os.getenv('POLICY_PATH'))
 
-kumo.on('main', function(domain, source)
-  if domain == nil or domain == '--help' or domain == '-h' then
-      print [[
-Resolves the effective shaping configuration for a domain
-and optionally for the source that you specify.
+local function print_help()
+  print [[
+Resolves the effective shaping configuration for a domain and
+optionally for the source that you specify, plus the steady-state
+throughput ceilings implied by that configuration.
 
-The config is shown as a json object dump.
+Usage:
+  resolve-shaping-domain [OPTIONS] DOMAIN_NAME [SOURCE_NAME]
 
-resolve-shaping-domain DOMAIN_NAME [SOURCE_NAME]
+If SOURCE_NAME is omitted, 'unspecified' will be used for the
+source name.
 
-If SOURCE_NAME is omitted, 'unspecified' will be used
-for the source name.
+Output format:
+  By default, the egress path config is printed as pretty TOML
+  followed by a human-readable ceilings block. The flags below
+  request machine-readable JSON instead.
+
+Options:
+  --json-config       Print the egress path config as pretty JSON
+                      instead of TOML. Equivalent to the legacy
+                      output of this script.
+  --json-constraints  Print the computed throughput ceilings as
+                      pretty JSON instead of the human-readable
+                      block.
+  -h, --help          Show this help text.
+
+If --json-config and --json-constraints are both passed, both
+JSON documents are emitted in order. The combined output is two
+separate JSON values, not a single document; consumers should
+parse them independently.
 ]]
-      if domain == nil then
-        os.exit(1)
-      end
+end
+
+kumo.on('main', function(...)
+  local args = { ... }
+  local json_config = false
+  local json_constraints = false
+  local positional = {}
+
+  for _, arg in ipairs(args) do
+    if arg == '-h' or arg == '--help' then
+      print_help()
       return
+    elseif arg == '--json-config' then
+      json_config = true
+    elseif arg == '--json-constraints' then
+      json_constraints = true
+    elseif string.sub(arg, 1, 2) == '--' then
+      io.stderr:write('unknown option: ' .. arg .. '\n')
+      os.exit(2)
+    else
+      table.insert(positional, arg)
+    end
   end
 
-  local source = source or 'unspecified'
+  if #positional < 1 then
+    print_help()
+    os.exit(1)
+  end
+
+  local domain = positional[1]
+  local source = positional[2] or 'unspecified'
 
   local site_name = domain
   local ok, mx = pcall(kumo.dns.lookup_mx, domain)
@@ -51,12 +93,36 @@ for the source name.
     site_name = mx.site_name
   end
 
-  local path_config = kumo.invoke_get_egress_path_config(
-    domain,
-    source,
-    site_name
-  )
-  print(kumo.serde.json_encode_pretty(path_config))
+  local path_config =
+    kumo.invoke_get_egress_path_config(domain, source, site_name)
+  local constraints =
+    kumo.compute_egress_path_config_constraints(path_config)
+
+  local emit_config_section = not (json_config or json_constraints)
+  local emit_constraints_section = not (json_config or json_constraints)
+
+  if emit_config_section then
+    print '--- egress path config ---'
+    print ''
+    print(kumo.format_egress_path_config_toml(path_config))
+  end
+
+  if emit_constraints_section then
+    print '--- effective ceilings ---'
+    print ''
+    io.write(kumo.format_egress_path_config_constraints(constraints))
+  end
+
+  if json_config then
+    print(kumo.serde.json_encode_pretty(path_config))
+  end
+
+  if json_constraints then
+    if json_config then
+      print ''
+    end
+    print(kumo.serde.json_encode_pretty(constraints))
+  end
 end)
 EOT
 
@@ -68,6 +134,5 @@ if is_user_root ; then
   RUN_AS_USER="--user kumod"
 fi
 
-${KUMOD} $RUN_AS_USER --policy $script --script -- "$@"
-
-
+POLICY_PATH="${POLICY_PATH}" \
+  ${KUMOD} $RUN_AS_USER --policy $script --script -- "$@"

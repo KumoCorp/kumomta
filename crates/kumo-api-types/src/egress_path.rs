@@ -793,6 +793,20 @@ mod constraints_tests {
         ThrottleSpec::try_from(s).unwrap()
     }
 
+
+
+    #[test]
+    fn rust_compact_round_trips() {
+        // Calling the compact TOML renderer directly on a typed
+        // EgressPathConfig preserves the array vs. map shape of
+        // each field, so the rendered text deserializes back into
+        // an equivalent EgressPathConfig.
+        let original = EgressPathConfig::default();
+        let s = mod_serde::toml_encode_pretty_compact(&original).unwrap();
+        let parsed: EgressPathConfig = toml::from_str(&s).unwrap();
+        assert_eq!(parsed, original);
+    }
+
     #[test]
     fn defaults_only_concurrency() {
         assert_eq!(

@@ -3652,6 +3652,7 @@ dependencies = [
  "kumo-prometheus",
  "lexicmp",
  "message",
+ "mod-serde",
  "nucleo-matcher",
  "num-format",
  "ordermap",
@@ -3732,6 +3733,7 @@ dependencies = [
  "kumo-log-types",
  "mlua",
  "mod-memoize",
+ "mod-serde",
  "openssl",
  "ordermap",
  "reqwest",
@@ -4147,6 +4149,7 @@ dependencies = [
  "message",
  "mlua",
  "mod-dns-resolver",
+ "mod-serde",
  "mod-time",
  "mta-sts",
  "nix 0.30.1",
@@ -5125,10 +5128,12 @@ dependencies = [
  "config",
  "json_comments",
  "mlua",
+ "serde",
  "serde_json",
  "serde_yaml",
  "tokio",
  "toml",
+ "toml_edit 0.23.10+spec-1.0.0",
 ]
 
 [[package]]
