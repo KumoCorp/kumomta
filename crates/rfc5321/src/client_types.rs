@@ -62,6 +62,17 @@ pub struct SmtpClientTimeouts {
     )]
     pub starttls_timeout: Duration,
 
+    /// Maximum time to wait for the TLS handshake to complete after the
+    /// peer has accepted STARTTLS. This is distinct from `starttls_timeout`,
+    /// which only bounds the STARTTLS command/response exchange; without this
+    /// the handshake itself is unbounded and a peer that accepts STARTTLS but
+    /// then stalls the negotiation can wedge the connection indefinitely.
+    #[serde(
+        default = "SmtpClientTimeouts::default_tls_handshake_timeout",
+        with = "duration_serde"
+    )]
+    pub tls_handshake_timeout: Duration,
+
     #[serde(
         default = "SmtpClientTimeouts::default_auth_timeout",
         with = "duration_serde"
@@ -82,6 +93,7 @@ impl Default for SmtpClientTimeouts {
             rset_timeout: Self::default_rset_timeout(),
             idle_timeout: Self::default_idle_timeout(),
             starttls_timeout: Self::default_starttls_timeout(),
+            tls_handshake_timeout: Self::default_tls_handshake_timeout(),
             auth_timeout: Self::default_auth_timeout(),
         }
     }
@@ -121,6 +133,9 @@ impl SmtpClientTimeouts {
     fn default_starttls_timeout() -> Duration {
         Duration::from_secs(5)
     }
+    fn default_tls_handshake_timeout() -> Duration {
+        Duration::from_secs(60)
+    }
 
     pub fn short_timeouts() -> Self {
         let short = Duration::from_secs(20);
@@ -135,6 +150,7 @@ impl SmtpClientTimeouts {
             rset_timeout: short,
             idle_timeout: short,
             starttls_timeout: short,
+            tls_handshake_timeout: short,
             auth_timeout: short,
         }
     }
@@ -151,6 +167,7 @@ impl SmtpClientTimeouts {
             + self.data_timeout
             + self.data_dot_timeout
             + self.starttls_timeout
+            + self.tls_handshake_timeout
             + self.idle_timeout
     }
 

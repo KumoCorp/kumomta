@@ -70,6 +70,8 @@ pub enum ClientError {
     },
     #[error("Timed Out sending message payload data")]
     TimeOutData,
+    #[error("Timed Out after {duration:?} waiting for TLS handshake to complete")]
+    TimeOutHandshake { duration: Duration },
     #[error("SSL Error: {0}")]
     SslErrorStack(#[from] openssl::error::ErrorStack),
     #[error("No usable DANE TLSA records for {hostname}: {tlsa:?}")]
@@ -134,6 +136,7 @@ impl ClientError {
             | Self::FlushError { .. }
             | Self::WriteError { .. }
             | Self::TimeOutData
+            | Self::TimeOutHandshake { .. }
             | Self::SslErrorStack(_)
             | Self::NoUsableDaneTlsa { .. } => false,
             Self::Rejected(response) => response.was_due_to_message(),
@@ -777,6 +780,14 @@ impl SmtpClient {
         let mut handshake_error = None;
         let mut tls_info = TlsInformation::default();
 
+        // Bound the TLS handshake itself. The STARTTLS command/response is
+        // already bounded by starttls_timeout, but the handshake negotiation
+        // that follows was previously unbounded: a peer that accepts STARTTLS
+        // and then stalls the handshake would wedge the connection forever
+        // (connected, no progress, no error). Time it out so the message can
+        // requeue and the connection can be torn down.
+        let handshake_timeout = self.timeouts.tls_handshake_timeout;
+
         let stream: BoxedAsyncReadAndWrite = if options.prefer_openssl
             || !options.dane_tlsa.is_empty()
         {
@@ -797,8 +808,21 @@ impl SmtpClient {
 
             let mut ssl_stream = tokio_openssl::SslStream::new(ssl, stream)?;
 
-            if let Err(err) = std::pin::Pin::new(&mut ssl_stream).connect().await {
-                handshake_error.replace(format!("{err:#}"));
+            match timeout(
+                handshake_timeout,
+                std::pin::Pin::new(&mut ssl_stream).connect(),
+            )
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => {
+                    handshake_error.replace(format!("{err:#}"));
+                }
+                Err(_) => {
+                    return Err(ClientError::TimeOutHandshake {
+                        duration: handshake_timeout,
+                    });
+                }
             }
 
             tls_info.provider_name = "openssl".to_string();
@@ -837,18 +861,22 @@ impl SmtpClient {
             })?;
             let server_name = parse_server_name(self.hostname.as_str())?;
 
-            match connector
-                .connect(
-                    server_name,
-                    match self.socket.take() {
-                        Some(s) => s,
-                        None => return Err(ClientError::NotConnected),
-                    },
-                )
-                .into_fallible()
-                .await
+            let socket = match self.socket.take() {
+                Some(s) => s,
+                None => return Err(ClientError::NotConnected),
+            };
+            match timeout(
+                handshake_timeout,
+                connector.connect(server_name, socket).into_fallible(),
+            )
+            .await
             {
-                Ok(stream) => {
+                Err(_) => {
+                    return Err(ClientError::TimeOutHandshake {
+                        duration: handshake_timeout,
+                    });
+                }
+                Ok(Ok(stream)) => {
                     let (_, conn) = stream.get_ref();
                     tls_info.cipher = match conn.negotiated_cipher_suite() {
                         Some(suite) => suite.suite().as_str().unwrap_or("UNKNOWN").to_string(),
@@ -868,7 +896,7 @@ impl SmtpClient {
 
                     Box::new(stream)
                 }
-                Err((err, stream)) => {
+                Ok(Err((err, stream))) => {
                     handshake_error.replace(format!("{err:#}"));
                     stream
                 }
@@ -1248,6 +1276,69 @@ mod test {
         panic!("{resp:#?}");
     }
     */
+
+    /// Regression test: a peer that accepts STARTTLS and then stalls the TLS
+    /// handshake must not wedge the client forever. With tls_handshake_timeout
+    /// set, starttls() should fail promptly with TimeOutHandshake.
+    #[tokio::test]
+    async fn starttls_handshake_timeout() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::{TcpListener, TcpStream};
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Fake SMTP server: banner, EHLO advertising STARTTLS, accept STARTTLS,
+        // then never perform the TLS handshake (hold the socket open).
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            sock.write_all(b"220 test ESMTP\r\n").await.unwrap();
+            let mut buf = [0u8; 1024];
+            let _ = sock.read(&mut buf).await.unwrap(); // EHLO
+            sock.write_all(b"250-localhost\r\n250 STARTTLS\r\n")
+                .await
+                .unwrap();
+            let _ = sock.read(&mut buf).await.unwrap(); // STARTTLS
+            sock.write_all(b"220 Go ahead\r\n").await.unwrap();
+            // Stall: do not negotiate TLS.
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            drop(sock);
+        });
+
+        let timeouts = SmtpClientTimeouts {
+            tls_handshake_timeout: Duration::from_millis(500),
+            ..SmtpClientTimeouts::default()
+        };
+
+        let stream = TcpStream::connect(addr).await.unwrap();
+        let mut client = SmtpClient::with_stream(stream, "localhost", timeouts);
+
+        client
+            .read_response(None, timeouts.banner_timeout)
+            .await
+            .unwrap();
+        client.ehlo("localhost").await.unwrap();
+
+        let started = std::time::Instant::now();
+        let result = client
+            .starttls(TlsOptions {
+                insecure: true,
+                ..Default::default()
+            })
+            .await;
+        let elapsed = started.elapsed();
+
+        assert!(
+            matches!(&result, Err(ClientError::TimeOutHandshake { .. })),
+            "expected TimeOutHandshake, got {result:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "handshake timeout should fire promptly, took {elapsed:?}"
+        );
+
+        server.abort();
+    }
 
     #[test]
     fn response_line_parsing() {

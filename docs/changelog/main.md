@@ -61,3 +61,12 @@
  * The SMTP client, when attempting to STARTTLS to an IDNA domain expressed in
    its unicode form could encounter an error like `münchen.de is not a valid
    DNS name`. #533
+
+ * The outbound TLS handshake was not bounded by any timeout: a peer that
+   accepted `STARTTLS` and then stalled the handshake could wedge the connection
+   indefinitely, making no delivery progress and producing no error, so the
+   messages behind it in the ready queue were never attempted (and never aged
+   out). The handshake is now bounded by the new
+   [tls_handshake_timeout](../reference/kumo/make_egress_path/tls_handshake_timeout.md)
+   egress path option (default `60s`); on timeout the connection is torn down
+   and the message is requeued. #539
