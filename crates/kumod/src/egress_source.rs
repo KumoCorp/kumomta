@@ -5,7 +5,9 @@ use anyhow::Context;
 use config::epoch::ConfigEpoch;
 use config::{CallbackSignature, LuaConfig};
 use data_loader::KeySource;
+use dns_resolver::{resolve_socket_addr, IpLookupStrategy};
 use gcd::Gcd;
+use kumo_address::resolvable::ResolvableSocketAddr;
 use kumo_log_types::MaybeProxiedSourceAddress;
 use kumo_prometheus::declare_metric;
 use kumo_server_common::config_handle::ConfigHandle;
@@ -52,15 +54,21 @@ pub struct EgressSource {
     /// for deployments that use port mapping
     pub remote_port: Option<u16>,
 
-    /// The host:port of the haproxy that should be used
-    pub ha_proxy_server: Option<SocketAddr>,
+    /// The host:port of the haproxy that should be used.
+    /// May be an IP literal, or {{since('dev', inline=True)}} a DNS host
+    /// name; DNS names are resolved at connection time and each returned
+    /// address is tried in turn.
+    pub ha_proxy_server: Option<ResolvableSocketAddr>,
 
     /// Ask ha_proxy to bind to this address when it is making
     /// a connection
     pub ha_proxy_source_address: Option<IpAddr>,
 
-    /// The host:port of the SOCKS5 server that should be used
-    pub socks5_proxy_server: Option<SocketAddr>,
+    /// The host:port of the SOCKS5 server that should be used.
+    /// May be an IP literal, or {{since('dev', inline=True)}} a DNS host
+    /// name; DNS names are resolved at connection time and each returned
+    /// address is tried in turn.
+    pub socks5_proxy_server: Option<ResolvableSocketAddr>,
 
     /// Ask the SOCKS5 proxy to bind to this address when it is making
     /// a connection
@@ -148,69 +156,132 @@ impl EgressSource {
             .map(|lookup| lookup.item)
     }
 
-    fn resolve_proxy_protocol(&'_ self, address: SocketAddr) -> anyhow::Result<ProxyProto<'_>> {
+    /// Resolve the configured proxy server (if any) into a list of concrete
+    /// `ProxyProto` candidates. For a hostname proxy, returns one candidate
+    /// per resolved IP. For an IP literal, returns a single candidate. For
+    /// no proxy, returns a single `ProxyProto::None`.
+    ///
+    /// If `self.source_address` is set, candidates are pre-filtered to the
+    /// matching IP family so that `bind` cannot fail with a guaranteed
+    /// family mismatch.
+    async fn resolve_proxy_protocols(
+        &'_ self,
+        address: SocketAddr,
+        deadline: Instant,
+    ) -> anyhow::Result<Vec<ProxyProto<'_>>> {
         use ppp::v2::{Addresses, IPv4, IPv6};
         let source_name = &self.name;
 
-        match (self.ha_proxy_server, self.ha_proxy_source_address) {
-            (Some(server), Some(source)) => match (source, address) {
+        if let (Some(server), Some(source)) =
+            (&self.ha_proxy_server, self.ha_proxy_source_address)
+        {
+            let addresses = match (source, address) {
                 (IpAddr::V4(src_ip), SocketAddr::V4(dest_ip)) => {
-                    return Ok(ProxyProto::HA {
-                        server,
-                        source,
-                        addresses: Addresses::IPv4(IPv4::new(
-                            src_ip,
-                            *dest_ip.ip(),
-                            0,
-                            dest_ip.port(),
-                        )),
-                    })
+                    Addresses::IPv4(IPv4::new(src_ip, *dest_ip.ip(), 0, dest_ip.port()))
                 }
                 (IpAddr::V6(src_ip), SocketAddr::V6(dest_ip)) => {
-                    return Ok(ProxyProto::HA {
-                        server,
-                        source,
-                        addresses: Addresses::IPv6(IPv6::new(
-                            src_ip,
-                            *dest_ip.ip(),
-                            0,
-                            dest_ip.port(),
-                        )),
-                    })
+                    Addresses::IPv6(IPv6::new(src_ip, *dest_ip.ip(), 0, dest_ip.port()))
                 }
-                (source, server) => anyhow::bail!(
+                (source, _) => anyhow::bail!(
                     "Skipping {source_name} because \
                      ha_proxy_source_address {source} address family does \
-                     not match the destination address family {server}"
+                     not match the destination address family {address}"
                 ),
-            },
-            _ => {}
-        };
+            };
 
-        match (self.socks5_proxy_server, self.socks5_proxy_source_address) {
-            (Some(server), Some(source)) => match (source, address) {
-                (IpAddr::V6(_), SocketAddr::V6(_)) | (IpAddr::V4(_), SocketAddr::V4(_)) => {
-                    return Ok(ProxyProto::Socks5 {
-                        server,
-                        source,
-                        destination: address,
-                        username_and_password: match (
-                            &self.socks5_proxy_username,
-                            &self.socks5_proxy_password,
-                        ) {
-                            (Some(user), Some(pass)) => Some((user, pass)),
-                            _ => None,
-                        },
-                    })
-                }
-                (source, server) => anyhow::bail!(
+            let candidates = self
+                .resolve_proxy_candidates(server, deadline, "ha_proxy_server")
+                .await?;
+
+            return Ok(candidates
+                .into_iter()
+                .map(|server_addr| ProxyProto::HA {
+                    server: server_addr,
+                    source,
+                    addresses: addresses.clone(),
+                })
+                .collect());
+        }
+
+        if let (Some(server), Some(source)) =
+            (&self.socks5_proxy_server, self.socks5_proxy_source_address)
+        {
+            match (source, address) {
+                (IpAddr::V6(_), SocketAddr::V6(_)) | (IpAddr::V4(_), SocketAddr::V4(_)) => {}
+                (source, _) => anyhow::bail!(
                     "Skipping {source_name} because \
                      socks5_proxy_source_address {source} address family does \
-                     not match the destination address family {server}"
+                     not match the destination address family {address}"
                 ),
-            },
-            _ => Ok(ProxyProto::None),
+            }
+
+            let candidates = self
+                .resolve_proxy_candidates(server, deadline, "socks5_proxy_server")
+                .await?;
+
+            let username_and_password =
+                match (&self.socks5_proxy_username, &self.socks5_proxy_password) {
+                    (Some(user), Some(pass)) => Some((user.as_str(), pass)),
+                    _ => None,
+                };
+
+            return Ok(candidates
+                .into_iter()
+                .map(|server_addr| ProxyProto::Socks5 {
+                    server: server_addr,
+                    source,
+                    destination: address,
+                    username_and_password,
+                })
+                .collect());
         }
+
+        Ok(vec![ProxyProto::None])
+    }
+
+    async fn resolve_proxy_candidates(
+        &self,
+        server: &ResolvableSocketAddr,
+        deadline: Instant,
+        field_name: &str,
+    ) -> anyhow::Result<Vec<SocketAddr>> {
+        let source_name = &self.name;
+        let resolved = tokio::time::timeout_at(
+            deadline.into(),
+            resolve_socket_addr(server, None, IpLookupStrategy::Ipv4AndIpv6),
+        )
+        .await
+        .with_context(|| {
+            format!("timeout resolving {field_name} {server} for source {source_name}")
+        })?
+        .with_context(|| format!("resolving {field_name} {server} for source {source_name}"))?;
+
+        let mut candidates: Vec<SocketAddr> = resolved
+            .into_iter()
+            .filter_map(|r| r.addr.ip_and_port())
+            .collect();
+
+        if let Some(source) = self.source_address {
+            let before = candidates.len();
+            candidates.retain(|sa| match (source, sa) {
+                (IpAddr::V4(_), SocketAddr::V4(_)) | (IpAddr::V6(_), SocketAddr::V6(_)) => true,
+                _ => false,
+            });
+            if candidates.is_empty() {
+                anyhow::bail!(
+                    "source {source_name}: no {field_name} candidates remain after filtering \
+                     {before} resolved address(es) to match source_address {source} family"
+                );
+            }
+        }
+
+        if candidates.is_empty() {
+            anyhow::bail!(
+                "source {source_name}: {field_name} {server} resolved to no usable addresses"
+            );
+        }
+
+        Ok(candidates)
     }
 
     pub async fn connect_to(
@@ -219,13 +290,38 @@ impl EgressSource {
         timeout_duration: Duration,
     ) -> anyhow::Result<(TcpStream, MaybeProxiedSourceAddress)> {
         let source_name = &self.name;
+        let deadline = Instant::now() + timeout_duration;
 
-        let proxy_proto = self.resolve_proxy_protocol(address)?;
-        let transport_address = proxy_proto.transport_address(address);
+        let candidates = self.resolve_proxy_protocols(address, deadline).await?;
 
-        let transport_context = format!("{transport_address:?} {proxy_proto:?}");
+        let mut errors: Vec<(SocketAddr, anyhow::Error)> = Vec::new();
+        for proxy in candidates {
+            let transport_address = proxy.transport_address(address);
+            match self
+                .connect_one(address, proxy, deadline, timeout_duration)
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(err) => errors.push((transport_address, err)),
+            }
+        }
+
+        Err(combine_connect_errors(source_name, errors))
+    }
+
+    async fn connect_one(
+        &self,
+        address: SocketAddr,
+        proxy: ProxyProto<'_>,
+        deadline: Instant,
+        timeout_duration: Duration,
+    ) -> anyhow::Result<(TcpStream, MaybeProxiedSourceAddress)> {
+        let source_name = &self.name;
+        let transport_address = proxy.transport_address(address);
+        let is_proxy = proxy.is_proxy();
+        let transport_context = format!("{transport_address:?} {proxy:?}");
         let connect_context =
-            format!("{address:?} transport={transport_address:?} proto={proxy_proto:?}");
+            format!("{address:?} transport={transport_address:?} proto={proxy:?}");
         tracing::trace!("will connect to {connect_context}");
 
         let socket = match transport_address {
@@ -259,9 +355,6 @@ impl EgressSource {
             }
         }
 
-        let deadline = Instant::now() + timeout_duration;
-        let is_proxy = proxy_proto.is_proxy();
-
         let mut stream =
             match tokio::time::timeout_at(deadline.into(), socket.connect(transport_address)).await
             {
@@ -289,7 +382,7 @@ impl EgressSource {
 
         let source_address = tokio::time::timeout_at(
             deadline.into(),
-            proxy_proto.perform_handshake(&mut stream, &source_name),
+            proxy.perform_handshake(&mut stream, source_name),
         )
         .await
         .map_err(|_| {
@@ -302,6 +395,53 @@ impl EgressSource {
 
         Ok((stream, source_address))
     }
+}
+
+/// Combine per-candidate errors from the connect_to loop into a single error.
+///
+/// If every candidate failed with the same typed error (all `BindError` or
+/// all `ProxyBindError`), the first error is returned unchanged so callers
+/// that downcast (e.g. `is_unplumbed` classification) keep working. Otherwise
+/// the errors are aggregated into a `ConnectError` whose `is_proxy` is true
+/// if any failed candidate was a proxy candidate.
+fn combine_connect_errors(
+    source_name: &str,
+    errors: Vec<(SocketAddr, anyhow::Error)>,
+) -> anyhow::Error {
+    if errors.len() == 1 {
+        return errors.into_iter().next().expect("len == 1").1;
+    }
+
+    if errors
+        .iter()
+        .all(|(_, e)| err_match_anyhow::<BindError>(e).is_some())
+    {
+        return errors.into_iter().next().expect("non-empty").1;
+    }
+    if errors
+        .iter()
+        .all(|(_, e)| err_match_anyhow::<ProxyBindError>(e).is_some())
+    {
+        return errors.into_iter().next().expect("non-empty").1;
+    }
+
+    let is_proxy = errors.iter().any(|(_, e)| {
+        err_match_anyhow::<ConnectError>(e).is_some_and(|c| c.is_proxy)
+            || err_match_anyhow::<ProxyBindError>(e).is_some()
+    });
+    let detail = errors
+        .iter()
+        .map(|(addr, err)| format!("{addr}: {err:#}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    ConnectError {
+        is_proxy,
+        reason: format!(
+            "failed to connect via any of {n} candidate(s) for source {source_name}: {detail}",
+            n = errors.len()
+        ),
+    }
+    .into()
 }
 
 fn inc_failed_proxy_connection_attempts(is_proxy: bool) {

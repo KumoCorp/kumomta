@@ -10,6 +10,13 @@
 
 ## Other Changes and Enhancements
 
+ * [ha_proxy_server](../reference/kumo/make_egress_source/ha_proxy_server.md)
+   and
+   [socks5_proxy_server](../reference/kumo/make_egress_source/socks5_proxy_server.md)
+   now accept a DNS host name in addition to an IP literal. The name is
+   resolved at connection time and each returned address is tried in
+   turn, sharing the `connect_timeout` budget.
+
  * KumoMTA now proactively detects when the rocksdb-backed spool has
    reached a state that requires operator intervention (a missing or
    corrupt SST surfaced through a foreground read/write, or sustained
