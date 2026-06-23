@@ -2,10 +2,10 @@ use crate::kumod::{DaemonWithMaildirOptions, KumoArgs, KumoDaemon, MailGenParams
 use anyhow::Context;
 use k9::assert_equal;
 use kumo_log_types::{JsonLogRecord, RecordType};
-use std::collections::BTreeMap;
 use rfc5321::client::{ClientError, SmtpClient};
 use rfc5321::client_types::SmtpClientTimeouts;
 use rfc5321::Response;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::fs;
@@ -420,11 +420,8 @@ async fn spool_restart_after_corruption() -> anyhow::Result<()> {
         "KumoMTA internal: scheduled queue is suspended: \
          hold for restart-after-corruption test",
     );
-    let post_restart_io_error = histogram.count(
-        RecordType::TransientFailure,
-        400,
-        &expected_spool_error,
-    );
+    let post_restart_io_error =
+        histogram.count(RecordType::TransientFailure, 400, &expected_spool_error);
     let post_restart_unhealthy = histogram.count(
         RecordType::Delayed,
         451,

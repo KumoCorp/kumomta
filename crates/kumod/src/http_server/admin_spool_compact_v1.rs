@@ -22,9 +22,7 @@ use kumo_server_common::http_server::AppError;
         (status = 200, description = "Compaction completed successfully"),
     ),
 )]
-pub async fn spool_compact_v1(
-    Json(request): Json<SpoolCompactV1Request>,
-) -> Result<(), AppError> {
+pub async fn spool_compact_v1(Json(request): Json<SpoolCompactV1Request>) -> Result<(), AppError> {
     let spool = SpoolManager::get_named(&request.name).await?;
     spool.compact().await?;
     Ok(())

@@ -210,8 +210,7 @@ impl EgressSource {
         use ppp::v2::{Addresses, IPv4, IPv6};
         let source_name = &self.name;
 
-        if let (Some(server), Some(source)) =
-            (&self.ha_proxy_server, self.ha_proxy_source_address)
+        if let (Some(server), Some(source)) = (&self.ha_proxy_server, self.ha_proxy_source_address)
         {
             let addresses = match (source, address) {
                 (IpAddr::V4(src_ip), SocketAddr::V4(dest_ip)) => {
@@ -333,9 +332,7 @@ impl EgressSource {
         if source_health::suspension(source_name).is_some() {
             return Err(ConnectError {
                 is_proxy: false,
-                reason: format!(
-                    "source {source_name} is unhealthy and suspended"
-                ),
+                reason: format!("source {source_name} is unhealthy and suspended"),
             }
             .into());
         }
@@ -840,8 +837,7 @@ impl EgressPoolSourceSelector {
             // auto-suspended, this is a single relaxed atomic load and
             // a branch — invisible in the hot path.
             if let Some(remaining) = source_health::suspension(&entry.name) {
-                let d = chrono::Duration::from_std(remaining)
-                    .unwrap_or(kumo_chrono_helper::MINUTE);
+                let d = chrono::Duration::from_std(remaining).unwrap_or(kumo_chrono_helper::MINUTE);
                 min_delay.replace(min_delay.unwrap_or(d).min(d));
                 continue;
             }
@@ -1327,7 +1323,8 @@ fn default_ttl() -> Duration {
 // across the cluster.
 pub(crate) mod source_health {
     use super::SuspendOnFailure;
-    use dashmap::{mapref::entry::Entry, DashMap};
+    use dashmap::mapref::entry::Entry;
+    use dashmap::DashMap;
     use kumo_api_types::shaping::Trigger;
     use kumo_counter_series::{CounterSeries, CounterSeriesConfig};
     use kumo_prometheus::declare_metric;
@@ -1417,8 +1414,7 @@ pub(crate) mod source_health {
             // up memory for long windows. For very short windows we
             // fall back to bucket_size = 1s.
             let bucket_size = period_secs.div_ceil(60).max(1);
-            let num_buckets =
-                period_secs.div_ceil(bucket_size).clamp(1, u8::MAX as u64) as u8;
+            let num_buckets = period_secs.div_ceil(bucket_size).clamp(1, u8::MAX as u64) as u8;
             Self {
                 period_secs,
                 series: CounterSeries::with_config(CounterSeriesConfig {
@@ -1572,10 +1568,7 @@ pub(crate) mod source_health {
         match SUSPENDED.entry(source_name.to_string()) {
             Entry::Vacant(v) => {
                 v.insert(SuspendedEntry { expires, reason });
-                apply_transition(
-                    source_name,
-                    Transition::Inserted { reason, duration },
-                );
+                apply_transition(source_name, Transition::Inserted { reason, duration });
             }
             Entry::Occupied(mut o) => {
                 let prior = *o.get();
@@ -1642,7 +1635,9 @@ pub(crate) mod source_health {
             if entry.expires <= now {
                 apply_transition(
                     name.as_str(),
-                    Transition::Removed { reason: entry.reason },
+                    Transition::Removed {
+                        reason: entry.reason,
+                    },
                 );
                 false
             } else {

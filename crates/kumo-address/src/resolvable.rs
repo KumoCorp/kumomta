@@ -20,7 +20,10 @@ pub enum ResolvableSocketAddr {
     /// A DNS name plus a required port. The host is stored verbatim
     /// (no IDNA normalization), but has been validated as a syntactically
     /// well-formed DNS name at construction time.
-    Hostname { host: String, port: u16 },
+    Hostname {
+        host: String,
+        port: u16,
+    },
 }
 
 /// Reason why a candidate string could not be parsed as a
@@ -162,16 +165,9 @@ impl PartialEq for ResolvableSocketAddr {
             }
             (Self::V4(a), Self::V4(b)) => a.eq(b),
             (Self::V6(a), Self::V6(b)) => a.eq(b),
-            (
-                Self::Hostname {
-                    host: ah,
-                    port: ap,
-                },
-                Self::Hostname {
-                    host: bh,
-                    port: bp,
-                },
-            ) => ah == bh && ap == bp,
+            (Self::Hostname { host: ah, port: ap }, Self::Hostname { host: bh, port: bp }) => {
+                ah == bh && ap == bp
+            }
             _ => false,
         }
     }
@@ -285,7 +281,9 @@ mod test {
 
     #[test]
     fn reject_missing_port() {
-        let err = "mx.example.com".parse::<ResolvableSocketAddr>().unwrap_err();
+        let err = "mx.example.com"
+            .parse::<ResolvableSocketAddr>()
+            .unwrap_err();
         k9::assert_equal!(
             format!("{err:#}"),
             "failed to parse \"mx.example.com\" as a resolvable socket address: \
@@ -335,7 +333,12 @@ mod test {
 
     #[test]
     fn display_roundtrip() {
-        for s in &["10.0.0.1:25", "[::1]:100", "/some/path", "mx.example.com:25"] {
+        for s in &[
+            "10.0.0.1:25",
+            "[::1]:100",
+            "/some/path",
+            "mx.example.com:25",
+        ] {
             let a: ResolvableSocketAddr = s.parse().unwrap();
             let back: ResolvableSocketAddr = a.to_string().parse().unwrap();
             k9::assert_equal!(a, back);

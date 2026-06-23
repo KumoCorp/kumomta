@@ -1136,9 +1136,7 @@ impl QueueDispatcher for SmtpDispatcher {
             )
             .await
             {
-                tracing::error!(
-                    "failed to requeue {id} while spool is unhealthy: {err:#}"
-                );
+                tracing::error!("failed to requeue {id} while spool is unhealthy: {err:#}");
             }
             return Ok(());
         }

@@ -114,8 +114,7 @@ async fn source_health_other_pool_member_still_delivers() -> anyhow::Result<()> 
         .wait_for_metric(
             Duration::from_secs(10),
             |m| {
-                m.name().as_str() == "egress_source_health_suspended"
-                    && m.label_is("source", "bad")
+                m.name().as_str() == "egress_source_health_suspended" && m.label_is("source", "bad")
             },
             |values| values.iter().any(|v| *v == 1.0),
         )

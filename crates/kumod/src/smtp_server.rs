@@ -1006,9 +1006,7 @@ impl SmtpServerSession {
                 // remote operator gets an actionable response
                 // regardless of whether the gate was observed at
                 // connect time or during a mid-flight transaction.
-                let (response, log_context) = if err
-                    .root_cause()
-                    .is::<spool::SpoolUnhealthyError>()
+                let (response, log_context) = if err.root_cause().is::<spool::SpoolUnhealthyError>()
                 {
                     (
                         format!(

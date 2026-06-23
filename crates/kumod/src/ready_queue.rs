@@ -1024,10 +1024,7 @@ impl ReadyQueue {
         // which itself short-circuits on unhealthy and produces a
         // per-message TransientFailure record there.
         if crate::spool::delivery_suspension_reason().is_some() {
-            tracing::trace!(
-                "{} draining ready queue: spool unhealthy",
-                self.name,
-            );
+            tracing::trace!("{} draining ready queue: spool unhealthy", self.name,);
             self.reinsert_ready_queue(
                 "spool unhealthy",
                 InsertReason::ReadyQueueWasSuspended.into(),

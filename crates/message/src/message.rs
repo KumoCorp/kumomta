@@ -652,12 +652,8 @@ impl Message {
             (Err(data_err), Ok(_)) => Err(data_err.context("data spool store")),
             (Ok(_), Err(meta_err)) => Err(meta_err.context("meta spool store")),
             (Err(data_err), Err(meta_err)) => {
-                let data_unhealthy = data_err
-                    .root_cause()
-                    .is::<::spool::SpoolUnhealthyError>();
-                let meta_unhealthy = meta_err
-                    .root_cause()
-                    .is::<::spool::SpoolUnhealthyError>();
+                let data_unhealthy = data_err.root_cause().is::<::spool::SpoolUnhealthyError>();
+                let meta_unhealthy = meta_err.root_cause().is::<::spool::SpoolUnhealthyError>();
                 match (data_unhealthy, meta_unhealthy) {
                     (true, _) => Err(data_err.context(format!(
                         "data spool store; meta spool store also failed: {meta_err:#}"

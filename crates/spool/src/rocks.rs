@@ -564,12 +564,9 @@ impl Spool for RocksSpool {
         let mut opts = WriteOptions::default();
         opts.set_no_slowdown(true);
 
-        self.write_with_backpressure(
-            opts,
-            None,
-            self.limit_concurrent_removes.clone(),
-            |batch| batch.delete(id.as_bytes()),
-        )
+        self.write_with_backpressure(opts, None, self.limit_concurrent_removes.clone(), |batch| {
+            batch.delete(id.as_bytes())
+        })
         .await
     }
 
@@ -675,12 +672,7 @@ impl Spool for RocksSpool {
                                 // (immediately for IOError /
                                 // Corruption) and abort the
                                 // enumeration.
-                                record_foreground_error(
-                                    &fg_errors,
-                                    &load_shed,
-                                    &db_path,
-                                    &err,
-                                );
+                                record_foreground_error(&fg_errors, &load_shed, &db_path, &err);
                                 return Err(err.into());
                             }
                         };
@@ -1200,8 +1192,7 @@ async fn metrics_monitor(
                 compaction_pending.set(compaction_pending_now as i64);
                 estimate_pending_compaction_bytes
                     .set(property_u64(&db, ESTIMATE_PENDING_COMPACTION_BYTES) as i64);
-                actual_delayed_write_rate
-                    .set(property_u64(&db, ACTUAL_DELAYED_WRITE_RATE) as i64);
+                actual_delayed_write_rate.set(property_u64(&db, ACTUAL_DELAYED_WRITE_RATE) as i64);
 
                 let now = Instant::now();
                 let fg = foreground_errors
@@ -1300,12 +1291,7 @@ async fn metrics_monitor(
                         // defer the unlatch to the next tick.
                         let cleared = match foreground_errors.upgrade() {
                             Some(c) => c
-                                .compare_exchange(
-                                    fg,
-                                    0,
-                                    Ordering::Relaxed,
-                                    Ordering::Relaxed,
-                                )
+                                .compare_exchange(fg, 0, Ordering::Relaxed, Ordering::Relaxed)
                                 .is_ok(),
                             // Process is shutting down; skip.
                             None => false,
