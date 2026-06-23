@@ -476,14 +476,6 @@ struct Compiled<'a> {
     attached: Vec<MimePart<'a>>,
 }
 
-fn validate_header_value(header_name: &str, value: &str) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        !value.as_bytes().contains(&b'\r') && !value.as_bytes().contains(&b'\n'),
-        "content.headers['{header_name}'] must not contain newline characters"
-    );
-    Ok(())
-}
-
 impl<'a> Compiled<'a> {
     pub fn expand_for_recip(
         &self,
@@ -565,7 +557,6 @@ impl<'a> Compiled<'a> {
                         need_to = false;
                     }
                     let expanded = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
-                    validate_header_value(name, &expanded)?;
                     id += 1;
                     builder.push(mailparsing::Header::new_unstructured(
                         name.to_string(),
@@ -1633,7 +1624,10 @@ Some(
     }
 
     #[tokio::test]
-    async fn test_generate_builder_rejects_newline_in_header_value() {
+    async fn test_generate_builder_subject_newline_cannot_inject_header() {
+        // Regression for #296: a newline in the subject must not be able to
+        // split the header block and inject an extra header. new_unstructured
+        // folds the value, so the injected line is collapsed into the subject.
         let mut request = InjectV1Request {
             envelope_sender: "noreply@example.com".to_string(),
             recipients: vec![Recipient {
@@ -1648,7 +1642,7 @@ Some(
                 amp_html_body: None,
                 html_body: None,
                 attachments: vec![],
-                subject: Some("hello\n\nHello there".to_string()),
+                subject: Some("hello\nInjected: evil".to_string()),
                 from: None,
                 reply_to: None,
                 headers: Default::default(),
@@ -1661,18 +1655,21 @@ Some(
 
         request.normalize().unwrap();
         let compiled = request.compile().unwrap();
-        let err = compiled
+        let generated = compiled
             .expand_for_recip(
                 &request.recipients[0],
                 &request.substitutions,
                 &request.content,
             )
-            .unwrap_err();
+            .unwrap();
 
         assert!(
-            err.to_string()
-                .contains("content.headers['Subject'] must not contain newline characters"),
-            "unexpected error: {err:#}"
+            generated.contains("Subject: hello Injected: evil"),
+            "subject should be folded onto a single logical line: {generated}"
+        );
+        assert!(
+            !generated.contains("\nInjected: evil"),
+            "newline must not introduce a new header: {generated}"
         );
     }
 

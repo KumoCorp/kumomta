@@ -708,6 +708,30 @@ Subject: =?UTF-8?q?hello_there_Andr=C3=A9,_this_is_a_longer_header_than_the_sta?
     }
 
     #[test]
+    fn test_unstructured_newline_cannot_inject_header() {
+        // Regression for kumomta#296: a newline in an unstructured value must
+        // not be able to escape the value and inject a new header line, both
+        // for ascii (folded) and non-ascii (qp-encoded) inputs.
+        let header = Header::new_unstructured("Subject", "hello\nInjected: evil");
+        k9::assert_equal!(
+            header.to_header_string(),
+            "Subject: hello Injected: evil\r\n"
+        );
+        assert!(!header.value.as_bytes().contains(&b'\n'));
+        assert!(!header.value.as_bytes().contains(&b'\r'));
+
+        let header = Header::new_unstructured("Subject", "héllo\nInjected: evil");
+        assert!(!header.value.as_bytes().contains(&b'\n'));
+        assert!(!header.value.as_bytes().contains(&b'\r'));
+
+        let header = Header::new_unstructured("Subject", "hello\r\nInjected: evil");
+        k9::assert_equal!(
+            header.to_header_string(),
+            "Subject: hello Injected: evil\r\n"
+        );
+    }
+
+    #[test]
     fn test_unstructured_encode_farsi() {
         let farsi_input = "بوت‌كمپ قدرت نوشتن رهنماکالج";
         let header = Header::new_unstructured("Subject", farsi_input);
