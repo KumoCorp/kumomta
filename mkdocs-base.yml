@@ -65,7 +65,6 @@ plugins:
         - "generate_toc.py"
         - "build.sh"
         - "SUMMARY.md"
-        - "reference/kumo/start_proxy_listener/**"
   - tags:
 
 extra_css:
