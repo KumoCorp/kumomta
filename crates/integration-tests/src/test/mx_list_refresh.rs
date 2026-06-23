@@ -167,7 +167,7 @@ DeliverySummary {
     );
 
     let logs = daemon.source.collect_logs().await?;
-    let deliv_and_site: Vec<(String, String, String)> = logs
+    let mut deliv_and_site: Vec<(String, String, String)> = logs
         .into_iter()
         .filter_map(|r| match r.kind {
             Delivery => Some((
@@ -178,6 +178,15 @@ DeliverySummary {
             _ => None,
         })
         .collect();
+
+    // Within each round the two messages race through their dispatchers,
+    // so the file order of their Delivery records is non-deterministic.
+    // Sort each round by recipient so the snapshot is stable while still
+    // preserving the round-1 vs round-2 distinction (round 2 doesn't
+    // start until round 1's deliveries are observed).
+    assert_eq!(deliv_and_site.len(), 4);
+    deliv_and_site[0..2].sort_by(|a, b| a.0.cmp(&b.0));
+    deliv_and_site[2..4].sort_by(|a, b| a.0.cmp(&b.0));
 
     k9::snapshot!(
         deliv_and_site,
@@ -194,14 +203,14 @@ DeliverySummary {
         "1.1.sink",
     ),
     (
-        "three@one.example.com",
-        "unspecified->mx_list:SINK,255.255.255.255:2@smtp_client",
-        "1.2.sink",
-    ),
-    (
         "four@two.example.com",
         "unspecified->mx_list:SINK,255.255.255.255:1@smtp_client",
         "2.1.sink",
+    ),
+    (
+        "three@one.example.com",
+        "unspecified->mx_list:SINK,255.255.255.255:2@smtp_client",
+        "1.2.sink",
     ),
 ]
 "#
