@@ -60,7 +60,11 @@ impl ResolveEgressPathCommand {
 
         let mut out = std::io::stdout().lock();
         if self.config {
-            write!(out, "{}", mod_serde::toml_encode_pretty_compact(&response.path_config)?)?;
+            write!(
+                out,
+                "{}",
+                mod_serde::toml_encode_pretty_compact(&response.path_config)?
+            )?;
             return Ok(());
         }
         if self.constraints {
@@ -73,10 +77,7 @@ impl ResolveEgressPathCommand {
     }
 }
 
-fn render_default(
-    r: &ResolveEgressPathV1Response,
-    out: &mut dyn Write,
-) -> anyhow::Result<()> {
+fn render_default(r: &ResolveEgressPathV1Response, out: &mut dyn Write) -> anyhow::Result<()> {
     writeln!(out, "domain: {}", r.domain)?;
     writeln!(out, "source: {}", r.source)?;
     writeln!(out, "queue:  {}", r.queue_name)?;
@@ -90,7 +91,11 @@ fn render_default(
     writeln!(out)?;
     writeln!(out, "--- egress path config ---")?;
     writeln!(out)?;
-    writeln!(out, "{}", mod_serde::toml_encode_pretty_compact(&r.path_config)?)?;
+    writeln!(
+        out,
+        "{}",
+        mod_serde::toml_encode_pretty_compact(&r.path_config)?
+    )?;
 
     writeln!(out, "--- effective ceilings ---")?;
     writeln!(out)?;

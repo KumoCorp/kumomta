@@ -849,7 +849,10 @@ impl EffectiveConstraints {
             .map(|c| c.display.clone())
             .or_else(|| self.max_message_rate_declared.clone());
 
-        merge_axis(&mut self.max_concurrent_dispatchers, &other.max_concurrent_dispatchers);
+        merge_axis(
+            &mut self.max_concurrent_dispatchers,
+            &other.max_concurrent_dispatchers,
+        );
         merge_optional(&mut self.max_message_rate, &other.max_message_rate);
         merge_optional(&mut self.max_connection_rate, &other.max_connection_rate);
         merge_optional(

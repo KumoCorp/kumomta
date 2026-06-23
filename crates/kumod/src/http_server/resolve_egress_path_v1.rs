@@ -1,13 +1,11 @@
 use crate::queue::Queue;
 use crate::ready_queue::{ReadyQueueManager, GET_EGRESS_PATH_CONFIG_SIG};
 use axum::extract::{Json, Query};
-use kumo_api_types::egress_path::{
-    EgressPathConfig, EffectiveConstraints, MxResolution,
-};
+use kumo_api_types::egress_path::{EffectiveConstraints, EgressPathConfig, MxResolution};
 use kumo_api_types::{ResolveEgressPathV1Request, ResolveEgressPathV1Response};
-use serde_json::Value;
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_common::http_server::AppError;
+use serde_json::Value;
 
 /// Resolve the effective egress path configuration and throughput
 /// ceilings for a destination domain and egress source.
@@ -40,25 +38,29 @@ pub async fn resolve_v1(
     let queue_config_value: Value = serde_json::to_value(&queue_config)?;
     let queue_config = ConfigHandle::new(queue_config);
 
-    let (queue_name, site_name, mx) =
-        match ReadyQueueManager::compute_queue_name(&request.domain, &queue_config, &source).await
-        {
-            Ok(ready_name) => {
-                let mx = ready_name.mx.as_ref().map(|m| MxResolution::from(&**m));
-                (ready_name.name, ready_name.site_name, mx)
-            }
-            Err(_) => {
-                // DNS resolution failed (or wasn't applicable). Fall
-                // back to using `domain` as the site name so we can
-                // still synthesize a queue name and look up the path
-                // config, matching the behavior of
-                // resolve-shaping-domain.
-                let site_name = request.domain.clone();
-                let proto_part = queue_config.borrow().protocol.ready_queue_name();
-                let queue_name = format!("{source}->{site_name}@{proto_part}");
-                (queue_name, site_name, None)
-            }
-        };
+    let (queue_name, site_name, mx) = match ReadyQueueManager::compute_queue_name(
+        &request.domain,
+        &queue_config,
+        &source,
+    )
+    .await
+    {
+        Ok(ready_name) => {
+            let mx = ready_name.mx.as_ref().map(|m| MxResolution::from(&**m));
+            (ready_name.name, ready_name.site_name, mx)
+        }
+        Err(_) => {
+            // DNS resolution failed (or wasn't applicable). Fall
+            // back to using `domain` as the site name so we can
+            // still synthesize a queue name and look up the path
+            // config, matching the behavior of
+            // resolve-shaping-domain.
+            let site_name = request.domain.clone();
+            let proto_part = queue_config.borrow().protocol.ready_queue_name();
+            let queue_name = format!("{source}->{site_name}@{proto_part}");
+            (queue_name, site_name, None)
+        }
+    };
 
     let path_config: EgressPathConfig = config
         .async_call_callback(

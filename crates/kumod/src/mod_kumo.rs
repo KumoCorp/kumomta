@@ -7,7 +7,7 @@ use crate::smtp_server::{
 };
 use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_module, SerdeWrappedValue};
-use kumo_api_types::egress_path::{EgressPathConfig, EffectiveConstraints};
+use kumo_api_types::egress_path::{EffectiveConstraints, EgressPathConfig};
 use kumo_log_types::rfc3464::ReportGenerationParams;
 use kumo_log_types::JsonLogRecord;
 use kumo_server_common::http_server::HttpListenerParams;
