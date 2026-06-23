@@ -102,11 +102,13 @@ In earlier versions this simple string form configures UDP only.
 ### Detailed table form
 
 ```lua
-{
-  socket_addr = '10.0.0.20:53',
-  protocol = 'tcp',
-  trust_negative_responses = true,
-  bind_addr = '10.0.0.2:0',
+name_servers = {
+  {
+    socket_addr = '10.0.0.20:53',
+    protocol = 'tcp',
+    trust_negative_responses = true,
+    bind_addr = '10.0.0.2:0',
+  },
 }
 ```
 
