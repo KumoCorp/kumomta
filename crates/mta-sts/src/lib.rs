@@ -1,6 +1,6 @@
 use dns_resolver::Resolver;
 use futures::future::BoxFuture;
-use hickory_resolver::Name;
+use hickory_resolver::proto::rr::Name;
 use policy::MtaStsPolicy;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

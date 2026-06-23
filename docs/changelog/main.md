@@ -13,7 +13,24 @@
    pretty-JSON output of the path config. Run
    `resolve-shaping-domain --help` for the full flag list.
 
+ * DNS resolver configuration is now defined by a kumomta-owned schema
+   rather than forwarding hickory option names. Existing valid configs
+   continue to parse, but unknown fields in `options` are now a
+   configure-time error rather than being silently ignored, and the
+   simple `'IP:PORT'` form of a name server entry now configures both
+   UDP and TCP for that server (previously UDP only). See
+   [configure_resolver](../reference/kumo.dns/configure_resolver.md) and
+   the [Resolver Options reference](../reference/kumo.dns/resolver_options/index.md)
+   for the supported fields.
+
 ## Other Changes and Enhancements
+
+ * Upgraded the embedded hickory-resolver 0.26 and libunbound 1.25.1. New
+   [kumo.dns.load_resolv_conf](../reference/kumo.dns/load_resolv_conf.md)
+   reads a resolv.conf-format file into a mutable resolver config table,
+   so you can start from the system upstream list and layer your own
+   `options` on top before calling
+   [configure_resolver](../reference/kumo.dns/configure_resolver.md).
 
  * Egress sources can now be configured to auto-suspend when their
    local bind address appears unplumbed

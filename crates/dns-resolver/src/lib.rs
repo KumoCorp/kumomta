@@ -1,9 +1,9 @@
 use anyhow::Context;
 use arc_swap::ArcSwap;
 pub use hickory_resolver::proto::rr::rdata::tlsa::TLSA;
-use hickory_resolver::proto::rr::RecordType;
+pub use hickory_resolver::proto::rr::Name;
+use hickory_resolver::proto::rr::{RData, RecordType};
 use hickory_resolver::proto::ProtoError;
-pub use hickory_resolver::Name;
 use kumo_address::host::HostAddress;
 use kumo_address::host_or_socket::HostOrSocketAddress;
 use kumo_address::resolvable::ResolvableSocketAddr;
@@ -192,7 +192,7 @@ pub async fn resolve_dane(hostname: &str, port: u16) -> anyhow::Result<Vec<TLSA>
     // is not configured to verify DNSSEC
     if answer.secure {
         for r in &answer.records {
-            if let Some(tlsa) = r.as_tlsa() {
+            if let RData::TLSA(tlsa) = r {
                 result.push(tlsa.clone());
             }
         }
@@ -651,9 +651,9 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
     let mut records: Vec<ByPreference> = Vec::with_capacity(mx_records.len());
 
     for mx_record in mx_records {
-        if let Some(mx) = mx_record.as_mx() {
-            let pref = mx.preference();
-            let host = mx.exchange().to_lowercase().to_string();
+        if let RData::MX(mx) = mx_record {
+            let pref = mx.preference;
+            let host = mx.exchange.to_lowercase().to_string();
 
             if let Some(record) = records.iter_mut().find(|r| r.pref == pref) {
                 record.hosts.push(host);
