@@ -205,7 +205,7 @@ pub enum Action {
     BounceCampaign,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, Hash, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum Trigger {
     /// Trigger on the first match, immediately
     #[default]

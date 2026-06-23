@@ -10,6 +10,15 @@
 
 ## Other Changes and Enhancements
 
+ * Egress sources can now be configured to auto-suspend when their
+   local bind address appears unplumbed
+   ([suspend_when_unplumbed](../reference/kumo/make_egress_source/suspend_when_unplumbed.md))
+   or when their configured proxy server appears unreachable
+   ([suspend_when_proxy_unhealthy](../reference/kumo/make_egress_source/suspend_when_proxy_unhealthy.md)).
+   A suspended source is skipped during pool selection until the
+   configured duration elapses. The trigger uses the same
+   `Immediate` / `Threshold("N/period")` shape as TSA shaping rules.
+
  * [ha_proxy_server](../reference/kumo/make_egress_source/ha_proxy_server.md)
    and
    [socks5_proxy_server](../reference/kumo/make_egress_source/socks5_proxy_server.md)

@@ -347,6 +347,42 @@
     "pruning": "NonPruning"
   },
   {
+    "name": "egress_source_connection_failures_total",
+    "help": "Counts connection failures classified as belonging to one of the source-health failure classes. Increments regardless of whether `suspend_when_*` is configured on the source, so an operator can observe the underlying signal before opting in to auto-suspension.",
+    "doc": "{{since('dev')}}\n\nLabels:\n* `source` is the operator-defined egress source name (the\n  `name` field of `kumo.make_egress_source`).\n* `kind` is one of:\n    * `Unplumbed` — the source's local `source_address`\n      returned `EADDRNOTAVAIL` on `bind()`. The IP address\n      is not currently plumbed on this host.\n    * `ProxyUnhealthy` — the configured proxy server was\n      unreachable, timed out, or reported a bind failure\n      for the requested source address.",
+    "metric_type": "Counter",
+    "label_names": [
+      "source",
+      "kind"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "egress_source_health_suspended",
+    "help": "`1` while an egress source is currently auto-suspended, `0` otherwise. Pool selection skips a source whose gauge is `1`, rolling the remaining suspension duration into the per-pool `min_delay`.",
+    "doc": "{{since('dev')}}\n\nLabels:\n* `source` is the operator-defined egress source name (the\n  `name` field of `kumo.make_egress_source`).\n* `reason` indicates which rule's firing produced the\n  current suspension:\n    * `Unplumbed` — a `suspend_when_unplumbed` rule fired\n      because the source's local `source_address` was not\n      plumbed on this host. Plumb the address (or correct\n      the configured `source_address`) to resolve.\n    * `ProxyUnhealthy` — a `suspend_when_proxy_unhealthy`\n      rule fired because the configured proxy server was\n      unreachable or rejected the requested source address.\n      Investigate the proxy service.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "source",
+      "reason"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "egress_source_health_suspensions_total",
+    "help": "Increments each time a source transitions into the auto-suspended state due to one of its `suspend_when_*` rules firing. Re-triggering the same rule while the suspension is already active does not increment this counter; it only counts state transitions.",
+    "doc": "{{since('dev')}}\n\nLabels:\n* `source` is the operator-defined egress source name (the\n  `name` field of `kumo.make_egress_source`).\n* `reason` indicates which rule fired:\n    * `Unplumbed` — a `suspend_when_unplumbed` rule fired\n      because the source's local `source_address` was not\n      plumbed on this host. Plumb the address (or correct\n      the configured `source_address`) to resolve.\n    * `ProxyUnhealthy` — a `suspend_when_proxy_unhealthy`\n      rule fired because the configured proxy server was\n      unreachable or rejected the requested source address.\n      Investigate the proxy service.",
+    "metric_type": "Counter",
+    "label_names": [
+      "source",
+      "reason"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
     "name": "log_hook_backlog_count",
     "help": "how many times processing of a log event hit the back_pressure in a hook",
     "doc": null,

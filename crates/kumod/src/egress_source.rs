@@ -8,6 +8,7 @@ use data_loader::KeySource;
 use dns_resolver::{resolve_socket_addr, IpLookupStrategy};
 use gcd::Gcd;
 use kumo_address::resolvable::ResolvableSocketAddr;
+use kumo_api_types::shaping::Trigger;
 use kumo_log_types::MaybeProxiedSourceAddress;
 use kumo_prometheus::declare_metric;
 use kumo_server_common::config_handle::ConfigHandle;
@@ -77,8 +78,43 @@ pub struct EgressSource {
     pub socks5_proxy_username: Option<String>,
     pub socks5_proxy_password: Option<KeySource>,
 
+    /// {{since('dev', inline=True)}} Auto-suspend this source when its
+    /// local `source_address` appears to be unplumbed (bind returns
+    /// `EADDRNOTAVAIL`). The source is skipped during pool selection
+    /// for the configured `duration`; messages assigned to a pool whose
+    /// every source is suspended will be delayed until the earliest
+    /// suspension expires.
+    #[serde(default)]
+    pub suspend_when_unplumbed: Option<SuspendOnFailure>,
+
+    /// {{since('dev', inline=True)}} Auto-suspend this source when its
+    /// configured proxy server appears unreachable (connect/handshake
+    /// failures, or the proxy itself reporting a bind failure for the
+    /// requested source address). See [`suspend_when_unplumbed`] for
+    /// the suspension semantics.
+    #[serde(default)]
+    pub suspend_when_proxy_unhealthy: Option<SuspendOnFailure>,
+
     #[serde(default = "default_ttl", with = "duration_serde")]
     pub ttl: Duration,
+}
+
+/// Configuration for an auto-suspend rule on an egress source. The rule
+/// fires when its `trigger` condition is met for the relevant failure
+/// class, suspending the source from pool selection for `duration`.
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, mlua::FromLua)]
+#[serde(deny_unknown_fields)]
+pub struct SuspendOnFailure {
+    /// When to trigger the suspension. Defaults to `Immediate` — a single
+    /// matching failure trips the rule. Use `Threshold("N/period")` to
+    /// tolerate transient noise (N events in the rolling window before
+    /// firing).
+    #[serde(default)]
+    pub trigger: Trigger,
+
+    /// How long the source stays suspended once the rule fires.
+    #[serde(with = "duration_serde")]
+    pub duration: Duration,
 }
 
 impl LuaUserData for EgressSource {}
@@ -142,6 +178,8 @@ impl EgressSource {
                         socks5_proxy_username: None,
                         socks5_proxy_password: None,
                         source_address: None,
+                        suspend_when_unplumbed: None,
+                        suspend_when_proxy_unhealthy: None,
                     })
                 } else {
                     let sig = CallbackSignature::<String, EgressSource>::new("get_egress_source");
@@ -290,6 +328,18 @@ impl EgressSource {
         timeout_duration: Duration,
     ) -> anyhow::Result<(TcpStream, MaybeProxiedSourceAddress)> {
         let source_name = &self.name;
+
+        // Fail fast rather than waiting the full connect timeout.
+        if source_health::suspension(source_name).is_some() {
+            return Err(ConnectError {
+                is_proxy: false,
+                reason: format!(
+                    "source {source_name} is unhealthy and suspended"
+                ),
+            }
+            .into());
+        }
+
         let deadline = Instant::now() + timeout_duration;
 
         let candidates = self.resolve_proxy_protocols(address, deadline).await?;
@@ -306,7 +356,50 @@ impl EgressSource {
             }
         }
 
-        Err(combine_connect_errors(source_name, errors))
+        let err = combine_connect_errors(source_name, errors);
+        self.maybe_record_health_failure(&err);
+        Err(err)
+    }
+
+    /// Inspect the aggregated connect error and, if this source has the
+    /// corresponding `suspend_when_*` rule configured, record the failure
+    /// against the rule's counter; the rule may then install a suspension.
+    ///
+    /// Note: when [`combine_connect_errors`] aggregates a mix of failure
+    /// kinds across candidates (e.g. one unplumbed local bind + one plain
+    /// connect refused), it returns a typed `ConnectError(is_proxy=true)`
+    /// rather than a `BindError`. Such mixed cases therefore count toward
+    /// `suspend_when_proxy_unhealthy` rather than `suspend_when_unplumbed`.
+    /// Source-family pre-filtering keeps this case rare in practice.
+    fn maybe_record_health_failure(&self, err: &anyhow::Error) {
+        use source_health::HealthEvent;
+        if let Some(b) = err_match_anyhow::<BindError>(err) {
+            if b.is_unplumbed() {
+                source_health::record(
+                    &self.name,
+                    HealthEvent::Unplumbed,
+                    self.suspend_when_unplumbed.as_ref(),
+                );
+            }
+            return;
+        }
+        if err_match_anyhow::<ProxyBindError>(err).is_some() {
+            source_health::record(
+                &self.name,
+                HealthEvent::ProxyUnhealthy,
+                self.suspend_when_proxy_unhealthy.as_ref(),
+            );
+            return;
+        }
+        if let Some(c) = err_match_anyhow::<ConnectError>(err) {
+            if c.is_proxy {
+                source_health::record(
+                    &self.name,
+                    HealthEvent::ProxyUnhealthy,
+                    self.suspend_when_proxy_unhealthy.as_ref(),
+                );
+            }
+        }
     }
 
     async fn connect_one(
@@ -743,6 +836,15 @@ impl EgressPoolSourceSelector {
 
         // filter to non-suspended pathways
         for entry in &self.entries {
+            // Cheap early-out: if no source on this node is currently
+            // auto-suspended, this is a single relaxed atomic load and
+            // a branch — invisible in the hot path.
+            if let Some(remaining) = source_health::suspension(&entry.name) {
+                let d = chrono::Duration::from_std(remaining)
+                    .unwrap_or(kumo_chrono_helper::MINUTE);
+                min_delay.replace(min_delay.unwrap_or(d).min(d));
+                continue;
+            }
             match self
                 .compute_ready_queue_name(deadline, queue_name, queue_config, &entry.name)
                 .await
@@ -1218,4 +1320,451 @@ fn socket_addr_to_host(addr: SocketAddr) -> (SocksV5Host, u16) {
 
 fn default_ttl() -> Duration {
     Duration::from_secs(60)
+}
+
+// Source health: per-source auto-suspension on repeated connect-time
+// failures. State is process-local and intentionally not coordinated
+// across the cluster.
+pub(crate) mod source_health {
+    use super::SuspendOnFailure;
+    use dashmap::{mapref::entry::Entry, DashMap};
+    use kumo_api_types::shaping::Trigger;
+    use kumo_counter_series::{CounterSeries, CounterSeriesConfig};
+    use kumo_prometheus::declare_metric;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{LazyLock, Once};
+    use std::time::{Duration, Instant};
+    use tokio::sync::Notify;
+
+    /// Which failure class a source-health event belongs to.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub enum HealthEvent {
+        /// The source's own local bind failed because the address is not
+        /// plumbed on this host.
+        Unplumbed,
+        /// The configured proxy server was unreachable, timed out, or
+        /// reported a bind failure for the requested source address.
+        ProxyUnhealthy,
+    }
+
+    impl HealthEvent {
+        fn label(self) -> &'static str {
+            match self {
+                Self::Unplumbed => "Unplumbed",
+                Self::ProxyUnhealthy => "ProxyUnhealthy",
+            }
+        }
+    }
+
+    /// Hot path. Reads `SUSPENDED_COUNT` first; in the common case
+    /// where no source on this node is suspended, returns `None` after
+    /// one relaxed atomic load and a branch.
+    pub fn suspension(name: &str) -> Option<Duration> {
+        if SUSPENDED_COUNT.load(Ordering::Relaxed) == 0 {
+            return None;
+        }
+        let entry = SUSPENDED.get(name)?;
+        let now = Instant::now();
+        (entry.expires > now).then(|| entry.expires - now)
+    }
+
+    /// Record a classified connection failure against a source.
+    ///
+    /// Always bumps the per-source per-kind failure counter so operators
+    /// see the signal even before they configure auto-suspension. If
+    /// `cfg` is `Some` (i.e. the matching `suspend_when_*` field is set
+    /// on the source), evaluates the rule's trigger and, on match,
+    /// installs a suspension.
+    pub fn record(source_name: &str, event: HealthEvent, cfg: Option<&SuspendOnFailure>) {
+        FAILURES
+            .with_label_values(&[source_name, event.label()])
+            .inc();
+
+        let Some(cfg) = cfg else { return };
+
+        let triggered = match &cfg.trigger {
+            Trigger::Immediate => true,
+            Trigger::Threshold(spec) => {
+                let mut entry = COUNTERS.entry(source_name.to_string()).or_default();
+                let series = entry.series_for(event, spec.period);
+                series.increment(1);
+                series.sum() >= spec.limit
+            }
+        };
+        if triggered {
+            install_suspension(source_name, event, cfg.duration);
+        }
+    }
+
+    /// One suspension entry, keyed by source name in `SUSPENDED`.
+    #[derive(Copy, Clone)]
+    struct SuspendedEntry {
+        expires: Instant,
+        reason: HealthEvent,
+    }
+
+    /// A `CounterSeries` plus the `spec.period` it was built for, so we
+    /// can rebuild on a config edit that changes the window.
+    struct SeriesEntry {
+        period_secs: u64,
+        series: CounterSeries,
+    }
+
+    impl SeriesEntry {
+        fn new_for(period_secs: u64) -> Self {
+            // Aim for ~60 buckets across the window so the threshold
+            // check has reasonable temporal resolution without blowing
+            // up memory for long windows. For very short windows we
+            // fall back to bucket_size = 1s.
+            let bucket_size = period_secs.div_ceil(60).max(1);
+            let num_buckets =
+                period_secs.div_ceil(bucket_size).clamp(1, u8::MAX as u64) as u8;
+            Self {
+                period_secs,
+                series: CounterSeries::with_config(CounterSeriesConfig {
+                    num_buckets,
+                    bucket_size,
+                }),
+            }
+        }
+    }
+
+    /// Counters tracking sliding-window failure series per source, only
+    /// populated when at least one `Trigger::Threshold` rule fires events
+    /// against that source.
+    #[derive(Default)]
+    struct Counters {
+        unplumbed: Option<SeriesEntry>,
+        proxy: Option<SeriesEntry>,
+    }
+
+    impl Counters {
+        fn series_for(&mut self, event: HealthEvent, period_secs: u64) -> &mut CounterSeries {
+            let slot = match event {
+                HealthEvent::Unplumbed => &mut self.unplumbed,
+                HealthEvent::ProxyUnhealthy => &mut self.proxy,
+            };
+            match slot {
+                Some(entry) if entry.period_secs == period_secs => {}
+                _ => *slot = Some(SeriesEntry::new_for(period_secs)),
+            }
+            &mut slot.as_mut().expect("just populated").series
+        }
+    }
+
+    /// Live count of entries in `SUSPENDED`. Incremented/decremented
+    /// under the same shard write lock that mutates the corresponding
+    /// entry, so the count is a faithful mirror of the map size. The
+    /// hot-path lookup short-circuits when this is `0`.
+    ///
+    /// An expired-but-not-yet-pruned entry counts; that's harmless
+    /// because `suspension()` checks `expires > now` and returns `None`
+    /// for stale entries.
+    static SUSPENDED_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    /// Master state for currently-suspended sources, keyed by name.
+    /// The shard write lock provided by `DashMap` is what serializes
+    /// `install_suspension` and `prune_expired` against each other
+    /// (and against themselves for the same source) and is what keeps
+    /// the derived metrics (`SUSPENDED_GAUGE`, `SUSPENSIONS_TOTAL`)
+    /// in sync with the map state — metric updates happen inside the
+    /// `Entry` / `retain` closures that hold that lock.
+    static SUSPENDED: LazyLock<DashMap<String, SuspendedEntry>> = LazyLock::new(DashMap::new);
+
+    /// Cold-path counter state for `Trigger::Threshold` rules.
+    static COUNTERS: LazyLock<DashMap<String, Counters>> = LazyLock::new(DashMap::new);
+
+    /// Notified whenever a new entry is inserted into `SUSPENDED`, so
+    /// the reaper can re-evaluate its sleep deadline.
+    static REAPER_WAKE: LazyLock<Notify> = LazyLock::new(Notify::new);
+
+    /// Ensures the reaper task is spawned exactly once.
+    static REAPER_STARTED: Once = Once::new();
+
+    declare_metric! {
+        /// Counts connection failures classified as belonging to one of
+        /// the source-health failure classes. Increments regardless of
+        /// whether `suspend_when_*` is configured on the source, so an
+        /// operator can observe the underlying signal before opting in
+        /// to auto-suspension.
+        ///
+        /// {{since('dev')}}
+        ///
+        /// Labels:
+        /// * `source` is the operator-defined egress source name (the
+        ///   `name` field of `kumo.make_egress_source`).
+        /// * `kind` is one of:
+        ///     * `Unplumbed` — the source's local `source_address`
+        ///       returned `EADDRNOTAVAIL` on `bind()`. The IP address
+        ///       is not currently plumbed on this host.
+        ///     * `ProxyUnhealthy` — the configured proxy server was
+        ///       unreachable, timed out, or reported a bind failure
+        ///       for the requested source address.
+        static FAILURES: IntCounterVec(
+            "egress_source_connection_failures_total",
+            &["source", "kind"],
+        );
+    }
+
+    declare_metric! {
+        /// Increments each time a source transitions into the
+        /// auto-suspended state due to one of its `suspend_when_*`
+        /// rules firing. Re-triggering the same rule while the
+        /// suspension is already active does not increment this
+        /// counter; it only counts state transitions.
+        ///
+        /// {{since('dev')}}
+        ///
+        /// Labels:
+        /// * `source` is the operator-defined egress source name (the
+        ///   `name` field of `kumo.make_egress_source`).
+        /// * `reason` indicates which rule fired:
+        ///     * `Unplumbed` — a `suspend_when_unplumbed` rule fired
+        ///       because the source's local `source_address` was not
+        ///       plumbed on this host. Plumb the address (or correct
+        ///       the configured `source_address`) to resolve.
+        ///     * `ProxyUnhealthy` — a `suspend_when_proxy_unhealthy`
+        ///       rule fired because the configured proxy server was
+        ///       unreachable or rejected the requested source address.
+        ///       Investigate the proxy service.
+        static SUSPENSIONS_TOTAL: IntCounterVec(
+            "egress_source_health_suspensions_total",
+            &["source", "reason"],
+        );
+    }
+
+    declare_metric! {
+        /// `1` while an egress source is currently auto-suspended, `0`
+        /// otherwise. Pool selection skips a source whose gauge is `1`,
+        /// rolling the remaining suspension duration into the per-pool
+        /// `min_delay`.
+        ///
+        /// {{since('dev')}}
+        ///
+        /// Labels:
+        /// * `source` is the operator-defined egress source name (the
+        ///   `name` field of `kumo.make_egress_source`).
+        /// * `reason` indicates which rule's firing produced the
+        ///   current suspension:
+        ///     * `Unplumbed` — a `suspend_when_unplumbed` rule fired
+        ///       because the source's local `source_address` was not
+        ///       plumbed on this host. Plumb the address (or correct
+        ///       the configured `source_address`) to resolve.
+        ///     * `ProxyUnhealthy` — a `suspend_when_proxy_unhealthy`
+        ///       rule fired because the configured proxy server was
+        ///       unreachable or rejected the requested source address.
+        ///       Investigate the proxy service.
+        static SUSPENDED_GAUGE: IntGaugeVec(
+            "egress_source_health_suspended",
+            &["source", "reason"],
+        );
+    }
+
+    fn install_suspension(source_name: &str, reason: HealthEvent, duration: Duration) {
+        let now = Instant::now();
+        let expires = now + duration;
+
+        // Acquire the shard write lock for this source via `entry()`.
+        // Each arm computes the appropriate `Transition` variant and
+        // delegates all count / metric / log bookkeeping to
+        // `apply_transition`, which is the single source of truth for
+        // how those derived signals respond to a map change.
+        match SUSPENDED.entry(source_name.to_string()) {
+            Entry::Vacant(v) => {
+                v.insert(SuspendedEntry { expires, reason });
+                apply_transition(
+                    source_name,
+                    Transition::Inserted { reason, duration },
+                );
+            }
+            Entry::Occupied(mut o) => {
+                let prior = *o.get();
+                let prior_was_active = prior.expires > now;
+                *o.get_mut() = SuspendedEntry { expires, reason };
+                apply_transition(
+                    source_name,
+                    Transition::Replaced {
+                        prior_reason: prior.reason,
+                        prior_was_active,
+                        new_reason: reason,
+                        duration,
+                    },
+                );
+            }
+        }
+
+        ensure_reaper_running();
+        REAPER_WAKE.notify_one();
+    }
+
+    fn ensure_reaper_running() {
+        REAPER_STARTED.call_once(|| {
+            tokio::spawn(reaper_loop());
+        });
+    }
+
+    async fn reaper_loop() {
+        loop {
+            let next_wakeup = {
+                let now = Instant::now();
+                let mut earliest: Option<Instant> = None;
+                for entry in SUSPENDED.iter() {
+                    let exp = entry.expires.max(now);
+                    earliest = Some(earliest.map(|e| e.min(exp)).unwrap_or(exp));
+                }
+                earliest.map(|e| e.saturating_duration_since(now))
+            };
+
+            match next_wakeup {
+                Some(d) => {
+                    tokio::select! {
+                        _ = tokio::time::sleep(d) => {}
+                        _ = REAPER_WAKE.notified() => {}
+                    }
+                }
+                None => {
+                    // No active entries. Park until someone installs one.
+                    REAPER_WAKE.notified().await;
+                }
+            }
+
+            prune_expired();
+        }
+    }
+
+    fn prune_expired() {
+        let now = Instant::now();
+        // The retain closure runs under each shard's write lock; like
+        // `install_suspension`, all bookkeeping goes through
+        // `apply_transition` so the count, gauges, and log line stay
+        // in lockstep with the map mutation.
+        SUSPENDED.retain(|name, entry| {
+            if entry.expires <= now {
+                apply_transition(
+                    name.as_str(),
+                    Transition::Removed { reason: entry.reason },
+                );
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    /// Describes a mutation that just happened to `SUSPENDED`. Every
+    /// call to `apply_transition` corresponds to one such mutation;
+    /// adding a new mutation kind in the future means adding a variant
+    /// here, which forces consideration of all derived bookkeeping in
+    /// the same place.
+    enum Transition {
+        /// A new entry was inserted into a previously vacant slot.
+        /// Map size grew by 1; no prior gauge for this source was set.
+        Inserted {
+            reason: HealthEvent,
+            duration: Duration,
+        },
+        /// An existing entry was replaced in place. Map size unchanged.
+        ///
+        /// `prior_reason` is the literal reason stored in the slot
+        /// before the replace (whether or not it was still active);
+        /// `prior_was_active` is whether `prior.expires > now` held at
+        /// the moment of the replace. Together they let
+        /// `apply_transition` decide whether this is a fresh suspension
+        /// transition (counter bumps), an extension (no metric change),
+        /// or a reason-change against a stale-expired entry (counter
+        /// bumps AND the stale gauge needs explicit clearing).
+        Replaced {
+            prior_reason: HealthEvent,
+            prior_was_active: bool,
+            new_reason: HealthEvent,
+            duration: Duration,
+        },
+        /// An expired entry was removed by the reaper. Map size shrank
+        /// by 1; the source's gauge for this reason must go to 0.
+        Removed { reason: HealthEvent },
+    }
+
+    /// Apply the count, gauge, counter, and log effects implied by a
+    /// `Transition`. This is the only place in the module that touches
+    /// `SUSPENDED_COUNT`, `SUSPENDED_GAUGE`, or `SUSPENSIONS_TOTAL`,
+    /// so the derived signals can't drift from the map state in any
+    /// future edit unless that edit also passes through this function.
+    ///
+    /// Must be called while holding the shard write lock for the
+    /// entry being mutated, immediately after that mutation. The
+    /// `Entry` / `retain` API guarantees this when the call is made
+    /// inline from inside the arm or closure.
+    fn apply_transition(source_name: &str, t: Transition) {
+        match t {
+            Transition::Inserted { reason, duration } => {
+                SUSPENDED_COUNT.fetch_add(1, Ordering::Relaxed);
+                SUSPENDED_GAUGE
+                    .with_label_values(&[source_name, reason.label()])
+                    .set(1);
+                SUSPENSIONS_TOTAL
+                    .with_label_values(&[source_name, reason.label()])
+                    .inc();
+                tracing::warn!(
+                    source = source_name,
+                    reason = reason.label(),
+                    duration = ?duration,
+                    "egress source auto-suspended"
+                );
+            }
+            Transition::Replaced {
+                prior_reason,
+                prior_was_active,
+                new_reason,
+                duration,
+            } => {
+                // A pure extension is the only case that produces no
+                // metric change: same active suspension, same reason,
+                // just a later expiry. Everything else is a fresh
+                // transition that bumps the counter.
+                if prior_was_active && prior_reason == new_reason {
+                    tracing::debug!(
+                        source = source_name,
+                        reason = new_reason.label(),
+                        duration = ?duration,
+                        "egress source suspension extended"
+                    );
+                    return;
+                }
+                // If the prior entry had a different reason, the gauge
+                // for that reason is still 1 (either because the prior
+                // suspension is still active under a different reason,
+                // or because the reaper hasn't gotten around to
+                // clearing the stale-expired entry's gauge). Either
+                // way, clear it explicitly.
+                if prior_reason != new_reason {
+                    SUSPENDED_GAUGE
+                        .with_label_values(&[source_name, prior_reason.label()])
+                        .set(0);
+                }
+                SUSPENDED_GAUGE
+                    .with_label_values(&[source_name, new_reason.label()])
+                    .set(1);
+                SUSPENSIONS_TOTAL
+                    .with_label_values(&[source_name, new_reason.label()])
+                    .inc();
+                tracing::warn!(
+                    source = source_name,
+                    reason = new_reason.label(),
+                    duration = ?duration,
+                    "egress source auto-suspended"
+                );
+            }
+            Transition::Removed { reason } => {
+                SUSPENDED_COUNT.fetch_sub(1, Ordering::Relaxed);
+                SUSPENDED_GAUGE
+                    .with_label_values(&[source_name, reason.label()])
+                    .set(0);
+                tracing::info!(
+                    source = source_name,
+                    reason = reason.label(),
+                    "egress source auto-suspension cleared"
+                );
+            }
+        }
+    }
 }

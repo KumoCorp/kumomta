@@ -4123,6 +4123,7 @@ dependencies = [
  "kumo-address",
  "kumo-api-types",
  "kumo-chrono-helper",
+ "kumo-counter-series",
  "kumo-dmarc",
  "kumo-log-types",
  "kumo-prometheus",

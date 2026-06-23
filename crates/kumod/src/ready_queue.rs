@@ -1049,6 +1049,24 @@ impl ReadyQueue {
             return;
         }
 
+        // Re-route already-queued messages around the unhealthy source.
+        if let Some(remaining) =
+            crate::egress_source::source_health::suspension(&self.egress_source.name)
+        {
+            tracing::trace!(
+                "{} draining ready queue: source {} is unhealthy and suspended for {remaining:?}",
+                self.name,
+                self.egress_source.name,
+            );
+            self.reinsert_ready_queue(
+                "source is unhealthy and suspended",
+                InsertReason::SourceIsUnhealthyAndSuspended.into(),
+            )
+            .await;
+            self.wakeup_all_dispatchers();
+            return;
+        }
+
         let ideal = self.ideal_connection_count(suspend);
         tracing::trace!(
             "maintain {}: computed ideal connection count as {ideal} \
@@ -2215,6 +2233,20 @@ impl Dispatcher {
             self.reinsert_ready_queue(InsertReason::ReadyQueueWasSuspended.into())
                 .await;
             // Close the connection and stop trying to deliver
+            return Ok(false);
+        }
+
+        // Mirror the admin-suspend handling for source-health suspension.
+        if let Some(remaining) =
+            crate::egress_source::source_health::suspension(&self.egress_source.name)
+        {
+            tracing::trace!(
+                "{} draining ready queue: source {} is unhealthy and suspended for {remaining:?}",
+                self.name,
+                self.egress_source.name,
+            );
+            self.reinsert_ready_queue(InsertReason::SourceIsUnhealthyAndSuspended.into())
+                .await;
             return Ok(false);
         }
 
