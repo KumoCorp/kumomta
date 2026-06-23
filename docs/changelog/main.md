@@ -135,6 +135,8 @@
    configs folded in. A new `--json-queue-config` flag emits the
    queue config as pretty JSON.
 
+ * Community shaping.toml file had updates to domains qq.com, 163.com, and yahoo.co.jp and providers gmail, yahoo, outlook, apple, orange, and mimecast. New provider definitions were added for barracuda (barracudanetworks.com), netvigator (netvigator.com), and kpn (kpnmail.nl). Note that web.de moved from a domain to being a provider named gmx.net_web.de (which also matches .gmx.net), and qq.com and 163.com were moved from domain-level to provider-level automations. Thanks to @Solmea! #531
+
 ## Fixes
 
  * `Message::save_to` was silently discarding errors returned from the
