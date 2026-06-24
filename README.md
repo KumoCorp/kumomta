@@ -8,6 +8,18 @@ Because it is designed for high-performance sending environments, KumoMTA is for
 
 Learn more in our [FAQ](https://docs.kumomta.com/faq/) and at [https://kumomta.com/](https://kumomta.com/).
 
+## Quick links
+
+| Resource | Link |
+| --- | --- |
+| Website | [kumomta.com](https://kumomta.com/) |
+| Documentation | [docs.kumomta.com](https://docs.kumomta.com/) |
+| FAQ | [docs.kumomta.com/faq](https://docs.kumomta.com/faq/) |
+| Discord | [kumomta.com/discord](https://kumomta.com/discord) |
+| Support | [kumomta.com/support](https://kumomta.com/support) |
+| Subscribe for updates | [kumomta.com/subscribe](https://kumomta.com/subscribe) |
+| Contributing | [DEVELOPERS.md](DEVELOPERS.md) |
+
 ## Documentation
 
 You can learn more about KumoMTA from the [Documentation](https://docs.kumomta.com/).
