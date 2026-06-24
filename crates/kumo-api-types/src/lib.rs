@@ -190,6 +190,12 @@ pub struct BounceV1CancelRequest {
 }
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
+pub struct SpoolCompactV1Request {
+    /// Name of the spool to compact, matching a `kumo.define_spool` name.
+    pub name: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct SuspendV1Request {
     /// The campaign name to match. If omitted, any campaign will match.
     #[serde(default)]
@@ -645,6 +651,165 @@ pub struct QueueState {
 #[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
 pub struct ReadyQueueStateResponse {
     pub states_by_ready_queue: HashMap<String, HashMap<String, QueueState>>,
+}
+
+/// Phase of a dispatcher task within a ready queue.
+///
+/// {{since('dev')}}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+pub enum DispatcherPhase {
+    Starting,
+    AcquiringLease { label: String },
+    Idle,
+    AccumulatingBatch { have: u32, want: u32 },
+    ConnectionRateThrottled,
+    MessageRateThrottled,
+    AttemptingConnection,
+    DeliveringMessage,
+    Closing,
+}
+
+/// Query parameters for the inspect-ready-q endpoint.
+///
+/// {{since('dev')}}
+#[derive(Serialize, Deserialize, Debug, IntoParams, ToSchema)]
+pub struct InspectReadyQV1Request {
+    /// The name of the ready queue to inspect.
+    #[schema(example = "unspecified->gmail.com@smtp_client")]
+    pub queue_name: String,
+}
+
+impl ApplyToUrl for InspectReadyQV1Request {
+    fn apply_to_url(&self, url: &mut Url) {
+        let mut query = url.query_pairs_mut();
+        query.append_pair("queue_name", &self.queue_name);
+    }
+}
+
+/// Snapshot of the operational state of a ready queue.
+///
+/// {{since('dev')}}
+#[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
+pub struct ReadyQueueStateSnapshot {
+    pub ready_count: usize,
+    pub connection_count: usize,
+    pub connection_rate_throttled: Option<QueueState>,
+    pub connection_limited: Option<QueueState>,
+    pub suspended: Option<SuspendReadyQueueV1ListEntry>,
+    /// Effective progress watchdog timeout for this queue, honoring
+    /// the per-egress-path config or the protocol-derived default.
+    #[serde(with = "duration_serde")]
+    pub watchdog_threshold: Duration,
+}
+
+/// Per-dispatcher summary returned by the inspect-ready-q endpoint.
+///
+/// {{since('dev')}}
+#[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
+pub struct DispatcherSummary {
+    pub session_id: Uuid,
+    pub started_at: DateTime<Utc>,
+    #[serde(with = "duration_serde")]
+    pub age: Duration,
+    pub phase: DispatcherPhase,
+    pub detail: Option<String>,
+    #[serde(with = "duration_serde")]
+    pub time_in_current_phase: Duration,
+    pub messages_delivered: u64,
+    pub messages_transfailed: u64,
+    pub messages_failed: u64,
+    pub delivered_this_connection: u64,
+    pub overall_rate_per_sec: f64,
+}
+
+/// Response body for the inspect-ready-q endpoint.
+///
+/// {{since('dev')}}
+#[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
+pub struct InspectReadyQV1Response {
+    pub queue_name: String,
+    /// MX resolution result for the destination. `None` for
+    /// protocols that don't use MX (e.g. Lua-protocol queues) or
+    /// when MX resolution wasn't applicable.
+    pub mx: Option<crate::egress_path::MxResolution>,
+    pub egress_source: String,
+    pub egress_pool: String,
+    /// Protocol identifier as it appears in the ready queue name.
+    #[schema(example = "smtp_client")]
+    pub protocol: String,
+    pub state: ReadyQueueStateSnapshot,
+    /// Snapshot of the egress path configuration in effect for this
+    /// queue.
+    #[schema(value_type = Object)]
+    pub path_config: crate::egress_path::EgressPathConfig,
+    /// Steady-state throughput ceilings implied by `path_config`.
+    /// Each axis is tagged with the configuration term that
+    /// produced it, so operators can tell whether a plateau in the
+    /// observed rate is the result of shaping configuration or the
+    /// remote side.
+    pub constraints: crate::egress_path::EffectiveConstraints,
+    pub dispatchers: Vec<DispatcherSummary>,
+    pub now: DateTime<Utc>,
+}
+
+/// Request body for the abort-ready-q-conn endpoint.
+///
+/// {{since('dev')}}
+#[derive(Serialize, Deserialize, Debug, ToSchema)]
+pub struct AbortReadyQConnV1Request {
+    pub queue_name: String,
+    pub session_id: Uuid,
+}
+
+/// Query parameters for the resolve-egress-path endpoint.
+///
+/// {{since('dev')}}
+#[derive(Serialize, Deserialize, Debug, IntoParams, ToSchema)]
+pub struct ResolveEgressPathV1Request {
+    /// Destination domain. Drives the MX lookup and is passed
+    /// through to the `get_egress_path_config` event callback.
+    #[schema(example = "gmail.com")]
+    pub domain: String,
+
+    /// Egress source name. Defaults to "unspecified" if omitted.
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+impl ApplyToUrl for ResolveEgressPathV1Request {
+    fn apply_to_url(&self, url: &mut Url) {
+        let mut query = url.query_pairs_mut();
+        query.append_pair("domain", &self.domain);
+        if let Some(source) = &self.source {
+            query.append_pair("source", source);
+        }
+    }
+}
+
+/// Response body for the resolve-egress-path endpoint.
+///
+/// {{since('dev')}}
+#[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
+pub struct ResolveEgressPathV1Response {
+    pub domain: String,
+    pub source: String,
+    /// MX resolution result. `None` when MX lookup wasn't applicable
+    /// (e.g. non-SMTP protocols) or failed (e.g. internal sentinel
+    /// domains, network errors).
+    pub mx: Option<crate::egress_path::MxResolution>,
+    /// The ready-queue name that this domain/source pair would
+    /// resolve to. Lets the caller pivot to inspect-ready-q for
+    /// live runtime detail when the queue exists.
+    pub queue_name: String,
+    /// Snapshot of the resolved scheduled-queue configuration for
+    /// this domain. Carried as an untyped JSON object because
+    /// `QueueConfig` contains protocol variants that don't all
+    /// round-trip cleanly through the OpenAPI schema.
+    #[schema(value_type = Object)]
+    pub queue_config: serde_json::Value,
+    #[schema(value_type = Object)]
+    pub path_config: crate::egress_path::EgressPathConfig,
+    pub constraints: crate::egress_path::EffectiveConstraints,
 }
 
 #[derive(Serialize, Clone, Deserialize, Debug, PartialEq, ToSchema)]

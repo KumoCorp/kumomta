@@ -83,6 +83,10 @@ Parses the system resolver configuration and applies that to a separate
 instance of the hickory DNS resolver client. This is equivalent to the default
 resolver settings in kumomta.
 
+If you would like to start from the system upstreams and then layer your own
+resolver options on top, see [kumo.dns.load_resolv_conf](load_resolv_conf.md)
+{{since('dev', inline=True)}}.
+
 ## Unbound with an explicit upstream
 
 !!! note

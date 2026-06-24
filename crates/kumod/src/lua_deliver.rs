@@ -187,6 +187,11 @@ impl QueueDispatcher for LuaQueueDispatcher {
         };
 
         let batch_size = self.proto_config.batch_size;
+        dispatcher.set_detail(if batch_size == 1 {
+            "lua: send"
+        } else {
+            "lua: send_batch"
+        });
 
         let result: anyhow::Result<String> = self
             .lua_config

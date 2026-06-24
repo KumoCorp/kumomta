@@ -116,6 +116,27 @@ async fn mx_list_refresh() -> anyhow::Result<()> {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
+    // In round 1 both queues share a ready queue (same resolved MX
+    // addresses), so a single idle connection sits in that pool
+    // tagged with one.example.com's mx hostname (`1.1.sink`).  After
+    // the epoch bump, two.example.com's site is unchanged.  If we
+    // dispatch round 2 before that idle connection has been reaped
+    // it gets reused, and four@two.example.com ends up logged as
+    // `1.1.sink` instead of `2.1.sink`.  Wait for the shared ready
+    // queue's connection_count to reach 0 so the next send opens a
+    // fresh connection picking up two.example.com's own mx_list.
+    let shared_service =
+        format!("smtp_client:unspecified->mx_list:{sink_listener},255.255.255.255:1@smtp_client");
+    daemon
+        .source
+        .wait_for_metric(
+            Duration::from_secs(30),
+            |m| m.name().as_str() == "connection_count" && m.label_is("service", &shared_service),
+            |conns| conns.iter().sum::<f64>() == 0.0,
+        )
+        .await
+        .context("waiting for shared site connection pool to drain")?;
+
     send(&mut client, "three@one.example.com").await?;
     send(&mut client, "four@two.example.com").await?;
 
@@ -146,7 +167,7 @@ DeliverySummary {
     );
 
     let logs = daemon.source.collect_logs().await?;
-    let deliv_and_site: Vec<(String, String, String)> = logs
+    let mut deliv_and_site: Vec<(String, String, String)> = logs
         .into_iter()
         .filter_map(|r| match r.kind {
             Delivery => Some((
@@ -157,6 +178,15 @@ DeliverySummary {
             _ => None,
         })
         .collect();
+
+    // Within each round the two messages race through their dispatchers,
+    // so the file order of their Delivery records is non-deterministic.
+    // Sort each round by recipient so the snapshot is stable while still
+    // preserving the round-1 vs round-2 distinction (round 2 doesn't
+    // start until round 1's deliveries are observed).
+    assert_eq!(deliv_and_site.len(), 4);
+    deliv_and_site[0..2].sort_by(|a, b| a.0.cmp(&b.0));
+    deliv_and_site[2..4].sort_by(|a, b| a.0.cmp(&b.0));
 
     k9::snapshot!(
         deliv_and_site,
@@ -173,14 +203,14 @@ DeliverySummary {
         "1.1.sink",
     ),
     (
-        "three@one.example.com",
-        "unspecified->mx_list:SINK,255.255.255.255:2@smtp_client",
-        "1.2.sink",
-    ),
-    (
         "four@two.example.com",
         "unspecified->mx_list:SINK,255.255.255.255:1@smtp_client",
         "2.1.sink",
+    ),
+    (
+        "three@one.example.com",
+        "unspecified->mx_list:SINK,255.255.255.255:2@smtp_client",
+        "1.2.sink",
     ),
 ]
 "#
