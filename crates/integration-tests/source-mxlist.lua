@@ -80,7 +80,7 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
     -- ordering, and in particular, disconnect_terminate_ok will be
     -- unhappy if the second address in its MX plan is unroutable IPv6.
     skip_hosts = { '::/0' },
-    idle_timeout = '1s',
+    idle_timeout = '100ms',
   }
 
   kumo.log_warn('get_egress_path_config *******************', domain)

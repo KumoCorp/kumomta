@@ -1158,6 +1158,18 @@ impl Queue {
         mut context: InsertContext,
         deadline: Option<Instant>,
     ) -> anyhow::Result<()> {
+        // Spool-health check goes before any other admin action.  A
+        // bounce or suspend cleanup would call into the spool's
+        // remove path that we cannot satisfy while unhealthy, so we
+        // hold the message until either the gate clears or the
+        // process is restarted.
+        if let Some(reason) = crate::spool::delivery_suspension_reason() {
+            return crate::spool::log_and_requeue_for_unhealthy_spool(
+                msg, &self.name, None, reason,
+            )
+            .await;
+        }
+
         if let Some(b) =
             AdminBounceEntry::cached_get_for_queue_name(&self.name, &self.active_bounce)
         {

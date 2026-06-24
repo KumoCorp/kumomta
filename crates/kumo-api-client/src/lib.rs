@@ -3,7 +3,7 @@ use futures::{Stream, StreamExt};
 use kumo_api_types::rebind::{RebindV1Request, RebindV1Response};
 use kumo_api_types::xfer::*;
 use kumo_api_types::*;
-use kumo_prometheus::parser::Metric;
+pub use kumo_prometheus::parser::Metric;
 use std::time::Duration;
 
 pub use reqwest::Url;
@@ -105,6 +105,14 @@ impl KumoApiClient {
     );
 
     method!(
+        admin_spool_compact_v1,
+        TEXT,
+        POST,
+        "/api/admin/spool-compact/v1",
+        SpoolCompactV1Request
+    );
+
+    method!(
         admin_inspect_sched_q_v1,
         GET,
         "/api/admin/inspect-sched-q/v1",
@@ -196,6 +204,30 @@ impl KumoApiClient {
         "/api/admin/ready-q-states/v1",
         ReadyQueueStateRequest,
         ReadyQueueStateResponse
+    );
+
+    method!(
+        admin_inspect_ready_q_v1,
+        GET,
+        "/api/admin/inspect-ready-q/v1",
+        InspectReadyQV1Request,
+        InspectReadyQV1Response
+    );
+
+    method!(
+        admin_resolve_egress_path_v1,
+        GET,
+        "/api/admin/resolve-egress-path/v1",
+        ResolveEgressPathV1Request,
+        ResolveEgressPathV1Response
+    );
+
+    method!(
+        admin_abort_ready_q_conn_v1,
+        TEXT,
+        POST,
+        "/api/admin/abort-ready-q-conn/v1",
+        AbortReadyQConnV1Request
     );
 
     method!(

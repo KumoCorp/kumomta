@@ -1,18 +1,19 @@
 use anyhow::Context;
 use arc_swap::ArcSwap;
 pub use hickory_resolver::proto::rr::rdata::tlsa::TLSA;
-use hickory_resolver::proto::rr::RecordType;
+pub use hickory_resolver::proto::rr::Name;
+use hickory_resolver::proto::rr::{RData, RecordType};
 use hickory_resolver::proto::ProtoError;
-pub use hickory_resolver::Name;
 use kumo_address::host::HostAddress;
 use kumo_address::host_or_socket::HostOrSocketAddress;
+use kumo_address::resolvable::ResolvableSocketAddr;
 use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::declare_metric;
 use lruttl::declare_cache;
 use rand::prelude::SliceRandom;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::net::{IpAddr, Ipv6Addr};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
@@ -191,7 +192,7 @@ pub async fn resolve_dane(hostname: &str, port: u16) -> anyhow::Result<Vec<TLSA>
     // is not configured to verify DNSSEC
     if answer.secure {
         for r in &answer.records {
-            if let Some(tlsa) = r.as_tlsa() {
+            if let RData::TLSA(tlsa) = r {
                 result.push(tlsa.clone());
             }
         }
@@ -379,6 +380,54 @@ pub async fn resolve_a_or_aaaa(
             Ok(addrs)
         }
         Err(err) => anyhow::bail!("{err:#}"),
+    }
+}
+
+/// Resolve a [`ResolvableSocketAddr`] to a list of concrete [`ResolvedAddress`]es.
+///
+/// For `UnixDomain`, `V4` and `V6` arms, no DNS lookup is performed; a single
+/// `ResolvedAddress` is returned whose `addr` carries the supplied port (for
+/// the IP arms). For the `Hostname` arm, an A/AAAA lookup is performed via
+/// [`ip_lookup`] and each returned IP is paired with the supplied port.
+pub async fn resolve_socket_addr(
+    addr: &ResolvableSocketAddr,
+    resolver: Option<&dyn Resolver>,
+    strategy: IpLookupStrategy,
+) -> anyhow::Result<Vec<ResolvedAddress>> {
+    match addr {
+        ResolvableSocketAddr::UnixDomain(unix) => {
+            let name = match unix.as_pathname() {
+                Some(path) => path.display().to_string(),
+                None => "<unbound unix domain>".to_string(),
+            };
+            Ok(vec![ResolvedAddress {
+                name,
+                addr: HostOrSocketAddress::UnixDomain(unix.clone()),
+            }])
+        }
+        ResolvableSocketAddr::V4(sa) => Ok(vec![ResolvedAddress {
+            name: sa.to_string(),
+            addr: HostOrSocketAddress::V4Socket(sa.clone()),
+        }]),
+        ResolvableSocketAddr::V6(sa) => Ok(vec![ResolvedAddress {
+            name: sa.to_string(),
+            addr: HostOrSocketAddress::V6Socket(sa.clone()),
+        }]),
+        ResolvableSocketAddr::Hostname { host, port } => {
+            match ip_lookup(host, resolver, strategy).await {
+                Ok((addrs, _expires)) => Ok(addrs
+                    .iter()
+                    .map(|&ip| {
+                        let sa = SocketAddr::new(ip, *port);
+                        ResolvedAddress {
+                            name: host.clone(),
+                            addr: sa.into(),
+                        }
+                    })
+                    .collect()),
+                Err(err) => anyhow::bail!("{err:#}"),
+            }
+        }
     }
 }
 
@@ -602,9 +651,9 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
     let mut records: Vec<ByPreference> = Vec::with_capacity(mx_records.len());
 
     for mx_record in mx_records {
-        if let Some(mx) = mx_record.as_mx() {
-            let pref = mx.preference();
-            let host = mx.exchange().to_lowercase().to_string();
+        if let RData::MX(mx) = mx_record {
+            let pref = mx.preference;
+            let host = mx.exchange.to_lowercase().to_string();
 
             if let Some(record) = records.iter_mut().find(|r| r.pref == pref) {
                 record.hosts.push(host);

@@ -1,12 +1,14 @@
 use async_trait::async_trait;
-use hickory_proto::ProtoErrorKind;
-use hickory_resolver::proto::op::response_code::ResponseCode;
-use hickory_resolver::proto::rr::rdata::{A, AAAA, MX, PTR, TXT};
+use hickory_resolver::net::{DnsError as NetDnsError, NetError};
+use hickory_resolver::proto::op::ResponseCode;
+use hickory_resolver::proto::rr::rdata::{A, AAAA, PTR, TXT};
 #[cfg(feature = "unbound")]
 use hickory_resolver::proto::rr::DNSClass;
-use hickory_resolver::proto::rr::{LowerName, RData, RecordData, RecordSet, RecordType, RrKey};
+use hickory_resolver::proto::rr::{
+    LowerName, Name, RData, RecordData, RecordSet, RecordType, RrKey,
+};
 use hickory_resolver::proto::serialize::txt::Parser;
-use hickory_resolver::{Name, ResolveError, TokioResolver};
+use hickory_resolver::TokioResolver;
 #[cfg(feature = "unbound")]
 use libunbound::{AsyncContext, Context};
 use std::collections::BTreeMap;
@@ -92,9 +94,9 @@ impl Answer {
     pub fn as_txt(&self) -> Vec<String> {
         let mut result = vec![];
         for r in &self.records {
-            if let Some(txt) = r.as_txt() {
+            if let RData::TXT(txt) = r {
                 let mut joined = String::new();
-                for t in txt.iter() {
+                for t in txt.txt_data.iter() {
                     joined.push_str(&String::from_utf8_lossy(t));
                 }
                 result.push(joined);
@@ -106,10 +108,10 @@ impl Answer {
     pub fn as_addr(&self) -> Vec<IpAddr> {
         let mut result = vec![];
         for r in &self.records {
-            if let Some(a) = r.as_a() {
-                result.push(a.0.into());
-            } else if let Some(a) = r.as_aaaa() {
-                result.push(a.0.into());
+            match r {
+                RData::A(a) => result.push(a.0.into()),
+                RData::AAAA(a) => result.push(a.0.into()),
+                _ => {}
             }
         }
         result
@@ -125,8 +127,15 @@ pub enum DnsError {
 }
 
 impl DnsError {
-    pub(crate) fn from_resolve(name: &impl fmt::Display, err: ResolveError) -> Self {
+    pub(crate) fn from_resolve(name: &impl fmt::Display, err: NetError) -> Self {
         DnsError::ResolveFailed(format!("failed to query DNS for {name}: {err}"))
+    }
+}
+
+fn no_records(err: &NetError) -> Option<&hickory_resolver::net::NoRecords> {
+    match err {
+        NetError::Dns(NetDnsError::NoRecordsFound(nr)) => Some(nr),
+        _ => None,
     }
 }
 
@@ -274,7 +283,7 @@ impl TestResolver {
             canon_name: None,
             records: records
                 .records_without_rrsigs()
-                .map(|r| r.data().clone())
+                .map(|r| r.data.clone())
                 .collect(),
             nxdomain: false,
             secure: false,
@@ -315,8 +324,9 @@ impl Resolver for TestResolver {
         let mut values = vec![];
         let answer = self.get(&name, RecordType::MX)?;
         for record in answer.records {
-            let mx = MX::try_borrow(&record).unwrap();
-            values.push(mx.exchange().clone());
+            if let RData::MX(mx) = record {
+                values.push(mx.exchange.clone());
+            }
         }
 
         Ok(values)
@@ -380,24 +390,24 @@ impl Resolver for UnboundResolver {
         match (a, aaaa) {
             (Ok(a), Ok(aaaa)) => {
                 records.extend(a.rdata().filter_map(|r| match r {
-                    Ok(r) => r.as_a().map(|a| IpAddr::from(a.0)),
-                    Err(_) => None,
+                    Ok(RData::A(a)) => Some(IpAddr::from(a.0)),
+                    _ => None,
                 }));
                 records.extend(aaaa.rdata().filter_map(|r| match r {
-                    Ok(r) => r.as_aaaa().map(|aaaa| IpAddr::from(aaaa.0)),
-                    Err(_) => None,
+                    Ok(RData::AAAA(aaaa)) => Some(IpAddr::from(aaaa.0)),
+                    _ => None,
                 }));
             }
             (Ok(a), Err(_)) => {
                 records.extend(a.rdata().filter_map(|r| match r {
-                    Ok(r) => r.as_a().map(|a| IpAddr::from(a.0)),
-                    Err(_) => None,
+                    Ok(RData::A(a)) => Some(IpAddr::from(a.0)),
+                    _ => None,
                 }));
             }
             (Err(_), Ok(aaaa)) => {
                 records.extend(aaaa.rdata().filter_map(|r| match r {
-                    Ok(r) => r.as_aaaa().map(|aaaa| IpAddr::from(aaaa.0)),
-                    Err(_) => None,
+                    Ok(RData::AAAA(aaaa)) => Some(IpAddr::from(aaaa.0)),
+                    _ => None,
                 }));
             }
             (Err(err), Err(_)) => {
@@ -422,8 +432,8 @@ impl Resolver for UnboundResolver {
         Ok(answer
             .rdata()
             .filter_map(|r| match r {
-                Ok(r) => r.as_mx().map(|mx| mx.exchange().clone()),
-                Err(_) => None,
+                Ok(RData::MX(mx)) => Some(mx.exchange.clone()),
+                _ => None,
             })
             .collect())
     }
@@ -441,8 +451,8 @@ impl Resolver for UnboundResolver {
         Ok(answer
             .rdata()
             .filter_map(|r| match r {
-                Ok(r) => r.as_ptr().map(|ptr| ptr.0.clone()),
-                Err(_) => None,
+                Ok(RData::PTR(ptr)) => Some(ptr.0.clone()),
+                _ => None,
             })
             .collect())
     }
@@ -489,9 +499,9 @@ pub struct HickoryResolver {
 }
 
 impl HickoryResolver {
-    pub fn new() -> Result<Self, hickory_resolver::ResolveError> {
+    pub fn new() -> Result<Self, NetError> {
         Ok(Self {
-            inner: TokioResolver::builder_tokio()?.build(),
+            inner: TokioResolver::builder_tokio()?.build()?,
         })
     }
 }
@@ -503,10 +513,10 @@ impl Resolver for HickoryResolver {
             .map_err(|err| DnsError::InvalidName(format!("invalid name {host}: {err}")))?;
 
         match self.inner.lookup_ip(name.clone()).await {
-            Ok(result) => Ok(result.into_iter().collect()),
-            Err(err) => match err.proto().map(|err| err.kind()) {
-                Some(ProtoErrorKind::NoRecordsFound { .. }) => Ok(vec![]),
-                _ => Err(DnsError::from_resolve(&name, err)),
+            Ok(result) => Ok(result.iter().collect()),
+            Err(err) => match no_records(&err) {
+                Some(_) => Ok(vec![]),
+                None => Err(DnsError::from_resolve(&name, err)),
             },
         }
     }
@@ -516,20 +526,34 @@ impl Resolver for HickoryResolver {
             .map_err(|err| DnsError::InvalidName(format!("invalid name {host}: {err}")))?;
 
         match self.inner.mx_lookup(name.clone()).await {
-            Ok(result) => Ok(result.into_iter().map(|mx| mx.exchange().clone()).collect()),
-            Err(err) => match err.proto().map(|err| err.kind()) {
-                Some(ProtoErrorKind::NoRecordsFound { .. }) => Ok(vec![]),
-                _ => Err(DnsError::from_resolve(&name, err)),
+            Ok(result) => Ok(result
+                .answers()
+                .iter()
+                .filter_map(|r| match &r.data {
+                    RData::MX(mx) => Some(mx.exchange.clone()),
+                    _ => None,
+                })
+                .collect()),
+            Err(err) => match no_records(&err) {
+                Some(_) => Ok(vec![]),
+                None => Err(DnsError::from_resolve(&name, err)),
             },
         }
     }
 
     async fn resolve_ptr(&self, ip: IpAddr) -> Result<Vec<Name>, DnsError> {
         match self.inner.reverse_lookup(ip).await {
-            Ok(result) => Ok(result.into_iter().map(|ptr| ptr.0).collect()),
-            Err(err) => match err.proto().map(|err| err.kind()) {
-                Some(ProtoErrorKind::NoRecordsFound { .. }) => Ok(vec![]),
-                _ => Err(DnsError::from_resolve(&ip, err)),
+            Ok(result) => Ok(result
+                .answers()
+                .iter()
+                .filter_map(|r| match &r.data {
+                    RData::PTR(ptr) => Some(ptr.0.clone()),
+                    _ => None,
+                })
+                .collect()),
+            Err(err) => match no_records(&err) {
+                Some(_) => Ok(vec![]),
+                None => Err(DnsError::from_resolve(&ip, err)),
             },
         }
     }
@@ -538,7 +562,7 @@ impl Resolver for HickoryResolver {
         match self.inner.lookup(name.clone(), rrtype).await {
             Ok(result) => {
                 let expires = result.valid_until();
-                let records = result.iter().cloned().collect();
+                let records = result.answers().iter().map(|r| r.data.clone()).collect();
                 Ok(Answer {
                     canon_name: None,
                     records,
@@ -550,23 +574,19 @@ impl Resolver for HickoryResolver {
                     response_code: ResponseCode::NoError,
                 })
             }
-            Err(err) => match err.proto().map(|err| err.kind()) {
-                Some(ProtoErrorKind::NoRecordsFound {
-                    negative_ttl,
-                    response_code,
-                    ..
-                }) => Ok(Answer {
+            Err(err) => match no_records(&err) {
+                Some(no_records) => Ok(Answer {
                     canon_name: None,
                     records: vec![],
-                    nxdomain: *response_code == ResponseCode::NXDomain,
+                    nxdomain: no_records.response_code == ResponseCode::NXDomain,
                     secure: false,
                     bogus: false,
                     why_bogus: None,
-                    response_code: *response_code,
+                    response_code: no_records.response_code,
                     expires: Instant::now()
-                        + Duration::from_secs(negative_ttl.unwrap_or(60) as u64),
+                        + Duration::from_secs(no_records.negative_ttl.unwrap_or(60) as u64),
                 }),
-                _ => Err(DnsError::from_resolve(&name, err)),
+                None => Err(DnsError::from_resolve(&name, err)),
             },
         }
     }

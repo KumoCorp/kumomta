@@ -10,7 +10,7 @@ use bstr::{BString, ByteSlice, ByteVec};
 use chrono::{DateTime, Utc};
 #[cfg(feature = "impl")]
 use config::{any_err, from_lua_value, serialize_options, SerdeWrappedValue};
-use futures::FutureExt;
+use futures::{FutureExt, TryFutureExt};
 use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListAtomicLink};
 use kumo_chrono_helper::*;
 #[cfg(feature = "impl")]
@@ -586,24 +586,26 @@ impl Message {
             .flags
             .contains(MessageFlags::FORCE_SYNC);
 
-        let data_fut = if let Some(data) = self.get_data_if_dirty() {
-            anyhow::ensure!(!data.is_empty(), "message data must not be empty");
-            data_spool
-                .store(self.msg_and_id.id, data, force_sync, deadline)
-                .map(|_| true)
-                .boxed()
-        } else {
-            futures::future::ready(false).boxed()
-        };
-        let meta_fut = if let Some(meta) = self.get_meta_if_dirty() {
-            let meta = Arc::new(serde_json::to_vec(&meta)?.into_boxed_slice());
-            meta_spool
-                .store(self.msg_and_id.id, meta, force_sync, deadline)
-                .map(|_| true)
-                .boxed()
-        } else {
-            futures::future::ready(false).boxed()
-        };
+        let data_fut: futures::future::BoxFuture<'_, anyhow::Result<bool>> =
+            if let Some(data) = self.get_data_if_dirty() {
+                anyhow::ensure!(!data.is_empty(), "message data must not be empty");
+                data_spool
+                    .store(self.msg_and_id.id, data, force_sync, deadline)
+                    .map_ok(|_| true)
+                    .boxed()
+            } else {
+                futures::future::ready(Ok(false)).boxed()
+            };
+        let meta_fut: futures::future::BoxFuture<'_, anyhow::Result<bool>> =
+            if let Some(meta) = self.get_meta_if_dirty() {
+                let meta = Arc::new(serde_json::to_vec(&meta)?.into_boxed_slice());
+                meta_spool
+                    .store(self.msg_and_id.id, meta, force_sync, deadline)
+                    .map_ok(|_| true)
+                    .boxed()
+            } else {
+                futures::future::ready(Ok(false)).boxed()
+            };
 
         // NOTE: if we have a deadline, it is tempting to want to use
         // timeout_at here to enforce it, but the underlying spool
@@ -612,21 +614,59 @@ impl Message {
         // them to handle timeouts internally.
         let (data_res, meta_res) = tokio::join!(data_fut, meta_fut);
 
-        if data_res {
+        // Clear the dirty flag for each spool that successfully
+        // stored (Ok(true)).  Even when the other spool failed, we
+        // must still record the partial success: the caller may
+        // unwind by removing from both spools, and the remove on a
+        // spool that did not receive the data is harmless.
+        if matches!(data_res, Ok(true)) {
             self.msg_and_id
                 .inner
                 .lock()
                 .flags
                 .remove(MessageFlags::DATA_DIRTY);
         }
-        if meta_res {
+        if matches!(meta_res, Ok(true)) {
             self.msg_and_id
                 .inner
                 .lock()
                 .flags
                 .remove(MessageFlags::META_DIRTY);
         }
-        Ok(())
+
+        // Propagate spool errors so callers (notably the SMTP
+        // ingress path and load-shedding-aware code) can react
+        // rather than silently accepting a message whose persistent
+        // storage failed.
+        //
+        // For the both-failed case we preserve the typed
+        // SpoolUnhealthyError on the returned error chain when
+        // either side has one, so callers that match on
+        // root_cause (e.g. the SMTP server's user-facing 421
+        // shaping) still see the actionable reason.  The
+        // non-preferred error is folded into the context message so
+        // it is still visible to anything that formats the error
+        // with `:#`.
+        match (data_res, meta_res) {
+            (Ok(_), Ok(_)) => Ok(()),
+            (Err(data_err), Ok(_)) => Err(data_err.context("data spool store")),
+            (Ok(_), Err(meta_err)) => Err(meta_err.context("meta spool store")),
+            (Err(data_err), Err(meta_err)) => {
+                let data_unhealthy = data_err.root_cause().is::<::spool::SpoolUnhealthyError>();
+                let meta_unhealthy = meta_err.root_cause().is::<::spool::SpoolUnhealthyError>();
+                match (data_unhealthy, meta_unhealthy) {
+                    (true, _) => Err(data_err.context(format!(
+                        "data spool store; meta spool store also failed: {meta_err:#}"
+                    ))),
+                    (false, true) => Err(meta_err.context(format!(
+                        "meta spool store; data spool store also failed: {data_err:#}"
+                    ))),
+                    (false, false) => Err(anyhow::anyhow!(
+                        "data spool store: {data_err:#}; meta spool store: {meta_err:#}"
+                    )),
+                }
+            }
+        }
     }
 
     pub fn id(&self) -> &SpoolId {

@@ -5,6 +5,7 @@ use anyhow::{anyhow, Context};
 use futures::stream::FusedStream;
 use futures::{SinkExt, StreamExt};
 use kumo_api_client::KumoApiClient;
+pub use kumo_api_client::Metric;
 use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Request};
 use kumo_log_types::*;
 use kumo_server_common::acct::AcctLogRecord;
@@ -20,7 +21,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
@@ -383,6 +384,32 @@ pub struct KumoDaemon {
     child: Child,
 }
 
+/// Handle to the on-disk state of a stopped kumod, obtained from
+/// `KumoDaemon::stop_temporarily`.  Lets a test inspect or mutate
+/// the spool, logs, or other files while the daemon is offline, and
+/// then spawn a fresh process against the same directory via
+/// `start`.
+#[derive(Debug)]
+pub struct StoppedKumoDaemon {
+    dir: TempDir,
+}
+
+impl StoppedKumoDaemon {
+    /// Path to the on-disk state of the stopped daemon.
+    pub fn path(&self) -> &Path {
+        self.dir.path()
+    }
+
+    /// Spawn a fresh kumod process against the preserved on-disk
+    /// state.  Note that runtime-only state (suspends, in-memory
+    /// counters, etc.) is not preserved across the restart -- only
+    /// what was durable in the spool, log files, and other on-disk
+    /// artifacts.
+    pub async fn start(self, args: KumoArgs) -> anyhow::Result<KumoDaemon> {
+        KumoDaemon::spawn_with_dir(args, self.dir).await
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct KumoArgs {
     pub policy_file: String,
@@ -420,9 +447,16 @@ impl KumoDaemon {
     }
 
     pub async fn spawn(args: KumoArgs) -> anyhow::Result<Self> {
-        let path = target_bin("kumod")?;
-
         let dir = tempfile::tempdir().context("make temp dir")?;
+        StoppedKumoDaemon { dir }.start(args).await
+    }
+
+    /// Spawn a kumod process backed by a caller-supplied temp
+    /// directory.  Useful internally by `StoppedKumoDaemon::start`
+    /// and by other call sites that need to control the on-disk
+    /// location explicitly.
+    async fn spawn_with_dir(args: KumoArgs, dir: TempDir) -> anyhow::Result<Self> {
+        let path = target_bin("kumod")?;
 
         let user = User::from_uid(Uid::current())
             .context("determine current uid")?
@@ -603,6 +637,23 @@ impl KumoDaemon {
         }
     }
 
+    /// Stop the daemon and hand its on-disk state to a
+    /// `StoppedKumoDaemon`, which can be inspected, mutated, and
+    /// then used to spawn a fresh process against the same files
+    /// via `StoppedKumoDaemon::start`.
+    ///
+    /// Internally this swaps a throwaway empty TempDir into `self`
+    /// so the dead daemon struct keeps a valid (but empty) dir until
+    /// the caller replaces it with the freshly-started replacement.
+    pub async fn stop_temporarily(&mut self) -> anyhow::Result<StoppedKumoDaemon> {
+        let dir = std::mem::replace(
+            &mut self.dir,
+            tempfile::tempdir().context("make throwaway tempdir")?,
+        );
+        self.stop().await?;
+        Ok(StoppedKumoDaemon { dir })
+    }
+
     pub fn listener(&self, service: &str) -> SocketAddr {
         match self.listeners.get(service) {
             Some(addr) => *addr,
@@ -614,6 +665,36 @@ impl KumoDaemon {
         let endpoint = format!("http://{}", self.listener("http"));
         let url = kumo_api_client::Url::parse(&endpoint).unwrap();
         KumoApiClient::new(url)
+    }
+
+    /// Poll the prometheus `/metrics` endpoint until `condition` returns
+    /// true for the values of the metrics selected by `filter`, or until
+    /// `timeout` elapses (in which case an error is returned).
+    ///
+    /// `filter` is invoked for every metric scraped on each poll; metrics
+    /// for which it returns true have their `value()` collected and passed
+    /// to `condition`.
+    pub async fn wait_for_metric(
+        &self,
+        timeout: Duration,
+        filter: impl Fn(&Metric) -> bool,
+        condition: impl Fn(&[f64]) -> bool,
+    ) -> anyhow::Result<()> {
+        let client = self.api_client();
+        let deadline = Instant::now() + timeout;
+        loop {
+            let values: Vec<f64> = client
+                .get_metrics(|m| if filter(m) { Some(m.value()) } else { None })
+                .await?;
+            if condition(&values) {
+                return Ok(());
+            }
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "timed out after {timeout:?} waiting for metric condition"
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
     }
 
     pub async fn smtp_client(&self, host: &str) -> anyhow::Result<SmtpClient> {

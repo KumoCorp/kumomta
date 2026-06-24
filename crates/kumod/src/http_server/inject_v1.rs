@@ -1138,6 +1138,9 @@ pub fn activity_for_peer(
             "waiting for spool startup",
         ));
     }
+    if let Some(reason) = SpoolManager::get().spool_unhealthy_reason() {
+        return Err(AppError::new(StatusCode::SERVICE_UNAVAILABLE, reason));
+    }
 
     Ok(activity)
 }
@@ -1380,6 +1383,7 @@ impl QueueDispatcher for HttpInjectionGeneratorDispatcher {
             "smtp_dispatcher only supports a batch size of 1"
         );
         let msg = msgs.pop().expect("just verified that there is one");
+        dispatcher.set_detail("http_inject: try_send");
 
         let response = match self.try_send(msg).await {
             Ok(()) => Response {
