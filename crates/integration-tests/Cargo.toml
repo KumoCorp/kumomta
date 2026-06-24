@@ -26,6 +26,9 @@ mailparsing = {path="../mailparsing"}
 message = {path="../message"}
 nix = {workspace=true, features=["signal", "user"]}
 parking_lot.workspace = true
+regex = {workspace=true}
+mod-smtp-response-normalize = {path="../mod-smtp-response-normalize"}
+uuid = {workspace=true}
 rcgen = "0.14" # NOT workspace at this time! need to upgade helpers before we can bump workspace to 0.14
 rustls-cert-gen.workspace = true
 rfc5321 = {path="../rfc5321"}

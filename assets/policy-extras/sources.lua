@@ -248,13 +248,13 @@ weight = 1
   local status, data_or_error = pcall(load_data, {
     kumo.serde.toml_parse [[
 [source."ip"]
-socks5_proxy_server = "not.an.ip.address:5000"
+socks5_proxy_server = "not a valid hostname:5000"
 [pool."a"]
 [pool."a"."ip"]
   ]],
   })
   assert(not status)
-  assert(data_or_error:find 'invalid socket address syntax')
+  assert(data_or_error:find 'invalid hostname')
 end
 
 return mod

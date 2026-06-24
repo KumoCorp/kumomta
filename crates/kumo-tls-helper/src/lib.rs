@@ -311,7 +311,7 @@ impl TlsOptions {
             let mut any_usable = false;
             for tlsa in &self.dane_tlsa {
                 let usable = config.dane_tlsa_add(
-                    match tlsa.cert_usage() {
+                    match tlsa.cert_usage {
                         CertUsage::PkixTa => DaneUsage::PKIX_TA,
                         CertUsage::PkixEe => DaneUsage::PKIX_EE,
                         CertUsage::DaneTa => DaneUsage::DANE_TA,
@@ -319,20 +319,20 @@ impl TlsOptions {
                         CertUsage::Unassigned(n) => DaneUsage::from_raw(n),
                         CertUsage::Private => DaneUsage::PRIV_CERT,
                     },
-                    match tlsa.selector() {
+                    match tlsa.selector {
                         Selector::Full => DaneSelector::CERT,
                         Selector::Spki => DaneSelector::SPKI,
                         Selector::Unassigned(n) => DaneSelector::from_raw(n),
                         Selector::Private => DaneSelector::PRIV_SEL,
                     },
-                    match tlsa.matching() {
+                    match tlsa.matching {
                         Matching::Raw => DaneMatchType::FULL,
                         Matching::Sha256 => DaneMatchType::SHA2_256,
                         Matching::Sha512 => DaneMatchType::SHA2_512,
                         Matching::Unassigned(n) => DaneMatchType::from_raw(n),
                         Matching::Private => DaneMatchType::PRIV_MATCH,
                     },
-                    tlsa.cert_data(),
+                    &tlsa.cert_data,
                 )?;
 
                 tracing::trace!("build_dane_connector usable={usable} {tlsa:?}");

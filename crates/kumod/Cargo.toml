@@ -34,6 +34,7 @@ kumo-api-types = {path="../kumo-api-types"}
 kumo-chrono-helper = {path="../kumo-chrono-helper"}
 kumo-dmarc = {path="../kumo-dmarc"}
 kumo-log-types = {path="../kumo-log-types"}
+kumo-counter-series = {path="../kumo-counter-series"}
 kumo-prometheus = {path="../kumo-prometheus"}
 kumo-server-common = {path="../kumo-server-common"}
 kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
@@ -50,6 +51,7 @@ memchr = {workspace=true}
 message = {path="../message"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mod-dns-resolver = {path="../mod-dns-resolver"}
+mod-serde = {path="../mod-serde"}
 mod-time = {path="../mod-time"}
 mta-sts = {path="../mta-sts"}
 nix = {workspace=true, features=["resource", "user"]}

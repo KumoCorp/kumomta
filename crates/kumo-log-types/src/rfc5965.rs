@@ -3,12 +3,14 @@ use crate::rfc3464::{content_type, RemoteMta};
 use anyhow::anyhow;
 use bstr::{BStr, BString, ByteSlice};
 use chrono::{DateTime, Utc};
-use mailparsing::{Header, HeaderParseResult, MimePart};
+use mailparsing::{BStringUtf8, Header, HeaderParseResult, MimePart};
 use rfc5321::parser::EnvelopeAddress;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct ARFReport {
     pub feedback_type: String,
@@ -37,8 +39,10 @@ pub struct ARFReport {
     #[serde(default)]
     pub reported_uri: Vec<String>,
 
+    #[serde_as(as = "BTreeMap<_, Vec<BStringUtf8>>")]
     pub extensions: BTreeMap<String, Vec<BString>>,
 
+    #[serde_as(as = "Option<BStringUtf8>")]
     pub original_message: Option<BString>,
     pub supplemental_trace: Option<serde_json::Value>,
 }

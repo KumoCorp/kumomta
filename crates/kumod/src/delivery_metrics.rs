@@ -26,6 +26,7 @@ counter_bundle! {
         pub provider: AtomicCounter,
         pub source_provider: AtomicCounter,
         pub global: AtomicCounter,
+        pub per_dispatcher: AtomicCounter,
     }
 }
 counter_bundle! {
@@ -45,6 +46,7 @@ pub struct DeliveryMetrics {
 
     pub ready_count: ReadyCountBundle,
     pub ready_full: AtomicCounter,
+    pub watchdog_aborted: AtomicCounter,
 
     delivered: DispositionBundle,
     transfail: DispositionBundle,
@@ -165,6 +167,7 @@ impl DeliveryMetrics {
             global: globals.global_msgs_delivered.clone(),
             provider: provider_msgs_delivered,
             source_provider: source_provider_msgs_delivered,
+            per_dispatcher: AtomicCounter::new(),
         };
 
         let transfail = DispositionBundle {
@@ -172,6 +175,7 @@ impl DeliveryMetrics {
             global: globals.global_msgs_transfail.clone(),
             provider: provider_msgs_transfail,
             source_provider: source_provider_msgs_transfail,
+            per_dispatcher: AtomicCounter::new(),
         };
 
         let fail = DispositionBundle {
@@ -179,6 +183,7 @@ impl DeliveryMetrics {
             global: globals.global_msgs_fail.clone(),
             provider: provider_msgs_fail,
             source_provider: source_provider_msgs_fail,
+            per_dispatcher: AtomicCounter::new(),
         };
 
         let connection_gauge = ConnectionGaugeBundle {
@@ -195,6 +200,9 @@ impl DeliveryMetrics {
             connection_total: crate::metrics_helper::connection_total_for_service(&service),
             global_connection_total: globals.global_connection_total.clone(),
             ready_full: crate::metrics_helper::ready_full_counter_for_service(&service),
+            watchdog_aborted: crate::metrics_helper::dispatcher_watchdog_aborted_for_service(
+                &service,
+            ),
             ready_count,
             deliver_message_rollup: crate::metrics_helper::deliver_message_rollup_for_service(
                 service_type,
@@ -224,6 +232,29 @@ impl DeliveryMetrics {
     pub fn inc_delivered(&self) {
         self.delivered.inc();
     }
+
+    /// Fork this `DeliveryMetrics` so the returned view carries
+    /// per-dispatcher counters.
+    pub fn for_dispatcher(&self) -> (DeliveryMetrics, DispatcherDispositionCounters) {
+        let counters = DispatcherDispositionCounters {
+            delivered: AtomicCounter::new(),
+            transfail: AtomicCounter::new(),
+            fail: AtomicCounter::new(),
+        };
+        let mut forked = self.clone();
+        forked.delivered.per_dispatcher = counters.delivered.clone();
+        forked.transfail.per_dispatcher = counters.transfail.clone();
+        forked.fail.per_dispatcher = counters.fail.clone();
+        (forked, counters)
+    }
+}
+
+/// Per-dispatcher disposition counters.
+#[derive(Clone, Debug)]
+pub struct DispatcherDispositionCounters {
+    pub delivered: AtomicCounter,
+    pub transfail: AtomicCounter,
+    pub fail: AtomicCounter,
 }
 
 /// A helper struct to manage the number of connections.

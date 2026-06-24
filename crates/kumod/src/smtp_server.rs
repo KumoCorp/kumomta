@@ -1000,13 +1000,29 @@ impl SmtpServerSession {
         if let Err(err) = server.process().await {
             if err.downcast_ref::<WriteError>().is_none() {
                 error!("Error in SmtpServerSession: {err:#}");
-                server
-                    .write_response(
-                        421,
+                // If the underlying cause is a spool-unhealthy error,
+                // surface that to the peer with the same wire shape
+                // we use at the banner-level load-shed check, so the
+                // remote operator gets an actionable response
+                // regardless of whether the gate was observed at
+                // connect time or during a mid-flight transaction.
+                let (response, log_context) = if err.root_cause().is::<spool::SpoolUnhealthyError>()
+                {
+                    (
+                        format!(
+                            "4.3.2 {} the spool is not accepting writes. Try later",
+                            server.params.hostname
+                        ),
+                        Some(format!("Error in SmtpServerSession: {err:#}")),
+                    )
+                } else {
+                    (
                         format!("4.3.0 {} technical difficulties", server.params.hostname),
                         Some(format!("Error in SmtpServerSession: {err:#}")),
-                        RejectDisconnect::If421,
                     )
+                };
+                server
+                    .write_response(421, response, log_context, RejectDisconnect::If421)
                     .await
                     .ok();
             }
@@ -1589,6 +1605,21 @@ impl SmtpServerSession {
                     "4.3.2 {} waiting for spool startup. Try again soon!",
                     self.params.hostname
                 ),
+                None,
+                RejectDisconnect::If421,
+            )
+            .await?;
+            return Ok(());
+        }
+
+        if let Some(reason) = SpoolManager::get().spool_unhealthy_reason() {
+            // Bump connection_denied_counter because the operator may care to
+            // investigate this, and we don't otherwise log this class of rejection.
+            connection_denied_counter().inc();
+
+            self.write_response(
+                421,
+                format!("4.3.2 {} {reason}. Try later", self.params.hostname),
                 None,
                 RejectDisconnect::If421,
             )
@@ -3171,10 +3202,32 @@ impl SmtpServerSession {
                             .await;
                         }
 
-                        if err.root_cause().is::<tokio::time::error::Elapsed>() {
+                        // The rocksdb spool layer owns the timeout
+                        // for its own writes and produces a typed
+                        // error per source (caller vs spool's
+                        // internal backpressure deadline).  Other
+                        // Spool implementations (current or future)
+                        // may surface a raw `Elapsed` instead, which
+                        // we treat the same as the typed caller
+                        // deadline error: both mean the caller's
+                        // deadline elapsed during the save.
+                        let root = err.root_cause();
+                        if root.is::<spool::SpoolCallerDeadlineExceeded>()
+                            || root.is::<tokio::time::error::Elapsed>()
+                        {
                             self.write_response(
                                 451,
                                 "4.4.5 data_processing_timeout exceeded (spool)",
+                                Some("DATA".into()),
+                                RejectDisconnect::If421,
+                            )
+                            .await?;
+                            return Ok(());
+                        }
+                        if root.is::<spool::SpoolBackpressureTimeout>() {
+                            self.write_response(
+                                451,
+                                "4.4.5 spool write timed out",
                                 Some("DATA".into()),
                                 RejectDisconnect::If421,
                             )
@@ -3471,6 +3524,7 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
             "DeferredSmtpInjectionDispatcher only supports a batch size of 1"
         );
         let msg = msgs.pop().expect("just verified that there is one");
+        dispatcher.set_detail("deferred_smtp_inject");
 
         msg.set_meta("queue", serde_json::Value::Null).await?;
 

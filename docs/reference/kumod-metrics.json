@@ -164,6 +164,17 @@
     "pruning": "NonPruning"
   },
   {
+    "name": "dispatcher_watchdog_aborted_total",
+    "help": "total number of dispatcher tasks aborted by the progress watchdog",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Counter",
+    "label_names": [
+      "service"
+    ],
+    "buckets": [],
+    "pruning": "Pruning"
+  },
+  {
     "name": "dkim_signer_cache_hit",
     "help": "How many dkim signer requests hit cache.",
     "doc": "This is redundant with the newer\n[lruttl_hit_count{cache_name=\"dkim_signer_cache\"}](lruttl_hit_count.md)\ncounter.",
@@ -343,6 +354,42 @@
     "doc": null,
     "metric_type": "Counter",
     "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "egress_source_connection_failures_total",
+    "help": "Counts connection failures classified as belonging to one of the source-health failure classes. Increments regardless of whether `suspend_when_*` is configured on the source, so an operator can observe the underlying signal before opting in to auto-suspension.",
+    "doc": "{{since('dev')}}\n\nLabels:\n* `source` is the operator-defined egress source name (the\n  `name` field of `kumo.make_egress_source`).\n* `kind` is one of:\n    * `Unplumbed` — the source's local `source_address`\n      returned `EADDRNOTAVAIL` on `bind()`. The IP address\n      is not currently plumbed on this host.\n    * `ProxyUnhealthy` — the configured proxy server was\n      unreachable, timed out, or reported a bind failure\n      for the requested source address.",
+    "metric_type": "Counter",
+    "label_names": [
+      "source",
+      "kind"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "egress_source_health_suspended",
+    "help": "`1` while an egress source is currently auto-suspended, `0` otherwise. Pool selection skips a source whose gauge is `1`, rolling the remaining suspension duration into the per-pool `min_delay`.",
+    "doc": "{{since('dev')}}\n\nLabels:\n* `source` is the operator-defined egress source name (the\n  `name` field of `kumo.make_egress_source`).\n* `reason` indicates which rule's firing produced the\n  current suspension:\n    * `Unplumbed` — a `suspend_when_unplumbed` rule fired\n      because the source's local `source_address` was not\n      plumbed on this host. Plumb the address (or correct\n      the configured `source_address`) to resolve.\n    * `ProxyUnhealthy` — a `suspend_when_proxy_unhealthy`\n      rule fired because the configured proxy server was\n      unreachable or rejected the requested source address.\n      Investigate the proxy service.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "source",
+      "reason"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "egress_source_health_suspensions_total",
+    "help": "Increments each time a source transitions into the auto-suspended state due to one of its `suspend_when_*` rules firing. Re-triggering the same rule while the suspension is already active does not increment this counter; it only counts state transitions.",
+    "doc": "{{since('dev')}}\n\nLabels:\n* `source` is the operator-defined egress source name (the\n  `name` field of `kumo.make_egress_source`).\n* `reason` indicates which rule fired:\n    * `Unplumbed` — a `suspend_when_unplumbed` rule fired\n      because the source's local `source_address` was not\n      plumbed on this host. Plumb the address (or correct\n      the configured `source_address`) to resolve.\n    * `ProxyUnhealthy` — a `suspend_when_proxy_unhealthy`\n      rule fired because the configured proxy server was\n      unreachable or rejected the requested source address.\n      Investigate the proxy service.",
+    "metric_type": "Counter",
+    "label_names": [
+      "source",
+      "reason"
+    ],
     "buckets": [],
     "pruning": "NonPruning"
   },
@@ -922,9 +969,64 @@
     "pruning": "NonPruning"
   },
   {
+    "name": "rocks_spool_actual_delayed_write_rate",
+    "help": "Current delayed write rate (bytes/second) applied by rocksdb to throttle foreground writers.  0 means no slowdown is in effect.",
+    "doc": "{{since('dev')}}\n\nA non-zero value means rocksdb is intentionally slowing writers\ndown because compaction or flush is falling behind.  This is the\nearly-warning signal that precedes a full write stop: if this\nremains non-zero for an extended period, investigate the\ncompaction backlog\n(`rocks_spool_estimate_pending_compaction_bytes`) and underlying\ndisk throughput before the database transitions to\n`rocks_spool_write_stopped == 1`.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "path"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "rocks_spool_background_errors",
+    "help": "Accumulated count of background errors encountered by the rocksdb instance (failed flushes or compactions, typically caused by I/O errors such as missing or corrupt SST files, ENOSPC, or permission problems).",
+    "doc": "{{since('dev')}}\n\nThis counter is **monotonic** for the lifetime of the process: it\ndoes not decrease when rocksdb auto-resumes from transient errors\nsuch as a brief ENOSPC.  A non-zero value therefore does not\nnecessarily mean the database is currently wedged; it means at\nleast one background error has occurred since the process started.\n\nFor SRE monitoring, alert on the **rate of change** (e.g.\n`increase(rocks_spool_background_errors[5m]) > 0`) to catch new\noccurrences.  For the actionable \"the database is wedged right\nnow and we are shedding load\" signal, page on\n`rocks_spool_load_shed_active` instead, which combines this\ncounter, foreground read/write errors, and rocksdb error\nseverity into a single latched indicator.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "path"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
     "name": "rocks_spool_cache_total",
     "help": "Approximate memory (bytes) usage by cache.",
     "doc": "This may be useful when understanding the memory usage of\nthe system.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "path"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "rocks_spool_compaction_pending",
+    "help": "Set to 1 when at least one compaction is pending for this rocksdb instance, 0 otherwise.",
+    "doc": "{{since('dev')}}\n\nBrief flapping is normal under write load.  A value of 1 that\npersists alongside `rocks_spool_num_running_compactions == 0` is\nsuspicious and suggests the compaction worker is not making\nprogress.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "path"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "rocks_spool_estimate_pending_compaction_bytes",
+    "help": "Estimated total bytes that compaction needs to rewrite to bring all levels back under their target sizes.",
+    "doc": "{{since('dev')}}\n\nThis is a backlog indicator.  Steady-state values depend heavily\non write rate, compression, and the configured compaction style,\nso absolute thresholds should be derived from each deployment's\nbaseline.  Unbounded growth over a multi-hour window indicates\nthat compaction cannot keep up with the write rate, which\neventually leads to write slowdown\n(`rocks_spool_actual_delayed_write_rate` becomes non-zero) and\nthen to write stop (`rocks_spool_write_stopped` becomes 1).\n\nOnly meaningful for level-style compaction.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "path"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "rocks_spool_load_shed_active",
+    "help": "Set to 1 when this spool's load-shedding gate is latched, 0 otherwise.  When set, ingress paths (SMTP, HTTP inject) reject traffic and foreground store/remove operations fail fast rather than stall.",
+    "doc": "{{since('dev')}}\n\nThe gate latches in either of two ways:\n\n* **Immediate**: a foreground spool operation (load, store,\n  remove) returns a rocksdb error classified as definitively\n  bad (`Corruption` or `IOError` -- e.g. a missing or corrupt\n  SST file discovered during a read).  These conditions have\n  no transient interpretation, so the gate latches on the\n  first such observation.\n* **Debounced**: less specific failure signals --\n  `background-errors` has grown since this process started, or\n  foreground operations have returned non-fatal errors --\n  sustained continuously for the configured\n  `error_latch_duration` (default 15s).  This filters out\n  brief auto-resumed errors.\n\nIf `allow_error_unlatch` is enabled (the default), the gate\nauto-clears after `error_unlatch_duration` of observed recovery\n(default 5 minutes) with no new errors of either class.\nOtherwise it stays set until the process is restarted.\n\nSREs should treat any sustained non-zero value as an\noperator-actionable incident; pair this metric with\n`rocks_spool_background_errors` to understand why.",
     "metric_type": "Gauge",
     "label_names": [
       "path"
@@ -958,6 +1060,28 @@
     "name": "rocks_spool_mem_table_unflushed",
     "help": "Approximate memory usage (bytes) of un-flushed mem-tables.",
     "doc": "This may be useful when understanding the memory usage of\nthe system.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "path"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "rocks_spool_num_running_compactions",
+    "help": "Number of background compactions currently running for this rocksdb instance.",
+    "doc": "{{since('dev')}}\n\nIn a healthy, actively-written spool this is typically non-zero\nin bursts.  A value persistently stuck at 0 while\n`rocks_spool_compaction_pending` or\n`rocks_spool_estimate_pending_compaction_bytes` is growing is a\nstrong indicator that the background worker is wedged --\ncross-reference `rocks_spool_write_stopped` and\n`rocks_spool_background_errors`.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "path"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "rocks_spool_write_stopped",
+    "help": "Set to 1 when the rocksdb instance is currently refusing writes at the WriteController layer (memtable count or L0 file count reached the stop threshold), 0 otherwise.",
+    "doc": "{{since('dev')}}\n\nThis reflects rocksdb's own `is-write-stopped` property and\nindicates backpressure rather than a fatal background error.\nHealthy databases under bursty load may briefly report 1 here.\nFor the \"the database is wedged due to a background error\"\nsignal, see `rocks_spool_load_shed_active` instead.",
     "metric_type": "Gauge",
     "label_names": [
       "path"

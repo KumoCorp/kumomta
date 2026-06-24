@@ -379,6 +379,8 @@ impl SmtpDispatcher {
 
                 if let Some(delay) = result.retry_after {
                     dispatcher
+                        .enter_phase(crate::ready_queue::DispatcherPhase::ConnectionRateThrottled);
+                    dispatcher
                         .states
                         .lock()
                         .connection_rate_throttled
@@ -419,6 +421,7 @@ impl SmtpDispatcher {
                 }
             }
             dispatcher.states.lock().connection_rate_throttled.take();
+            dispatcher.enter_phase(crate::ready_queue::DispatcherPhase::AttemptingConnection);
         }
 
         let connection_wrapper = dispatcher.metrics.wrap_connection(());
@@ -532,6 +535,7 @@ impl SmtpDispatcher {
         };
 
         self.source_address.take();
+        dispatcher.set_detail("connect+banner");
         let (mut client, source_address) = tokio::select! {
             _ = shutdown.shutting_down() => {
                 return Err(ShuttingDownError::new("waiting for new connection").into());
@@ -543,6 +547,7 @@ impl SmtpDispatcher {
 
         // Say EHLO/LHLO
         let helo_verb = if path_config.use_lmtp { "LHLO" } else { "EHLO" };
+        dispatcher.set_detail(helo_verb);
         let pretls_caps = client
             .ehlo_lhlo(&ehlo_name, path_config.use_lmtp)
             .await
@@ -694,6 +699,7 @@ impl SmtpDispatcher {
                 false
             }
             (Tls::OpportunisticInsecure, AdvTls::Yes, BrokenTls::No) => {
+                dispatcher.set_detail("STARTTLS");
                 let (enabled, label) = match client
                     .starttls(TlsOptions {
                         insecure: enable_tls.allow_insecure(),
@@ -771,6 +777,7 @@ impl SmtpDispatcher {
                 _, /* don't care if we think tls is broken when policy is required */
             )
             | (Tls::Opportunistic, AdvTls::Yes, BrokenTls::No) => {
+                dispatcher.set_detail("STARTTLS");
                 match client
                     .starttls(TlsOptions {
                         insecure: enable_tls.allow_insecure(),
@@ -866,6 +873,7 @@ impl SmtpDispatcher {
                 None
             };
 
+            dispatcher.set_detail("AUTH PLAIN");
             client
                 .auth_plain(username, password.as_deref())
                 .await
@@ -1119,6 +1127,32 @@ impl QueueDispatcher for SmtpDispatcher {
                 retry_immediately = true;
             }
         }
+
+        // Race protection: the load-shedding gate may have latched
+        // between obtain_message and here.  If so, do not start a
+        // new SMTP transaction -- log the hold against this message
+        // and let the dispatcher's normal "no more messages" path
+        // (obtain_message at the top of the next loop iteration)
+        // close the SMTP session.
+        if let Some(reason) = crate::spool::delivery_suspension_reason() {
+            let id = *msg.id();
+            if let Err(err) = crate::spool::log_and_requeue_for_unhealthy_spool(
+                msg,
+                &dispatcher.name,
+                Some(dispatcher.session_id),
+                reason,
+            )
+            .await
+            {
+                tracing::error!("failed to requeue {id} while spool is unhealthy: {err:#}");
+            }
+            return Ok(());
+        }
+
+        dispatcher.set_detail(format!(
+            "send msg with {} recip(s)",
+            recipients_this_batch.len()
+        ));
 
         let send_result = self
             .client
