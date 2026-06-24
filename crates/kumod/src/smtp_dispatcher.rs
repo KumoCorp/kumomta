@@ -11,7 +11,9 @@ use async_trait::async_trait;
 use bounce_classify::{BounceClass, PreDefinedBounceClass};
 use config::{load_config, CallbackSignature};
 use data_loader::KeySource;
-use dns_resolver::{has_colon_port, resolve_a_or_aaaa, IpLookupStrategy, ResolvedMxAddresses};
+use dns_resolver::{
+    has_colon_port, resolve_a_or_aaaa, DaneStatus, IpLookupStrategy, ResolvedMxAddresses,
+};
 use kumo_address::socket::SocketAddress;
 use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls};
 use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
@@ -578,27 +580,64 @@ impl SmtpDispatcher {
 
         if path_config.enable_dane {
             if let Some(mx) = &dispatcher.mx {
-                match dns_resolver::resolve_dane(&mx.domain_name, port).await {
-                    Ok(tlsa) => {
-                        dane_tlsa = tlsa;
-                        self.tracer.diagnostic(Level::INFO, || {
-                            format!("DANE records for {} are: {dane_tlsa:?}", mx.domain_name)
-                        });
-                        if !dane_tlsa.is_empty() {
+                // RFC 7672 sections 2.1/2.2: DANE only applies when the chain
+                // to the MX host was securely (DNSSEC) resolved: both the MX
+                // RRset and the address records of the specific host we are
+                // about to connect to. The TLSA records are queried against the
+                // MX host (RFC 7672 section 3.2.2), not the envelope/routing
+                // domain.
+                if mx.is_secure && address.is_secure {
+                    match dns_resolver::resolve_dane(&address.name, port).await? {
+                        DaneStatus::Records(tlsa) => {
+                            dane_tlsa = tlsa;
+                            self.tracer.diagnostic(Level::INFO, || {
+                                format!("DANE records for {} are: {dane_tlsa:?}", address.name)
+                            });
                             enable_tls = Tls::Required;
-                            // Do not use MTA-STS when there are DANE results
+                            // Do not use MTA-STS when we have usable DANE records
                             mta_sts_eligible = false;
                         }
+                        DaneStatus::Unusable => {
+                            // RFC 7672 section 4.1: TLSA records are published
+                            // but none are usable; require STARTTLS but do not
+                            // attempt to authenticate the peer.
+                            self.tracer.diagnostic(Level::INFO, || {
+                                format!(
+                                    "DANE TLSA records for {} exist but none are usable; \
+                                     requiring unauthenticated STARTTLS",
+                                    address.name
+                                )
+                            });
+                            enable_tls = Tls::RequiredInsecure;
+                            mta_sts_eligible = false;
+                        }
+                        DaneStatus::TempFail(reason) => {
+                            // Downgrade resistance: when the TLSA status cannot
+                            // be securely determined we must not continue
+                            // without authentication. Defer instead.
+                            let message = format!(
+                                "DANE TLSA lookup for {} could not be securely \
+                                 resolved: {reason}",
+                                address.name
+                            );
+                            self.tracer.diagnostic(Level::INFO, || message.clone());
+                            anyhow::bail!("{message}");
+                        }
+                        DaneStatus::NotApplicable => {
+                            self.tracer.diagnostic(Level::INFO, || {
+                                format!("{} is not DANE-eligible", address.name)
+                            });
+                        }
                     }
-                    Err(err) => {
-                        // Do not use MTA-STS when DANE results have been tampered
-                        mta_sts_eligible = false;
-                        self.tracer.diagnostic(Level::INFO, || {
-                            format!("DANE resolve error for {}: {err:#}", mx.domain_name)
-                        });
-                        tracing::error!("DANE result for {}: {err:#}", mx.domain_name);
-                        // TODO: should we prevent continuing in the clear here? probably
-                    }
+                } else {
+                    self.tracer.diagnostic(Level::INFO, || {
+                        format!(
+                            "DANE is enabled but the DNSSEC-secure chain to {} \
+                             is incomplete (mx_secure={}, address_secure={}); \
+                             not using DANE",
+                            address.name, mx.is_secure, address.is_secure
+                        )
+                    });
                 }
             } else {
                 self.tracer.diagnostic(Level::INFO, || {

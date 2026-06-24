@@ -13,6 +13,7 @@ chrono = {workspace=true, default-features=false, features=["std", "clock"]}
 dns-resolver = {path="../dns-resolver"}
 futures.workspace = true
 futures-lite = {workspace=true}
+hex = {workspace=true}
 k9 = {workspace=true}
 kumo-dkim = {path="../dkim"}
 kumo-api-client = {path="../kumo-api-client"}
@@ -34,6 +35,7 @@ rustls-cert-gen.workspace = true
 rfc5321 = {path="../rfc5321"}
 serde = {workspace=true}
 serde_json = {workspace=true}
+sha2 = {workspace=true}
 sqlite = {workspace=true}
 tempfile = {workspace=true}
 testcontainers-modules = {workspace=true, default-features=false, features=["nats", "rabbitmq"]}

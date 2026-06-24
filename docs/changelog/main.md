@@ -139,6 +139,9 @@
 
 ## Fixes
 
+ * [DANE](../reference/kumo/make_egress_path/enable_dane.md) (RFC 7672)
+   support was too permissive and is now downgrade resistant. #543
+
  * `Message::save_to` was silently discarding errors returned from the
    data and meta spool `store()` operations: the per-spool dirty flags
    were cleared regardless of success, so a message that failed to

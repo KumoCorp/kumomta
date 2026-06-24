@@ -554,7 +554,7 @@ pub enum TraceSmtpClientV1Payload {
     },
 }
 
-#[derive(Serialize, Deserialize, Debug, ToSchema)]
+#[derive(Serialize, Deserialize, Debug, Default, ToSchema)]
 pub struct TraceSmtpClientV1Request {
     /// The campaign name to match. If omitted, any campaign will match.
     #[serde(default)]

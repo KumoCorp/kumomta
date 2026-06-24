@@ -75,6 +75,7 @@ impl LuaQueueDispatcher {
         let peer_address = ResolvedAddress {
             name: format!("Lua via {}", proto_config.constructor),
             addr: Ipv4Addr::UNSPECIFIED.into(),
+            is_secure: false,
         };
 
         Self {
