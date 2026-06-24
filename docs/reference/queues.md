@@ -215,7 +215,7 @@ end)
 
 ```mermaid
 graph TD
-   SQ["Scheduled Queue: campaign:tenant\@domain.com"]
+   SQ["Scheduled Queue: campaign:tenant@domain.com"]
    SMTPL["ESMTP Listener"]
    HTTPI["Injection API"]
    RQ1["Ready Queue: 10.0.0.1->MX(domain.com)"]
