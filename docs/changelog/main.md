@@ -2,6 +2,13 @@
 
 ## Breaking Changes
 
+ * SMTP AUTH PLAIN is no longer sent over a TLS session whose peer
+   certificate was not validated (for example an
+   `OpportunisticInsecure`/`RequiredInsecure` session, or a DANE host with
+   unusable TLSA records). Set the new
+   [allow_smtp_auth_plain_without_valid_certificate](../reference/kumo/make_egress_path/allow_smtp_auth_plain_without_valid_certificate.md)
+   egress path option to `true` to restore the previous behavior.
+
  * Rocksdb-backed spool `store()` and `remove()` calls now time out
    after 30 seconds of backpressure rather than blocking
    indefinitely. Tunable via the new
