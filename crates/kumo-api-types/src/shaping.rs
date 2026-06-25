@@ -1972,6 +1972,7 @@ MergedEntry {
         smtp_auth_plain_username: None,
         smtp_auth_plain_password: None,
         allow_smtp_auth_plain_without_tls: false,
+        allow_smtp_auth_plain_without_valid_certificate: false,
         max_message_rate: Some(
             100/s,
         ),
@@ -2127,6 +2128,7 @@ MergedEntry {
         smtp_auth_plain_username: None,
         smtp_auth_plain_password: None,
         allow_smtp_auth_plain_without_tls: false,
+        allow_smtp_auth_plain_without_valid_certificate: false,
         max_message_rate: Some(
             100/s,
         ),
@@ -2199,6 +2201,7 @@ MergedEntry {
             smtp_auth_plain_username: None,
             smtp_auth_plain_password: None,
             allow_smtp_auth_plain_without_tls: false,
+            allow_smtp_auth_plain_without_valid_certificate: false,
             max_message_rate: None,
             additional_message_rate_throttles: {},
             source_selection_rate: None,
@@ -2356,6 +2359,7 @@ MergedEntry {
         smtp_auth_plain_username: None,
         smtp_auth_plain_password: None,
         allow_smtp_auth_plain_without_tls: false,
+        allow_smtp_auth_plain_without_valid_certificate: false,
         max_message_rate: Some(
             100/s,
         ),

@@ -31,6 +31,9 @@ Notes:
 * [`Required`](enable_tls.md) and [`RequiredInsecure`](enable_tls.md) differ
   only in whether the server certificate is checked; `RequiredInsecure` still
   mandates STARTTLS, it just does not check the peer's certificate.
+* On the `RequiredInsecure` row the certificate is not validated, so by default
+  SMTP AUTH PLAIN is not sent; see
+  [allow_smtp_auth_plain_without_valid_certificate](allow_smtp_auth_plain_without_valid_certificate.md).
 
 The outcome of each of these decisions is counted by the
 [dane_result_count](../../metrics/kumod/dane_result_count.md) metric, which also

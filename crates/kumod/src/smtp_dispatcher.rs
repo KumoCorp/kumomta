@@ -962,10 +962,27 @@ impl SmtpDispatcher {
         };
 
         if let Some(username) = &path_config.smtp_auth_plain_username {
-            if !tls_enabled && !path_config.allow_smtp_auth_plain_without_tls {
-                anyhow::bail!(
-                    "TLS is not enabled and AUTH PLAIN is required. Skipping ({address:?}:{port})"
-                );
+            if !tls_enabled {
+                if !path_config.allow_smtp_auth_plain_without_tls {
+                    anyhow::bail!(
+                        "TLS is not enabled and AUTH PLAIN is required. Skipping ({address:?}:{port})"
+                    );
+                }
+            } else {
+                // The session is encrypted; refuse to send credentials unless
+                // the peer certificate was validated, otherwise an active
+                // attacker could capture them.
+                let validated = self
+                    .tls_info
+                    .as_ref()
+                    .map(|info| info.authenticated)
+                    .unwrap_or(false);
+                if !validated && !path_config.allow_smtp_auth_plain_without_valid_certificate {
+                    anyhow::bail!(
+                        "TLS peer certificate was not validated and AUTH PLAIN \
+                         requires a valid certificate. Skipping ({address:?}:{port})"
+                    );
+                }
             }
 
             let password = if let Some(pw) = &path_config.smtp_auth_plain_password {

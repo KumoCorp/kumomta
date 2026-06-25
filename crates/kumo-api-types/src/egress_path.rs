@@ -255,6 +255,15 @@ pub struct EgressPathConfig {
     #[serde(default)]
     pub allow_smtp_auth_plain_without_tls: bool,
 
+    /// {{since('dev')}}
+    /// When false (the default), SMTP AUTH PLAIN will not be attempted over a
+    /// TLS session whose peer certificate was not validated (for example, an
+    /// `OpportunisticInsecure`/`RequiredInsecure` session, or a DANE host whose
+    /// TLSA records are unusable). Set to true to restore the previous behavior
+    /// of sending credentials over any encrypted session.
+    #[serde(default)]
+    pub allow_smtp_auth_plain_without_valid_certificate: bool,
+
     #[serde(default)]
     pub max_message_rate: Option<ThrottleSpec>,
 
@@ -405,6 +414,7 @@ impl Default for EgressPathConfig {
             skip_hosts: CidrSet::default(),
             ehlo_domain: None,
             allow_smtp_auth_plain_without_tls: false,
+            allow_smtp_auth_plain_without_valid_certificate: false,
             smtp_auth_plain_username: None,
             smtp_auth_plain_password: None,
             aggressive_connection_opening: false,
