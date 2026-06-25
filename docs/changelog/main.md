@@ -32,6 +32,10 @@
 
 ## Other Changes and Enhancements
 
+ * [enable_dane](../reference/kumo/make_egress_path/enable_dane.md) can now be
+   used with the Hickory resolver (with DNSSEC validation enabled); it no
+   longer requires the unbound resolver.
+
  * Upgraded the embedded hickory-resolver 0.26 and libunbound 1.25.1. New
    [kumo.dns.load_resolv_conf](../reference/kumo.dns/load_resolv_conf.md)
    reads a resolv.conf-format file into a mutable resolver config table,

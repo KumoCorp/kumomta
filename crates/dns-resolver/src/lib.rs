@@ -1214,6 +1214,60 @@ mod test {
         ));
     }
 
+    /// Confirms that a DNSSEC-validating hickory resolver, via our adapter,
+    /// reports signed records as secure and resolves unsigned records as
+    /// insecure (rather than failing). Validation requires a DNSSEC-capable
+    /// upstream reachable over TCP, since DNSKEY/RRSIG responses are large.
+    #[cfg(feature = "live-dns-tests")]
+    #[tokio::test]
+    async fn hickory_dnssec_validation() {
+        use hickory_resolver::config::{
+            ConnectionConfig, NameServerConfig, ProtocolConfig, ResolverConfig,
+        };
+        use hickory_resolver::net::runtime::TokioRuntimeProvider;
+        use hickory_resolver::TokioResolver;
+
+        let mut udp = ConnectionConfig::new(ProtocolConfig::Udp);
+        udp.port = 53;
+        let mut tcp = ConnectionConfig::new(ProtocolConfig::Tcp);
+        tcp.port = 53;
+        let config = ResolverConfig::from_parts(
+            None,
+            vec![],
+            vec![NameServerConfig::new(
+                "1.1.1.1".parse().unwrap(),
+                true,
+                vec![udp, tcp],
+            )],
+        );
+        let mut builder =
+            TokioResolver::builder_with_config(config, TokioRuntimeProvider::default());
+        builder.options_mut().validate = true;
+        let resolver = HickoryResolver::from(builder.build().unwrap());
+
+        let tlsa = resolver
+            .resolve(
+                fully_qualify("_25._tcp.do.havedane.net").unwrap(),
+                RecordType::TLSA,
+            )
+            .await
+            .unwrap();
+        assert!(tlsa.secure, "signed TLSA should validate as secure");
+        assert!(!tlsa.bogus);
+        assert!(!tlsa.records.is_empty());
+
+        let unsigned = resolver
+            .resolve(fully_qualify("google.com").unwrap(), RecordType::A)
+            .await
+            .unwrap();
+        assert!(!unsigned.secure, "unsigned zone is not secure");
+        assert!(!unsigned.bogus);
+        assert!(
+            !unsigned.records.is_empty(),
+            "unsigned zone still resolves successfully"
+        );
+    }
+
     #[tokio::test]
     async fn literal_resolve() {
         let v4_loopback = MailExchanger::resolve("[127.0.0.1]").await.unwrap();
@@ -1528,7 +1582,9 @@ Addresses(
         k9::snapshot!(err, "MX lookup for not-mairs.aasland.com failed: NXDOMAIN");
     }
 
-    #[cfg(feature = "live-dns-tests")]
+    // Asserts a DNSSEC-secure result, so it only holds when the default
+    // resolver validates, i.e. the unbound backend.
+    #[cfg(all(feature = "live-dns-tests", feature = "default-unbound"))]
     #[tokio::test]
     async fn lookup_example_com() {
         // Has a NULL MX record
@@ -1555,7 +1611,9 @@ MailExchanger {
         );
     }
 
-    #[cfg(feature = "live-dns-tests")]
+    // Asserts a DNSSEC-secure result, so it only holds when the default
+    // resolver validates, i.e. the unbound backend.
+    #[cfg(all(feature = "live-dns-tests", feature = "default-unbound"))]
     #[tokio::test]
     async fn lookup_have_dane() {
         let mx = MailExchanger::resolve("do.havedane.net").await.unwrap();
@@ -1581,7 +1639,9 @@ MailExchanger {
         );
     }
 
-    #[cfg(feature = "live-dns-tests")]
+    // Requires DNSSEC-validated TLSA records, so it only holds when the default
+    // resolver validates, i.e. the unbound backend.
+    #[cfg(all(feature = "live-dns-tests", feature = "default-unbound"))]
     #[tokio::test]
     async fn tlsa_have_dane() {
         let DaneStatus::Records(tlsa) = resolve_dane("do.havedane.net", 25).await.unwrap() else {
