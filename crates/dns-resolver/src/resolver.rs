@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use hickory_resolver::net::{DnsError as NetDnsError, NetError};
+use hickory_resolver::proto::dnssec::Proof;
 use hickory_resolver::proto::op::ResponseCode;
 use hickory_resolver::proto::rr::rdata::{A, AAAA, PTR, TXT};
 #[cfg(feature = "unbound")]
@@ -613,13 +614,23 @@ impl Resolver for HickoryResolver {
         match self.inner.lookup(name.clone(), rrtype).await {
             Ok(result) => {
                 let expires = result.valid_until();
-                let records = result.answers().iter().map(|r| r.data.clone()).collect();
+                let answers = result.answers();
+                // When DNSSEC validation is enabled the resolver tags each
+                // record with a proof. Treat the answer as secure only when it
+                // is non-empty and every record validated as secure, and surface
+                // bogus so that callers (e.g. DANE) can defer rather than
+                // downgrade. With validation disabled every record is
+                // Indeterminate, so this is simply not secure.
+                let secure =
+                    !answers.is_empty() && answers.iter().all(|r| r.proof == Proof::Secure);
+                let bogus = answers.iter().any(|r| r.proof == Proof::Bogus);
+                let records = answers.iter().map(|r| r.data.clone()).collect();
                 Ok(Answer {
                     canon_name: None,
                     records,
                     nxdomain: false,
-                    secure: false,
-                    bogus: false,
+                    secure,
+                    bogus,
                     why_bogus: None,
                     expires,
                     response_code: ResponseCode::NoError,

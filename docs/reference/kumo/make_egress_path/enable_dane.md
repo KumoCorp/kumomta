@@ -39,8 +39,15 @@ The outcome of each of these decisions is counted by the
 [dane_result_count](../../metrics/kumod/dane_result_count.md) metric, which also
 includes guidance on confirming that DANE is working and what to alert on.
 
-Use of DANE also *requires* functioning DNSSEC in your DNS resolver; you
-will need to configure the `libunbound` resolver to successfully use DANE:
+Use of DANE *requires* a DNSSEC-validating DNS resolver; a resolver that does
+not validate will treat every destination as not secure, and DANE will silently
+never engage (see the
+[dane_result_count](../../metrics/kumod/dane_result_count.md) metric).
+
+You can use either the `libunbound` resolver or, {{since('dev', inline=True)}},
+the Hickory resolver with validation enabled.
+
+With `libunbound`:
 
 ```lua
 kumo.on('init', function()
@@ -57,3 +64,30 @@ kumo.on('init', function()
   }
 end)
 ```
+
+With Hickory {{since('dev', inline=True)}}:
+
+```lua
+kumo.on('init', function()
+  kumo.dns.configure_resolver {
+    Hickory = {
+      name_servers = {
+        -- The upstream must support DNSSEC and be reachable over TCP.
+        '1.1.1.1:53',
+      },
+      options = {
+        -- Enable DNSSEC validation
+        validate = true,
+      },
+    },
+  }
+end)
+```
+
+!!! note
+    DNSSEC validation requires TCP: `DNSKEY`/`RRSIG` responses frequently
+    exceed what fits in a UDP datagram, and a truncated response cannot be
+    validated. The simple `'IP:PORT'` name server form (and the
+    `udp_then_tcp` protocol) provide TCP fallback automatically; do not pin a
+    validating resolver's name server to `protocol = 'udp'`, or every lookup
+    will be reported as bogus.
