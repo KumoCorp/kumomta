@@ -25,10 +25,16 @@ pub struct InspectReadyQCommand {
     #[arg(long)]
     pub config: bool,
 
+    /// Include the list of scheduled queues that currently feed
+    /// this ready queue. Off by default; can be expensive on ready
+    /// queues with high fan-in.
+    #[arg(long)]
+    pub sched_q: bool,
+
     /// Output the response as pretty-printed JSON. Mutually exclusive
     /// with the other flags; the JSON output always carries the full
     /// payload.
-    #[arg(long, conflicts_with_all=&["connections", "config"])]
+    #[arg(long, conflicts_with_all=&["connections", "config", "sched_q"])]
     pub json: bool,
 
     /// The name of the ready queue to inspect.
@@ -41,6 +47,7 @@ impl InspectReadyQCommand {
         let response = client
             .admin_inspect_ready_q_v1(&InspectReadyQV1Request {
                 queue_name: self.queue_name.clone(),
+                include_scheduled_queues: self.sched_q || self.json,
             })
             .await?;
 
@@ -53,6 +60,9 @@ impl InspectReadyQCommand {
         render_summary(&response, &mut out)?;
         render_states(&response, &mut out)?;
         render_ceilings(&response, &mut out)?;
+        if self.sched_q {
+            render_scheduled_queues(&response, &mut out)?;
+        }
         render_dispatchers(&response, self.connections, &mut out)?;
         if self.config {
             render_config(&response, &mut out)?;
@@ -64,6 +74,19 @@ impl InspectReadyQCommand {
 fn render_ceilings(r: &InspectReadyQV1Response, out: &mut dyn Write) -> anyhow::Result<()> {
     writeln!(out)?;
     write!(out, "{}", r.constraints.to_human_string())?;
+    Ok(())
+}
+
+fn render_scheduled_queues(r: &InspectReadyQV1Response, out: &mut dyn Write) -> anyhow::Result<()> {
+    let names = match &r.scheduled_queue_names {
+        Some(f) => f,
+        None => return Ok(()),
+    };
+    writeln!(out)?;
+    writeln!(out, "scheduled queues: {}", names.len())?;
+    for name in names {
+        writeln!(out, "  {name}")?;
+    }
     Ok(())
 }
 
@@ -326,6 +349,7 @@ mod tests {
             },
             path_config,
             constraints,
+            scheduled_queue_names: None,
             dispatchers: vec![],
             now: fixed_time(),
         }

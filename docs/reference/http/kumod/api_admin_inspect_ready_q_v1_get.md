@@ -22,6 +22,10 @@ This API endpoint is used by the [kcli inspect-ready-q](../../kcli/inspect-ready
 
 ## Query Parameters
   * `queue_name` - required `string`. The name of the ready queue to inspect.
+  * `include_scheduled_queues` - optional `boolean`. When true, the response includes the list of scheduled queue
+    names that have promoted messages into this ready queue.
+    Walking the set is bounded but proportional to the number of
+    live scheduled queues, so the field is opt-in.
 
 ## Responses
 ### Status 200
@@ -59,6 +63,10 @@ This is an object value, with the following properties:
   * `protocol` - required `string`. Protocol identifier as it appears in the ready queue name.
 
   * `queue_name` - required `string`. 
+
+  * `scheduled_queue_names` - optional array of `string`. Scheduled queue names that currently feed this ready queue.
+    Populated only when the request's `include_scheduled_queues`
+    flag is true; otherwise None.
 
   * `state` - required [ReadyQueueStateSnapshot](schemas/ReadyQueueStateSnapshot.md). Snapshot of the operational state of a ready queue.
     
@@ -126,6 +134,9 @@ This is an object value, with the following properties:
   "path_config": {},
   "protocol": "smtp_client",
   "queue_name": "string",
+  "scheduled_queue_names": [
+    "string"
+  ],
   "state": {
     "connection_count": 42,
     "connection_limited": {

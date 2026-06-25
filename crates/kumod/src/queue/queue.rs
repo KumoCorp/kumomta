@@ -1348,7 +1348,7 @@ impl Queue {
 
     #[instrument(skip(self, msg))]
     async fn insert_ready_impl(
-        &self,
+        self: &Arc<Self>,
         msg: Message,
         context: &mut InsertContext,
         deadline: Option<Instant>,
@@ -1365,6 +1365,7 @@ impl Queue {
                     .select_and_insert(
                         &self.name,
                         &self.queue_config,
+                        self,
                         msg.clone(),
                         self.get_config_epoch(),
                         deadline,

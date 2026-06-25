@@ -36,6 +36,7 @@ async fn inspect_and_abort() -> anyhow::Result<()> {
         let resp = api
             .admin_inspect_ready_q_v1(&InspectReadyQV1Request {
                 queue_name: queue_name.clone(),
+                include_scheduled_queues: false,
             })
             .await;
         if let Ok(resp) = resp {
@@ -44,6 +45,9 @@ async fn inspect_and_abort() -> anyhow::Result<()> {
                 anyhow::ensure!(resp.egress_source == "unspecified");
                 anyhow::ensure!(resp.protocol == "lua");
                 anyhow::ensure!(resp.state.connection_count >= 1);
+                // include_scheduled_queues=false on this call; the
+                // field must be None.
+                anyhow::ensure!(resp.scheduled_queue_names.is_none());
                 anyhow::ensure!(matches!(
                     d.phase,
                     DispatcherPhase::DeliveringMessage
@@ -59,6 +63,24 @@ async fn inspect_and_abort() -> anyhow::Result<()> {
         );
         tokio::time::sleep(Duration::from_millis(200)).await;
     };
+
+    // Now request scheduled queue names explicitly: should contain
+    // the scheduled queue that promoted the in-flight message.
+    let resp_with_sched = api
+        .admin_inspect_ready_q_v1(&InspectReadyQV1Request {
+            queue_name: queue_name.clone(),
+            include_scheduled_queues: true,
+        })
+        .await
+        .context("inspect with include_scheduled_queues")?;
+    let names = resp_with_sched
+        .scheduled_queue_names
+        .as_ref()
+        .context("scheduled_queue_names should be Some when requested")?;
+    anyhow::ensure!(
+        names.iter().any(|name| name == "inspect.example.com"),
+        "expected `inspect.example.com` among scheduled queue names: {names:?}"
+    );
 
     // Abort with a bogus session_id first: should 404.
     let bogus = Uuid::nil();

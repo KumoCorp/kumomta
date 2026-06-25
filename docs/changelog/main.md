@@ -135,6 +135,12 @@
    configs folded in. A new `--json-queue-config` flag emits the
    queue config as pretty JSON.
 
+ * `kcli inspect-ready-q` gains an opt-in `--sched-q` flag, and the
+   corresponding HTTP endpoint accepts an `include_scheduled_queues`
+   query parameter, that returns the list of scheduled queue names
+   currently feeding the ready queue. Useful for tracing fan-in
+   when many domains or tenants converge on a single destination.
+
  * Community shaping.toml file had updates to domains qq.com, 163.com, and yahoo.co.jp and providers gmail, yahoo, outlook, apple, orange, and mimecast. New provider definitions were added for barracuda (barracudanetworks.com), netvigator (netvigator.com), and kpn (kpnmail.nl). Note that web.de moved from a domain to being a provider named gmx.net_web.de (which also matches .gmx.net), and qq.com and 163.com were moved from domain-level to provider-level automations. Thanks to @Solmea! #531
 
 ## Fixes

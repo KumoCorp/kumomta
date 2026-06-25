@@ -23,6 +23,8 @@ Returns information about a ready queue: its egress identity, effective state (t
 
 * `--config` — Include the egress path configuration snapshot. Off by default because the config can be large
 
+* `--sched-q` — Include the list of scheduled queues that currently feed this ready queue. Off by default; can be expensive on ready queues with high fan-in
+
 * `--json` — Output the response as pretty-printed JSON. Mutually exclusive with the other flags; the JSON output always carries the full payload
 
 

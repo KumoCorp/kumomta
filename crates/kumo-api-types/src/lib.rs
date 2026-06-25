@@ -677,12 +677,21 @@ pub struct InspectReadyQV1Request {
     /// The name of the ready queue to inspect.
     #[schema(example = "unspecified->gmail.com@smtp_client")]
     pub queue_name: String,
+    /// When true, the response includes the list of scheduled queue
+    /// names that have promoted messages into this ready queue.
+    /// Walking the set is bounded but proportional to the number of
+    /// live scheduled queues, so the field is opt-in.
+    #[serde(default)]
+    pub include_scheduled_queues: bool,
 }
 
 impl ApplyToUrl for InspectReadyQV1Request {
     fn apply_to_url(&self, url: &mut Url) {
         let mut query = url.query_pairs_mut();
         query.append_pair("queue_name", &self.queue_name);
+        if self.include_scheduled_queues {
+            query.append_pair("include_scheduled_queues", "true");
+        }
     }
 }
 
@@ -748,6 +757,11 @@ pub struct InspectReadyQV1Response {
     /// observed rate is the result of shaping configuration or the
     /// remote side.
     pub constraints: crate::egress_path::EffectiveConstraints,
+    /// Scheduled queue names that currently feed this ready queue.
+    /// Populated only when the request's `include_scheduled_queues`
+    /// flag is true; otherwise None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_queue_names: Option<Vec<String>>,
     pub dispatchers: Vec<DispatcherSummary>,
     pub now: DateTime<Utc>,
 }

@@ -147,12 +147,26 @@ impl QueueDispatcher for LuaQueueDispatcher {
             ConnectionState::NotYet => {}
         };
         let connection_wrapper = dispatcher.metrics.wrap_connection(());
-        // Normally, a QueueDispatcher would use dispatcher.path_config rather
-        // than resolving through queue_name_for_config_change_purposes_only.
-        // In this case, since LuaQueueDispatcher doesn't have multiple egress
-        // sources, it is acceptable to use queue_name_for_config_change_purposes_only.
-        let components =
-            QueueNameComponents::parse(&dispatcher.queue_name_for_config_change_purposes_only);
+        // Seed the constructor with a representative scheduled queue's
+        // (domain, tenant, campaign). Many scheduled queues can fan into the
+        // same Lua ready queue when get_queue_config returns the same
+        // constructor for them, so this is one of several possible values
+        // and may not match every message that flows through the
+        // connection. The Lua policy is expected to handle per-message
+        // variation inside send/send_batch by consulting
+        // msg:get_queue_name() or message metadata. We look up the value
+        // freshly at each connection establishment so a reaped feeder
+        // doesn't leave us holding a stale name.
+        let Some(ready_queue) = dispatcher.ready_queue.upgrade() else {
+            anyhow::bail!(
+                "LuaQueueDispatcher::attempt_connection: parent ReadyQueue \
+                 is no longer alive"
+            );
+        };
+        let queue_name = ready_queue
+            .pick_unspecified_live_scheduled_queue_name()
+            .unwrap_or_else(|| dispatcher.name.clone());
+        let components = QueueNameComponents::parse(&queue_name);
         let sig = CallbackSignature::<(&str, Option<&str>, Option<&str>), Value>::new(
             self.proto_config.constructor.to_string(),
         );

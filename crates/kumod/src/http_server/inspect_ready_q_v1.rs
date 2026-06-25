@@ -28,5 +28,7 @@ pub async fn inspect_v1(
             format!("no such ready queue {}", request.queue_name),
         ));
     };
-    Ok(Json(queue.build_inspect_response()))
+    Ok(Json(
+        queue.build_inspect_response(request.include_scheduled_queues),
+    ))
 }

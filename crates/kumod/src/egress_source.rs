@@ -1,5 +1,5 @@
 use crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry;
-use crate::queue::{opt_timeout_at, QueueConfig, ReadyQueueFull};
+use crate::queue::{opt_timeout_at, Queue, QueueConfig, ReadyQueueFull};
 use crate::ready_queue::{ReadyQueueHandle, ReadyQueueManager, ReadyQueueName};
 use anyhow::Context;
 use config::epoch::ConfigEpoch;
@@ -819,6 +819,7 @@ impl EgressPoolSourceSelector {
         &self,
         queue_name: &str,
         queue_config: &ConfigHandle<QueueConfig>,
+        scheduled_queue: &Arc<Queue>,
         msg: Message,
         epoch: ConfigEpoch,
         deadline: Option<Instant>,
@@ -896,7 +897,12 @@ impl EgressPoolSourceSelector {
                                     .await?
                                     {
                                         None => {
-                                            site.redeem_reservation(msg, reservation).await;
+                                            site.redeem_reservation(
+                                                msg,
+                                                reservation,
+                                                scheduled_queue,
+                                            )
+                                            .await;
                                             return Ok(SourceInsertResult::Inserted);
                                         }
                                         Some(delay) => {
