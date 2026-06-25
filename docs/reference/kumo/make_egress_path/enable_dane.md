@@ -32,6 +32,10 @@ Notes:
   only in whether the server certificate is checked; `RequiredInsecure` still
   mandates STARTTLS, it just does not check the peer's certificate.
 
+The outcome of each of these decisions is counted by the
+[dane_result_count](../../metrics/kumod/dane_result_count.md) metric, which also
+includes guidance on confirming that DANE is working and what to alert on.
+
 Use of DANE also *requires* functioning DNSSEC in your DNS resolver; you
 will need to configure the `libunbound` resolver to successfully use DANE:
 
