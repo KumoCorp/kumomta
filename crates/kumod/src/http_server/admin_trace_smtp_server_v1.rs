@@ -9,7 +9,7 @@ use std::sync::LazyLock;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::broadcast::{channel, Sender};
 
-static MGR: LazyLock<SmtpServerTraceManager> = LazyLock::new(|| SmtpServerTraceManager::new());
+static MGR: LazyLock<SmtpServerTraceManager> = LazyLock::new(SmtpServerTraceManager::new);
 
 pub struct SmtpServerTraceManager {
     tx: Sender<SmtpServerTraceEvent>,
@@ -246,5 +246,5 @@ async fn process_websocket(socket: WebSocket) {
 /// It cannot be described via auto-generated docs extracted from the JSON Schema.
 #[utoipa::path(get, tags=["debugging", "kcli:trace-smtp-server"], path = "/api/admin/trace-smtp-server/v1")]
 pub async fn trace(ws: WebSocketUpgrade) -> impl IntoResponse {
-    ws.on_upgrade(|socket| process_websocket(socket))
+    ws.on_upgrade(process_websocket)
 }

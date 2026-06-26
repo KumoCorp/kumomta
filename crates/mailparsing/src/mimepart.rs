@@ -95,7 +95,7 @@ impl Rfc2045Info {
         let charset = charset.unwrap_or_else(|| "us-ascii".into());
 
         let charset = match charset.to_str() {
-            Ok(charset) => Encoding::by_name(&*charset).ok_or_else(|| {
+            Ok(charset) => Encoding::by_name(charset).ok_or_else(|| {
                 MailParsingError::BodyParse(format!("unsupported charset {charset}"))
             }),
             Err(_) => Err(MailParsingError::BodyParse(format!(
@@ -436,7 +436,7 @@ impl<'a> MimePart<'a> {
                             };
 
                             if let Ok(guess) =
-                                charset_normalizer_rs::from_bytes(&*bytes, Some(norm_settings))
+                                charset_normalizer_rs::from_bytes(&bytes, Some(norm_settings))
                             {
                                 if let Some(decoded) =
                                     guess.get_best().and_then(|best| best.decoded_payload())
@@ -1117,8 +1117,8 @@ impl<'a> MimePart<'a> {
                         };
 
                         let guess =
-                            charset_normalizer_rs::from_bytes(&*data_bytes, Some(norm_settings))
-                                .map_err(|err| MailParsingError::CharsetDetectionFailed(err))?;
+                            charset_normalizer_rs::from_bytes(data_bytes, Some(norm_settings))
+                                .map_err(MailParsingError::CharsetDetectionFailed)?;
                         if let Some(best) = guess.get_best() {
                             if let Some(decoded) = best.decoded_payload() {
                                 msg = MimePart::parse(decoded.to_string())?;

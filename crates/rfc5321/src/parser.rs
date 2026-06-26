@@ -1203,10 +1203,10 @@ fn quoted_string(input: Span) -> IResult<Span, Span> {
             many0(alt((
                 recognize(pair(
                     tag("\\"),
-                    take_while_m_n(1, 1, |c: u8| c >= 0x20 && c <= 0x7e),
+                    take_while_m_n(1, 1, |c: u8| (0x20..=0x7e).contains(&c)),
                 )),
                 take_while_m_n(1, 1, |c: u8| {
-                    (c >= 0x20 && c <= 0x21) || (c >= 0x23 && c <= 0x5b) || (c >= 0x5d && c <= 0x7e)
+                    (0x20..=0x21).contains(&c) || (0x23..=0x5b).contains(&c) || (0x5d..=0x7e).contains(&c)
                 }),
                 utf8_non_ascii,
             ))),
@@ -1236,7 +1236,7 @@ fn local_part(input: Span) -> IResult<Span, Span> {
 
 /// `dcontent = %d33-90 / %d94-126`  — printable US-ASCII excluding `[`, `\`, `]`
 fn dcontent(input: Span) -> IResult<Span, Span> {
-    take_while1(|c: u8| (c >= 33 && c <= 90) || (c >= 94 && c <= 126)).parse(input)
+    take_while1(|c: u8| (33..=90).contains(&c) || (94..=126).contains(&c)).parse(input)
 }
 
 /// The content inside an address literal `[...]`.
@@ -1450,7 +1450,7 @@ fn esmtp_value(input: Span) -> IResult<Span, Span> {
     context(
         "esmtp-value",
         recognize(many1(alt((
-            take_while1(|c: u8| (c >= 33 && c <= 60) || (c >= 62 && c <= 126)),
+            take_while1(|c: u8| (33..=60).contains(&c) || (62..=126).contains(&c)),
             utf8_non_ascii,
         )))),
     )
@@ -1719,7 +1719,7 @@ fn hex_nibble(b: u8) -> Result<u8, String> {
 fn xclient_xtext_value(input: Span) -> IResult<Span, Span> {
     context(
         "xclient-xtext-value",
-        take_while1(|c: u8| c >= 33 && c <= 126),
+        take_while1(|c: u8| (33..=126).contains(&c)),
     )
     .parse(input)
 }
@@ -1965,7 +1965,7 @@ fn hex_nibble_lower(n: u8) -> u8 {
 fn xtext_encode_bytes(value: &[u8]) -> Vec<u8> {
     let mut result = Vec::with_capacity(value.len());
     for &b in value {
-        if b >= 33 && b <= 126 && b != b'+' && b != b'=' {
+        if (33..=126).contains(&b) && b != b'+' && b != b'=' {
             result.push(b);
         } else {
             result.push(b'+');

@@ -56,6 +56,10 @@ log_oob = true
 # accept and log ARF feedback reports sent to fbl.example.com
 log_arf = true
 
+["reports.example.com"]
+# accept DMARC aggregate (RUA) reports for policy-extras.dmarc_rua processing
+relay_to = true
+
 ["send.example.com"]
 # relay to anywhere, so long as the sender domain is send.example.com
 # and the connected peer matches one of the listed CIDR blocks

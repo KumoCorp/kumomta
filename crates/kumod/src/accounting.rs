@@ -77,7 +77,8 @@ impl Accounting {
             return Ok(());
         }
 
-        if let Some(handle) = FLUSHER.lock().take() {
+        let flusher = FLUSHER.lock().take();
+        if let Some(handle) = flusher {
             handle.await.ok();
         }
 

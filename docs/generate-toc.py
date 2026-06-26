@@ -231,6 +231,14 @@ TOC = [
                         "userguide/configuration/sendingips.md",
                     ),
                     Page(
+                        "IP Warmup",
+                        "userguide/configuration/ip_warmup.md",
+                    ),
+                    Page(
+                        "DMARC RUA Reports",
+                        "userguide/configuration/dmarc_rua.md",
+                    ),
+                    Page(
                         "Configuring Queue Management",
                         "userguide/configuration/queuemanagement.md",
                     ),

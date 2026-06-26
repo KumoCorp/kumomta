@@ -114,7 +114,7 @@ impl SubCommand {
                     ("xfer-cancel", &["ops", "xfer"]),
                 ];
                 let doc_tags: HashMap<&str, &[&str]> =
-                    doc_tags.into_iter().map(|(k, v)| (*k, &v[..])).collect();
+                    doc_tags.iter().map(|(k, v)| (*k, &v[..])).collect();
 
                 // We want a separate markdown page per sub-command, so we're
                 // doing a bit of grubbing around to split that out here

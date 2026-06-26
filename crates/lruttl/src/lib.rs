@@ -431,7 +431,7 @@ static PREDEFINED_CACHES: LazyLock<HashMap<&'static str, CacheDefinition>> =
 
 pub fn get_definitions() -> Vec<&'static CacheDefinition> {
     let mut defs = PREDEFINED_CACHES.values().collect::<Vec<_>>();
-    defs.sort_by(|a, b| a.name.cmp(&b.name));
+    defs.sort_by(|a, b| a.name.cmp(b.name));
     defs
 }
 
@@ -992,10 +992,10 @@ impl<
             }
         }
 
-        return Err(Arc::new(anyhow::anyhow!(
+        Err(Arc::new(anyhow::anyhow!(
             "{} lookup for {name:?} failed after {MAX_ATTEMPTS} attempts",
             self.inner.name
-        )));
+        )))
     }
 }
 

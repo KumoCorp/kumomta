@@ -13,10 +13,12 @@ use std::time::Duration;
 use throttle::{LimitSpec, ThrottleSpec};
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(Default)]
 pub enum Tls {
     /// Use it if available. If the peer has invalid or self-signed certificates, then
     /// delivery will fail. Will NOT fallback to not using TLS if the peer advertises
     /// STARTTLS.
+    #[default]
     Opportunistic,
     /// Use it if available, and allow self-signed or otherwise invalid server certs.
     /// Not recommended for sending to the public internet; this is for local/lab
@@ -48,11 +50,6 @@ impl Tls {
     }
 }
 
-impl Default for Tls {
-    fn default() -> Self {
-        Self::Opportunistic
-    }
-}
 
 pub fn parse_openssl_options(option_list: &str) -> anyhow::Result<SslOptions> {
     let mut result = SslOptions::empty();

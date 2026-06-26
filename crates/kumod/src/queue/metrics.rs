@@ -236,14 +236,14 @@ impl ScheduledMetrics {
     pub fn inc(&self) {
         TOTAL_DELAY_GAUGE.inc();
         self.scheduled.inc();
-        self.by_tenant.as_ref().map(|m| m.inc());
-        self.by_tenant_campaign.as_ref().map(|m| m.inc());
+        if let Some(m) = self.by_tenant.as_ref() { m.inc() }
+        if let Some(m) = self.by_tenant_campaign.as_ref() { m.inc() }
     }
 
     pub fn sub(&self, amount: usize) {
         TOTAL_DELAY_GAUGE.sub(amount as i64);
         self.scheduled.sub(amount);
-        self.by_tenant.as_ref().map(|m| m.sub(amount));
-        self.by_tenant_campaign.as_ref().map(|m| m.sub(amount));
+        if let Some(m) = self.by_tenant.as_ref() { m.sub(amount) }
+        if let Some(m) = self.by_tenant_campaign.as_ref() { m.sub(amount) }
     }
 }

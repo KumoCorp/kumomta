@@ -31,7 +31,7 @@ fn get_mac_address_once() -> [u8; 6] {
 }
 
 pub fn get_mac_address() -> &'static [u8; 6] {
-    &*MAC
+    &MAC
 }
 
 #[derive(Debug)]
@@ -54,11 +54,11 @@ pub struct MachineInfo {
 #[derive(Debug)]
 pub enum CloudProvider {
     /// AWS
-    Aws(aws::IdentityDocument),
+    Aws(Box<aws::IdentityDocument>),
     /// MS Azure
-    Azure(azure::InstanceMetadata),
+    Azure(Box<azure::InstanceMetadata>),
     /// Google Cloud Platform
-    Gcp(gcp::InstanceMetadata),
+    Gcp(Box<gcp::InstanceMetadata>),
 }
 
 impl CloudProvider {
@@ -74,6 +74,12 @@ impl CloudProvider {
                 components.push(format!("gcp_id={}", instance.instance_id));
             }
         }
+    }
+}
+
+impl Default for MachineInfo {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -146,7 +152,7 @@ impl MachineInfo {
             let tx = tx.clone();
             tokio::task::spawn(async move {
                 if let Ok(id) = aws::IdentityDocument::query().await {
-                    tx.send(CloudProvider::Aws(id)).ok();
+                    tx.send(CloudProvider::Aws(Box::new(id))).ok();
                 }
             });
         }
@@ -154,7 +160,7 @@ impl MachineInfo {
             let tx = tx.clone();
             tokio::task::spawn(async move {
                 if let Ok(id) = azure::InstanceMetadata::query().await {
-                    tx.send(CloudProvider::Azure(id)).ok();
+                    tx.send(CloudProvider::Azure(Box::new(id))).ok();
                 }
             });
         }
@@ -162,7 +168,7 @@ impl MachineInfo {
             let tx = tx.clone();
             tokio::task::spawn(async move {
                 if let Ok(id) = gcp::InstanceMetadata::query().await {
-                    tx.send(CloudProvider::Gcp(id)).ok();
+                    tx.send(CloudProvider::Gcp(Box::new(id))).ok();
                 }
             });
         }
@@ -262,7 +268,7 @@ pub mod azure {
             let request = client
                 .request(
                     Method::GET,
-                    &format!("{base_url}/metadata/instance?api-version=2021-02-01"),
+                    format!("{base_url}/metadata/instance?api-version=2021-02-01"),
                 )
                 .headers(headers)
                 .build()?;
@@ -519,7 +525,7 @@ pub mod aws {
                 );
 
                 let request = client
-                    .request(Method::PUT, &format!("{base_url}/latest/api/token"))
+                    .request(Method::PUT, format!("{base_url}/latest/api/token"))
                     .headers(headers)
                     .build()?;
 
@@ -549,7 +555,7 @@ pub mod aws {
             let request = client
                 .request(
                     Method::GET,
-                    &format!("{base_url}/latest/dynamic/instance-identity/document"),
+                    format!("{base_url}/latest/dynamic/instance-identity/document"),
                 )
                 .headers(headers)
                 .build()?;
@@ -677,7 +683,7 @@ pub mod gcp {
             let request = client
                 .request(
                     Method::GET,
-                    &format!("{base_url}/computeMetadata/v1/instance/id"),
+                    format!("{base_url}/computeMetadata/v1/instance/id"),
                 )
                 .headers(headers)
                 .build()?;

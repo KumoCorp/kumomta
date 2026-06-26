@@ -1,0 +1,51 @@
+# DMARC RUA (aggregate report) helper defaults for policy-extras/dmarc_rua.lua
+#
+# Point your domain's DMARC rua= at a mailbox on this MTA (or forward reports here),
+# accept them via listener_domains, and let this helper parse + summarize issues
+# reported by Gmail, Outlook/Microsoft, Yahoo, and other receivers.
+
+# When true, store structured analysis in message meta (dmarc_rua_analysis)
+set_meta = true
+
+# When true, append a human-readable guidance block to message meta (dmarc_rua_guidance)
+set_guidance_meta = true
+
+# Optional: reject non-DMARC-report mail on configured RUA domains (false = accept & skip)
+require_dmarc_report = false
+
+# Minimum messages in a record before it is considered for "top issues" (noise filter)
+min_count_for_issue = 1
+
+# How many top failing source IPs to include in summaries
+top_sources_limit = 15
+
+# Friendly names for common report.org_name / email domain values
+[reporter_labels]
+"google.com" = "Gmail / Google"
+"Google" = "Gmail / Google"
+"outlook.com" = "Microsoft Outlook / Hotmail"
+"Microsoft Corporation" = "Microsoft Outlook / Hotmail"
+"protection.outlook.com" = "Microsoft Outlook / Hotmail"
+"yahoo.com" = "Yahoo Mail"
+"Yahoo! Inc." = "Yahoo Mail"
+"fastmail.com" = "Fastmail"
+"protonmail.ch" = "Proton Mail"
+"icloud.com" = "Apple iCloud Mail"
+"comcast.net" = "Comcast / Xfinity"
+"mail.ru" = "Mail.ru"
+"zoho.com" = "Zoho Mail"
+
+# Optional: known legitimate sending infrastructure for your org (used in guidance tone)
+# [known_sources."203.0.113.10"]
+# label = "KumoMTA prod pool-1"
+# expected = true
+#
+# [known_sources."198.51.100.0/24"]
+# label = "ESP example include"
+# expected = true
+
+# Guidance copy overrides (optional; defaults are built into the Lua helper)
+# [guidance.spf_fail_unknown_ip]
+# title = "SPF failed from an unrecognized IP"
+# customer_summary = "..."
+# actions = ["Add the IP or ESP include: to SPF", "..."]

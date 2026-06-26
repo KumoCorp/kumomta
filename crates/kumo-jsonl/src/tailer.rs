@@ -178,15 +178,12 @@ impl MultiConsumerTailerConfig {
 
         let fs_notify = Arc::new(Notify::new());
         let fs_notify_tx = fs_notify.clone();
-        let event_handler = move |res: Result<Event, _>| match res {
-            Ok(event) => match event.kind {
-                EventKind::Create(CreateKind::File) | EventKind::Modify(ModifyKind::Data(_)) => {
-                    fs_notify_tx.notify_one();
-                }
-                _ => {}
-            },
-            Err(_) => {}
-        };
+        let event_handler = move |res: Result<Event, _>| if let Ok(event) = res { match event.kind {
+            EventKind::Create(CreateKind::File) | EventKind::Modify(ModifyKind::Data(_)) => {
+                fs_notify_tx.notify_one();
+            }
+            _ => {}
+        } };
         let mut watcher: Box<dyn Watcher + Send> = if let Some(interval) = self.poll_watcher {
             Box::new(notify::PollWatcher::new(
                 event_handler,
@@ -615,7 +612,7 @@ fn make_multi_stream(
                     let any_ready = (0..num_consumers).any(|i| {
                         !batches[i].is_empty()
                             && (batches[i].len() >= max_batch_sizes[i]
-                                || deadlines[i].map_or(false, |d| now >= d))
+                                || deadlines[i].is_some_and(|d| now >= d))
                     });
                     if any_ready {
                         break 'fill;
@@ -730,7 +727,7 @@ fn make_multi_stream(
                 for i in 0..num_consumers {
                     let is_ready = !batches[i].is_empty()
                         && (batches[i].len() >= max_batch_sizes[i]
-                            || deadlines[i].map_or(false, |d| now >= d)
+                            || deadlines[i].is_some_and(|d| now >= d)
                             || decomp.is_none()); // end of plan: flush all
 
                     if !is_ready {

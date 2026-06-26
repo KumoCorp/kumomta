@@ -16,7 +16,7 @@ pub struct CheckHostOutput {
     pub result: AuthenticationResult,
 }
 
-pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
+pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let spf_mod = get_or_create_sub_module(lua, "spf")?;
 
     async fn build_from_domain_meta_sender(
@@ -98,7 +98,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 result: AuthenticationResult {
                     method: "spf".into(),
                     method_version: None,
-                    result: result.disposition.to_string().into(),
+                    result: result.disposition.to_string(),
                     reason: Some(result.context.into()),
                     props,
                 },

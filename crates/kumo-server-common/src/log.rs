@@ -32,18 +32,16 @@ pub fn mark_path_as_done(path: &PathBuf) -> std::io::Result<()> {
 pub fn mark_existing_logs_as_done_in_dir(dir: &PathBuf) -> anyhow::Result<()> {
     match std::fs::read_dir(dir) {
         Ok(d) => {
-            for entry in d {
-                if let Ok(entry) = entry {
-                    match entry.file_name().to_str() {
-                        Some(name) if name.starts_with('.') => {
-                            continue;
-                        }
-                        None => continue,
-                        Some(_name) => {
-                            if let Ok(file_type) = entry.file_type() {
-                                if file_type.is_file() {
-                                    mark_path_as_done(&entry.path()).ok();
-                                }
+            for entry in d.flatten() {
+                match entry.file_name().to_str() {
+                    Some(name) if name.starts_with('.') => {
+                        continue;
+                    }
+                    None => continue,
+                    Some(_name) => {
+                        if let Ok(file_type) = entry.file_type() {
+                            if file_type.is_file() {
+                                mark_path_as_done(&entry.path()).ok();
                             }
                         }
                     }

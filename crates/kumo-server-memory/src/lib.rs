@@ -309,10 +309,10 @@ pub fn get_hard_limit() -> Option<u64> {
         return Some(user_limit as u64);
     }
 
-    let result = get_usage_and_limit()
+    
+    get_usage_and_limit()
         .ok()
-        .and_then(|(_, limits)| limits.hard_limit);
-    result
+        .and_then(|(_, limits)| limits.hard_limit)
 }
 
 pub fn get_soft_limit() -> Option<u64> {

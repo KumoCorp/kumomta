@@ -127,7 +127,7 @@ impl Conn {
         let col_count = stmt.column_count();
         if col_count == 1 {
             loop {
-                let value = get_column(&mut stmt, 0)?;
+                let value = get_column(&stmt, 0)?;
                 table.push(value);
 
                 if stmt.next()? == State::Done {

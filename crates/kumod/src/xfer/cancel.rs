@@ -51,7 +51,7 @@ pub async fn xfer_cancel_v1(
         ));
     };
 
-    rt_spawn("process_xfer_cancel_v1".to_string(), async move {
+    rt_spawn("process_xfer_cancel_v1", async move {
         queue.cancel_xfer_all(request.reason).await;
     })?;
 

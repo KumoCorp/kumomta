@@ -156,7 +156,7 @@ impl LogHookState {
 
         let mut recipients = vec![];
         for recip in &record.recipient {
-            recipients.push(EnvelopeAddress::parse(&recip)?);
+            recipients.push(EnvelopeAddress::parse(recip)?);
         }
         anyhow::ensure!(!recipients.is_empty(), "no recips!?");
 
@@ -174,7 +174,7 @@ impl LogHookState {
         let deferred_spool = self.params.deferred_spool;
         let name = self.params.name.clone();
 
-        LOGGING_RUNTIME.spawn("log-hook".to_string(), async move {
+        LOGGING_RUNTIME.spawn("log-hook", async move {
             let result: anyhow::Result<()> = async move {
                 let mut lua_config = load_config().await.context("load_config")?;
 

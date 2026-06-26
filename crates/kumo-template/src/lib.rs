@@ -61,7 +61,7 @@ impl<'env, 'source> Template<'env, 'source> {
                 Ok(())
             }
             Self::Static(s) => {
-                w.write(s.as_bytes())?;
+                w.write_all(s.as_bytes())?;
                 Ok(())
             }
             Self::Handlebars { engine, template } => {
@@ -93,6 +93,12 @@ impl<'env, 'source> Template<'env, 'source> {
 /// Holds a set of templates
 pub struct TemplateEngine {
     engine: Engine,
+}
+
+impl Default for TemplateEngine {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TemplateEngine {

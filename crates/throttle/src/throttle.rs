@@ -191,16 +191,16 @@ async fn redis_script_throttle(
 /// key to make it impossible to misuse.
 ///
 /// * `limit` - specifies the maximum number of tokens allow
-///             over the specified `period`
+///   over the specified `period`
 /// * `period` - the time period over which `limit` is allowed.
 /// * `max_burst` - the maximum initial burst that will be permitted.
-///                 set this smaller than `limit` to prevent using
-///                 up the entire budget immediately and force it
-///                 to spread out across time.
+///   set this smaller than `limit` to prevent using
+///   up the entire budget immediately and force it
+///   to spread out across time.
 /// * `quantity` - how many tokens to add to the throttle. If omitted,
-///                1 token is added.
+///   1 token is added.
 /// * `force_local` - if true, always use the in-memory store on the local
-///                   machine even if the redis backend has been configured.
+///   machine even if the redis backend has been configured.
 pub async fn throttle(
     key: &str,
     limit: u64,

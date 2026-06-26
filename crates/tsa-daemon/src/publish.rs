@@ -65,10 +65,10 @@ static NOTIFY_CONSUMER: LazyLock<Notify> = LazyLock::new(Notify::new);
 static NOTIFY_PRODUCER: LazyLock<Notify> = LazyLock::new(Notify::new);
 static QUEUE: LazyLock<Mutex<BatchQueue>> = LazyLock::new(|| start_processor_pool().unwrap());
 
-fn try_push(record: JsonLogRecord) -> Result<bool, JsonLogRecord> {
+fn try_push(record: JsonLogRecord) -> Result<bool, Box<JsonLogRecord>> {
     let mut queue = QUEUE.lock();
     if queue.size >= MAX_BACKLOG {
-        Err(record)
+        Err(Box::new(record))
     } else {
         Ok(queue.push(record))
     }
@@ -84,7 +84,7 @@ pub async fn submit_record(mut record: JsonLogRecord) -> anyhow::Result<()> {
                 return Ok(());
             }
             Err(rec) => {
-                record = rec;
+                record = *rec;
                 let wakeup = NOTIFY_PRODUCER.notified();
                 NOTIFY_CONSUMER.notify_waiters();
                 tracing::debug!("backlog hit, waiting");

@@ -262,10 +262,8 @@ impl QueueSummaryCommand {
             }
 
             let mut domain_to_site = HashMap::new();
-            for res in futures::future::join_all(futures).await {
-                if let Ok(mx) = res {
-                    domain_to_site.insert(mx.domain_name.to_string(), mx.site_name.to_string());
-                }
+            for mx in (futures::future::join_all(futures).await).into_iter().flatten() {
+                domain_to_site.insert(mx.domain_name.to_string(), mx.site_name.to_string());
             }
 
             // Include all the scheduled queues that either directly match

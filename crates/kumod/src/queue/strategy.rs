@@ -63,6 +63,7 @@ impl TimerEntryWithDelay for WheelV1Entry {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum QueueStructure {
     TimerWheel(FairMutex<TimeQ<Message>>),
     SkipList(SkipSet<DelayedEntry>),
@@ -151,7 +152,7 @@ impl QueueStructure {
                 // and we must not include it here, and need to put it
                 // back into q so that things can process correctly.
                 msgs.retain(|msg| {
-                    if wheel.cancel(&msg) {
+                    if wheel.cancel(msg) {
                         true
                     } else {
                         // Put it back in the queue so that

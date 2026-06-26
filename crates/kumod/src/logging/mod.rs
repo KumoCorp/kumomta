@@ -84,6 +84,7 @@ fn default_true() -> bool {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum LogCommand {
     Record(JsonLogRecord, Option<Message>),
     Terminate,
@@ -200,7 +201,7 @@ impl Logger {
 
         let mut state = LogHookState::new(params, receiver, template_engine);
 
-        let thread = LOGGING_RUNTIME.spawn("log hook".to_string(), async move {
+        let thread = LOGGING_RUNTIME.spawn("log hook", async move {
             tracing::debug!("calling state.logger_thread()");
             state.logger_thread().await
         })?;
@@ -263,7 +264,7 @@ impl Logger {
         }
         .register();
 
-        let thread = LOGGING_RUNTIME.spawn("log file".to_string(), async move {
+        let thread = LOGGING_RUNTIME.spawn("log file", async move {
             tracing::debug!("calling state.logger_thread()");
             let mut state = LogThreadState {
                 params,
@@ -445,7 +446,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "configure_bounce_classifier",
         lua.create_function(move |lua, params: LuaValue| {
-            let params: ClassifierParams = from_lua_value(&lua, params)?;
+            let params: ClassifierParams = from_lua_value(lua, params)?;
             params.register().map_err(any_err)
         })?,
     )?;

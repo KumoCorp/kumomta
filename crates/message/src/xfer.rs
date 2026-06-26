@@ -54,7 +54,7 @@ impl Message {
 
         let (meta_json, data) = serialized.split_at(newline);
 
-        let meta: MetaDataV1 = serde_json::from_slice(&meta_json)?;
+        let meta: MetaDataV1 = serde_json::from_slice(meta_json)?;
         // 1... because split_at includes the newline at the startgg
         let payload: Box<[u8]> = data[1..].to_vec().into_boxed_slice();
 

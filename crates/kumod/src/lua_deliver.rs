@@ -250,7 +250,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
                             })
                             .await;
                             spawn(
-                                "requeue message".to_string(),
+                                "requeue message",
                                 QueueManager::requeue_message(
                                     msg,
                                     IncrementAttempts::Yes,

@@ -114,12 +114,11 @@ impl TaggedHeader {
             // want to control how they wrap with a bit more nuance.
             let always_new_line = key == "b" || key == "h";
 
-            if always_new_line || (line.len() + key.len() + 2 + value.len() >= WIDTH) {
-                if !line.is_empty() {
+            if (always_new_line || (line.len() + key.len() + 2 + value.len() >= WIDTH))
+                && !line.is_empty() {
                     lines.push(line.clone());
                     line.clear();
                 }
-            }
 
             if !line.is_empty() {
                 line.push(' ');
@@ -143,21 +142,19 @@ impl TaggedHeader {
                     lines.push(line);
                     line = format!("\t{name}");
                 }
-            } else {
-                if value.len() >= WIDTH {
-                    // Value will never fit even on a fresh line,
-                    // so we force it to break
-                    for c in value.chars() {
-                        line.push(c);
-                        if line.len() >= WIDTH {
-                            lines.push(line.clone());
-                            line.clear();
-                        }
+            } else if value.len() >= WIDTH {
+                // Value will never fit even on a fresh line,
+                // so we force it to break
+                for c in value.chars() {
+                    line.push(c);
+                    if line.len() >= WIDTH {
+                        lines.push(line.clone());
+                        line.clear();
                     }
-                } else {
-                    lines.push(line);
-                    line = format!("\t{value}");
                 }
+            } else {
+                lines.push(line);
+                line = format!("\t{value}");
             }
             line.push(';');
         }
@@ -422,7 +419,7 @@ impl ARCSealHeader {
 
         let computed_headers_hash = crate::hash::compute_headers_hash(
             crate::canonicalization::Type::Relaxed,
-            &header_list,
+            header_list,
             hash_algo,
             self,
             ARC_SEAL_HEADER_NAME,

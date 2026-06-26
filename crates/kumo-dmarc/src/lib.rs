@@ -38,7 +38,7 @@ impl CheckHostParams {
 
         match DmarcContext::new(
             &from_domain,
-            mail_from_domain.as_ref().map(|x| x.as_str()),
+            mail_from_domain.as_deref(),
             &dkim[..],
         ) {
             Ok(cx) => cx.check(resolver).await,
@@ -108,7 +108,7 @@ impl<'a> DmarcContext<'a> {
     pub async fn check(&self, resolver: &dyn Resolver) -> DispositionWithContext {
         match fetch_dmarc_records(&format!("_dmarc.{}", self.from_domain), resolver).await {
             DmarcRecordResolution::Records(records) => {
-                for record in records {
+                if let Some(record) = records.into_iter().next() {
                     return record.evaluate(self, SenderDomainAlignment::Exact).await;
                 }
             }
@@ -133,7 +133,7 @@ impl<'a> DmarcContext<'a> {
                                 }
                             }
                             DmarcRecordResolution::Records(records) => {
-                                for record in records {
+                                if let Some(record) = records.into_iter().next() {
                                     return record
                                         .evaluate(self, SenderDomainAlignment::OrganizationalDomain)
                                         .await;

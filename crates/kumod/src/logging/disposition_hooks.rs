@@ -39,7 +39,7 @@ impl DispHookParams {
 
         let mut lua_config = load_config().await?;
         lua_config
-            .async_call_callback(&sig, (msg.clone(), RecordWrapper(record)))
+            .async_call_callback(sig, (msg.clone(), RecordWrapper(record)))
             .await?;
         lua_config.put();
         anyhow::Result::<()>::Ok(())

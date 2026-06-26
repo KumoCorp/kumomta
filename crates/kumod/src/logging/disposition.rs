@@ -71,8 +71,8 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
         .await
         .unwrap_or(None);
 
-    if kind == RecordType::Reception {
-        if relay_disposition
+    if kind == RecordType::Reception
+        && relay_disposition
             .as_ref()
             .map(|disp| disp.log_arf.should_log())
             .unwrap_or(false)
@@ -82,7 +82,6 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                 kind = RecordType::Feedback;
             }
         }
-    }
 
     let now = Utc::now();
     let nodeid = kumo_server_common::nodeid::NodeId::get_uuid();
@@ -127,12 +126,12 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             match kind {
                 RecordType::Reception => {
                     crate::accounting::account_reception(
-                        &reception_protocol.as_deref().unwrap_or("unknown"),
+                        reception_protocol.as_deref().unwrap_or("unknown"),
                     );
                 }
                 RecordType::Delivery => {
                     crate::accounting::account_delivery(
-                        &delivery_protocol.as_deref().unwrap_or("unknown"),
+                        delivery_protocol.unwrap_or("unknown"),
                     );
                 }
                 _ => {}
@@ -190,8 +189,8 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             tracing::error!("failed to log: {err:#}");
         }
 
-        if kind == RecordType::Reception {
-            if relay_disposition
+        if kind == RecordType::Reception
+            && relay_disposition
                 .as_ref()
                 .map(|disp| disp.log_oob.should_log())
                 .unwrap_or(false)
@@ -263,7 +262,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                                 content,
                                 command: None,
                             },
-                            timestamp: recip.last_attempt_date.unwrap_or_else(|| Utc::now()),
+                            timestamp: recip.last_attempt_date.unwrap_or_else(Utc::now),
                             created: msg.id().created(),
                             num_attempts: 0,
                             egress_pool: None,
@@ -291,6 +290,5 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                     }
                 }
             }
-        }
     }
 }

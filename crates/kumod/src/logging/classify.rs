@@ -276,10 +276,10 @@ pub async fn classify_response(response: &Response) -> BounceClass {
     }
 
     // clone data and pass to the classifier thread pool
-    match classifier.classify(response.clone()).await {
-        Ok(res) => res,
-        Err(_) => BounceClass::default(),
-    }
+    classifier
+        .classify(response.clone())
+        .await
+        .unwrap_or_default()
 }
 
 pub async fn apply_classification(record: &mut JsonLogRecord) {

@@ -954,7 +954,7 @@ impl Message {
     ) -> anyhow::Result<AuthenticationResult> {
         let resolver = get_resolver_instance(&opt_resolver_name)?;
         let data = self.data().await?;
-        let bytes = mailparsing::SharedString::try_from(data.as_ref().as_ref())?;
+        let bytes = mailparsing::SharedString::from(data.as_ref().as_ref());
 
         let parsed = mailparsing::Header::parse_headers(bytes.clone())?;
         let message = kumo_dkim::ParsedEmail::HeaderOnlyParse { bytes, parsed };
@@ -972,7 +972,7 @@ impl Message {
     ) -> anyhow::Result<()> {
         let resolver = get_resolver_instance(&opt_resolver_name)?;
         let data = self.data().await?;
-        let bytes = mailparsing::SharedString::try_from(data.as_ref().as_ref())?;
+        let bytes = mailparsing::SharedString::from(data.as_ref().as_ref());
         let parsed = mailparsing::Header::parse_headers(bytes.clone())?;
         let message = kumo_dkim::ParsedEmail::HeaderOnlyParse { bytes, parsed };
         let arc = ARC::verify(&message, &**resolver).await;
@@ -998,7 +998,7 @@ impl Message {
     ) -> anyhow::Result<Vec<AuthenticationResult>> {
         let resolver = get_resolver_instance(&opt_resolver_name)?;
         let data = self.data().await?;
-        let bytes = mailparsing::SharedString::try_from(data.as_ref().as_ref())?;
+        let bytes = mailparsing::SharedString::from(data.as_ref().as_ref());
 
         let parsed = mailparsing::Header::parse_headers(bytes.clone())?;
         if parsed
@@ -1307,7 +1307,7 @@ impl Message {
         let data_bytes = data.as_ref().as_ref();
         let msg = MimePart::parse(data_bytes)?;
 
-        let mut settings = settings.map(Clone::clone).unwrap_or_default();
+        let mut settings = settings.cloned().unwrap_or_default();
 
         if fix.contains(MessageConformance::MISSING_MESSAGE_ID_HEADER)
             && settings.message_id.is_none()
@@ -1419,7 +1419,8 @@ impl UserData for Message {
             Ok(this.get_num_attempts())
         });
         methods.add_method("increment_num_attempts", move |_, this, _: ()| {
-            Ok(this.increment_num_attempts())
+            let _: () = this.increment_num_attempts();
+            Ok(())
         });
 
         methods.add_async_method("queue_name", move |_, this, _: ()| async move {

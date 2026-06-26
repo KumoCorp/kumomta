@@ -98,8 +98,10 @@ impl RocksSpoolParams {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[derive(Default)]
 pub enum DBCompressionTypeDef {
     None,
+    #[default]
     Snappy,
     Zlib,
     Bz2,
@@ -122,15 +124,12 @@ impl From<DBCompressionTypeDef> for DBCompressionType {
     }
 }
 
-impl Default for DBCompressionTypeDef {
-    fn default() -> Self {
-        Self::Snappy
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug)]
+#[derive(Default)]
 pub enum LogLevelDef {
     Debug,
+    #[default]
     Info,
     Warn,
     Error,
@@ -138,11 +137,6 @@ pub enum LogLevelDef {
     Header,
 }
 
-impl Default for LogLevelDef {
-    fn default() -> Self {
-        Self::Info
-    }
-}
 
 impl From<LogLevelDef> for LogLevel {
     fn from(val: LogLevelDef) -> Self {

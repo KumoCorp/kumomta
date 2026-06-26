@@ -367,7 +367,7 @@ impl<'a> SpfContext<'a> {
             }
             match resolver.resolve_ip(&fully_qualify(&ptr.to_string())).await {
                 Ok(ips) => {
-                    if ips.iter().any(|&ip| ip == self.client_ip) {
+                    if ips.contains(&self.client_ip) {
                         let mut ptr = ptr.clone();
                         // Remove trailing dot
                         ptr.set_fqdn(false);

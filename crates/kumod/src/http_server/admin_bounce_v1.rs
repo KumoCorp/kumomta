@@ -231,7 +231,7 @@ pub async fn bounce_v1(
 
     // Move into a lua-capable thread so that logging related
     // lua events can be triggered by log_disposition.
-    rt_spawn("process_bounce_v1".to_string(), async move {
+    rt_spawn("process_bounce_v1", async move {
         for name in &queue_names {
             if let Some(q) = QueueManager::get_opt(name) {
                 q.bounce_all(&entry).await;

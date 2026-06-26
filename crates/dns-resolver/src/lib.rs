@@ -521,7 +521,7 @@ impl MailExchanger {
                     }
                     by_pref.push(ResolvedAddress {
                         name: mx_host.to_string(),
-                        addr: addr.into(),
+                        addr,
                     });
                     continue;
                 }
@@ -825,9 +825,7 @@ fn factor_names<S: AsRef<str>>(name_strings: &[S]) -> String {
             .map(|s| String::from_utf8_lossy(s).to_string())
             .collect();
         if let Some(port) = opt_port {
-            fields.last_mut().map(|s| {
-                s.push_str(&format!(":{port}"));
-            });
+            if let Some(s) = fields.last_mut() { s.push_str(&format!(":{port}")); }
         }
         fields.reverse();
         max_element_count = max_element_count.max(fields.len());

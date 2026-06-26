@@ -106,16 +106,13 @@ static KEY_CACHE_LOOKUP: IntCounter("dkim_signer_key_cache_lookup_count");
 }
 
 #[derive(Deserialize, Hash, Eq, PartialEq, Copy, Clone, Debug)]
+#[derive(Default)]
 pub enum Canon {
+    #[default]
     Relaxed,
     Simple,
 }
 
-impl Default for Canon {
-    fn default() -> Self {
-        Self::Relaxed
-    }
-}
 
 #[derive(Deserialize, Hash, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum HashAlgo {

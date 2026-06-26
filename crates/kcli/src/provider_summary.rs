@@ -367,9 +367,5 @@ fn resolve_domains(
     site_to_domains: &mut HashMap<String, BTreeSet<String>>,
     site: &str,
 ) -> Option<String> {
-    if let Some(domains) = site_to_domains.get_mut(site) {
-        Some(domains.iter().join(", "))
-    } else {
-        None
-    }
+    site_to_domains.get_mut(site).map(|domains| domains.iter().join(", "))
 }

@@ -93,7 +93,7 @@ impl ARC {
         AuthenticationResult {
             method: "arc".into(),
             method_version: None,
-            result: status.to_string().into(),
+            result: status.to_string(),
             reason: self
                 .issues
                 .first()
@@ -324,7 +324,7 @@ impl ARC {
         }
 
         let mut arc = ARC {
-            sets: arc_sets.into_iter().map(|(_k, set)| set).collect(),
+            sets: arc_sets.into_values().collect(),
             last_validated_instance: 0,
             issues,
         };

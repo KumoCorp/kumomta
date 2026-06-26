@@ -90,7 +90,7 @@ impl Queue {
             });
         }
 
-        let components = QueueNameComponents::parse(&name);
+        let components = QueueNameComponents::parse(name);
 
         let queue_config: QueueConfig = config
             .async_call_callback(
@@ -147,8 +147,7 @@ impl Queue {
                 let components = QueueNameComponents::parse(&name);
                 let routing_domain = components
                     .routing_domain
-                    .as_deref()
-                    .unwrap_or(&components.domain);
+                    .unwrap_or(components.domain);
 
                 format!("{reason}:{routing_domain}")
             }
@@ -702,7 +701,7 @@ impl Queue {
 
     #[instrument(skip(self))]
     pub async fn cancel_xfer_all(self: &Arc<Self>, reason: String) {
-        if !XferProtocol::is_xfer_queue_name(&*self.name) {
+        if !XferProtocol::is_xfer_queue_name(&self.name) {
             return;
         }
 
@@ -730,7 +729,7 @@ impl Queue {
             // likely be lower, but it is better for the server to be
             // healthy than for that command to block and show 100% stats.
             let result =
-                QMAINT_RUNTIME.spawn("bounce_all remove_from_spool".to_string(), async move {
+                QMAINT_RUNTIME.spawn("bounce_all remove_from_spool", async move {
                     for msg in msgs {
                         let id = *msg.id();
                         bounce.log(msg, Some(&name)).await;
@@ -1591,12 +1590,12 @@ impl Queue {
                                         {expanded_maildir_path} for queue {name}"
                                     )
                                 })?;
-                                Ok(md.store_new(&msg_data).with_context(|| {
+                                md.store_new(&msg_data).with_context(|| {
                                     format!(
                                         "failed to store message to maildir \
                                         {expanded_maildir_path} for queue {name}"
                                     )
-                                })?)
+                                })
                             }
                         },
                         &get_main_runtime(),
@@ -1622,7 +1621,7 @@ impl Queue {
                     for (recipient, id) in successes {
                         status.push(format!(
                             "{}: wrote to maildir with id={id}",
-                            recipient.to_string()
+                            recipient
                         ));
                     }
                     let status = status.join(", ");
@@ -1656,7 +1655,7 @@ impl Queue {
                     for (recipient, err) in failures {
                         status.push(format!(
                             "{}: failed to write to maildir: {err:#}",
-                            recipient.to_string()
+                            recipient
                         ));
                         remaining_recipient_list.push(recipient);
                     }

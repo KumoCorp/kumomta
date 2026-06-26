@@ -9,7 +9,7 @@ use mod_time::TimeDelta;
 use reqwest::Url;
 use rfc5321::Response;
 
-pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
+pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let xfer_mod = get_or_create_sub_module(lua, "xfer")?;
 
     xfer_mod.set(
@@ -38,20 +38,17 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 let orig_queue_name = msg.get_queue_name().await.map_err(any_err)?;
                 let mut sched_queue_name = orig_queue_name.clone();
 
-                match XferProtocol::from_queue_name(&orig_queue_name) {
-                    Some(p) => {
-                        if p == target {
-                            // No change in destination; already xfer'ing
-                            // to that location
-                            return Ok(());
-                        }
-
-                        // Cancel current xfer
-                        SavedQueueInfo::restore_info(&msg).await.map_err(any_err)?;
-                        // Revise our understanding of which queue this is in
-                        sched_queue_name = msg.get_queue_name().await.map_err(any_err)?;
+                if let Some(p) = XferProtocol::from_queue_name(&orig_queue_name) {
+                    if p == target {
+                        // No change in destination; already xfer'ing
+                        // to that location
+                        return Ok(());
                     }
-                    None => {}
+
+                    // Cancel current xfer
+                    SavedQueueInfo::restore_info(&msg).await.map_err(any_err)?;
+                    // Revise our understanding of which queue this is in
+                    sched_queue_name = msg.get_queue_name().await.map_err(any_err)?;
                 }
 
                 if increment_attempts {
@@ -120,18 +117,15 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                     target: Url::parse(&target).map_err(any_err)?,
                 };
                 let orig_queue_name = msg.get_queue_name().await.map_err(any_err)?;
-                match XferProtocol::from_queue_name(&orig_queue_name) {
-                    Some(p) => {
-                        if p == target {
-                            // No change in destination; already xfer'ing
-                            // to that location
-                            return Ok(());
-                        }
-
-                        // Cancel current xfer
-                        SavedQueueInfo::restore_info(&msg).await.map_err(any_err)?;
+                if let Some(p) = XferProtocol::from_queue_name(&orig_queue_name) {
+                    if p == target {
+                        // No change in destination; already xfer'ing
+                        // to that location
+                        return Ok(());
                     }
-                    None => {}
+
+                    // Cancel current xfer
+                    SavedQueueInfo::restore_info(&msg).await.map_err(any_err)?;
                 }
 
                 SavedQueueInfo::save_info(&msg).await.map_err(any_err)?;

@@ -96,12 +96,12 @@ impl LuaUserData for Client {
                 .get_context()?
                 .publish_with_headers(message.subject, headers, message.payload.into())
                 .await
-                .map_err(|err| any_err(err))?;
+                .map_err(any_err)?;
 
             let ret = lua.create_table()?;
 
             if message.await_ack {
-                let resp = ack_fut.await.map_err(|err| any_err(err))?;
+                let resp = ack_fut.await.map_err(any_err)?;
                 ret.set("stream", resp.stream)?;
                 ret.set("value", resp.value.unwrap_or_default())?;
                 ret.set("duplicate", resp.duplicate)?;

@@ -137,7 +137,7 @@ impl ThrottleSpec {
     }
 
     pub fn as_local(&self) -> Self {
-        let mut copy = self.clone();
+        let mut copy = *self;
         copy.force_local = true;
         copy
     }

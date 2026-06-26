@@ -46,15 +46,13 @@ impl LocalDiskSpool {
 
     fn cleanup_dirs(path: &Path) {
         let new_dir = path.join("new");
-        for entry in jwalk::WalkDir::new(new_dir) {
-            if let Ok(entry) = entry {
-                if !entry.file_type().is_file() {
-                    continue;
-                }
-                let path = entry.path();
-                if let Err(err) = std::fs::remove_file(&path) {
-                    eprintln!("Failed to remove {path:?}: {err:#}");
-                }
+        for entry in jwalk::WalkDir::new(new_dir).into_iter().flatten() {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let path = entry.path();
+            if let Err(err) = std::fs::remove_file(&path) {
+                eprintln!("Failed to remove {path:?}: {err:#}");
             }
         }
 

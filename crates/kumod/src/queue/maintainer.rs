@@ -43,7 +43,7 @@ pub static TOTAL_QMAINT_RUNS: IntCounter("total_qmaint_runs");
 }
 
 pub async fn queue_meta_maintainer() -> anyhow::Result<()> {
-    let activity = Activity::get(format!("Queue Manager Meta Maintainer"))?;
+    let activity = Activity::get("Queue Manager Meta Maintainer".to_string())?;
     let mut shutdown = ShutdownSubcription::get();
     shutdown.shutting_down().await;
     tracing::trace!("queue_meta_maintainer: system is shutting down");
@@ -69,8 +69,8 @@ pub async fn queue_meta_maintainer() -> anyhow::Result<()> {
                     Queue::save_if_needed_and_log(&msg, None).await;
                 }
 
-                if queue.is_empty() && ReadyQueueManager::number_of_queues() == 0 {
-                    if MANAGER
+                if queue.is_empty() && ReadyQueueManager::number_of_queues() == 0
+                    && MANAGER
                         .named
                         .remove_if(&name, |_key, _queue| {
                             queue.is_empty() && ReadyQueueManager::number_of_queues() == 0
@@ -79,7 +79,6 @@ pub async fn queue_meta_maintainer() -> anyhow::Result<()> {
                     {
                         tracing::debug!("{name}: there are no more queues and the scheduled queue is empty, reaping");
                     }
-                }
             }
         }
 
@@ -212,15 +211,12 @@ async fn reinsert_batch(messages: Vec<(Message, QueueHandle)>, total_scheduled: 
     wait_for_message_batch(&messages_only).await;
     for (msg, queue) in messages {
         reinserted += 1;
-        match reinsert_ready(msg, &queue) {
-            Some(msg) => {
-                let entry = by_queue.entry(queue.name.clone()).or_insert_with(|| Entry {
-                    queue: queue.clone(),
-                    messages: vec![],
-                });
-                entry.messages.push(msg);
-            }
-            None => {}
+        if let Some(msg) = reinsert_ready(msg, &queue) {
+            let entry = by_queue.entry(queue.name.clone()).or_insert_with(|| Entry {
+                queue: queue.clone(),
+                messages: vec![],
+            });
+            entry.messages.push(msg);
         }
     }
     tracing::debug!(

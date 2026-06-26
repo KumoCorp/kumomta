@@ -64,14 +64,11 @@ impl Drop for Spool {
 impl Spool {}
 
 #[derive(Deserialize)]
+#[derive(Default)]
 pub enum SpoolKind {
+    #[default]
     LocalDisk,
     RocksDB,
-}
-impl Default for SpoolKind {
-    fn default() -> Self {
-        Self::LocalDisk
-    }
 }
 
 #[derive(Deserialize)]

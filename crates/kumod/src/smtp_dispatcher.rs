@@ -597,14 +597,12 @@ impl SmtpDispatcher {
                 }
             } else {
                 self.tracer.diagnostic(Level::INFO, || {
-                    format!(
-                        "DANE is enabled for this path, but it is not using MX records from DNS"
-                    )
+                    "DANE is enabled for this path, but it is not using MX records from DNS".to_string()
                 });
             }
         } else {
             self.tracer
-                .diagnostic(Level::INFO, || format!("DANE is not enabled for this path"));
+                .diagnostic(Level::INFO, || "DANE is not enabled for this path".to_string());
         }
 
         // Figure out MTA-STS policy.
@@ -644,14 +642,12 @@ impl SmtpDispatcher {
                 }
             } else {
                 self.tracer.diagnostic(Level::INFO, || {
-                    format!(
-                        "MTA-STS is enabled for this path, but it is not using MX records from DNS"
-                    )
+                    "MTA-STS is enabled for this path, but it is not using MX records from DNS".to_string()
                 });
             }
         } else {
             self.tracer.diagnostic(Level::INFO, || {
-                format!("MTA-STS is not enabled for this path")
+                "MTA-STS is not enabled for this path".to_string()
             });
         }
 
@@ -948,7 +944,7 @@ impl SmtpDispatcher {
             source_address: self.source_address.clone(),
             provider: dispatcher.path_config.borrow().provider_name.as_deref(),
             session_id: Some(dispatcher.session_id),
-            recipient_list: recipient_list,
+            recipient_list,
         })
         .await
     }
@@ -1099,9 +1095,7 @@ impl QueueDispatcher for SmtpDispatcher {
             .borrow()
             .try_next_host_on_transport_error;
 
-        self.client.as_mut().map(|client| {
-            client.set_ignore_8bit_checks(dispatcher.path_config.borrow().ignore_8bit_checks)
-        });
+        if let Some(client) = self.client.as_mut() { client.set_ignore_8bit_checks(dispatcher.path_config.borrow().ignore_8bit_checks) }
 
         // This will hold the list of recipients that have not
         // reached a terminal disposition
@@ -1240,8 +1234,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             components.campaign,
                             components
                                 .routing_domain
-                                .as_deref()
-                                .unwrap_or(&components.domain),
+                                .unwrap_or(components.domain),
                         ),
                     )
                     .await;
@@ -1281,7 +1274,7 @@ impl QueueDispatcher for SmtpDispatcher {
             .zip(result_per_rcpt.iter())
             .enumerate()
         {
-            let (record_type, too_many) = classify_record(&response).await;
+            let (record_type, too_many) = classify_record(response).await;
 
             // Determine effective too-many recip state: if the batch is size 1,
             // or this is the first recipient, it cannot be too-many
@@ -1465,7 +1458,7 @@ async fn classify_record(response: &Response) -> (RecordType, IsTooManyRecipient
     let too_many = match response.is_too_many_recipients() {
         as_is @ (IsTooManyRecipients::Yes | IsTooManyRecipients::No) => as_is,
         IsTooManyRecipients::Maybe => {
-            match crate::logging::classify::classify_response(&response).await {
+            match crate::logging::classify::classify_response(response).await {
                 BounceClass::UserDefined(_) => IsTooManyRecipients::Maybe,
                 BounceClass::PreDefined(bc) => match bc {
                     PreDefinedBounceClass::TooManyRecipients => IsTooManyRecipients::Yes,

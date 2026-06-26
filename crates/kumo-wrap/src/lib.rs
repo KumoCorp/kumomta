@@ -22,7 +22,7 @@ pub fn wrap_impl(value: impl AsRef<BStr>, soft_width: usize, hard_width: usize) 
     let mut line: Vec<u8> = vec![];
 
     for word in value.split(|&b| b.is_ascii_whitespace()) {
-        if word.len() == 0 {
+        if word.is_empty() {
             continue;
         }
         if line.len() + word.len() < soft_width {

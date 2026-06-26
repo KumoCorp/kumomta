@@ -183,7 +183,7 @@ pub(crate) fn extract_headers(part: &[u8]) -> anyhow::Result<BTreeMap<String, Ve
     let mut extensions = BTreeMap::new();
 
     for hdr in headers.iter() {
-        let name = String::from_utf8_lossy(&hdr.get_name()).to_ascii_lowercase();
+        let name = String::from_utf8_lossy(hdr.get_name()).to_ascii_lowercase();
         extensions
             .entry(name)
             .or_insert_with(std::vec::Vec::new)

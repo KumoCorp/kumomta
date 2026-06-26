@@ -239,11 +239,11 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let mut config = ResolverConfig::new();
             if let Some(dom) = &self.domain {
                 config.set_domain(
-                    Name::from_str_relaxed(&dom).with_context(|| format!("domain: '{dom}'"))?,
+                    Name::from_str_relaxed(dom).with_context(|| format!("domain: '{dom}'"))?,
                 );
             }
             for s in &self.search {
-                let name = Name::from_str_relaxed(&s).with_context(|| format!("search: '{s}'"))?;
+                let name = Name::from_str_relaxed(s).with_context(|| format!("search: '{s}'"))?;
                 config.add_search(name);
             }
 
@@ -263,7 +263,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                         let ip: SocketAddr = socket_addr
                             .parse()
                             .with_context(|| format!("name server: '{socket_addr}'"))?;
-                        let mut c = NameServerConfig::new(ip, protocol.clone());
+                        let mut c = NameServerConfig::new(ip, *protocol);
 
                         c.trust_negative_responses = *trust_negative_responses;
 

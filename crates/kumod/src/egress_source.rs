@@ -276,47 +276,44 @@ impl EgressSource {
         use ppp::v2::{Addresses, IPv4, IPv6};
         let source_name = &self.name;
 
-        match (&self.ha_proxy_server, self.ha_proxy_source_address) {
-            (Some(server), Some(source)) => {
-                // Resolve the server address (either SocketAddr or hostname)
-                let server_addr = server
-                    .resolve()
-                    .await
-                    .with_context(|| format!("failed to resolve haproxy server: {server:?}"))?;
+        if let (Some(server), Some(source)) = (&self.ha_proxy_server, self.ha_proxy_source_address) {
+            // Resolve the server address (either SocketAddr or hostname)
+            let server_addr = server
+                .resolve()
+                .await
+                .with_context(|| format!("failed to resolve haproxy server: {server:?}"))?;
 
-                match (source, address) {
-                    (IpAddr::V4(src_ip), SocketAddr::V4(dest_ip)) => {
-                        return Ok(ProxyProto::HA {
-                            server: server_addr,
-                            source,
-                            addresses: Addresses::IPv4(IPv4::new(
-                                src_ip,
-                                *dest_ip.ip(),
-                                0,
-                                dest_ip.port(),
-                            )),
-                        })
-                    }
-                    (IpAddr::V6(src_ip), SocketAddr::V6(dest_ip)) => {
-                        return Ok(ProxyProto::HA {
-                            server: server_addr,
-                            source,
-                            addresses: Addresses::IPv6(IPv6::new(
-                                src_ip,
-                                *dest_ip.ip(),
-                                0,
-                                dest_ip.port(),
-                            )),
-                        })
-                    }
-                    (source, server) => anyhow::bail!(
-                        "Skipping {source_name} because \
-                         ha_proxy_source_address {source} address family does \
-                         not match the destination address family {server}"
-                    ),
+            match (source, address) {
+                (IpAddr::V4(src_ip), SocketAddr::V4(dest_ip)) => {
+                    return Ok(ProxyProto::HA {
+                        server: server_addr,
+                        source,
+                        addresses: Addresses::IPv4(IPv4::new(
+                            src_ip,
+                            *dest_ip.ip(),
+                            0,
+                            dest_ip.port(),
+                        )),
+                    })
                 }
+                (IpAddr::V6(src_ip), SocketAddr::V6(dest_ip)) => {
+                    return Ok(ProxyProto::HA {
+                        server: server_addr,
+                        source,
+                        addresses: Addresses::IPv6(IPv6::new(
+                            src_ip,
+                            *dest_ip.ip(),
+                            0,
+                            dest_ip.port(),
+                        )),
+                    })
+                }
+                (source, server) => anyhow::bail!(
+                    "Skipping {source_name} because \
+                     ha_proxy_source_address {source} address family does \
+                     not match the destination address family {server}"
+                ),
             }
-            _ => {}
         };
 
         match (&self.socks5_proxy_server, self.socks5_proxy_source_address) {
@@ -329,7 +326,7 @@ impl EgressSource {
 
                 match (source, address) {
                     (IpAddr::V6(_), SocketAddr::V6(_)) | (IpAddr::V4(_), SocketAddr::V4(_)) => {
-                        return Ok(ProxyProto::Socks5 {
+                        Ok(ProxyProto::Socks5 {
                             server: server_addr,
                             source,
                             destination: address,
@@ -429,7 +426,7 @@ impl EgressSource {
 
         let source_address = tokio::time::timeout_at(
             deadline.into(),
-            proxy_proto.perform_handshake(&mut stream, &source_name),
+            proxy_proto.perform_handshake(&mut stream, source_name),
         )
         .await
         .map_err(|_| {

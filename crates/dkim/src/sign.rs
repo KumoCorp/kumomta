@@ -261,7 +261,7 @@ impl Signer {
         let mut builder = TaggedHeaderBuilder::new();
 
         for (name, value) in additional_tags {
-            builder = builder.add_tag(name, &value);
+            builder = builder.add_tag(name, value);
         }
 
         if header_name.eq_ignore_ascii_case(DKIM_SIGNATURE_HEADER_NAME) {

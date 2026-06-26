@@ -33,14 +33,14 @@ impl RuleHash {
 
 impl std::fmt::Display for RuleHash {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        hex::encode(&self.0).fmt(fmt)
+        hex::encode(self.0).fmt(fmt)
     }
 }
 
 impl std::fmt::Debug for RuleHash {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         fmt.debug_tuple("RuleHash")
-            .field(&hex::encode(&self.0))
+            .field(&hex::encode(self.0))
             .finish()
     }
 }
@@ -65,14 +65,14 @@ pub struct ActionHash(#[serde(with = "serde_bytes")] [u8; 32], SiteKey);
 
 impl std::fmt::Display for ActionHash {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(fmt, "{}-{}", self.1 .0, hex::encode(&self.0))
+        write!(fmt, "{}-{}", self.1 .0, hex::encode(self.0))
     }
 }
 
 impl std::fmt::Debug for ActionHash {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         fmt.debug_tuple("ActionHash")
-            .field(&hex::encode(&self.0))
+            .field(&hex::encode(self.0))
             .field(&self.1)
             .finish()
     }
@@ -102,7 +102,7 @@ impl ActionHash {
     }
 
     pub fn hash_portion(&self) -> String {
-        hex::encode(&self.0)
+        hex::encode(self.0)
     }
 
     pub fn site_name(&self) -> &str {
@@ -320,7 +320,7 @@ impl TsaState {
                 campaign: key.campaign.clone(),
                 tenant: key.tenant.clone(),
                 reason: value.reason.clone(),
-                expires: value.expires.clone(),
+                expires: value.expires,
             });
         }
 
@@ -350,7 +350,7 @@ impl TsaState {
                 site_name: key.site_name().to_string(),
                 source: value.source.clone(),
                 reason: value.reason.clone(),
-                expires: value.expires.clone(),
+                expires: value.expires,
             });
         }
 
@@ -374,7 +374,7 @@ impl TsaState {
                 tenant: key.tenant.clone(),
                 campaign: key.campaign.clone(),
                 reason: value.reason.clone(),
-                expires: value.expires.clone(),
+                expires: value.expires,
             });
         }
 

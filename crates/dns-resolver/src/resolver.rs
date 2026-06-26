@@ -458,10 +458,8 @@ impl Resolver for UnboundResolver {
             })?;
 
         let mut records = vec![];
-        for r in answer.rdata() {
-            if let Ok(r) = r {
-                records.push(r);
-            }
+        for r in answer.rdata().flatten() {
+            records.push(r);
         }
 
         Ok(Answer {
@@ -587,6 +585,12 @@ impl From<TokioResolver> for HickoryResolver {
 /// real DNS resolution.
 pub struct AggregateResolver {
     resolvers: Vec<Box<dyn Resolver>>,
+}
+
+impl Default for AggregateResolver {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AggregateResolver {

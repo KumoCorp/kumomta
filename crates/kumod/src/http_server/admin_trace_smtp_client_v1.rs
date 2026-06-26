@@ -69,11 +69,8 @@ impl SmtpClientTracerImpl {
 
     pub fn unset_meta(&self, key: &str) {
         let mut map = self.meta.lock();
-        match &mut *map {
-            serde_json::Value::Object(map) => {
-                map.remove(key);
-            }
-            _ => {}
+        if let serde_json::Value::Object(map) = &mut *map {
+            map.remove(key);
         }
     }
 
@@ -313,5 +310,5 @@ async fn process_websocket(socket: WebSocket) {
 /// It cannot be described via auto-generated docs extracted from the JSON Schema.
 #[utoipa::path(get, tags = ["debugging", "kcli:trace-smtp-client"], path = "/api/admin/trace-smtp-client/v1")]
 pub async fn trace(ws: WebSocketUpgrade) -> impl IntoResponse {
-    ws.on_upgrade(|socket| process_websocket(socket))
+    ws.on_upgrade(process_websocket)
 }

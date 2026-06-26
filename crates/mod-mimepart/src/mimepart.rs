@@ -69,11 +69,10 @@ impl PartRef {
         mut content_type: Option<BString>,
     ) -> anyhow::Result<()> {
         self.mutate(|part| {
-            if content_type.is_none() {
-                if let Ok(Some(params)) = part.headers().content_type() {
+            if content_type.is_none()
+                && let Ok(Some(params)) = part.headers().content_type() {
                     content_type.replace(params.value);
                 }
-            }
 
             match body.to_str() {
                 Ok(s) => {

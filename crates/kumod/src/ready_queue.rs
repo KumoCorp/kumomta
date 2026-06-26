@@ -54,7 +54,7 @@ use tokio::task::JoinHandle;
 use tracing::instrument;
 use uuid::Uuid;
 
-static MANAGER: LazyLock<ReadyQueueManager> = LazyLock::new(|| ReadyQueueManager::new());
+static MANAGER: LazyLock<ReadyQueueManager> = LazyLock::new(ReadyQueueManager::new);
 static READYQ_RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("readyq", |cpus| cpus / 2, &READYQ_THREADS).unwrap());
 static RQMAINT_THREADS: AtomicUsize = AtomicUsize::new(0);
@@ -306,8 +306,7 @@ impl ReadyQueueManager {
 
         let routing_domain = components
             .routing_domain
-            .as_deref()
-            .unwrap_or(&components.domain);
+            .unwrap_or(components.domain);
 
         // Note well! The ready queue name is based on the perspective of the
         // receiver, combining our source (which they see) with the unique
@@ -365,8 +364,7 @@ impl ReadyQueueManager {
         let components = QueueNameComponents::parse(queue_name);
         let routing_domain = components
             .routing_domain
-            .as_deref()
-            .unwrap_or(&components.domain);
+            .unwrap_or(components.domain);
 
         let mut config = load_config().await?;
 
@@ -439,7 +437,7 @@ impl ReadyQueueManager {
             let service = format!("{proto}:{name}");
             let metrics = DeliveryMetrics::new(
                 &service,
-                &proto,
+                proto,
                 egress_pool,
                 &egress_source.name,
                 &path_config.provider_name,
@@ -647,7 +645,7 @@ impl ReadyQueueManager {
                 if MANAGER
                     .queues
                     .remove_if(&name, |_k, q| {
-                        Arc::ptr_eq(&q, &queue) && queue.reapable(&last_notify, &suspend)
+                        Arc::ptr_eq(q, &queue) && queue.reapable(&last_notify, &suspend)
                     })
                     .is_some()
                 {
@@ -688,7 +686,7 @@ impl ReadyQueueManager {
                     // Ensure that we're no longer linked
                     MANAGER
                         .queues
-                        .remove_if(&name, |_k, q| Arc::ptr_eq(&q, &queue));
+                        .remove_if(&name, |_k, q| Arc::ptr_eq(q, &queue));
                     // Mark this instance as closed; this will cause any dispatchers
                     // to close themselves out when we wake them on the line
                     // following this next one
@@ -910,7 +908,7 @@ impl ReadyQueue {
 
         if !reinsert.is_empty() {
             let activity = self.activity.clone();
-            self.readyq_spawn("reinserting".to_string(), async move {
+            self.readyq_spawn("reinserting", async move {
                 for msg in reinsert {
                     if let Err(err) = Dispatcher::reinsert_message(
                         msg,
@@ -966,7 +964,7 @@ impl ReadyQueue {
     /// mapping.
     fn is_canonical(self: &Arc<Self>) -> bool {
         ReadyQueueManager::get_by_name(&self.name)
-            .map(|q| Arc::ptr_eq(&q, &self))
+            .map(|q| Arc::ptr_eq(&q, self))
             .unwrap_or(false)
     }
 
@@ -1227,7 +1225,7 @@ impl ReadyQueue {
                     tracing::trace!("{}: protocol changed, will replace ready queue", self.name);
                     if let Some((_name, removed)) = MANAGER
                         .queues
-                        .remove_if(&self.name, |_name, q| Arc::ptr_eq(&self, &q))
+                        .remove_if(&self.name, |_name, q| Arc::ptr_eq(&self, q))
                     {
                         removed.wakeup_maintainer();
                     }
@@ -1353,7 +1351,7 @@ impl Drop for Dispatcher {
         let activity = self.activity.clone();
         let name = self.name.to_string();
         self.num_connections.fetch_sub(1, Ordering::SeqCst);
-        self.readyq_spawn("Dispatcher::drop".to_string(), async move {
+        self.readyq_spawn("Dispatcher::drop", async move {
             let had_msgs = !msgs.is_empty();
 
             for msg in msgs {
@@ -1830,7 +1828,7 @@ impl Dispatcher {
 
             for (key, throttle) in throttles {
                 if self
-                    .check_throttle(&throttle, key, key, &path_config)
+                    .check_throttle(throttle, key, key, &path_config)
                     .await?
                 {
                     return Ok(());
@@ -1902,7 +1900,7 @@ impl Dispatcher {
                 msgs.len()
             );
             let activity = self.activity.clone();
-            self.readyq_spawn("reinserting".to_string(), async move {
+            self.readyq_spawn("reinserting", async move {
                 for msg in msgs {
                     if let Err(err) = Self::reinsert_message(msg, context.clone()).await {
                         if !ShuttingDownError::is_shutting_down(&err) {
@@ -1932,7 +1930,7 @@ impl Dispatcher {
                 );
                 kumo_chrono_helper::MINUTE
             });
-            self.readyq_spawn("requeue for throttle".to_string(), async move {
+            self.readyq_spawn("requeue for throttle", async move {
                 let response = Response {
                     code: 451,
                     enhanced_code: Some(EnhancedStatusCode {
@@ -2311,7 +2309,7 @@ impl Dispatcher {
 pub fn ideal_connection_count(queue_size: usize, connection_limit: usize) -> usize {
     let factor = 0.023;
     let goal = (connection_limit as f32)
-        * (1. - (-1.0 * queue_size as f32 * factor).exp()).min(queue_size as f32);
+        * (1. - (-(queue_size as f32) * factor).exp()).min(queue_size as f32);
     goal.ceil().min(queue_size as f32) as usize
 }
 

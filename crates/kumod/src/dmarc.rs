@@ -13,7 +13,7 @@ struct CheckHostOutput {
     result: AuthenticationResult,
 }
 
-pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
+pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let dmarc_mod = get_or_create_sub_module(lua, "dmarc")?;
 
     dmarc_mod.set(
@@ -86,11 +86,11 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                     | Disposition::TempError
                     | Disposition::PermError => Ok(lua.to_value_with(
                         &CheckHostOutput {
-                            disposition: result.result.clone(),
+                            disposition: result.result,
                             result: AuthenticationResult {
                                 method: "dmarc".into(),
                                 method_version: None,
-                                result: result.result.to_string().to_ascii_lowercase().into(),
+                                result: result.result.to_string().to_ascii_lowercase(),
                                 reason: Some(result.context.into()),
                                 props: BTreeMap::default(),
                             },
@@ -105,7 +105,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                         );
                         Ok(lua.to_value_with(
                             &CheckHostOutput {
-                                disposition: result.result.clone(),
+                                disposition: result.result,
                                 result: AuthenticationResult {
                                     method: "dmarc".into(),
                                     method_version: None,

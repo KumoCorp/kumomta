@@ -152,7 +152,7 @@ impl DeliveryMetrics {
             TOTAL_MSGS_TRANSFAIL_BY_PROVIDER.get_or_create(&provider_key as &dyn ProviderKeyTrait);
 
         let ready_count = ReadyCountBundle {
-            ready_count_by_service: crate::metrics_helper::ready_count_gauge_for_service(&service),
+            ready_count_by_service: crate::metrics_helper::ready_count_gauge_for_service(service),
             global_ready_count: globals.global_ready_count.clone(),
             queued_by_provider: QUEUED_COUNT_GAUGE_BY_PROVIDER
                 .get_or_create(&provider_key as &dyn ProviderKeyTrait),
@@ -161,28 +161,28 @@ impl DeliveryMetrics {
         };
 
         let delivered = DispositionBundle {
-            msgs: crate::metrics_helper::total_msgs_delivered_for_service(&service),
+            msgs: crate::metrics_helper::total_msgs_delivered_for_service(service),
             global: globals.global_msgs_delivered.clone(),
             provider: provider_msgs_delivered,
             source_provider: source_provider_msgs_delivered,
         };
 
         let transfail = DispositionBundle {
-            msgs: crate::metrics_helper::total_msgs_transfail_for_service(&service),
+            msgs: crate::metrics_helper::total_msgs_transfail_for_service(service),
             global: globals.global_msgs_transfail.clone(),
             provider: provider_msgs_transfail,
             source_provider: source_provider_msgs_transfail,
         };
 
         let fail = DispositionBundle {
-            msgs: crate::metrics_helper::total_msgs_fail_for_service(&service),
+            msgs: crate::metrics_helper::total_msgs_fail_for_service(service),
             global: globals.global_msgs_fail.clone(),
             provider: provider_msgs_fail,
             source_provider: source_provider_msgs_fail,
         };
 
         let connection_gauge = ConnectionGaugeBundle {
-            connections: crate::metrics_helper::connection_gauge_for_service(&service),
+            connections: crate::metrics_helper::connection_gauge_for_service(service),
             global: globals.global_connection_gauge.clone(),
             provider: crate::metrics_helper::CONN_GAUGE_BY_PROVIDER
                 .get_or_create(&provider_key as &dyn ProviderKeyTrait),
@@ -192,9 +192,9 @@ impl DeliveryMetrics {
 
         DeliveryMetrics {
             connection_gauge,
-            connection_total: crate::metrics_helper::connection_total_for_service(&service),
+            connection_total: crate::metrics_helper::connection_total_for_service(service),
             global_connection_total: globals.global_connection_total.clone(),
-            ready_full: crate::metrics_helper::ready_full_counter_for_service(&service),
+            ready_full: crate::metrics_helper::ready_full_counter_for_service(service),
             ready_count,
             deliver_message_rollup: crate::metrics_helper::deliver_message_rollup_for_service(
                 service_type,

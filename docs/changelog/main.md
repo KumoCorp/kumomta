@@ -1,5 +1,18 @@
 # Unreleased Changes in The Mainline
 
+## Other Changes and Enhancements
+ * New [IP warmup policy helper](../userguide/configuration/ip_warmup.md)
+   (`policy-extras/warmup.lua` + shipped `warmup.toml` presets) automatically
+   applies overall per-source volume ramps via
+   `additional_source_selection_rates` based on `warmup_start` and named
+   schedules (`conservative`, `aggressive`, `transactional`), with full
+   operator override support.
+ * New [DMARC RUA policy helper](../userguide/configuration/dmarc_rua.md)
+   (`policy-extras/dmarc_rua.lua`) parses inbound DMARC aggregate reports from
+   receivers such as Gmail and Microsoft Outlook, classifies SPF/DKIM/alignment
+   issues, and produces customer-facing guidance summaries (meta + markdown
+   briefing) for support and deliverability workflows.
+
 ## Breaking Changes
  * DKIM verification no longer implicitly generates a policy failure if
    the From: domain doesn't match the DKIM signature.  It was an overly

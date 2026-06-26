@@ -120,7 +120,7 @@ impl MailEntry {
 
         match &self.data {
             MailData::None => unreachable!(),
-            MailData::Bytes(b) => Ok(&b),
+            MailData::Bytes(b) => Ok(b),
         }
     }
 

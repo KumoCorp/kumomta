@@ -375,7 +375,7 @@ fn explain_throttle(spec: &ThrottleSpec) -> String {
         if n < 1.0 {
             format!("{n:.3}")
         } else {
-            format!("{}", (n.ceil() as usize).to_formatted_string(&Locale::en))
+            (n.ceil() as usize).to_formatted_string(&Locale::en).to_string()
         }
     }
 

@@ -396,11 +396,10 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
                             domain,
                             routing_domain,
                             queue_name,
-                        ) {
-                            if entry.get_expires() > now {
+                        )
+                            && entry.get_expires() > now {
                                 return Some(entry.clone());
                             }
-                        }
                     }
                 }
             }
@@ -421,11 +420,10 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
                             domain,
                             routing_domain,
                             queue_name,
-                        ) {
-                            if entry.get_expires() > now {
+                        )
+                            && entry.get_expires() > now {
                                 return Some(entry.clone());
                             }
-                        }
                     }
                 }
             }
@@ -445,11 +443,10 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
                             domain,
                             routing_domain,
                             queue_name,
-                        ) {
-                            if entry.get_expires() > now {
+                        )
+                            && entry.get_expires() > now {
                                 return Some(entry.clone());
                             }
-                        }
                     }
                 }
             }
@@ -466,11 +463,10 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
                             domain,
                             routing_domain,
                             queue_name,
-                        ) {
-                            if entry.get_expires() > now {
+                        )
+                            && entry.get_expires() > now {
                                 return Some(entry.clone());
                             }
-                        }
                     }
                 }
             }
@@ -488,11 +484,10 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
                     domain,
                     routing_domain,
                     queue_name,
-                ) {
-                    if entry.get_expires() > now {
+                )
+                    && entry.get_expires() > now {
                         return Some(entry.clone());
                     }
-                }
             }
         }
         None

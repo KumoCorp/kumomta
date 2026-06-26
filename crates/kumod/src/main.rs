@@ -121,7 +121,7 @@ impl Opt {
         let uid = Uid::effective();
         if !uid.is_root() {
             if let Some(user_name) = &self.user {
-                let user = User::from_name(&user_name)?
+                let user = User::from_name(user_name)?
                     .ok_or_else(|| anyhow::anyhow!("Invalid user {user_name}"))?;
                 if user.uid != uid {
                     anyhow::bail!(
@@ -138,7 +138,7 @@ impl Opt {
         let user_name = self.user.as_ref().ok_or_else(|| {
             anyhow::anyhow!("When running as root, you must set --user to the user to run as")
         })?;
-        let user = User::from_name(&user_name)?
+        let user = User::from_name(user_name)?
             .ok_or_else(|| anyhow::anyhow!("Invalid user {user_name}"))?;
 
         nix::unistd::setgid(user.gid).context("setgid")?;
@@ -212,7 +212,7 @@ fn main() -> anyhow::Result<()> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .worker_threads(n_threads)
-        .on_thread_park(|| kumo_server_memory::purge_thread_cache())
+        .on_thread_park(kumo_server_memory::purge_thread_cache)
         .event_interval(
             std::env::var("KUMOD_EVENT_INTERVAL")
                 .ok()

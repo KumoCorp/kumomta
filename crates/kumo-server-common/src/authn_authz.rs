@@ -20,7 +20,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 static ACL_MAP: LazyLock<AccessControlListMap> =
-    LazyLock::new(|| AccessControlListMap::compiled_default());
+    LazyLock::new(AccessControlListMap::compiled_default);
 static FALL_BACK_TO_ACL_MAP: AtomicBool = AtomicBool::new(true);
 
 lruttl::declare_cache! {

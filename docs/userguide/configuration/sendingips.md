@@ -66,7 +66,9 @@ ehlo_domain = 'mta3.examplecorp.com'
 [pool."pool-2"."ip-2"]
 weight = 2
 
-# We're warming up ip-3, so use it less frequently than ip-2
+# Prefer established ip-2 over warming ip-3 via weight (optional).
+# For automatic day-by-day volume ramps, use the IP warmup helper:
+# https://docs.kumomta.com/userguide/configuration/ip_warmup/
 [pool."pool-2"."ip-3"]
 weight = 1
 {% endcall %}
@@ -198,7 +200,7 @@ function setup_pools()
       name = 'MediumReputation',
       entries = {
         { name = 'ip-2', weight = 2 },
-        -- we're warming up ip-3, so use it less frequently than ip-2
+        -- optional weight preference; for automatic volume ramp see ip_warmup.md
         { name = 'ip-3', weight = 1 },
       },
     },

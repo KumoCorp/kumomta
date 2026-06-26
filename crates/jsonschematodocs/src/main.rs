@@ -163,7 +163,7 @@ fn generate_path_op(
         path = &path[1..],
         verb = verb.to_ascii_lowercase()
     )
-    .replace(|c| c == '/' || c == '-', "_");
+    .replace(['/', '-'], "_");
     let output_path = format!("{}/{page_name}.md", doc_dir_for_service(service));
 
     let mut output_file = std::fs::File::create(&output_path)?;
@@ -252,8 +252,8 @@ fn generate_path_op(
         writeln!(&mut output, "\nThe request body is {required}.")?;
 
         for (ct, content) in &body.content {
-            if let Some(ros) = &content.schema {
-                if let Some(s) = resolve_schema(api, ros) {
+            if let Some(ros) = &content.schema
+                && let Some(s) = resolve_schema(api, ros) {
                     writeln!(
                         &mut output,
                         "\nThe `Content-Type` header must be set to `{ct}`.\n"
@@ -263,7 +263,6 @@ fn generate_path_op(
                     emit_schema(&mut output, api, s, schema_dir, &mut examples)?;
                     emit_examples(&mut output, &mut examples)?;
                 }
-            }
 
             if let Some(ex) = &content.example {
                 writeln!(&mut output, "\n## Example\n```json")?;
@@ -283,13 +282,12 @@ fn generate_path_op(
 
                     for (ct, content) in &resp.content {
                         writeln!(&mut output, "\n`Content-Type: {ct}`\n")?;
-                        if let Some(ros) = &content.schema {
-                            if let Some(s) = resolve_schema(api, ros) {
+                        if let Some(ros) = &content.schema
+                            && let Some(s) = resolve_schema(api, ros) {
                                 let mut examples = vec![];
                                 emit_schema(&mut output, api, s, schema_dir, &mut examples)?;
                                 emit_examples(&mut output, &mut examples)?;
                             }
-                        }
 
                         if let Some(ex) = &content.example {
                             writeln!(&mut output, "\n#### Example\n```json")?;
@@ -362,11 +360,10 @@ fn schema_description(s: &Schema) -> Option<&str> {
 }
 
 fn ref_or_schema_description<'a>(api: &'a OpenApi, r: &'a RefOr<Schema>) -> Option<&'a str> {
-    if let RefOr::Ref(r) = r {
-        if !r.description.is_empty() {
+    if let RefOr::Ref(r) = r
+        && !r.description.is_empty() {
             return Some(&r.description);
         }
-    }
     schema_description(resolve_schema(api, r).expect("ref to resolve"))
 }
 
@@ -475,11 +472,10 @@ fn schema_examples(api: &OpenApi, s: &Schema) -> Vec<Value> {
                     let mut ex = json!({});
 
                     for (k, v) in &a.properties {
-                        if let Some(s) = resolve_schema(api, v) {
-                            if let Some(first) = interesting_example(&schema_examples(api, s)) {
+                        if let Some(s) = resolve_schema(api, v)
+                            && let Some(first) = interesting_example(&schema_examples(api, s)) {
                                 ex[k] = first.clone();
                             }
-                        }
                     }
 
                     result.push(ex);
@@ -497,11 +493,10 @@ fn schema_examples(api: &OpenApi, s: &Schema) -> Vec<Value> {
                 result.append(&mut schema_examples(api, s));
             }
 
-            if result.is_empty() {
-                if let Some(def) = &a.default {
+            if result.is_empty()
+                && let Some(def) = &a.default {
                     result.push(def.clone());
                 }
-            }
         }
         Schema::AllOf(a) => {
             if let Some(ex) = &a.example {
@@ -570,7 +565,7 @@ fn interesting_example(examples: &[Value]) -> Option<Value> {
 fn compute_examples(example_values: &mut BTreeMap<String, Vec<Value>>) -> Vec<Value> {
     let mut example_object = json!({});
     for (k, list) in example_values {
-        if let Some(v) = interesting_example(&list) {
+        if let Some(v) = interesting_example(list) {
             example_object[k] = v.clone();
         }
     }
@@ -631,7 +626,7 @@ fn emit_schema(
                             "This is an object value, with the following properties:\n"
                         )?;
                         let mut example = BTreeMap::new();
-                        emit_object(output, api, &obj, &mut example, schema_dir)?;
+                        emit_object(output, api, obj, &mut example, schema_dir)?;
                         examples.append(&mut compute_examples(&mut example));
                     }
                 }

@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use tracing::instrument;
 
-pub static MANAGER: LazyLock<QueueManager> = LazyLock::new(|| QueueManager::new());
+pub static MANAGER: LazyLock<QueueManager> = LazyLock::new(QueueManager::new);
 
 declare_metric! {
 /// latency of QueueManager::resolve operations
@@ -301,8 +301,8 @@ impl QueueManager {
         match MANAGER.named.get_mut(name) {
             Some(mut item) => {
                 match item.value() {
-                    QueueSlot::Handle(handle) => return Ok(SlotLease::Handle(handle.clone())),
-                    QueueSlot::Resolving(sema) => return Ok(SlotLease::Resolving(sema.clone())),
+                    QueueSlot::Handle(handle) => Ok(SlotLease::Handle(handle.clone())),
+                    QueueSlot::Resolving(sema) => Ok(SlotLease::Resolving(sema.clone())),
                     QueueSlot::Failed { error, expires } => {
                         if *expires > Instant::now() {
                             anyhow::bail!("{error}");
@@ -310,7 +310,7 @@ impl QueueManager {
                         // Negative cache expired; can setup the slot for resolve
                         let sema = Arc::new(Semaphore::new(1));
                         *item.value_mut() = QueueSlot::Resolving(sema.clone());
-                        return Ok(SlotLease::Resolving(sema));
+                        Ok(SlotLease::Resolving(sema))
                     }
                 }
             }
@@ -320,8 +320,8 @@ impl QueueManager {
                     QueueSlot::Resolving(Arc::new(Semaphore::new(1)))
                 });
                 match entry.value() {
-                    QueueSlot::Handle(handle) => return Ok(SlotLease::Handle(handle.clone())),
-                    QueueSlot::Resolving(sema) => return Ok(SlotLease::Resolving(sema.clone())),
+                    QueueSlot::Handle(handle) => Ok(SlotLease::Handle(handle.clone())),
+                    QueueSlot::Resolving(sema) => Ok(SlotLease::Resolving(sema.clone())),
                     QueueSlot::Failed { error, .. } => {
                         // We don't bother looking at expiry here: our first try
                         // found nothing in the map, so if we see an entry now on

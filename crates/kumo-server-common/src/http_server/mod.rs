@@ -313,7 +313,7 @@ impl HttpListenerParams {
         let app_state = AppState {
             process_kind: router_and_docs.docs.info.title.clone(),
             params: self.clone(),
-            local_addr: addr.clone(),
+            local_addr: addr,
         };
 
         let app = router_and_docs
@@ -423,7 +423,7 @@ where
     ),
 )]
 async fn machine_info(State(state): State<AppState>) -> Result<Json<MachineInfoV1>, AppError> {
-    let online_since = ONLINE_SINCE.clone();
+    let online_since = *ONLINE_SINCE;
     match MACHINE_INFO.lock().as_ref() {
         Some(info) => Ok(Json(MachineInfoV1 {
             hostname: info.hostname.clone(),
@@ -434,7 +434,7 @@ async fn machine_info(State(state): State<AppState>) -> Result<Json<MachineInfoV
             platform: info.platform.clone(),
             distribution: info.distribution.clone(),
             os_version: info.os_version.clone(),
-            total_memory_bytes: info.total_memory_bytes.clone(),
+            total_memory_bytes: info.total_memory_bytes,
             container_runtime: info.container_runtime.clone(),
             cpu_brand: info.cpu_brand.clone(),
             fingerprint: info.fingerprint(),
@@ -443,10 +443,10 @@ async fn machine_info(State(state): State<AppState>) -> Result<Json<MachineInfoV
             version: version_info::kumo_version().to_string(),
         })),
         None => {
-            return Err(AppError::new(
+            Err(AppError::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "machine info not yet available",
-            ));
+            ))
         }
     }
 }

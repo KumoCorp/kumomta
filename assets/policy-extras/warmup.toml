@@ -1,0 +1,121 @@
+# Built-in IP warmup schedule presets for policy-extras/warmup.lua
+#
+# These define *infrastructure volume ramps* for dedicated sending IPs.
+# They are not a substitute for list hygiene, authentication (SPF/DKIM/DMARC),
+# engagement quality, or provider monitoring (Google Postmaster, Microsoft SNDS).
+#
+# Operators should copy/override via their own warmup.toml; ship this file
+# as the community/default layer (same pattern as shaping.toml).
+#
+# Each schedule key is the warmup day number (1 = warmup_start date).
+# Values are either:
+#   - integer daily message limit (helper formats throttle with max_burst)
+#   - full throttle spec string, e.g. "500/day,max_burst=1"
+
+# Which schedule to use when a source does not set `schedule`
+default_schedule = "conservative"
+
+# Global defaults (per-source settings can override some of these)
+timezone = "UTC"
+active_sending_hours = 12
+max_burst = 1
+# When true, hourly selection rate is derived from daily / active_sending_hours
+apply_hourly_spread = true
+# When false (default), sources complete warmup after the last schedule day
+hold_final_day = false
+# If warmup_start is in the future: "day1" uses day-1 limits; "block" uses 0/day
+before_start_behavior = "day1"
+
+# ---------------------------------------------------------------------------
+# conservative (~30 days) — default for new dedicated IPs on permission lists
+# Roughly aligned with industry dedicated-IP ramp guidance (order of magnitude).
+# ---------------------------------------------------------------------------
+[schedule.conservative]
+1 = 50
+2 = 100
+3 = 200
+4 = 400
+5 = 800
+6 = 1500
+7 = 3000
+8 = 5000
+9 = 7500
+10 = 10000
+11 = 12500
+12 = 15000
+13 = 20000
+14 = 25000
+15 = 30000
+16 = 35000
+17 = 40000
+18 = 45000
+19 = 50000
+20 = 55000
+21 = 60000
+22 = 70000
+23 = 80000
+24 = 90000
+25 = 100000
+26 = 110000
+27 = 120000
+28 = 135000
+29 = 150000
+30 = 175000
+
+# ---------------------------------------------------------------------------
+# aggressive (~14 days) — only with strong existing domain reputation /
+# primarily transactional streams. Higher risk on cold/marketing lists.
+# ---------------------------------------------------------------------------
+[schedule.aggressive]
+1 = 200
+2 = 500
+3 = 1000
+4 = 2500
+5 = 5000
+6 = 10000
+7 = 20000
+8 = 35000
+9 = 50000
+10 = 75000
+11 = 100000
+12 = 150000
+13 = 200000
+14 = 300000
+
+# ---------------------------------------------------------------------------
+# transactional (~21 days) — higher early volume than conservative, still capped.
+# Intended for opt-in transactional / lifecycle mail on a dedicated IP.
+# ---------------------------------------------------------------------------
+[schedule.transactional]
+1 = 100
+2 = 250
+3 = 500
+4 = 1000
+5 = 2000
+6 = 4000
+7 = 8000
+8 = 12000
+9 = 18000
+10 = 25000
+11 = 35000
+12 = 45000
+13 = 60000
+14 = 80000
+15 = 100000
+16 = 125000
+17 = 150000
+18 = 175000
+19 = 200000
+20 = 250000
+21 = 300000
+
+# Per-source enrollment lives in operator config, e.g.:
+#
+# [source."ip-3"]
+# warmup_start = "2026-06-01"
+# schedule = "conservative"
+# # status = "active"   # or "complete" | "paused"
+# # day_offset = 0
+# # hold_final_day = false
+# # post_warmup_rate = "500000/day,max_burst=100"
+# # paused_rate = "0/day,max_burst=1"

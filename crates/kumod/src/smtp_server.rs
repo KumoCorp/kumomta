@@ -174,9 +174,9 @@ pub enum LogReportDisposition {
     LogThenRelay,
 }
 
-impl Into<serde_json::Value> for LogReportDisposition {
-    fn into(self) -> serde_json::Value {
-        format!("{self:?}").into()
+impl From<LogReportDisposition> for serde_json::Value {
+    fn from(val: LogReportDisposition) -> Self {
+        format!("{val:?}").into()
     }
 }
 
@@ -815,15 +815,12 @@ impl TryFrom<&str> for RejectDisconnect {
 
 impl mlua::FromLua for RejectDisconnect {
     fn from_lua(value: mlua::Value, _lua: &mlua::Lua) -> Result<Self, mlua::Error> {
-        match value {
-            mlua::Value::String(ref s) => {
-                if let Ok(s) = s.to_str() {
-                    if let Ok(v) = (&*s).try_into() {
-                        return Ok(v);
-                    }
+        if let mlua::Value::String(ref s) = value {
+            if let Ok(s) = s.to_str() {
+                if let Ok(v) = (&*s).try_into() {
+                    return Ok(v);
                 }
             }
-            _ => {}
         }
 
         Err(mlua::Error::external(format!(
@@ -836,15 +833,15 @@ impl mlua::FromLua for RejectDisconnect {
 impl RejectError {
     pub fn from_lua(err: &mlua::Error) -> Option<Self> {
         match err {
-            mlua::Error::CallbackError { cause, .. } => return Self::from_lua(cause),
-            mlua::Error::ExternalError(err) => return Self::from_std_error(&**err),
+            mlua::Error::CallbackError { cause, .. } => Self::from_lua(cause),
+            mlua::Error::ExternalError(err) => Self::from_std_error(&**err),
             _ => None,
         }
     }
 
     pub fn from_std_error(err: &(dyn std::error::Error + 'static)) -> Option<Self> {
         if let Some(cause) = err.source() {
-            return Self::from_std_error(cause);
+            Self::from_std_error(cause)
         } else if let Some(rej) = err.downcast_ref::<Self>() {
             Some(rej.clone())
         } else if let Some(lua_err) = err.downcast_ref::<mlua::Error>() {
@@ -865,7 +862,7 @@ struct DebugPrintBuffer<'a>(&'a [u8]);
 
 impl<'a> std::fmt::Debug for DebugPrintBuffer<'a> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let s = String::from_utf8_lossy(&self.0);
+        let s = String::from_utf8_lossy(self.0);
         write!(fmt, "{} bytes: {s:?}", self.0.len())
     }
 }
@@ -1127,11 +1124,7 @@ impl SmtpServerSession {
         // take effect for a sender before we consider a "random"
         // destination domain for which relay_to will likely be
         // set to false.
-        let relay = if relay_hosts_allowed || relay_from_allowed || relay_to_allowed == Some(true) {
-            true
-        } else {
-            false
-        };
+        let relay = relay_hosts_allowed || relay_from_allowed || relay_to_allowed == Some(true);
 
         tracing::debug!(
             "check_relaying: sender={sender_domain} \
@@ -1267,7 +1260,7 @@ impl SmtpServerSession {
 
     fn check_shutdown(&self) -> bool {
         if self.read_buffer.is_empty() {
-            Activity::get_opt(format!("SMTP server check_shutdown (transient)")).is_none()
+            Activity::get_opt("SMTP server check_shutdown (transient)".to_string()).is_none()
         } else {
             false
         }
@@ -1737,18 +1730,21 @@ impl SmtpServerSession {
                     {
                         Ok(stream) => {
                             let (_io, conn) = stream.get_ref();
-                            let mut tls_info = TlsInformation::default();
-
-                            tls_info.provider_name = "rustls".to_string();
-                            tls_info.cipher = match conn.negotiated_cipher_suite() {
-                                Some(suite) => {
-                                    suite.suite().as_str().unwrap_or("UNKNOWN").to_string()
-                                }
-                                None => String::new(),
-                            };
-                            tls_info.protocol_version = match conn.protocol_version() {
-                                Some(version) => version.as_str().unwrap_or("UNKNOWN").to_string(),
-                                None => String::new(),
+                            let mut tls_info = TlsInformation {
+                                provider_name: "rustls".to_string(),
+                                cipher: match conn.negotiated_cipher_suite() {
+                                    Some(suite) => {
+                                        suite.suite().as_str().unwrap_or("UNKNOWN").to_string()
+                                    }
+                                    None => String::new(),
+                                },
+                                protocol_version: match conn.protocol_version() {
+                                    Some(version) => {
+                                        version.as_str().unwrap_or("UNKNOWN").to_string()
+                                    }
+                                    None => String::new(),
+                                },
+                                ..Default::default()
                             };
 
                             if let Some(certs) = conn.peer_certificates() {
@@ -2124,7 +2120,7 @@ impl SmtpServerSession {
                 )) => {
                     self.write_response(
                         502,
-                        format!("5.5.1 Command unimplemented"),
+                        "5.5.1 Command unimplemented".to_string(),
                         Some(line),
                         RejectDisconnect::If421,
                     )
@@ -2243,10 +2239,10 @@ impl SmtpServerSession {
         }
         self.read_buffer.drain(0..consumed_bytes);
 
-        if addr.is_some() {
-            let old_peer = self.peer_address.clone();
+        if let Some(addr) = addr {
+            let old_peer = self.peer_address;
 
-            self.peer_address = addr.unwrap();
+            self.peer_address = addr;
             self.meta
                 .set_meta("orig_received_from", self.orig_peer_address.to_string());
             self.meta
@@ -2264,10 +2260,10 @@ impl SmtpServerSession {
                 when: Utc::now(),
             });
         }
-        if dest_addr.is_some() {
-            let old_via = self.my_address.clone();
+        if let Some(dest_addr) = dest_addr {
+            let old_via = self.my_address;
 
-            self.my_address = dest_addr.unwrap();
+            self.my_address = dest_addr;
             self.meta
                 .set_meta("orig_received_via", self.orig_my_address.to_string());
             self.meta
@@ -2380,7 +2376,7 @@ impl SmtpServerSession {
         }
 
         if addr.is_some() || port.is_some() {
-            let old_peer = self.peer_address.clone();
+            let old_peer = self.peer_address;
 
             let new_addr = addr.unwrap_or(old_peer.ip());
             let new_port = port.unwrap_or(old_peer.port());
@@ -2406,7 +2402,7 @@ impl SmtpServerSession {
         }
 
         if dest_addr.is_some() || dest_port.is_some() {
-            let old_via = self.my_address.clone();
+            let old_via = self.my_address;
 
             let new_addr = dest_addr.unwrap_or(old_via.ip());
             let new_port = dest_port.unwrap_or(old_via.port());
@@ -2593,9 +2589,9 @@ impl SmtpServerSession {
         let fields: Vec<_> = payload.split(|&b| b == 0).collect();
         let (authz, authc, pass) = match fields.len() {
             3 => (
-                std::str::from_utf8(&fields[0]),
-                std::str::from_utf8(&fields[1]),
-                std::str::from_utf8(&fields[2]),
+                std::str::from_utf8(fields[0]),
+                std::str::from_utf8(fields[1]),
+                std::str::from_utf8(fields[2]),
             ),
             _ => {
                 self.write_response(
@@ -2897,13 +2893,11 @@ impl SmtpServerSession {
                         for recip in base_message.recipient_list().await? {
                             by_domain
                                 .entry(recip.domain().to_lowercase())
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push(recip);
                         }
 
-                        batches = by_domain
-                            .into_iter()
-                            .map(|(_keys, values)| values)
+                        batches = by_domain.into_values()
                             .collect();
                     }
                 }
@@ -3124,7 +3118,7 @@ impl SmtpServerSession {
                     log_arf: relay_disposition.log_arf,
                     log_oob: relay_disposition.log_oob,
                     will_enqueue: relay_this_one,
-                    was_arf_or_oob: was_arf_or_oob,
+                    was_arf_or_oob,
                     queue: queue_name.clone(),
                     meta: meta_obj,
                     sender,
@@ -3135,55 +3129,52 @@ impl SmtpServerSession {
             });
 
             if relay_this_one && queue_name != "null" && !self.params.deferred_spool {
-                match message.save(Some(deadline)).await {
-                    Err(err) => {
-                        // Assume that any other saves that we try right now
-                        // are likely to fail for similar reasons, and since
-                        // SMTP doesn't provide a means for reporting a partial
-                        // failure, we have to unwind any other messages that
-                        // we just spooled as part of this same "transaction".
-                        for (_queue_name, prior) in messages {
-                            SpoolManager::remove_from_spool(*prior.id()).await.ok();
-                            log_disposition(LogDisposition {
-                                kind: RecordType::Bounce,
-                                msg: prior.clone(),
-                                site: "",
-                                peer_address: None,
-                                response: Response {
-                                    code: 500,
-                                    enhanced_code: None,
-                                    command: None,
-                                    content: format!(
-                                        "KumoMTA internal: Message::save failed for other \
-                                        messages in the same batch during reception: {err:#}"
-                                    ),
-                                },
-                                egress_source: None,
-                                egress_pool: None,
-                                relay_disposition: None,
-                                delivery_protocol: None,
-                                tls_info: None,
-                                source_address: None,
-                                provider: None,
-                                session_id: None,
-                                recipient_list: None,
-                            })
-                            .await;
-                        }
-
-                        if err.root_cause().is::<tokio::time::error::Elapsed>() {
-                            self.write_response(
-                                451,
-                                "4.4.5 data_processing_timeout exceeded (spool)",
-                                Some("DATA".into()),
-                                RejectDisconnect::If421,
-                            )
-                            .await?;
-                            return Ok(());
-                        }
-                        return Err(err);
+                if let Err(err) = message.save(Some(deadline)).await {
+                    // Assume that any other saves that we try right now
+                    // are likely to fail for similar reasons, and since
+                    // SMTP doesn't provide a means for reporting a partial
+                    // failure, we have to unwind any other messages that
+                    // we just spooled as part of this same "transaction".
+                    for (_queue_name, prior) in messages {
+                        SpoolManager::remove_from_spool(*prior.id()).await.ok();
+                        log_disposition(LogDisposition {
+                            kind: RecordType::Bounce,
+                            msg: prior.clone(),
+                            site: "",
+                            peer_address: None,
+                            response: Response {
+                                code: 500,
+                                enhanced_code: None,
+                                command: None,
+                                content: format!(
+                                    "KumoMTA internal: Message::save failed for other \
+                                    messages in the same batch during reception: {err:#}"
+                                ),
+                            },
+                            egress_source: None,
+                            egress_pool: None,
+                            relay_disposition: None,
+                            delivery_protocol: None,
+                            tls_info: None,
+                            source_address: None,
+                            provider: None,
+                            session_id: None,
+                            recipient_list: None,
+                        })
+                        .await;
                     }
-                    Ok(_) => {}
+
+                    if err.root_cause().is::<tokio::time::error::Elapsed>() {
+                        self.write_response(
+                            451,
+                            "4.4.5 data_processing_timeout exceeded (spool)",
+                            Some("DATA".into()),
+                            RejectDisconnect::If421,
+                        )
+                        .await?;
+                        return Ok(());
+                    }
+                    return Err(err);
                 }
             }
 
@@ -3394,7 +3385,7 @@ fn unstuff(data: Vec<u8>) -> Vec<u8> {
         let mut unstuffed = Vec::with_capacity(data.len());
         unstuffed.extend_from_slice(&data[0..stuffed + 3]);
         let mut last_pos = stuffed + 4;
-        while let Some(stuffed) = stuffing_finder.next() {
+        for stuffed in stuffing_finder {
             unstuffed.extend_from_slice(&data[last_pos..stuffed + 3]);
             last_pos = stuffed + 4;
         }
@@ -3590,7 +3581,7 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
             msg.set_meta("queue", DEFERRED_QUEUE_NAME).await?;
             let _ = dispatcher.msgs.pop();
             spawn(
-                "requeue message".to_string(),
+                "requeue message",
                 QueueManager::requeue_message(
                     msg,
                     IncrementAttempts::Yes,

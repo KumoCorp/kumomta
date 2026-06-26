@@ -186,12 +186,11 @@ impl TlsOptions {
                 let data = pem.as_ref().clone().into_vec();
                 let mut reader = BufReader::new(data.as_slice());
                 let certs = certs(&mut reader)
-                    .into_iter()
                     .map(|r| r.map(CertificateDer::into_owned))
                     .collect::<Result<Vec<CertificateDer<'static>>, std::io::Error>>()?;
                 Ok(Some(Arc::new(certs)))
             }
-            None => return Ok(None),
+            None => Ok(None),
         }
     }
 
@@ -204,7 +203,6 @@ impl TlsOptions {
                 let pkcs8_keys: Vec<PrivateKeyDer<'static>> = {
                     let mut reader = BufReader::new(data.as_slice());
                     rustls_pemfile::pkcs8_private_keys(&mut reader)
-                        .into_iter()
                         .map(|r| r.map(PrivateKeyDer::Pkcs8))
                         .collect::<Result<Vec<PrivateKeyDer<'static>>, std::io::Error>>()?
                 };
@@ -217,7 +215,6 @@ impl TlsOptions {
                 let rsa_keys: Vec<PrivateKeyDer<'static>> = {
                     let mut reader = BufReader::new(data.as_slice());
                     rustls_pemfile::rsa_private_keys(&mut reader)
-                        .into_iter()
                         .map(|r| r.map(PrivateKeyDer::Pkcs1))
                         .collect::<Result<Vec<PrivateKeyDer<'static>>, std::io::Error>>()?
                 };
@@ -230,7 +227,6 @@ impl TlsOptions {
                 let ec_keys: Vec<PrivateKeyDer<'static>> = {
                     let mut reader = BufReader::new(data.as_slice());
                     rustls_pemfile::ec_private_keys(&mut reader)
-                        .into_iter()
                         .map(|r| r.map(PrivateKeyDer::Sec1))
                         .collect::<Result<Vec<PrivateKeyDer<'static>>, std::io::Error>>()?
                 };
@@ -244,7 +240,7 @@ impl TlsOptions {
                     "No private key found in PEM file",
                 ))
             }
-            None => return Ok(None),
+            None => Ok(None),
         }
     }
 
@@ -262,7 +258,7 @@ impl TlsOptions {
             (&self.certificate_from_pem, &self.private_key_from_pem)
         {
             let certs = X509::stack_from_pem(cert_data)?;
-            let Some(leaf) = certs.get(0).map(Clone::clone) else {
+            let Some(leaf) = certs.first().cloned() else {
                 return Err(OpensslConnectorError::SslErrorStack(
                     "certificate PEM data is empty".to_string(),
                 ));

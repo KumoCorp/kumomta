@@ -231,10 +231,8 @@ fn obs_mbox_list(input: Span) -> IResult<Span, Vec<Mailbox>> {
 
     for (first, boxes) in entries {
         result.push(first);
-        for b in boxes {
-            if let Some(m) = b {
-                result.push(m);
-            }
+        for m in boxes.into_iter().flatten() {
+            result.push(m);
         }
     }
 
@@ -290,10 +288,8 @@ fn obs_address_list(input: Span) -> IResult<Span, AddressList> {
 
     for (first, boxes) in entries {
         result.push(first);
-        for b in boxes {
-            if let Some(m) = b {
-                result.push(m);
-            }
+        for m in boxes.into_iter().flatten() {
+            result.push(m);
         }
     }
 
@@ -383,11 +379,9 @@ fn phrase(input: Span) -> IResult<Span, String> {
     )
     .parse(input)?;
     let mut result = a;
-    for item in b {
-        if let Some(item) = item {
-            result.push(b' ');
-            result.push_str(item);
-        }
+    for item in b.into_iter().flatten() {
+        result.push(b' ');
+        result.push_str(item);
     }
     // SAFETY: all sub-parsers (word, encoded_word) produce only
     // validated UTF-8 via utf8_non_ascii or charset decoding.
@@ -800,12 +794,12 @@ fn domain_literal(input: Span) -> IResult<Span, BString> {
     result.push(b'[');
     for (a, b) in bits {
         if let Some(a) = a {
-            result.push_str(&a);
+            result.push_str(a);
         }
         result.push_str(b);
     }
     if let Some(t) = trailer {
-        result.push_str(&t);
+        result.push_str(t);
     }
     result.push(b']');
     Ok((loc, result))
@@ -818,7 +812,7 @@ fn dot_atom_text(input: Span) -> IResult<Span, BString> {
     let mut result: BString = (*a).into();
     for item in b {
         result.push(b'.');
-        result.push_str(&item);
+        result.push_str(item);
     }
 
     Ok((loc, result))
@@ -1013,7 +1007,7 @@ fn encoded_word(input: Span) -> IResult<Span, BString> {
         )
     })?;
 
-    let charset = Encoding::by_name(&*charset_name).ok_or_else(|| {
+    let charset = Encoding::by_name(charset_name).ok_or_else(|| {
         make_context_error(
             input,
             format!("encoded_word: unsupported charset '{charset_name}'"),
@@ -1076,12 +1070,12 @@ fn quoted_string(input: Span) -> IResult<Span, BString> {
     let mut result = BString::default();
     for (a, b) in bits {
         if let Some(a) = a {
-            result.push_str(&a);
+            result.push_str(a);
         }
         result.push_str(b);
     }
     if let Some(t) = trailer {
-        result.push_str(&t);
+        result.push_str(t);
     }
     Ok((loc, result))
 }
@@ -1173,7 +1167,7 @@ fn strict_msg_id(input: Span) -> IResult<Span, MessageID> {
     )
     .parse(input)?;
 
-    let mut result: BString = left.into();
+    let mut result: BString = left;
     result.push_char('@');
     result.push_str(right);
 
@@ -1270,7 +1264,7 @@ fn arc_authentication_results(input: Span) -> IResult<Span, ARCAuthenticationRes
             ),
             |(_i, _eq, instance, _semic, serv_id, version, results, _)| ARCAuthenticationResults {
                 instance,
-                serv_id: serv_id.into(),
+                serv_id,
                 version,
                 results,
             },
@@ -1290,7 +1284,7 @@ fn authentication_results(input: Span) -> IResult<Span, AuthenticationResults> {
                 opt(cfws),
             ),
             |(serv_id, version, results, _)| AuthenticationResults {
-                serv_id: serv_id.into(),
+                serv_id,
                 version,
                 results,
             },
@@ -1322,7 +1316,7 @@ fn resinfo(input: Span) -> IResult<Span, AuthenticationResult> {
                 method,
                 method_version,
                 result,
-                reason: reason.map(Into::into),
+                reason,
                 props: match props {
                     None => BTreeMap::default(),
                     Some(props) => props.into_iter().collect(),
@@ -1418,7 +1412,7 @@ fn propspec(input: Span) -> IResult<Span, (String, BString)> {
                         at_dom
                     }),
                     map(separated_pair(local_part, tag("@"), domain), |(u, d)| {
-                        let mut result: BString = u.into();
+                        let mut result: BString = u;
                         result.push(b'@');
                         result.push_str(d);
                         result
@@ -1799,7 +1793,7 @@ impl EncodeHeaderValue for ARCAuthenticationResults {
 
         emit_value_token(&self.serv_id, &mut result);
         if let Some(v) = self.version {
-            result.push_str(&format!(" {v}"));
+            result.push_str(format!(" {v}"));
         }
 
         if self.results.is_empty() {
@@ -1809,7 +1803,7 @@ impl EncodeHeaderValue for ARCAuthenticationResults {
                 result.push_str(";\r\n\t");
                 emit_value_token(res.method.as_bytes(), &mut result);
                 if let Some(v) = res.method_version {
-                    result.push_str(&format!("/{v}"));
+                    result.push_str(format!("/{v}"));
                 }
                 result.push(b'=');
                 emit_value_token(res.result.as_bytes(), &mut result);
@@ -1818,7 +1812,7 @@ impl EncodeHeaderValue for ARCAuthenticationResults {
                     emit_value_token(reason.as_bytes(), &mut result);
                 }
                 for (k, v) in &res.props {
-                    result.push_str(&format!("\r\n\t{k}="));
+                    result.push_str(format!("\r\n\t{k}="));
                     emit_value_token(v.as_bytes(), &mut result);
                 }
             }
@@ -1863,7 +1857,7 @@ impl EncodeHeaderValue for AuthenticationResults {
         let mut result = Vec::new();
         emit_value_token(&self.serv_id, &mut result);
         if let Some(v) = self.version {
-            result.push_str(&format!(" {v}"));
+            result.push_str(format!(" {v}"));
         }
         if self.results.is_empty() {
             result.push_str("; none");
@@ -1872,7 +1866,7 @@ impl EncodeHeaderValue for AuthenticationResults {
                 result.push_str(";\r\n\t");
                 emit_value_token(res.method.as_bytes(), &mut result);
                 if let Some(v) = res.method_version {
-                    result.push_str(&format!("/{v}"));
+                    result.push_str(format!("/{v}"));
                 }
                 result.push(b'=');
                 emit_value_token(res.result.as_bytes(), &mut result);
@@ -1881,7 +1875,7 @@ impl EncodeHeaderValue for AuthenticationResults {
                     emit_value_token(reason.as_bytes(), &mut result);
                 }
                 for (k, v) in &res.props {
-                    result.push_str(&format!("\r\n\t{k}="));
+                    result.push_str(format!("\r\n\t{k}="));
                     emit_value_token(v.as_bytes(), &mut result);
                 }
             }
@@ -2131,7 +2125,7 @@ impl MimeParameters {
 
         for ele in elements {
             if let Some(cset) = ele.mime_charset.as_ref().and_then(|b| b.to_str().ok()) {
-                mime_charset = Encoding::by_name(&*cset);
+                mime_charset = Encoding::by_name(cset);
             }
 
             match ele.encoding {
@@ -2259,11 +2253,11 @@ impl EncodeHeaderValue for MimeParameters {
             match stated_encoding {
                 MimeParameterEncoding::UnquotedRfc2047 => {
                     let encoded = qp_encode(&value);
-                    result.push_str(&format!(";\r\n\t{name}={encoded}"));
+                    result.push_str(format!(";\r\n\t{name}={encoded}"));
                 }
                 MimeParameterEncoding::QuotedRfc2047 => {
                     let encoded = qp_encode(&value);
-                    result.push_str(&format!(";\r\n\t{name}=\"{encoded}\""));
+                    result.push_str(format!(";\r\n\t{name}=\"{encoded}\""));
                 }
                 MimeParameterEncoding::None | MimeParameterEncoding::Rfc2231 => {
                     let needs_encoding = value.iter().any(|&c| !is_mime_token(c) || !c.is_ascii());

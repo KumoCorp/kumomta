@@ -710,6 +710,7 @@ where
 {
     /// Resolve an already-existing counter for the given key, or None
     /// if there either has never been such a value, or if it was pruned.
+    #[allow(clippy::multiple_bound_locations)]
     pub fn get<Q: ?Sized>(&self, key: &Q) -> Option<AtomicCounter>
     where
         K: Borrow<Q>,
@@ -721,6 +722,7 @@ where
 
     /// Resolve an already-existing counter for the given key, creating
     /// a new one if it didn't already exist, or was previously pruned.
+    #[allow(clippy::multiple_bound_locations)]
     pub fn get_or_create<'a, Q: ?Sized>(&self, key: &'a Q) -> AtomicCounter
     where
         K: Borrow<Q> + From<&'a Q>,
