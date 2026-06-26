@@ -23,8 +23,11 @@ envelope/routing domain.
 
 Notes:
 
-* When DANE applies (the `Required` / `RequiredInsecure` rows), MTA-STS is
-  **not** consulted; the DANE result wins.
+* When usable DANE records are found (the `Required` row), MTA-STS is **not**
+  consulted; DANE authentication wins. When records are published but none are
+  usable (the `RequiredInsecure` row) the domain has no usable DANE policy, so
+  MTA-STS may still be consulted to add authentication — but it cannot relax the
+  mandatory STARTTLS.
 * "usable" means a DANE-TA(2) or DANE-EE(3) usage with a recognized selector and
   matching type. PKIX-TA(0), PKIX-EE(1), and private/unassigned usages are
   treated as unusable.
