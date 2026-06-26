@@ -1,9 +1,8 @@
-use crate::config::{DnsResolverConfig, NameServer, UseHostsFile};
+use crate::config::{DnsResolverConfig, NameServer, TrustAnchorFile, UseHostsFile};
 use anyhow::Context as _;
 use dns_resolver::UnboundResolver;
 use std::collections::BTreeSet;
 use std::net::SocketAddr;
-use std::path::PathBuf;
 
 /// The fields from kumomta's `ResolverOptions` that map to an unbound
 /// configuration call. Any other field set on the public options struct
@@ -15,7 +14,7 @@ struct UnboundResolverOptions {
     #[serde(default)]
     validate: Option<bool>,
     #[serde(default)]
-    trust_anchor_file: Option<PathBuf>,
+    trust_anchor_file: Option<TrustAnchorFile>,
     #[serde(default)]
     use_hosts_file: Option<UseHostsFile>,
 }
@@ -45,19 +44,37 @@ pub fn build_unbound_resolver(config: &DnsResolverConfig) -> anyhow::Result<Unbo
         }
     }
 
-    if opts.validate.unwrap_or(false) {
-        context
-            .add_builtin_trust_anchors()
-            .context("add_builtin_trust_anchors")?;
-    }
-
-    if let Some(path) = &opts.trust_anchor_file {
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("trust_anchor_file path is not valid UTF-8"))?;
-        context
-            .load_trust_anchor_file(path_str)
-            .context("load_trust_anchor_file")?;
+    match &opts.trust_anchor_file {
+        // No anchor file: validate against the bundled root trust anchors.
+        None => {
+            if opts.validate.unwrap_or(false) {
+                context
+                    .add_builtin_trust_anchors()
+                    .context("add_builtin_trust_anchors")?;
+            }
+        }
+        // Static file: loaded in addition to the bundled anchors (when
+        // validation is enabled), and never updated.
+        Some(TrustAnchorFile::Static(path)) => {
+            if opts.validate.unwrap_or(false) {
+                context
+                    .add_builtin_trust_anchors()
+                    .context("add_builtin_trust_anchors")?;
+            }
+            context
+                .load_trust_anchor_file(path)
+                .context("load_trust_anchor_file")?;
+        }
+        // Managed file: RFC 5011 auto-maintained. The file is the sole anchor
+        // source (no bundled anchors); seed it with the bundled anchors if it
+        // is missing or empty so validation works immediately and RFC 5011
+        // keeps it current thereafter.
+        Some(TrustAnchorFile::Managed { managed }) => {
+            seed_managed_anchor_file(managed)?;
+            context
+                .load_trust_anchor_file_with_auto_update(managed)
+                .context("load_trust_anchor_file_with_auto_update")?;
+        }
     }
 
     if !matches!(opts.use_hosts_file, Some(UseHostsFile::Never)) {
@@ -68,6 +85,22 @@ pub fn build_unbound_resolver(config: &DnsResolverConfig) -> anyhow::Result<Unbo
         .into_async()
         .context("make async resolver context")?;
     Ok(UnboundResolver::from(context))
+}
+
+/// Seed an RFC 5011 managed trust anchor file with the bundled root anchors if
+/// it does not yet exist (or is empty). This gives unbound a valid starting
+/// anchor so DNSSEC validation works on first use; RFC 5011 then maintains the
+/// file across future root KSK rollovers.
+fn seed_managed_anchor_file(path: &str) -> anyhow::Result<()> {
+    let needs_seed = match std::fs::metadata(path) {
+        Ok(meta) => meta.len() == 0,
+        Err(_) => true,
+    };
+    if needs_seed {
+        std::fs::write(path, libunbound::ROOT_TRUST_ANCHORS.join("\n"))
+            .with_context(|| format!("seeding managed trust anchor file {path:?}"))?;
+    }
+    Ok(())
 }
 
 fn ns_socket_addr(ns: &NameServer) -> anyhow::Result<SocketAddr> {

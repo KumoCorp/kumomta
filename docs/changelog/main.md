@@ -36,6 +36,12 @@
    used with the Hickory resolver (with DNSSEC validation enabled); it no
    longer requires the unbound resolver.
 
+ * The [trust_anchor_file](../reference/kumo.dns/resolver_options/trust_anchor_file.md)
+   resolver option now also accepts a `{ managed = "<path>" }` form, naming an
+   RFC 5011 auto-maintained DNSSEC trust anchor file that stays current across
+   root KSK rollovers without operator intervention. Supported by the unbound
+   backend only.
+
  * Upgraded the embedded hickory-resolver 0.26 and libunbound 1.25.1. New
    [kumo.dns.load_resolv_conf](../reference/kumo.dns/load_resolv_conf.md)
    reads a resolv.conf-format file into a mutable resolver config table,

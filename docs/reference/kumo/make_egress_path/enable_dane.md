@@ -91,3 +91,18 @@ end)
     `udp_then_tcp` protocol) provide TCP fallback automatically; do not pin a
     validating resolver's name server to `protocol = 'udp'`, or every lookup
     will be reported as bogus.
+
+## Trust anchors
+
+DNSSEC validation is rooted in the DNS root zone's trust anchors, so keeping
+them current is an important part of operating DANE: if your resolver's anchors
+fall out of date — for example after an
+[ICANN root KSK rollover](https://www.icann.org/resources/pages/ksk-rollover) —
+validation begins to fail and DANE stops engaging.
+
+Both backends ship with the current root anchors bundled, refreshed when you
+upgrade KumoMTA, so the default needs no action until a future rollover. For
+unattended long-term currency, point the unbound backend at an RFC 5011 managed
+anchor file, which is maintained automatically across rollovers. See
+[trust_anchor_file](../../kumo.dns/resolver_options/trust_anchor_file.md) for the
+static and managed forms and their tradeoffs.
