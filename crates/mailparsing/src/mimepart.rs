@@ -273,7 +273,15 @@ impl<'a> MimePart<'a> {
 
             let mut iter = memchr::memmem::find_iter(raw_body.as_bytes(), &boundary);
             if let Some(first_boundary_pos) = iter.next() {
-                self.intro = raw_body.slice(0..first_boundary_pos);
+                // `first_boundary_pos` points at the `\n` introducing the first
+                // boundary. The intro is the preamble plus that line ending, but
+                // skips `raw_body[0]` (the header/body separator `\n` that
+                // write_message emits itself) so that we round-trip byte-exactly.
+                self.intro = if first_boundary_pos == 0 {
+                    raw_body.slice(0..0)
+                } else {
+                    raw_body.slice(1..first_boundary_pos + 1)
+                };
 
                 // When we create parts, we ignore the original body span in
                 // favor of what we're parsing out here now
@@ -1458,6 +1466,88 @@ Ok(
 )
 "#
         );
+    }
+
+    #[test]
+    fn multipart_preamble_roundtrip() {
+        // A multipart message with a MIME preamble must round-trip
+        // byte-for-byte through parse -> to_message_bytes; otherwise we
+        // corrupt the body and invalidate any pre-existing DKIM body hash.
+        let with_preamble_8bit = concat!(
+            "Subject: test\r\n",
+            "Content-Type: multipart/mixed; boundary=\"BOUND\"\r\n",
+            "Mime-Version: 1.0\r\n",
+            "\r\n",
+            "This is a preamble line.\r\n",
+            "--BOUND\r\n",
+            "Content-Type: text/plain; charset=utf-8\r\n",
+            "Content-Transfer-Encoding: 8bit\r\n",
+            "\r\n",
+            "Gr\u{00fc}\u{00df}e und Umlaute: \u{00e4}\u{00f6}\u{00fc}\r\n",
+            "--BOUND\r\n",
+            "Content-Type: application/octet-stream\r\n",
+            "Content-Transfer-Encoding: base64\r\n",
+            "\r\n",
+            "aGVsbG8=\r\n",
+            "--BOUND--\r\n",
+        );
+
+        let with_preamble_qp = concat!(
+            "Subject: test\r\n",
+            "Content-Type: multipart/mixed; boundary=\"BOUND\"\r\n",
+            "Mime-Version: 1.0\r\n",
+            "\r\n",
+            "This is a preamble line.\r\n",
+            "--BOUND\r\n",
+            "Content-Type: text/plain; charset=utf-8\r\n",
+            "Content-Transfer-Encoding: quoted-printable\r\n",
+            "\r\n",
+            "Gr=C3=BC=C3=9Fe und Umlaute: =C3=A4=C3=B6=C3=BC\r\n",
+            "--BOUND--\r\n",
+        );
+
+        // Multi-line preamble, and an epilogue (outro) after the close-delimiter.
+        let multi_line_preamble = concat!(
+            "Subject: test\r\n",
+            "Content-Type: multipart/mixed; boundary=\"BOUND\"\r\n",
+            "Mime-Version: 1.0\r\n",
+            "\r\n",
+            "This is a preamble.\r\n",
+            "It spans multiple lines.\r\n",
+            "--BOUND\r\n",
+            "Content-Type: text/plain\r\n",
+            "\r\n",
+            "body\r\n",
+            "--BOUND--\r\n",
+            "and this is the epilogue\r\n",
+        );
+
+        // No preamble (must still round-trip; previously the only working case).
+        let no_preamble = concat!(
+            "Subject: test\r\n",
+            "Content-Type: multipart/mixed; boundary=\"BOUND\"\r\n",
+            "Mime-Version: 1.0\r\n",
+            "\r\n",
+            "--BOUND\r\n",
+            "Content-Type: text/plain\r\n",
+            "\r\n",
+            "body\r\n",
+            "--BOUND--\r\n",
+        );
+
+        for (label, msg) in [
+            ("with_preamble_8bit", with_preamble_8bit),
+            ("with_preamble_qp", with_preamble_qp),
+            ("multi_line_preamble", multi_line_preamble),
+            ("no_preamble", no_preamble),
+        ] {
+            let part = MimePart::parse(msg).unwrap();
+            k9::assert_equal!(
+                BString::from(msg.as_bytes().to_vec()),
+                BString::from(part.to_message_bytes()),
+                "{label} must round-trip byte-for-byte"
+            );
+        }
     }
 
     #[test]
