@@ -625,6 +625,11 @@ impl SmtpDispatcher {
 
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
+        // Set when DANE published TLSA records that turned out to be unusable:
+        // STARTTLS is then mandatory (the host committed to TLS) even though we
+        // cannot authenticate it, so MTA-STS may add authentication but must not
+        // relax the requirement back to opportunistic.
+        let mut dane_requires_starttls = false;
 
         let mut certificate_from_pem = None;
         let mut private_key_from_pem = None;
@@ -665,8 +670,11 @@ impl SmtpDispatcher {
                         DaneStatus::Unusable => {
                             record_dane_result("unusable");
                             // RFC 7672 section 4.1: TLSA records are published
-                            // but none are usable; require STARTTLS but do not
-                            // attempt to authenticate the peer.
+                            // but none are usable; STARTTLS is required but we
+                            // cannot authenticate the peer. The domain has no
+                            // usable DANE policy, so MTA-STS may still apply as
+                            // an authentication fallback (but must not relax the
+                            // mandatory STARTTLS).
                             self.tracer.diagnostic(Level::INFO, || {
                                 format!(
                                     "DANE TLSA records for {} exist but none are usable; \
@@ -675,7 +683,7 @@ impl SmtpDispatcher {
                                 )
                             });
                             enable_tls = Tls::RequiredInsecure;
-                            mta_sts_eligible = false;
+                            dane_requires_starttls = true;
                         }
                         DaneStatus::TempFail(reason) => {
                             record_dane_result("tempfail");
@@ -744,7 +752,11 @@ impl SmtpDispatcher {
                                 }
                             }
                             PolicyMode::Testing => {
-                                enable_tls = Tls::OpportunisticInsecure;
+                                // Don't relax a mandatory STARTTLS established by
+                                // unusable DANE TLSA records.
+                                if !dane_requires_starttls {
+                                    enable_tls = Tls::OpportunisticInsecure;
+                                }
                             }
                             PolicyMode::None => {}
                         }

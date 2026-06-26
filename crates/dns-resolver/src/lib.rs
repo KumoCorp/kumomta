@@ -246,8 +246,9 @@ fn classify_tlsa_answer(mx_host: &str, port: u16, answer: Result<Answer, DnsErro
     let answer = match answer {
         Ok(answer) => answer,
         Err(err) => {
-            // A SERVFAIL/timeout from a validating resolver leaves the TLSA
-            // status unknown; we must not downgrade.
+            // No answer at all (a timeout or other communication/resource
+            // failure); the TLSA status is unknown, so we must not downgrade.
+            // Failure RCODEs such as SERVFAIL are handled in the match below.
             return DaneStatus::TempFail(format!("TLSA lookup for {mx_host}:{port} failed: {err}"));
         }
     };
@@ -302,11 +303,17 @@ fn classify_tlsa_answer(mx_host: &str, port: u16, answer: Result<Answer, DnsErro
         return DaneStatus::Unusable;
     }
 
-    // DNS results are unordered. For the sake of tests, sort these records.
-    // Unfortunately, the TLSA type is not Ord so we convert to string and order
-    // by that, which is a bit wasteful but the cardinality of TLSA records is
-    // generally low.
-    usable.sort_by_key(|a| a.to_string());
+    // DNS results are unordered; sort for stable behavior and tests. The TLSA
+    // type is an upstream type and does not implement Ord, so sort on its
+    // component fields directly.
+    usable.sort_by_key(|a| {
+        (
+            u8::from(a.cert_usage),
+            u8::from(a.selector),
+            u8::from(a.matching),
+            a.cert_data.clone(),
+        )
+    });
 
     tracing::info!("resolve_dane {mx_host}:{port} usable TLSA records: {usable:?}");
 
@@ -752,11 +759,15 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
             anyhow::bail!("NXDOMAIN");
         }
 
+        // No MX records: the domain's own A/AAAA records act as the implicit
+        // MX. This implicit MX is secure exactly when the MX NODATA response
+        // was securely (DNSSEC) resolved, which is common for signed domains
+        // that publish no MX (e.g. many `.br` domains).
         return Ok((
             vec![ByPreference {
                 hosts: vec![domain_name.to_lowercase().to_ascii()],
                 pref: 1,
-                is_secure: false,
+                is_secure: mx_lookup.secure,
                 is_mx: false,
             }],
             mx_lookup.expires,
