@@ -1995,11 +1995,9 @@ dependencies = [
  "k9",
  "kumo-address",
  "kumo-log-types",
- "kumo-prometheus",
  "libunbound",
  "linkme",
  "lruttl",
- "rand 0.8.6",
  "serde",
  "thiserror 2.0.18",
  "tokio",
@@ -3718,6 +3716,7 @@ dependencies = [
  "kumo-api-types",
  "kumo-prometheus",
  "lexicmp",
+ "mailexchanger",
  "message",
  "mod-serde",
  "nucleo-matcher",
@@ -3798,6 +3797,7 @@ dependencies = [
  "futures-util",
  "k9",
  "kumo-log-types",
+ "mailexchanger",
  "mlua",
  "mod-memoize",
  "mod-serde",
@@ -4210,6 +4210,7 @@ dependencies = [
  "lru-cache",
  "lruttl",
  "maildir",
+ "mailexchanger",
  "mailparsing",
  "maplit",
  "memchr",
@@ -4218,7 +4219,6 @@ dependencies = [
  "mod-dns-resolver",
  "mod-serde",
  "mod-time",
- "mta-sts",
  "nix 0.30.1",
  "num-format",
  "openssl",
@@ -4589,6 +4589,26 @@ dependencies = [
  "percent-encoding",
  "tempfile",
  "walkdir",
+]
+
+[[package]]
+name = "mailexchanger"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dns-resolver",
+ "hickory-resolver",
+ "k9",
+ "kumo-address",
+ "kumo-log-types",
+ "kumo-prometheus",
+ "linkme",
+ "lruttl",
+ "mta-sts",
+ "rand 0.8.6",
+ "serde",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -5016,6 +5036,7 @@ dependencies = [
  "hickory-resolver",
  "kumo-address",
  "libunbound",
+ "mailexchanger",
  "mlua",
  "parking_lot",
  "resolv-conf",
@@ -5300,6 +5321,7 @@ dependencies = [
  "linkme",
  "lruttl",
  "reqwest",
+ "serde",
  "tokio",
 ]
 

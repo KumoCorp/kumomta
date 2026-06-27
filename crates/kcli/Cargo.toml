@@ -13,6 +13,7 @@ clap-markdown = {workspace=true}
 colorgrad.workspace = true
 crossterm = {workspace=true}
 dns-resolver = {path="../dns-resolver"}
+mailexchanger = {path="../mailexchanger"}
 futures = {workspace=true}
 futures-util = {workspace=true}
 human_bytes = {workspace=true}

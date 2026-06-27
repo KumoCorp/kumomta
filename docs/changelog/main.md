@@ -30,6 +30,13 @@
    the [Resolver Options reference](../reference/kumo.dns/resolver_options/index.md)
    for the supported fields.
 
+ * If you previously set `enable_mta_sts=false` as a default shaping/egress-path
+   parameter to suppress MTA-STS, you will now also want to call
+   [kumo.dns.set_mta_sts_enabled(false)](../reference/kumo.dns/set_mta_sts_enabled.md)
+   during `init`. The egress-path `enable_mta_sts` option now controls only
+   whether a resolved policy raises the TLS posture; querying of MTA-STS records
+   (which can influence the *site_name*) is controlled by the new global option.
+
 ## Other Changes and Enhancements
 
  * [enable_dane](../reference/kumo/make_egress_path/enable_dane.md) can now be
@@ -180,6 +187,17 @@
 
  * [DANE](../reference/kumo/make_egress_path/enable_dane.md) (RFC 7672)
    support was too permissive and is now downgrade resistant. #543
+
+ * MTA-STS policies are now evaluated during MX resolution rather than at
+   connection time, fixing an aliasing issue where a misconfigured domain
+   sharing another domain's MX records could block delivery to its co-sited
+   siblings (#484). A domain whose `enforce` policy matches none of its own MX
+   hosts fails to resolve and self-isolates instead of affecting the shared
+   queue. Querying of MTA-STS records is controlled globally by the new
+   [kumo.dns.set_mta_sts_enabled](../reference/kumo.dns/set_mta_sts_enabled.md)
+   (default `true`); the per-egress-path
+   [enable_mta_sts](../reference/kumo/make_egress_path/enable_mta_sts.md)
+   governs whether a resolved policy may raise the connection's TLS posture.
 
  * `Message::save_to` was silently discarding errors returned from the
    data and meta spool `store()` operations: the per-spool dirty flags

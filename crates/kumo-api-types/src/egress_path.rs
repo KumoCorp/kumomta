@@ -1,6 +1,7 @@
 use cidr_map::CidrSet;
 use data_loader::KeySource;
-use dns_resolver::{IpLookupStrategy, MailExchanger};
+use dns_resolver::IpLookupStrategy;
+use mailexchanger::MailExchanger;
 #[cfg(feature = "lua")]
 use mlua::prelude::*;
 use openssl::ssl::SslOptions;

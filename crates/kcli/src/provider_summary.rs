@@ -1,6 +1,6 @@
 use anyhow::Context;
 use clap::Parser;
-use dns_resolver::MailExchanger;
+use mailexchanger::MailExchanger;
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
 use itertools::Itertools;

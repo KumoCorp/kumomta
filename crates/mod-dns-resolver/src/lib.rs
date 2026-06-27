@@ -1,10 +1,12 @@
 use ::config::{any_err, get_or_create_sub_module, serialize_options, SerdeWrappedValue};
 use dns_resolver::{
-    get_resolver, ptr_host, resolve_a_or_aaaa, reverse_ip, set_mx_concurrency_limit,
-    set_mx_negative_cache_ttl, set_mx_timeout, AggregateResolver, HickoryResolver,
-    IpLookupStrategy, MailExchanger, Resolver, TestResolver,
+    get_resolver, ptr_host, resolve_a_or_aaaa, reverse_ip, AggregateResolver, HickoryResolver,
+    IpLookupStrategy, Resolver, TestResolver,
 };
 use kumo_address::host_or_socket::HostOrSocketAddress;
+use mailexchanger::{
+    set_mx_concurrency_limit, set_mx_negative_cache_ttl, set_mx_timeout, MailExchanger,
+};
 use mlua::{Lua, LuaSerdeExt, Value};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -84,6 +86,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(move |lua, duration: Value| {
             let duration: duration_serde::Wrap<Duration> = lua.from_value(duration)?;
             set_mx_negative_cache_ttl(duration.into_inner()).map_err(any_err)
+        })?,
+    )?;
+
+    dns_mod.set(
+        "set_mta_sts_enabled",
+        lua.create_function(move |_lua, enabled: bool| {
+            mailexchanger::set_mta_sts_enabled(enabled);
+            Ok(())
         })?,
     )?;
 
