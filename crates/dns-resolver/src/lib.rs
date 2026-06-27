@@ -1139,11 +1139,12 @@ mod test {
         );
     }
 
-    #[cfg(feature = "live-dns-tests")]
     #[tokio::test]
     async fn txt_lookup_gmail() {
+        let resolver =
+            TestResolver::default().with_txt("_mta-sts.gmail.com", "v=STSv1; id=20190429T010101;");
         let name = Name::from_str_relaxed("_mta-sts.gmail.com").unwrap();
-        let answer = get_resolver().resolve(name, RecordType::TXT).await.unwrap();
+        let answer = resolver.resolve(name, RecordType::TXT).await.unwrap();
         k9::snapshot!(
             answer.as_txt(),
             r#"
