@@ -1,11 +1,11 @@
 use anyhow::Context;
 use clap::Parser;
-use mailexchanger::MailExchanger;
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
 use itertools::Itertools;
 use kumo_api_client::KumoApiClient;
 use lexicmp::natural_lexical_cmp;
+use mailexchanger::MailExchanger;
 use message::message::QueueNameComponents;
 use num_format::{Locale, ToFormattedString};
 use reqwest::Url;

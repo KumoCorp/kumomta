@@ -35,6 +35,7 @@ mod maildir_batch_452;
 mod maildir_batch_max_per_batch;
 mod maildir_batch_split_hook;
 mod max_line_length;
+mod mta_sts_enforce;
 mod mx_list_refresh;
 mod nats;
 mod no_ports_in_rcpt_domain;

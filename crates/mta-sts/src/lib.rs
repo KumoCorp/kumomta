@@ -2,7 +2,8 @@ use dns_resolver::Resolver;
 use futures::future::BoxFuture;
 use hickory_resolver::proto::rr::Name;
 use policy::MtaStsPolicy;
-use std::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 lruttl::declare_cache! {
@@ -72,9 +73,42 @@ impl policy::Get for Getter {
     }
 }
 
-pub async fn get_policy_for_domain(policy_domain: &str) -> anyhow::Result<Arc<MtaStsPolicy>> {
-    let resolver = dns_resolver::get_resolver();
-    get_policy_for_domain_impl(policy_domain, &**resolver, &Getter {}).await
+/// Test hook. When set, [`get_policy_for_domain`] serves policies from this
+/// fixed map instead of performing live DNS TXT + HTTPS fetching. A domain
+/// absent from the map resolves to an error, exactly like a domain that
+/// publishes no MTA-STS record.
+static TEST_POLICIES: Mutex<Option<Arc<BTreeMap<String, Arc<MtaStsPolicy>>>>> = Mutex::new(None);
+
+/// Install a fixed set of MTA-STS policies, keyed by policy domain (no trailing
+/// dot), for use in tests. While installed, all policy resolution is served
+/// from this map without touching the network.
+pub fn set_test_policies(policies: BTreeMap<String, MtaStsPolicy>) {
+    let map = policies
+        .into_iter()
+        .map(|(domain, policy)| (domain, Arc::new(policy)))
+        .collect();
+    *TEST_POLICIES.lock().unwrap() = Some(Arc::new(map));
+}
+
+pub async fn get_policy_for_domain(
+    policy_domain: &str,
+    resolver: Option<&dyn Resolver>,
+) -> anyhow::Result<Arc<MtaStsPolicy>> {
+    if let Some(policies) = TEST_POLICIES.lock().unwrap().clone() {
+        let domain = policy_domain.trim_end_matches('.');
+        return policies
+            .get(domain)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("no MTA-STS policy for {domain}"));
+    }
+
+    match resolver {
+        Some(resolver) => get_policy_for_domain_impl(policy_domain, resolver, &Getter {}).await,
+        None => {
+            let resolver = dns_resolver::get_resolver();
+            get_policy_for_domain_impl(policy_domain, &**resolver, &Getter {}).await
+        }
+    }
 }
 
 fn cache_lookup(name: &Name) -> Option<CachedPolicy> {
