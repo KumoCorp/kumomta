@@ -227,7 +227,7 @@ impl SmtpDispatcher {
                 .mx
                 .as_ref()
                 .expect("to have mx when doing smtp")
-                .resolve_addresses(path_config.ip_lookup_strategy)
+                .resolve_addresses(None, path_config.ip_lookup_strategy)
                 .await
         } else {
             let mut addresses = vec![];

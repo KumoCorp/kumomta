@@ -1,7 +1,7 @@
 use anyhow::Context;
 use dns_resolver::{
     fully_qualify, get_resolver, has_colon_port, ip_lookup, DomainClassification, IpLookupStrategy,
-    Name,
+    Name, Resolver,
 };
 use hickory_resolver::proto::rr::{RData, RecordType};
 use kumo_address::host_or_socket::HostOrSocketAddress;
@@ -86,12 +86,20 @@ struct ByPreference {
     pub is_mx: bool,
 }
 
-async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreference>, Instant)> {
+async fn lookup_mx_record(
+    domain_name: &Name,
+    resolver: Option<&dyn Resolver>,
+) -> anyhow::Result<(Vec<ByPreference>, Instant)> {
     let mx_lookup = timeout(get_mx_timeout(), async {
         let _permit = MX_CONCURRENCY_SEMA.acquire().await;
-        get_resolver()
-            .resolve(domain_name.clone(), RecordType::MX)
-            .await
+        match resolver {
+            Some(r) => r.resolve(domain_name.clone(), RecordType::MX).await,
+            None => {
+                get_resolver()
+                    .resolve(domain_name.clone(), RecordType::MX)
+                    .await
+            }
+        }
     })
     .await??;
     let mx_records = mx_lookup.records;
@@ -342,11 +350,12 @@ async fn apply_mta_sts(
     by_pref: &mut Vec<ByPreference>,
     hosts: &mut Vec<String>,
     expires: &mut Instant,
+    resolver: Option<&dyn Resolver>,
 ) -> Result<Option<PolicyMode>, String> {
     let policy_domain = name_fq.to_ascii();
     let policy_domain = policy_domain.trim_end_matches('.');
 
-    let policy = match mta_sts::get_policy_for_domain(policy_domain).await {
+    let policy = match mta_sts::get_policy_for_domain(policy_domain, resolver).await {
         Ok(policy) => policy,
         Err(err) => {
             // A transient fetch failure must not be treated as "impossible";
@@ -398,8 +407,19 @@ async fn apply_mta_sts(
 
 impl MailExchanger {
     pub async fn resolve(domain_name: &str) -> anyhow::Result<Arc<Self>> {
+        Self::resolve_via(domain_name, None).await
+    }
+
+    /// Like [`resolve`](Self::resolve), but performs DNS via the supplied
+    /// `resolver` when one is provided. A supplied resolver bypasses the shared
+    /// MX cache so callers (such as tests using a fixture resolver) get
+    /// hermetic, order-independent results.
+    pub async fn resolve_via(
+        domain_name: &str,
+        resolver: Option<&dyn Resolver>,
+    ) -> anyhow::Result<Arc<Self>> {
         MX_IN_PROGRESS.inc();
-        let result = Self::resolve_impl(domain_name).await;
+        let result = Self::resolve_impl(domain_name, resolver).await;
         MX_IN_PROGRESS.dec();
         if result.is_ok() {
             MX_SUCCESS.inc();
@@ -409,7 +429,10 @@ impl MailExchanger {
         result
     }
 
-    async fn resolve_impl(domain_name: &str) -> anyhow::Result<Arc<Self>> {
+    async fn resolve_impl(
+        domain_name: &str,
+        resolver: Option<&dyn Resolver>,
+    ) -> anyhow::Result<Arc<Self>> {
         let (name_fq, opt_port) = match DomainClassification::classify(domain_name)? {
             DomainClassification::Literal(addr) => {
                 let mut by_pref = BTreeMap::new();
@@ -429,6 +452,14 @@ impl MailExchanger {
             DomainClassification::Domain(name_fq, opt_port) => (name_fq, opt_port),
         };
 
+        // A supplied resolver bypasses the shared MX cache so results are
+        // hermetic and order-independent.
+        if resolver.is_some() {
+            return Self::resolve_uncached(&name_fq, opt_port, domain_name, resolver)
+                .await?
+                .map_err(|err| anyhow::anyhow!("{err}"));
+        }
+
         let lookup_result = MX_CACHE
             .get_or_try_insert(
                 &(name_fq.clone(), opt_port),
@@ -442,74 +473,7 @@ impl MailExchanger {
                     }
                     get_mx_negative_ttl()
                 },
-                async {
-                    MX_QUERIES.inc();
-                    let start = Instant::now();
-                    let (mut by_pref, mut expires) = match lookup_mx_record(&name_fq).await {
-                        Ok((by_pref, expires)) => (by_pref, expires),
-                        Err(err) => {
-                            let error = format!(
-                                "MX lookup for {domain_name} failed after {elapsed:?}: {err:#}",
-                                elapsed = start.elapsed()
-                            );
-                            return Ok::<Result<Arc<MailExchanger>, String>, anyhow::Error>(Err(
-                                error,
-                            ));
-                        }
-                    };
-
-                    let mut hosts = vec![];
-                    for pref in &mut by_pref {
-                        for host in &mut pref.hosts {
-                            if let Some(port) = opt_port {
-                                *host = format!("{host}:{port}");
-                            };
-                            hosts.push(host.to_string());
-                        }
-                    }
-
-                    let is_secure = by_pref.iter().all(|p| p.is_secure);
-                    let is_mx = by_pref.iter().all(|p| p.is_mx);
-
-                    // Evaluate MTA-STS against this domain's own resolution,
-                    // before site_name rollup. A domain whose enforce policy
-                    // matches none of its MX hosts is undeliverable and fails
-                    // resolution so that it self-isolates rather than affecting
-                    // a shared site.
-                    let mta_sts = if is_mx && is_mta_sts_enabled() {
-                        match apply_mta_sts(&name_fq, &mut by_pref, &mut hosts, &mut expires).await
-                        {
-                            Ok(status) => status,
-                            Err(error) => {
-                                return Ok::<Result<Arc<MailExchanger>, String>, anyhow::Error>(
-                                    Err(error),
-                                );
-                            }
-                        }
-                    } else {
-                        None
-                    };
-
-                    let by_pref = by_pref
-                        .into_iter()
-                        .map(|pref| (pref.pref, pref.hosts))
-                        .collect();
-
-                    let site_name = factor_names(&hosts);
-                    let mx = Self {
-                        hosts,
-                        domain_name: name_fq.to_ascii(),
-                        site_name,
-                        by_pref,
-                        is_domain_literal: false,
-                        is_secure,
-                        is_mx,
-                        mta_sts,
-                        expires: Some(expires),
-                    };
-
-                    Ok(Ok(Arc::new(mx)))
-                },
+                Self::resolve_uncached(&name_fq, opt_port, domain_name, None),
             )
             .await
             .map_err(|err| anyhow::anyhow!("{err}"))?;
@@ -519,6 +483,72 @@ impl MailExchanger {
         }
 
         lookup_result.item.map_err(|err| anyhow::anyhow!("{err}"))
+    }
+
+    async fn resolve_uncached(
+        name_fq: &Name,
+        opt_port: Option<u16>,
+        domain_name: &str,
+        resolver: Option<&dyn Resolver>,
+    ) -> anyhow::Result<Result<Arc<MailExchanger>, String>> {
+        MX_QUERIES.inc();
+        let start = Instant::now();
+        let (mut by_pref, mut expires) = match lookup_mx_record(name_fq, resolver).await {
+            Ok((by_pref, expires)) => (by_pref, expires),
+            Err(err) => {
+                let error = format!(
+                    "MX lookup for {domain_name} failed after {elapsed:?}: {err:#}",
+                    elapsed = start.elapsed()
+                );
+                return Ok(Err(error));
+            }
+        };
+
+        let mut hosts = vec![];
+        for pref in &mut by_pref {
+            for host in &mut pref.hosts {
+                if let Some(port) = opt_port {
+                    *host = format!("{host}:{port}");
+                };
+                hosts.push(host.to_string());
+            }
+        }
+
+        let is_secure = by_pref.iter().all(|p| p.is_secure);
+        let is_mx = by_pref.iter().all(|p| p.is_mx);
+
+        // Evaluate MTA-STS against this domain's own resolution, before
+        // site_name rollup. A domain whose enforce policy matches none of its
+        // MX hosts is undeliverable and fails resolution so that it
+        // self-isolates rather than affecting a shared site.
+        let mta_sts = if is_mx && is_mta_sts_enabled() {
+            match apply_mta_sts(name_fq, &mut by_pref, &mut hosts, &mut expires, resolver).await {
+                Ok(status) => status,
+                Err(error) => return Ok(Err(error)),
+            }
+        } else {
+            None
+        };
+
+        let by_pref = by_pref
+            .into_iter()
+            .map(|pref| (pref.pref, pref.hosts))
+            .collect();
+
+        let site_name = factor_names(&hosts);
+        let mx = Self {
+            hosts,
+            domain_name: name_fq.to_ascii(),
+            site_name,
+            by_pref,
+            is_domain_literal: false,
+            is_secure,
+            is_mx,
+            mta_sts,
+            expires: Some(expires),
+        };
+
+        Ok(Ok(Arc::new(mx)))
     }
 
     pub fn has_expired(&self) -> bool {
@@ -532,7 +562,11 @@ impl MailExchanger {
     /// order; the first one to try is the last element.
     /// smtp_dispatcher.rs relies on this ordering, as it will pop
     /// off candidates until it has exhausted its connection plan.
-    pub async fn resolve_addresses(&self, strategy: IpLookupStrategy) -> ResolvedMxAddresses {
+    pub async fn resolve_addresses(
+        &self,
+        resolver: Option<&dyn Resolver>,
+        strategy: IpLookupStrategy,
+    ) -> ResolvedMxAddresses {
         let mut result = vec![];
 
         for hosts in self.by_pref.values().rev() {
@@ -562,7 +596,7 @@ impl MailExchanger {
                     continue;
                 }
 
-                match ip_lookup(mx_host, None, strategy).await {
+                match ip_lookup(mx_host, resolver, strategy).await {
                     Err(err) => {
                         tracing::error!("failed to resolve {mx_host}: {err:#}");
                         continue;
@@ -605,6 +639,7 @@ pub enum ResolvedMxAddresses {
 #[cfg(test)]
 mod test {
     use super::*;
+    use dns_resolver::TestResolver;
 
     fn policy(mode: &str, mx: &[&str]) -> MtaStsPolicy {
         let mut text = format!("version: STSv1\nmode: {mode}\nmax_age: 86400");
@@ -707,7 +742,7 @@ MailExchanger {
         );
         k9::snapshot!(
             v4_loopback
-                .resolve_addresses(IpLookupStrategy::default())
+                .resolve_addresses(None, IpLookupStrategy::default())
                 .await,
             r#"
 Addresses(
@@ -747,7 +782,7 @@ MailExchanger {
         );
         k9::snapshot!(
             v6_loopback_non_conforming
-                .resolve_addresses(IpLookupStrategy::default())
+                .resolve_addresses(None, IpLookupStrategy::default())
                 .await,
             r#"
 Addresses(
@@ -787,7 +822,7 @@ MailExchanger {
         );
         k9::snapshot!(
             v6_loopback
-                .resolve_addresses(IpLookupStrategy::default())
+                .resolve_addresses(None, IpLookupStrategy::default())
                 .await,
             r#"
 Addresses(
@@ -803,11 +838,39 @@ Addresses(
         );
     }
 
-    #[cfg(feature = "live-dns-tests")]
+    fn fixture_resolver(zones: &[&str]) -> TestResolver {
+        let mut resolver = TestResolver::default();
+        for zone in zones {
+            resolver = resolver.with_zone(zone).unwrap();
+        }
+        resolver
+    }
+
+    const GMAIL_ZONE: &str = r#"
+$ORIGIN gmail.com.
+@ 86400 MX 5 gmail-smtp-in.l.google.com.
+@ 86400 MX 10 alt1.gmail-smtp-in.l.google.com.
+@ 86400 MX 20 alt2.gmail-smtp-in.l.google.com.
+@ 86400 MX 30 alt3.gmail-smtp-in.l.google.com.
+@ 86400 MX 40 alt4.gmail-smtp-in.l.google.com.
+"#;
+
+    const GMAIL_HOSTS_ZONE: &str = r#"
+$ORIGIN l.google.com.
+gmail-smtp-in 300 A 142.251.2.26
+alt1.gmail-smtp-in 300 A 108.177.104.27
+alt2.gmail-smtp-in 300 A 74.125.126.27
+alt3.gmail-smtp-in 300 A 172.253.113.26
+alt4.gmail-smtp-in 300 A 173.194.77.27
+"#;
+
     #[tokio::test]
     async fn lookup_gmail_mx() {
-        set_mta_sts_enabled(false);
-        let mut gmail = (*MailExchanger::resolve("gmail.com").await.unwrap()).clone();
+        let resolver = fixture_resolver(&[GMAIL_ZONE, GMAIL_HOSTS_ZONE]);
+        let mut gmail = (*MailExchanger::resolve_via("gmail.com", Some(&resolver))
+            .await
+            .unwrap())
+        .clone();
         gmail.expires.take();
         k9::snapshot!(
             &gmail,
@@ -848,58 +911,40 @@ MailExchanger {
 "#
         );
 
-        // This is a bad thing to have in a snapshot test really,
-        // but the whole set of live-dns-tests are already inherently
-        // unstable and flakey anyway.
-        // The main thing we expect to see here is that the list of
-        // names starts with alt4 and goes backwards through the priority
-        // order such that the last element is gmail-smtp.
-        // We expect the addresses within a given preference level to
-        // be randomized, because that is what resolve_addresses does.
+        // The hosts are returned in reverse preference order (the last entry is
+        // tried first). With one address per host the per-preference-level
+        // shuffle in resolve_addresses is a no-op, so the order is stable.
         k9::snapshot!(
-            gmail.resolve_addresses(IpLookupStrategy::default()).await,
+            gmail
+                .resolve_addresses(Some(&resolver), IpLookupStrategy::Ipv4Only)
+                .await,
             r#"
 Addresses(
     [
         ResolvedAddress {
             name: "alt4.gmail-smtp-in.l.google.com.",
-            addr: 2607:f8b0:4023:401::1b,
-        },
-        ResolvedAddress {
-            name: "alt4.gmail-smtp-in.l.google.com.",
             addr: 173.194.77.27,
-        },
-        ResolvedAddress {
-            name: "alt3.gmail-smtp-in.l.google.com.",
-            addr: 2607:f8b0:4023:1::1a,
+            is_secure: false,
         },
         ResolvedAddress {
             name: "alt3.gmail-smtp-in.l.google.com.",
             addr: 172.253.113.26,
-        },
-        ResolvedAddress {
-            name: "alt2.gmail-smtp-in.l.google.com.",
-            addr: 2607:f8b0:4001:c1d::1b,
+            is_secure: false,
         },
         ResolvedAddress {
             name: "alt2.gmail-smtp-in.l.google.com.",
             addr: 74.125.126.27,
-        },
-        ResolvedAddress {
-            name: "alt1.gmail-smtp-in.l.google.com.",
-            addr: 2607:f8b0:4003:c04::1b,
+            is_secure: false,
         },
         ResolvedAddress {
             name: "alt1.gmail-smtp-in.l.google.com.",
             addr: 108.177.104.27,
-        },
-        ResolvedAddress {
-            name: "gmail-smtp-in.l.google.com.",
-            addr: 2607:f8b0:4023:c06::1b,
+            is_secure: false,
         },
         ResolvedAddress {
             name: "gmail-smtp-in.l.google.com.",
             addr: 142.251.2.26,
+            is_secure: false,
         },
     ],
 )
@@ -907,33 +952,45 @@ Addresses(
         );
     }
 
-    #[cfg(feature = "live-dns-tests")]
     #[tokio::test]
     async fn lookup_punycode_no_mx_only_a() {
-        let mx = MailExchanger::resolve("xn--bb-eka.at").await.unwrap();
+        let resolver = fixture_resolver(&[r#"
+$ORIGIN xn--bb-eka.at.
+@ 300 A 192.0.2.5
+"#]);
+        let mx = MailExchanger::resolve_via("xn--bb-eka.at", Some(&resolver))
+            .await
+            .unwrap();
         assert_eq!(mx.domain_name, "xn--bb-eka.at.");
         assert_eq!(mx.hosts[0], "xn--bb-eka.at.");
     }
 
-    #[cfg(feature = "live-dns-tests")]
     #[tokio::test]
-    async fn lookup_bogus_aasland() {
-        let err = MailExchanger::resolve("not-mairs.aasland.com")
-            .await
-            .unwrap_err();
-        k9::snapshot!(err, "MX lookup for not-mairs.aasland.com failed: NXDOMAIN");
+    async fn lookup_nxdomain() {
+        // The fixture has no zone covering this name, so the MX lookup is
+        // NXDOMAIN.
+        let resolver = fixture_resolver(&[]);
+        let name = fully_qualify("not-mairs.aasland.com").unwrap();
+        let err = match lookup_mx_record(&name, Some(&resolver)).await {
+            Ok(_) => panic!("expected NXDOMAIN"),
+            Err(err) => err,
+        };
+        k9::assert_equal!(err.to_string(), "NXDOMAIN");
     }
 
-    // Asserts a DNSSEC-secure result, so it only holds when the default
-    // resolver validates, i.e. the unbound backend.
-    #[cfg(all(feature = "live-dns-tests", feature = "default-unbound"))]
     #[tokio::test]
-    async fn lookup_example_com() {
-        set_mta_sts_enabled(false);
-        // Has a NULL MX record
-        let mx = MailExchanger::resolve("example.com").await.unwrap();
+    async fn lookup_null_mx() {
+        let resolver = fixture_resolver(&[r#"
+$ORIGIN example.com.
+@ 3600 MX 0 .
+"#]);
+        let mut mx = (*MailExchanger::resolve_via("example.com", Some(&resolver))
+            .await
+            .unwrap())
+        .clone();
+        mx.expires.take();
         k9::snapshot!(
-            mx,
+            &mx,
             r#"
 MailExchanger {
     domain_name: "example.com.",
@@ -947,23 +1004,28 @@ MailExchanger {
         ],
     },
     is_domain_literal: false,
-    is_secure: true,
+    is_secure: false,
     is_mx: true,
     mta_sts: None,
+    expires: None,
 }
 "#
         );
     }
 
-    // Asserts a DNSSEC-secure result, so it only holds when the default
-    // resolver validates, i.e. the unbound backend.
-    #[cfg(all(feature = "live-dns-tests", feature = "default-unbound"))]
     #[tokio::test]
-    async fn lookup_have_dane() {
-        set_mta_sts_enabled(false);
-        let mx = MailExchanger::resolve("do.havedane.net").await.unwrap();
+    async fn lookup_single_mx() {
+        let resolver = fixture_resolver(&[r#"
+$ORIGIN do.havedane.net.
+@ 300 MX 10 do.havedane.net.
+"#]);
+        let mut mx = (*MailExchanger::resolve_via("do.havedane.net", Some(&resolver))
+            .await
+            .unwrap())
+        .clone();
+        mx.expires.take();
         k9::snapshot!(
-            mx,
+            &mx,
             r#"
 MailExchanger {
     domain_name: "do.havedane.net.",
@@ -977,22 +1039,30 @@ MailExchanger {
         ],
     },
     is_domain_literal: false,
-    is_secure: true,
+    is_secure: false,
     is_mx: true,
     mta_sts: None,
+    expires: None,
 }
 "#
         );
     }
 
-    #[cfg(feature = "live-dns-tests")]
     #[tokio::test]
-    async fn mx_lookup_www_example_com() {
-        set_mta_sts_enabled(false);
-        // Has no MX, should fall back to A lookup
-        let mx = MailExchanger::resolve("www.example.com").await.unwrap();
+    async fn mx_lookup_no_mx_falls_back_to_a() {
+        // The zone exists (so the lookup is not NXDOMAIN) but has no MX record
+        // for www, so resolution falls back to the domain's own A record.
+        let resolver = fixture_resolver(&[r#"
+$ORIGIN example.com.
+www 300 A 192.0.2.1
+"#]);
+        let mut mx = (*MailExchanger::resolve_via("www.example.com", Some(&resolver))
+            .await
+            .unwrap())
+        .clone();
+        mx.expires.take();
         k9::snapshot!(
-            mx,
+            &mx,
             r#"
 MailExchanger {
     domain_name: "www.example.com.",
@@ -1009,6 +1079,7 @@ MailExchanger {
     is_secure: false,
     is_mx: false,
     mta_sts: None,
+    expires: None,
 }
 "#
         );

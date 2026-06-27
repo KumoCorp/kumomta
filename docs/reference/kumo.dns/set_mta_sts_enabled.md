@@ -79,14 +79,11 @@ max_age: 86400
 ```
 
 then resolution fails with a transient error and its messages are delayed (and
-ultimately expire per your retry schedule). You will see a log record similar
-to:
+ultimately expire per your retry schedule). The delivery attempt produces a
+`TransientFailure` log record whose response is:
 
 ```
-MTA-STS enforce policy for random-domain-example.com permits none of its MX
-hosts ["mx01.mail.icloud.com.", "mx02.mail.icloud.com."]; allowed mx patterns:
-["*.mx.cloudflare.net"]. The destination is undeliverable until its MTA-STS
-policy is corrected.
+451 4.4.4 failed to resolve queue random-domain-example.com: MTA-STS enforce policy for random-domain-example.com permits none of its MX hosts ["mx01.mail.icloud.com.", "mx02.mail.icloud.com."]; allowed mx patterns: ["*.mx.cloudflare.net"]. The destination is undeliverable until its MTA-STS policy is corrected.
 ```
 
 This is intentional and correct: the destination's published policy says its

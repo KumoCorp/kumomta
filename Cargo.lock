@@ -5050,6 +5050,7 @@ dependencies = [
  "libunbound",
  "mailexchanger",
  "mlua",
+ "mta-sts",
  "parking_lot",
  "resolv-conf",
  "serde",

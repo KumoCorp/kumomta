@@ -59,10 +59,15 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     dns_mod.set(
         "lookup_mx",
-        lua.create_async_function(|lua, domain: String| async move {
-            let mx = MailExchanger::resolve(&domain).await.map_err(any_err)?;
-            Ok(lua.to_value_with(&*mx, serialize_options()))
-        })?,
+        lua.create_async_function(
+            |lua, (domain, opt_resolver_name): (String, Option<String>)| async move {
+                let opt_resolver = get_opt_resolver(&opt_resolver_name).map_err(any_err)?;
+                let mx = MailExchanger::resolve_via(&domain, opt_resolver.as_ref().map(|r| &***r))
+                    .await
+                    .map_err(any_err)?;
+                Ok(lua.to_value_with(&*mx, serialize_options()))
+            },
+        )?,
     )?;
 
     dns_mod.set(
@@ -337,6 +342,24 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             dns_resolver::reconfigure_resolver(resolver);
             Ok(())
         })?,
+    )?;
+
+    dns_mod.set(
+        "configure_test_mta_sts",
+        lua.create_function(
+            move |_lua, policies: std::collections::BTreeMap<String, String>| {
+                let parsed = policies
+                    .into_iter()
+                    .map(|(domain, text)| {
+                        let policy =
+                            mta_sts::policy::MtaStsPolicy::parse(&text).map_err(any_err)?;
+                        Ok((domain, policy))
+                    })
+                    .collect::<mlua::Result<std::collections::BTreeMap<_, _>>>()?;
+                mta_sts::set_test_policies(parsed);
+                Ok(())
+            },
+        )?,
     )?;
 
     dns_mod.set(

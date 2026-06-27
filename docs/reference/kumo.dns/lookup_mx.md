@@ -1,7 +1,7 @@
 # lookup_mx
 
 ```lua
-kumo.dns.lookup_mx(DOMAIN)
+kumo.dns.lookup_mx(DOMAIN, OPT_RESOLVER_NAME)
 ```
 
 Resolve the MX information for the requested `DOMAIN`.
@@ -81,4 +81,28 @@ local example = {
 }
 
 assert(gmail_mx == example)
+```
+
+{{since('dev')}}
+
+The optional `OPT_RESOLVER_NAME` parameter names an alternate resolver defined
+via [define_resolver](define_resolver.md). When omitted, the default resolver is
+used.
+
+```lua
+local kumo = require 'kumo'
+
+kumo.dns.define_resolver('my_resolver', {
+  Test = {
+    zones = {
+      [[
+$ORIGIN example.com.
+@       600  IN MX 2 two.example.com.
+                MX 1 one.example.com.
+]],
+    },
+  },
+})
+
+local list = kumo.dns.lookup_mx('example.com', 'my_resolver')
 ```
