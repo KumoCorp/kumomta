@@ -6,12 +6,14 @@ When set to `true` (the default is `false`), then `TLSA` records will be
 resolved securely to determine the destination site policy for TLS according
 to [DANE](https://datatracker.ietf.org/doc/html/rfc7672).
 
-The table below applies only when `enable_dane = true` *and* the destination is
-resolved via DNS `MX` records (it does not apply when an explicit `mx_list` is
-in use). A *secure chain* means that both the `MX` RRset and the MX host's
-address (`A`/`AAAA`) records were DNSSEC-validated. The `TLSA` records are
-looked up against the MX hostname (the DANE reference identifier), not the
-envelope/routing domain.
+The table below applies when `enable_dane = true`. A *secure chain* means the
+MX host selection is trusted — either the `MX` RRset was DNSSEC-validated, or the
+host was supplied via a locally-configured `mx_list` for which you set
+[treat_mx_list_as_secure](../make_queue_config/protocol.md#treat_mx_list_as_secure)
+— **and** the MX host's address (`A`/`AAAA`) records were DNSSEC-validated. The
+`TLSA` records are looked up against the MX hostname (the DANE reference
+identifier), not the envelope/routing domain. A destination given as an IP
+address literal is never DANE-eligible (there is no name to query).
 
 | DNSSEC chain to MX host | `TLSA` lookup result | Effective `enable_tls` | Outcome |
 |---|---|---|---|
