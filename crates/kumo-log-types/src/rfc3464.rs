@@ -698,6 +698,7 @@ mod test {
             peer_address: Some(ResolvedAddress {
                 name: "target.example.com".to_string(),
                 addr: "42.42.42.42".to_string().try_into().unwrap(),
+                is_secure: false,
             }),
             provider_name: None,
             queue: "target.example.com".to_string(),

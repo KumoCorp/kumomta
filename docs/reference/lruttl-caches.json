@@ -22,17 +22,17 @@
   {
     "name": "dns_resolver_ip",
     "capacity": 1024,
-    "doc": "Caches domain name to the combined set of ipv4 and ipv6 records"
+    "doc": "Caches domain name to the combined set of ipv4 and ipv6 records and their DNSSEC secure status"
   },
   {
     "name": "dns_resolver_ipv4",
     "capacity": 1024,
-    "doc": "Caches domain name to ipv4 records"
+    "doc": "Caches domain name to ipv4 records and their DNSSEC secure status"
   },
   {
     "name": "dns_resolver_ipv6",
     "capacity": 1024,
-    "doc": "Caches domain name to ipv6 records"
+    "doc": "Caches domain name to ipv6 records and their DNSSEC secure status"
   },
   {
     "name": "dns_resolver_mx",

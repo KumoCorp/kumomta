@@ -5,6 +5,7 @@ mod auth_deliver_invalid_password;
 #[cfg(target_os = "linux")]
 mod bad_source_address;
 mod broken_first_choice_mx;
+mod dane;
 mod disconnect_in_data;
 mod disconnect_in_mail_from;
 mod disconnect_peer_idle_out;

@@ -2,6 +2,13 @@
 
 ## Breaking Changes
 
+ * SMTP AUTH PLAIN is no longer sent over a TLS session whose peer
+   certificate was not validated (for example an
+   `OpportunisticInsecure`/`RequiredInsecure` session, or a DANE host with
+   unusable TLSA records). Set the new
+   [allow_smtp_auth_plain_without_valid_certificate](../reference/kumo/make_egress_path/allow_smtp_auth_plain_without_valid_certificate.md)
+   egress path option to `true` to restore the previous behavior.
+
  * Rocksdb-backed spool `store()` and `remove()` calls now time out
    after 30 seconds of backpressure rather than blocking
    indefinitely. Tunable via the new
@@ -24,6 +31,21 @@
    for the supported fields.
 
 ## Other Changes and Enhancements
+
+ * [enable_dane](../reference/kumo/make_egress_path/enable_dane.md) can now be
+   used with the Hickory resolver (with DNSSEC validation enabled); it no
+   longer requires the unbound resolver.
+
+ * New [treat_mx_list_as_secure](../reference/kumo/make_queue_config/protocol.md#treat_mx_list_as_secure)
+   SMTP protocol option. When set, the hosts in an `mx_list` are treated as a
+   trusted (DNSSEC-secure) MX selection, allowing DANE to apply to a statically
+   configured relay that does not go through `MX` resolution.
+
+ * The [trust_anchor_file](../reference/kumo.dns/resolver_options/trust_anchor_file.md)
+   resolver option now also accepts a `{ managed = "<path>" }` form, naming an
+   RFC 5011 auto-maintained DNSSEC trust anchor file that stays current across
+   root KSK rollovers without operator intervention. Supported by the unbound
+   backend only.
 
  * Upgraded the embedded hickory-resolver 0.26 and libunbound 1.25.1. New
    [kumo.dns.load_resolv_conf](../reference/kumo.dns/load_resolv_conf.md)
@@ -144,6 +166,9 @@
  * Community shaping.toml file had updates to domains qq.com, 163.com, and yahoo.co.jp and providers gmail, yahoo, outlook, apple, orange, and mimecast. New provider definitions were added for barracuda (barracudanetworks.com), netvigator (netvigator.com), and kpn (kpnmail.nl). Note that web.de moved from a domain to being a provider named gmx.net_web.de (which also matches .gmx.net), and qq.com and 163.com were moved from domain-level to provider-level automations. Thanks to @Solmea! #531
 
 ## Fixes
+
+ * [DANE](../reference/kumo/make_egress_path/enable_dane.md) (RFC 7672)
+   support was too permissive and is now downgrade resistant. #543
 
  * `Message::save_to` was silently discarding errors returned from the
    data and meta spool `store()` operations: the per-spool dirty flags

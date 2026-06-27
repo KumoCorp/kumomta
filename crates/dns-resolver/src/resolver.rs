@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use hickory_resolver::net::{DnsError as NetDnsError, NetError};
+use hickory_resolver::proto::dnssec::Proof;
 use hickory_resolver::proto::op::ResponseCode;
 use hickory_resolver::proto::rr::rdata::{A, AAAA, PTR, TXT};
 #[cfg(feature = "unbound")]
@@ -11,7 +12,7 @@ use hickory_resolver::proto::serialize::txt::Parser;
 use hickory_resolver::TokioResolver;
 #[cfg(feature = "unbound")]
 use libunbound::{AsyncContext, Context};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::net::IpAddr;
 use std::str::FromStr;
@@ -180,12 +181,32 @@ impl Resolver for Box<dyn Resolver> {
 }
 
 #[derive(Debug, Default)]
+struct TestZone {
+    records: BTreeMap<RrKey, RecordSet>,
+    /// Whether answers from this zone should be reported as DNSSEC validated.
+    secure: bool,
+}
+
+#[derive(Debug, Default)]
 pub struct TestResolver {
-    records: BTreeMap<Name, BTreeMap<RrKey, RecordSet>>,
+    zones: BTreeMap<Name, TestZone>,
+    /// Owner names for which any lookup should return SERVFAIL, used to model
+    /// resolution failures (e.g. for DANE downgrade-resistance tests).
+    servfail: BTreeSet<Name>,
 }
 
 impl TestResolver {
-    pub fn with_zone(mut self, zone: &str) -> Result<Self, String> {
+    /// Add an insecure (non-DNSSEC) zone.
+    pub fn with_zone(self, zone: &str) -> Result<Self, String> {
+        self.add_zone(zone, false)
+    }
+
+    /// Add a zone whose answers are reported as DNSSEC validated (secure).
+    pub fn with_secure_zone(self, zone: &str) -> Result<Self, String> {
+        self.add_zone(zone, true)
+    }
+
+    fn add_zone(mut self, zone: &str, secure: bool) -> Result<Self, String> {
         let (mut name, records) = Parser::new(zone, None, None)
             .parse()
             .map_err(|err| format!("{err:#}"))?;
@@ -205,8 +226,24 @@ impl TestResolver {
                 }
             })
             .collect();
-        self.records.insert(name, fqdn_records);
+        self.zones.insert(
+            name,
+            TestZone {
+                records: fqdn_records,
+                secure,
+            },
+        );
         Ok(self)
+    }
+
+    /// Cause any lookup for `name` to return SERVFAIL.
+    pub fn with_servfail(mut self, name: &str) -> Self {
+        let mut name = Name::from_str_relaxed(name)
+            .expect("valid name passed to with_servfail")
+            .to_lowercase();
+        name.set_fqdn(true);
+        self.servfail.insert(name);
+        self
     }
 
     pub fn with_txt(self, domain: &str, value: impl Into<String>) -> Self {
@@ -226,9 +263,10 @@ impl TestResolver {
         for item in value {
             records.add_rdata(RData::TXT(TXT::new(vec![item])));
         }
-        self.records
+        self.zones
             .entry(authority)
             .or_default()
+            .records
             .insert(key, records);
 
         self
@@ -237,11 +275,25 @@ impl TestResolver {
     fn get(&self, full: &Name, record_type: RecordType) -> Result<Answer, DnsError> {
         let mut full_fqdn = full.clone();
         full_fqdn.set_fqdn(true);
+
+        if self.servfail.contains(&full_fqdn.to_lowercase()) {
+            return Ok(Answer {
+                canon_name: None,
+                records: vec![],
+                nxdomain: false,
+                secure: false,
+                bogus: false,
+                why_bogus: None,
+                expires: Instant::now() + Duration::from_secs(60),
+                response_code: ResponseCode::ServFail,
+            });
+        }
+
         let mut authority = full_fqdn.clone();
 
-        let records = loop {
-            if let Some(records) = self.records.get(&authority) {
-                break records;
+        let zone = loop {
+            if let Some(zone) = self.zones.get(&authority) {
+                break zone;
             };
 
             if authority.num_labels() > 1 {
@@ -261,7 +313,7 @@ impl TestResolver {
             });
         };
 
-        let records = records.get(&RrKey {
+        let records = zone.records.get(&RrKey {
             name: LowerName::from(&full_fqdn),
             record_type,
         });
@@ -271,7 +323,7 @@ impl TestResolver {
                 canon_name: None,
                 records: vec![],
                 nxdomain: false,
-                secure: false,
+                secure: zone.secure,
                 bogus: false,
                 why_bogus: None,
                 expires: Instant::now() + Duration::from_secs(60),
@@ -286,7 +338,7 @@ impl TestResolver {
                 .map(|r| r.data.clone())
                 .collect(),
             nxdomain: false,
-            secure: false,
+            secure: zone.secure,
             bogus: false,
             why_bogus: None,
             expires: Instant::now() + Duration::from_secs(60),
@@ -562,13 +614,23 @@ impl Resolver for HickoryResolver {
         match self.inner.lookup(name.clone(), rrtype).await {
             Ok(result) => {
                 let expires = result.valid_until();
-                let records = result.answers().iter().map(|r| r.data.clone()).collect();
+                let answers = result.answers();
+                // When DNSSEC validation is enabled the resolver tags each
+                // record with a proof. Treat the answer as secure only when it
+                // is non-empty and every record validated as secure, and surface
+                // bogus so that callers (e.g. DANE) can defer rather than
+                // downgrade. With validation disabled every record is
+                // Indeterminate, so this is simply not secure.
+                let secure =
+                    !answers.is_empty() && answers.iter().all(|r| r.proof == Proof::Secure);
+                let bogus = answers.iter().any(|r| r.proof == Proof::Bogus);
+                let records = answers.iter().map(|r| r.data.clone()).collect();
                 Ok(Answer {
                     canon_name: None,
                     records,
                     nxdomain: false,
-                    secure: false,
-                    bogus: false,
+                    secure,
+                    bogus,
                     why_bogus: None,
                     expires,
                     response_code: ResponseCode::NoError,
