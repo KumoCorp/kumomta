@@ -78,6 +78,10 @@ local example = {
   is_domain_literal = false,
   -- true if the hosts are mx records
   is_mx = true,
+
+  -- The applicable MTA-STS policy mode: 'None', 'Testing' or 'Enforce'
+  -- {{since('dev', inline=True)}}
+  mta_sts = 'None',
 }
 
 assert(gmail_mx == example)

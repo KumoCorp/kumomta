@@ -786,7 +786,7 @@ impl SmtpDispatcher {
         // path opts in via enable_mta_sts. The `mta_sts_eligible` guard
         // preserves DANE precedence (DANE clears it when TLSA is present).
         if mta_sts_eligible && path_config.enable_mta_sts {
-            match dispatcher.mx.as_ref().and_then(|mx| mx.mta_sts) {
+            match dispatcher.mx.as_ref().map(|mx| mx.mta_sts) {
                 Some(PolicyMode::Enforce) => {
                     enable_tls = Tls::Required;
                     self.tracer.diagnostic(Level::INFO, || {

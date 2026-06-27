@@ -244,10 +244,10 @@ pub struct MailExchanger {
     /// DNSSEC verified
     pub is_secure: bool,
     pub is_mx: bool,
-    /// The applicable MTA-STS policy mode, when one was resolved.
-    /// `hosts`/`by_pref` already exclude any hosts disallowed by the
+    /// The applicable MTA-STS policy mode (`PolicyMode::None` when no policy
+    /// applies). `hosts`/`by_pref` already exclude any hosts disallowed by the
     /// policy, so this is consulted only for TLS posture, not host gating.
-    pub mta_sts: Option<PolicyMode>,
+    pub mta_sts: PolicyMode,
     #[serde(skip)]
     expires: Option<Instant>,
 }
@@ -303,8 +303,8 @@ static MX_MTA_STS_IMPOSSIBLE: IntCounter("dns_mx_resolve_mta_sts_impossible");
 /// The effect of an MTA-STS policy on a domain's resolved MX host set.
 #[derive(Debug, PartialEq, Eq)]
 enum StsEval {
-    /// No host pruning required; record this TLS status (if any).
-    Status(Option<PolicyMode>),
+    /// No host pruning required; record this TLS posture.
+    Status(PolicyMode),
     /// Enforce policy with partial coverage: keep only the hosts whose
     /// index in the input is `true`.
     Prune(Vec<bool>),
@@ -316,8 +316,8 @@ enum StsEval {
 /// optionally `host:port`). Pure so it can be unit-tested without DNS/HTTP.
 fn evaluate_mta_sts(hosts: &[String], policy: &MtaStsPolicy) -> StsEval {
     match policy.mode {
-        PolicyMode::None => StsEval::Status(None),
-        PolicyMode::Testing => StsEval::Status(Some(PolicyMode::Testing)),
+        PolicyMode::None => StsEval::Status(PolicyMode::None),
+        PolicyMode::Testing => StsEval::Status(PolicyMode::Testing),
         PolicyMode::Enforce => {
             let matched: Vec<bool> = hosts
                 .iter()
@@ -333,7 +333,7 @@ fn evaluate_mta_sts(hosts: &[String], policy: &MtaStsPolicy) -> StsEval {
             if match_count == 0 {
                 StsEval::Impossible
             } else if match_count == hosts.len() {
-                StsEval::Status(Some(PolicyMode::Enforce))
+                StsEval::Status(PolicyMode::Enforce)
             } else {
                 StsEval::Prune(matched)
             }
@@ -351,7 +351,7 @@ async fn apply_mta_sts(
     hosts: &mut Vec<String>,
     expires: &mut Instant,
     resolver: Option<&dyn Resolver>,
-) -> Result<Option<PolicyMode>, String> {
+) -> Result<PolicyMode, String> {
     let policy_domain = name_fq.to_ascii();
     let policy_domain = policy_domain.trim_end_matches('.');
 
@@ -362,7 +362,7 @@ async fn apply_mta_sts(
             // proceed as no-policy but re-attempt sooner than the full DNS TTL.
             tracing::debug!("MTA-STS policy fetch for {policy_domain} failed: {err:#}");
             *expires = (*expires).min(Instant::now() + MTA_STS_FETCH_RETRY);
-            return Ok(None);
+            return Ok(PolicyMode::None);
         }
     };
 
@@ -385,7 +385,7 @@ async fn apply_mta_sts(
                 .iter()
                 .flat_map(|p| p.hosts.iter().cloned())
                 .collect();
-            Some(PolicyMode::Enforce)
+            PolicyMode::Enforce
         }
         StsEval::Impossible => {
             MX_MTA_STS_IMPOSSIBLE.inc();
@@ -445,7 +445,7 @@ impl MailExchanger {
                     is_domain_literal: true,
                     is_secure: false,
                     is_mx: false,
-                    mta_sts: None,
+                    mta_sts: PolicyMode::None,
                     expires: None,
                 }));
             }
@@ -527,7 +527,7 @@ impl MailExchanger {
                 Err(error) => return Ok(Err(error)),
             }
         } else {
-            None
+            PolicyMode::None
         };
 
         let by_pref = by_pref
@@ -657,14 +657,14 @@ mod test {
     fn mta_sts_none_and_testing() {
         assert_eq!(
             evaluate_mta_sts(&hosts(&["mx01.mail.icloud.com."]), &policy("none", &[])),
-            StsEval::Status(None)
+            StsEval::Status(PolicyMode::None)
         );
         assert_eq!(
             evaluate_mta_sts(
                 &hosts(&["mx01.mail.icloud.com."]),
                 &policy("testing", &["*.mx.cloudflare.net"])
             ),
-            StsEval::Status(Some(PolicyMode::Testing))
+            StsEval::Status(PolicyMode::Testing)
         );
     }
 
@@ -675,7 +675,7 @@ mod test {
                 &hosts(&["mx01.mail.icloud.com.", "mx02.mail.icloud.com."]),
                 &policy("enforce", &["*.mail.icloud.com"])
             ),
-            StsEval::Status(Some(PolicyMode::Enforce))
+            StsEval::Status(PolicyMode::Enforce)
         );
     }
 
@@ -711,7 +711,7 @@ mod test {
                 &hosts(&["mx01.mail.icloud.com.:587"]),
                 &policy("enforce", &["*.mail.icloud.com"])
             ),
-            StsEval::Status(Some(PolicyMode::Enforce))
+            StsEval::Status(PolicyMode::Enforce)
         );
     }
 
