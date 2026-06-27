@@ -240,7 +240,7 @@ If the connection setup itself depends on per-message values, use
 the constructor arguments only for one-time setup that is invariant
 across the queues sharing this constructor, and resolve per-message
 values inside `send` (or `send_batch`) using `message:get_meta` or
-[message:get_queue_name](../../message/get_queue_name.md):
+[message:queue_name](../../message/queue_name.md):
 
 ```lua
 kumo.on('make.webhook', function(domain, tenant, campaign)
