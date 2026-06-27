@@ -21,19 +21,55 @@ fn make_sink_cert() -> anyhow::Result<(String, String, String)> {
     Ok((cert.pem(), key.serialize_pem(), hex::encode(digest)))
 }
 
-enum Scenario {
-    /// Secure zone, TLSA matches the sink certificate: DANE authenticates.
-    Authenticated,
-    /// Secure zone, TLSA does not match: handshake fails.
-    Mismatch,
-    /// Same records, but the zone is not DNSSEC secure: DANE does not apply.
-    NotDane,
-    /// Secure zone, but only a PKIX-EE(1) record, which is unusable for DANE
-    /// SMTP: STARTTLS is required but the peer is not authenticated.
-    Unusable,
-    /// Secure MX/address, but the TLSA lookup fails (SERVFAIL): we must defer
-    /// rather than deliver without authentication.
-    ServFail,
+/// The TLSA record the sink publishes for the MX host. The cert digest is only
+/// known once the per-run sink certificate is generated, so the concrete record
+/// is built inside `run_scenario` from these intent-level variants.
+enum Tlsa {
+    /// No TLSA record published (used with `servfail` to model a failed lookup).
+    None,
+    /// A usable `3 0 1` record whose digest matches the sink certificate, so
+    /// DANE authenticates the peer.
+    MatchesCert,
+    /// A usable `3 0 1` record whose digest does not match, so DANE rejects the
+    /// presented certificate.
+    WrongDigest,
+    /// A `1 0 1` PKIX-EE record: published but unusable for SMTP DANE, so
+    /// STARTTLS is required without authenticating the peer.
+    PkixEeUnusable,
+}
+
+/// Inputs that define a single DANE delivery scenario. The `Default` is the
+/// happy path (secure zone, matching TLSA, DNS-MX routing); each test overrides
+/// only the field(s) that express what it is exercising.
+struct Scenario {
+    /// Whether the MX, address, and TLSA records are served from a
+    /// DNSSEC-secure zone.
+    secure: bool,
+    /// The TLSA record the sink publishes for the MX host.
+    tlsa: Tlsa,
+    /// Force the TLSA lookup to return SERVFAIL.
+    servfail: bool,
+    /// Recipient address, which selects DNS-MX (`dane.example`) vs local
+    /// `mx_list` (`mxlist.example`) routing in source-dane.lua.
+    recipient: &'static str,
+}
+
+impl Default for Scenario {
+    fn default() -> Self {
+        Self {
+            secure: true,
+            tlsa: Tlsa::MatchesCert,
+            servfail: false,
+            recipient: "recip@dane.example",
+        }
+    }
+}
+
+/// Whether the attempt is expected to deliver, or to fail transiently (defer).
+#[derive(PartialEq)]
+enum ExpectDelivery {
+    True,
+    False,
 }
 
 /// A compact, stable view of how a delivery attempt concluded, suitable for
@@ -102,15 +138,15 @@ fn tls_authenticated(events: &[TraceSmtpClientV1Event]) -> Option<bool> {
     None
 }
 
-async fn run_scenario(scenario: Scenario, expect_delivery: bool) -> anyhow::Result<Outcome> {
+async fn run_scenario(scenario: Scenario, expect: ExpectDelivery) -> anyhow::Result<Outcome> {
     let (cert_pem, key_pem, digest) = make_sink_cert()?;
+    let expect_delivery = expect == ExpectDelivery::True;
 
-    let (secure, tlsa, servfail) = match scenario {
-        Scenario::Authenticated => (true, Some(format!("3 0 1 {digest}")), false),
-        Scenario::Mismatch => (true, Some(format!("3 0 1 {}", "00".repeat(32))), false),
-        Scenario::NotDane => (false, Some(format!("3 0 1 {digest}")), false),
-        Scenario::Unusable => (true, Some(format!("1 0 1 {digest}")), false),
-        Scenario::ServFail => (true, None, true),
+    let tlsa = match scenario.tlsa {
+        Tlsa::None => None,
+        Tlsa::MatchesCert => Some(format!("3 0 1 {digest}")),
+        Tlsa::WrongDigest => Some(format!("3 0 1 {}", "00".repeat(32))),
+        Tlsa::PkixEeUnusable => Some(format!("1 0 1 {digest}")),
     };
 
     let mut options = DaemonWithMaildirOptions::new()
@@ -118,11 +154,14 @@ async fn run_scenario(scenario: Scenario, expect_delivery: bool) -> anyhow::Resu
         .sink_policy_file("sink-dane.lua")
         .env("KUMOD_SINK_TLS_CERT", cert_pem)
         .env("KUMOD_SINK_TLS_KEY", key_pem)
-        .env("KUMOD_DANE_SECURE", if secure { "true" } else { "false" });
+        .env(
+            "KUMOD_DANE_SECURE",
+            if scenario.secure { "true" } else { "false" },
+        );
     if let Some(tlsa) = tlsa {
         options = options.env("KUMOD_DANE_TLSA", tlsa);
     }
-    if servfail {
+    if scenario.servfail {
         options = options.env("KUMOD_DANE_SERVFAIL", "true");
     }
 
@@ -134,7 +173,7 @@ async fn run_scenario(scenario: Scenario, expect_delivery: bool) -> anyhow::Resu
 
     let mut client = daemon.smtp_client().await?;
     let response = MailGenParams {
-        recip: Some("recip@dane.example"),
+        recip: Some(scenario.recipient),
         ..Default::default()
     }
     .send(&mut client)
@@ -189,7 +228,7 @@ async fn run_scenario(scenario: Scenario, expect_delivery: bool) -> anyhow::Resu
 
 #[tokio::test]
 async fn dane_authenticated() -> anyhow::Result<()> {
-    let outcome = run_scenario(Scenario::Authenticated, true).await?;
+    let outcome = run_scenario(Scenario::default(), ExpectDelivery::True).await?;
     k9::snapshot!(
         outcome,
         r#"
@@ -209,11 +248,80 @@ Outcome {
 }
 
 #[tokio::test]
+async fn dane_mx_list_authenticated() -> anyhow::Result<()> {
+    // A locally-configured mx_list host with treat_mx_list_as_secure = true is
+    // a trusted selection, so DANE applies and authenticates the peer.
+    let outcome = run_scenario(
+        Scenario {
+            recipient: "recip@mxlist.example",
+            ..Default::default()
+        },
+        ExpectDelivery::True,
+    )
+    .await?;
+    k9::snapshot!(
+        outcome,
+        r#"
+Outcome {
+    kind: Delivery,
+    response: "250 OK ids=ID",
+    dane_diagnostics: [
+        "DANE records for mx.dane.example are: [<tlsa records>]",
+    ],
+    tls_authenticated: Some(
+        true,
+    ),
+}
+"#
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn dane_mx_list_untrusted_is_opportunistic() -> anyhow::Result<()> {
+    // An mx_list route without treat_mx_list_as_secure: the selection is not
+    // known to be DNSSEC-secure, so DANE must not engage even though the host's
+    // address and TLSA records are in a secure zone. Delivery falls back to
+    // opportunistic (unauthenticated) TLS.
+    let outcome = run_scenario(
+        Scenario {
+            recipient: "recip@mxlistinsecure.example",
+            ..Default::default()
+        },
+        ExpectDelivery::True,
+    )
+    .await?;
+    k9::snapshot!(
+        outcome,
+        r#"
+Outcome {
+    kind: Delivery,
+    response: "250 OK ids=ID",
+    dane_diagnostics: [
+        "DANE is enabled but the chain to mx.dane.example is not fully DNSSEC-secure (mx_selection_secure=false, address_secure=true); not using DANE",
+    ],
+    tls_authenticated: Some(
+        false,
+    ),
+}
+"#
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn dane_mismatch_defers() -> anyhow::Result<()> {
     // DANE records were used (see the diagnostic), but the TLSA digest does not
     // match the presented certificate, so the DANE verification rejects it
     // (opportunistic-insecure would have accepted the same self-signed cert).
-    let outcome = run_scenario(Scenario::Mismatch, false).await?;
+    let outcome = run_scenario(
+        Scenario {
+            tlsa: Tlsa::WrongDigest,
+            ..Default::default()
+        },
+        ExpectDelivery::False,
+    )
+    .await?;
     k9::snapshot!(
         outcome,
         r#"
@@ -232,7 +340,14 @@ Outcome {
 
 #[tokio::test]
 async fn dane_insecure_is_opportunistic() -> anyhow::Result<()> {
-    let outcome = run_scenario(Scenario::NotDane, true).await?;
+    let outcome = run_scenario(
+        Scenario {
+            secure: false,
+            ..Default::default()
+        },
+        ExpectDelivery::True,
+    )
+    .await?;
     k9::snapshot!(
         outcome,
         r#"
@@ -240,7 +355,7 @@ Outcome {
     kind: Delivery,
     response: "250 OK ids=ID",
     dane_diagnostics: [
-        "DANE is enabled but the DNSSEC-secure chain to mx.dane.example. is incomplete (mx_secure=false, address_secure=false); not using DANE",
+        "DANE is enabled but the chain to mx.dane.example. is not fully DNSSEC-secure (mx_selection_secure=false, address_secure=false); not using DANE",
     ],
     tls_authenticated: Some(
         false,
@@ -253,7 +368,14 @@ Outcome {
 
 #[tokio::test]
 async fn dane_unusable_requires_unauthenticated_tls() -> anyhow::Result<()> {
-    let outcome = run_scenario(Scenario::Unusable, true).await?;
+    let outcome = run_scenario(
+        Scenario {
+            tlsa: Tlsa::PkixEeUnusable,
+            ..Default::default()
+        },
+        ExpectDelivery::True,
+    )
+    .await?;
     k9::snapshot!(
         outcome,
         r#"
@@ -274,7 +396,15 @@ Outcome {
 
 #[tokio::test]
 async fn dane_servfail_defers() -> anyhow::Result<()> {
-    let outcome = run_scenario(Scenario::ServFail, false).await?;
+    let outcome = run_scenario(
+        Scenario {
+            tlsa: Tlsa::None,
+            servfail: true,
+            ..Default::default()
+        },
+        ExpectDelivery::False,
+    )
+    .await?;
     k9::snapshot!(
         outcome,
         r#"

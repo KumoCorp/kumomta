@@ -60,6 +60,54 @@ end)
     that you define here.  A port number defined here in `mx_list` overrides a
     port number defined by `make_egress_path` in your shaping configuration.
 
+#### treat_mx_list_as_secure
+
+{{since('dev')}}
+
+When [enable_dane](../make_egress_path/enable_dane.md) is set, DANE requires
+that the *selection* of the destination host be trusted: normally this is
+established by DNSSEC-validating the `MX` RRset. An `mx_list` bypasses `MX`
+resolution, so by default kumomta does **not** consider its hosts to be a
+secure selection, and DANE will not engage for them.
+
+Set `treat_mx_list_as_secure = true` to assert that the hosts in `mx_list`
+are a trusted selection (for example, a statically configured internal
+relay). When set, DANE may apply to those hosts, provided their address
+(`A`/`AAAA`) records are themselves DNSSEC-validated.
+
+```lua
+return kumo.make_queue_config {
+  protocol = {
+    smtp = {
+      mx_list = { 'relay.internal' },
+      treat_mx_list_as_secure = true,
+    },
+  },
+}
+```
+
+!!! danger
+    Do not set this when `mx_list` is derived from an untracked DNS lookup.
+    For example, populating `mx_list` from
+    [kumo.dns.lookup_mx](../../kumo.dns/lookup_mx.md) and unconditionally setting
+    `treat_mx_list_as_secure = true` would let a spoofed `MX` response steer
+    delivery to an attacker-chosen host that passes DANE, defeating the
+    downgrade resistance that DANE is meant to provide. If you must build
+    `mx_list` from a lookup, propagate the lookup's own secure status
+    instead:
+
+    ```lua
+    local mx = kumo.dns.lookup_mx 'example.com'
+    return kumo.make_queue_config {
+      protocol = {
+        smtp = {
+          mx_list = mx.hosts,
+          treat_mx_list_as_secure = mx.is_secure,
+        },
+      },
+    }
+    ```
+
 ### Example of using the Maildir protocol
 
 ```lua

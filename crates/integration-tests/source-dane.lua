@@ -80,13 +80,33 @@ kumo.on('init', function()
   }
 end)
 
-kumo.on('get_queue_config', function(_domain, _tenant, _campaign)
-  -- No mx_list: use the default smtp protocol, which resolves the routing
-  -- domain's MX records via DNS (our TestResolver). An explicit egress pool
-  -- ensures our get_egress_source (and thus remote_port) is honored.
-  return kumo.make_queue_config {
+kumo.on('get_queue_config', function(domain, _tenant, _campaign)
+  -- An explicit egress pool ensures our get_egress_source (and thus
+  -- remote_port) is honored.
+  local params = {
     egress_pool = 'dane',
   }
+  if domain == 'mxlist.example' then
+    -- Route via a locally-configured mx_list host instead of DNS MX. DANE
+    -- applies because we explicitly assert the selection is trusted and the
+    -- host's A/AAAA + TLSA records are securely resolved.
+    params.protocol = {
+      smtp = {
+        mx_list = { 'mx.dane.example:' .. SINK_PORT },
+        treat_mx_list_as_secure = true,
+      },
+    }
+  elseif domain == 'mxlistinsecure.example' then
+    params.protocol = {
+      smtp = {
+        mx_list = { 'mx.dane.example:' .. SINK_PORT },
+        treat_mx_list_as_secure = false,
+      },
+    }
+  end
+  -- Otherwise (dane.example) use the default smtp protocol, which resolves the
+  -- routing domain's MX records via DNS (our TestResolver).
+  return kumo.make_queue_config(params)
 end)
 
 kumo.on('get_egress_pool', function(pool_name)

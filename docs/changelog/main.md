@@ -36,6 +36,11 @@
    used with the Hickory resolver (with DNSSEC validation enabled); it no
    longer requires the unbound resolver.
 
+ * New [treat_mx_list_as_secure](../reference/kumo/make_queue_config/protocol.md#treat_mx_list_as_secure)
+   SMTP protocol option. When set, the hosts in an `mx_list` are treated as a
+   trusted (DNSSEC-secure) MX selection, allowing DANE to apply to a statically
+   configured relay that does not go through `MX` resolution.
+
  * The [trust_anchor_file](../reference/kumo.dns/resolver_options/trust_anchor_file.md)
    resolver option now also accepts a `{ managed = "<path>" }` form, naming an
    RFC 5011 auto-maintained DNSSEC trust anchor file that stays current across
