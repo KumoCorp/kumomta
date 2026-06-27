@@ -1,0 +1,87 @@
+[
+  {
+    "name": "acl_check",
+    "capacity": 128,
+    "doc": null
+  },
+  {
+    "name": "acl_definition",
+    "capacity": 128,
+    "doc": null
+  },
+  {
+    "name": "dkim_key_cache",
+    "capacity": 1024,
+    "doc": "Caches dkim loaded signing keys based on their KeySource spec"
+  },
+  {
+    "name": "dkim_signer_cache",
+    "capacity": 1024,
+    "doc": "Caches dkim signer specs to signer objects"
+  },
+  {
+    "name": "dns_resolver_ip",
+    "capacity": 1024,
+    "doc": "Caches domain name to the combined set of ipv4 and ipv6 records"
+  },
+  {
+    "name": "dns_resolver_ipv4",
+    "capacity": 1024,
+    "doc": "Caches domain name to ipv4 records"
+  },
+  {
+    "name": "dns_resolver_ipv6",
+    "capacity": 1024,
+    "doc": "Caches domain name to ipv6 records"
+  },
+  {
+    "name": "dns_resolver_mx",
+    "capacity": 65536,
+    "doc": "Caches domain name to computed set of MailExchanger records"
+  },
+  {
+    "name": "egress_source_pools",
+    "capacity": 128,
+    "doc": "Caches EgressPool information by pool name"
+  },
+  {
+    "name": "egress_source_sources",
+    "capacity": 128,
+    "doc": "Caches EgressSource information by source name"
+  },
+  {
+    "name": "http_server_auth",
+    "capacity": 128,
+    "doc": "Caches the results of the http server auth validation by auth credential"
+  },
+  {
+    "name": "mod_filesystem_glob_cache",
+    "capacity": 32,
+    "doc": "Caches glob results by glob pattern"
+  },
+  {
+    "name": "mta_sts_policy",
+    "capacity": 65536,
+    "doc": "Caches MTA-STS policy information by domain"
+  },
+  {
+    "name": "rustls_client_config",
+    "capacity": 32,
+    "doc": "Caches TLS connector information for the RFC5321 SMTP client"
+  },
+  {
+    "name": "smtp_dispatcher_broken_tls",
+    "capacity": 65536,
+    "doc": "Remembers which site names have broken TLS"
+  },
+  {
+    "name": "smtp_dispatcher_client_certificate",
+    "capacity": 1024,
+    "doc": "Caches smtp client certificates by KeySource spec"
+  },
+  {
+    "name": "smtp_server_tls_config",
+    "capacity": 128,
+    "doc": "Caches TLS acceptor information for the esmtp listener"
+  }
+]

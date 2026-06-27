@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["get_opt_resolver","get_resolver_instance","register"]};
