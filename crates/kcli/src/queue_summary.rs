@@ -1,5 +1,5 @@
 use clap::Parser;
-use dns_resolver::MailExchanger;
+use mailexchanger::MailExchanger;
 use kumo_api_client::KumoApiClient;
 use kumo_api_types::ReadyQueueStateRequest;
 use lexicmp::natural_lexical_cmp;

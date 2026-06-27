@@ -15,6 +15,7 @@ config = {path="../config", optional=true}
 data-encoding = {workspace=true}
 data-loader = {path="../data-loader", default-features=false}
 dns-resolver = {path="../dns-resolver"}
+mailexchanger = {path="../mailexchanger"}
 duration-serde = {path="../duration-serde"}
 fancy-regex = {workspace=true}
 futures-util = {workspace=true}
