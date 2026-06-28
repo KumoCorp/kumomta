@@ -140,7 +140,7 @@ lapin = {version="2.5", default-features=false, features=["native-tls"]}
 lexicmp = "0.2"
 libc = "0.2.139"
 linkme = "0.3"
-libunbound = {git="https://github.com/KumoCorp/libunbound-rs.git", rev="25b9102e927320d3cb101fc840ebbd38f9428dbb"}
+libunbound = {git="https://github.com/KumoCorp/libunbound-rs.git", rev="0d7d5c89f7ad02c7eabd0805a92b71eaaf37b5d5"}
 lipsum = "0.9"
 log = "0.4"
 lru-cache = "0.1"

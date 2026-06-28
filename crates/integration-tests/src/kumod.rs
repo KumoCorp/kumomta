@@ -6,7 +6,9 @@ use futures::stream::FusedStream;
 use futures::{SinkExt, StreamExt};
 use kumo_api_client::KumoApiClient;
 pub use kumo_api_client::Metric;
-use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Request};
+use kumo_api_types::{
+    TraceSmtpClientV1Event, TraceSmtpClientV1Request, TraceSmtpV1Event, TraceSmtpV1Request,
+};
 use kumo_log_types::*;
 use kumo_server_common::acct::AcctLogRecord;
 use maildir::{MailEntry, Maildir};
@@ -186,6 +188,7 @@ pub fn target_bin(tool: &str) -> anyhow::Result<PathBuf> {
 
 pub struct DaemonWithMaildirOptions {
     policy_file: String,
+    sink_policy_file: String,
     env: Vec<(String, String)>,
 }
 
@@ -193,6 +196,7 @@ impl DaemonWithMaildirOptions {
     pub fn new() -> Self {
         Self {
             policy_file: "source.lua".to_string(),
+            sink_policy_file: "maildir-sink.lua".to_string(),
             env: vec![],
         }
     }
@@ -205,6 +209,12 @@ impl DaemonWithMaildirOptions {
 
     pub fn policy_file(mut self, file: impl Into<String>) -> Self {
         self.policy_file = file.into();
+        self
+    }
+
+    #[allow(unused)]
+    pub fn sink_policy_file(mut self, file: impl Into<String>) -> Self {
+        self.sink_policy_file = file.into();
         self
     }
 
@@ -221,9 +231,12 @@ impl DaemonWithMaildir {
     pub async fn start_with_options(options: DaemonWithMaildirOptions) -> anyhow::Result<Self> {
         let mut env = options.env;
 
-        let sink = KumoDaemon::spawn_maildir_env(env.clone())
-            .await
-            .context("spawn_maildir")?;
+        let sink = KumoDaemon::spawn(KumoArgs {
+            policy_file: options.sink_policy_file,
+            env: env.clone(),
+        })
+        .await
+        .context("spawn_maildir")?;
         let smtp = sink.listener("smtp");
         env.push(("KUMOD_SMTP_SINK_PORT".to_string(), smtp.port().to_string()));
         let http = sink.listener("http");
@@ -617,6 +630,68 @@ impl KumoDaemon {
         });
 
         Ok(ServerTracer {
+            signal_close,
+            joiner,
+            records,
+        })
+    }
+
+    /// Connect to the outbound (client) SMTP session tracer. Connect this
+    /// *before* triggering delivery: events are only broadcast while a tracer
+    /// is subscribed.
+    pub async fn trace_client(&self) -> anyhow::Result<ClientTracer> {
+        let (mut socket, _response) = connect_async(format!(
+            "ws://{}/api/admin/trace-smtp-client/v1",
+            self.listener("http")
+        ))
+        .await?;
+        socket
+            .send(Message::Text(
+                serde_json::to_string(&TraceSmtpClientV1Request {
+                    terse: true,
+                    ..Default::default()
+                })?
+                .into(),
+            ))
+            .await?;
+
+        let (signal_close, mut close_signalled) = tokio::sync::oneshot::channel();
+        let records = Arc::new(Mutex::new(vec![]));
+
+        let joiner = tokio::spawn({
+            let records = records.clone();
+            async move {
+                while !socket.is_terminated() {
+                    tokio::select! {
+                        // The client-trace admin endpoint only writes; it does
+                        // not wait on the socket to observe our close, so don't
+                        // wait for a close echo: signal, close, and stop.
+                        _ = &mut close_signalled => {
+                            socket.close(None).await.ok();
+                            break;
+                        }
+                        record = socket.next() => {
+                            match record {
+                                Some(Ok(Message::Text(s))) => {
+                                    let event: TraceSmtpClientV1Event =
+                                        serde_json::from_str(&s).expect("TraceSmtpClientV1Event");
+                                    records.lock().push(event);
+                                }
+                                Some(Ok(Message::Ping(ping))) => {
+                                    if socket.send(Message::Pong(ping)).await.is_err() {
+                                        break;
+                                    }
+                                }
+                                Some(Ok(_)) => break,
+                                Some(Err(_)) | None => break,
+                            }
+                        }
+                    };
+                }
+            }
+        });
+
+        Ok(ClientTracer {
             signal_close,
             joiner,
             records,
@@ -1093,6 +1168,43 @@ impl DaemonWithTsa {
         self.with_maildir.stop_both().await?;
         self.tsa.stop().await?;
         Ok(())
+    }
+}
+
+pub struct ClientTracer {
+    signal_close: tokio::sync::oneshot::Sender<()>,
+    joiner: tokio::task::JoinHandle<()>,
+    records: Arc<Mutex<Vec<TraceSmtpClientV1Event>>>,
+}
+
+impl ClientTracer {
+    pub async fn stop(self) -> anyhow::Result<Vec<TraceSmtpClientV1Event>> {
+        self.signal_close.send(()).expect("call stop only once");
+        self.joiner.await?;
+        Ok(self.records.lock().clone())
+    }
+
+    pub fn with_records<R>(&self, mut apply: impl FnMut(&[TraceSmtpClientV1Event]) -> R) -> R {
+        let records = self.records.lock();
+        (apply)(&records)
+    }
+
+    pub async fn wait_for(
+        &self,
+        mut condition: impl FnMut(&[TraceSmtpClientV1Event]) -> bool,
+        timeout: Duration,
+    ) -> bool {
+        tokio::select! {
+            _ = async {
+                loop {
+                    if self.with_records(&mut condition) {
+                        return true;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            } => true,
+            _ = tokio::time::sleep(timeout) => false,
+        }
     }
 }
 

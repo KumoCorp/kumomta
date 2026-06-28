@@ -4,7 +4,6 @@
 //! do not require breaking changes to user configs.
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use std::time::Duration;
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
@@ -50,6 +49,17 @@ pub enum Protocol {
     Tcp,
     #[default]
     UdpThenTcp,
+}
+
+/// A DNSSEC trust anchor file. Either a plain path string, naming a *static*
+/// anchor file that is read once and never updated, or `{ managed = "..." }`,
+/// naming an RFC 5011 auto-maintained anchor file (supported by the unbound
+/// backend only).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum TrustAnchorFile {
+    Static(String),
+    Managed { managed: String },
 }
 
 // `skip_serializing_if = "Option::is_none"` keeps the serialized form down to
@@ -115,7 +125,7 @@ pub struct ResolverOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub case_randomization: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trust_anchor_file: Option<PathBuf>,
+    pub trust_anchor_file: Option<TrustAnchorFile>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]

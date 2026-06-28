@@ -1,6 +1,6 @@
 use crate::config::{
     DnsResolverConfig, IpStrategy, NameServer, Protocol, ResolverOptions, ServerOrderingStrategy,
-    UseHostsFile,
+    TrustAnchorFile, UseHostsFile,
 };
 use anyhow::Context;
 use dns_resolver::HickoryResolver;
@@ -176,8 +176,17 @@ fn apply_options(opts: &mut ResolverOpts, k: &ResolverOptions) -> anyhow::Result
     if let Some(v) = k.case_randomization {
         opts.case_randomization = v;
     }
-    if let Some(v) = &k.trust_anchor_file {
-        opts.trust_anchor = Some(v.clone());
+    match &k.trust_anchor_file {
+        Some(TrustAnchorFile::Static(path)) => {
+            opts.trust_anchor = Some(path.into());
+        }
+        Some(TrustAnchorFile::Managed { .. }) => {
+            anyhow::bail!(
+                "trust_anchor_file = {{ managed = ... }} (RFC 5011 auto-maintained \
+                 anchors) is only supported by the unbound backend"
+            );
+        }
+        None => {}
     }
     Ok(())
 }

@@ -1225,6 +1225,7 @@ impl SmtpServerSession {
                     peer_address: ResolvedAddress {
                         name: self.said_hello.as_deref().unwrap_or("").to_string(),
                         addr: self.peer_address.ip().into(),
+                        is_secure: false,
                     },
                     response,
                     sender,
@@ -3247,6 +3248,7 @@ impl SmtpServerSession {
                 peer_address: Some(&ResolvedAddress {
                     name: self.said_hello.as_deref().unwrap_or("").to_string(),
                     addr: self.peer_address.ip().into(),
+                    is_secure: false,
                 }),
                 response: Response {
                     code: 250,

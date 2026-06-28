@@ -1,6 +1,7 @@
 use anyhow::Context;
 use arc_swap::ArcSwap;
-pub use hickory_resolver::proto::rr::rdata::tlsa::TLSA;
+use hickory_resolver::proto::op::ResponseCode;
+pub use hickory_resolver::proto::rr::rdata::tlsa::{CertUsage, Matching, Selector, TLSA};
 pub use hickory_resolver::proto::rr::Name;
 use hickory_resolver::proto::rr::{RData, RecordType};
 use hickory_resolver::proto::ProtoError;
@@ -24,8 +25,8 @@ mod resolver;
 #[cfg(feature = "unbound")]
 pub use resolver::UnboundResolver;
 pub use resolver::{
-    ptr_host, reverse_ip, AggregateResolver, DnsError, HickoryResolver, IpDisplay, Resolver,
-    TestResolver,
+    ptr_host, reverse_ip, AggregateResolver, Answer, DnsError, HickoryResolver, IpDisplay,
+    Resolver, TestResolver,
 };
 
 // An `ArcSwap` can only hold `Sized` types, so we cannot stuff a `dyn Resolver` directly into it.
@@ -40,16 +41,17 @@ declare_cache! {
 static MX_CACHE: LruCacheWithTtl<(Name, Option<u16>), Result<Arc<MailExchanger>, String>>::new("dns_resolver_mx", 64 * 1024);
 }
 declare_cache! {
-/// Caches domain name to ipv4 records
-static IPV4_CACHE: LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>::new("dns_resolver_ipv4", 1024);
+/// Caches domain name to ipv4 records and their DNSSEC secure status
+static IPV4_CACHE: LruCacheWithTtl<Name, Arc<IpAddresses>>::new("dns_resolver_ipv4", 1024);
 }
 declare_cache! {
-/// Caches domain name to ipv6 records
-static IPV6_CACHE: LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>::new("dns_resolver_ipv6", 1024);
+/// Caches domain name to ipv6 records and their DNSSEC secure status
+static IPV6_CACHE: LruCacheWithTtl<Name, Arc<IpAddresses>>::new("dns_resolver_ipv6", 1024);
 }
 declare_cache! {
-/// Caches domain name to the combined set of ipv4 and ipv6 records
-static IP_CACHE: LruCacheWithTtl<(Name, IpLookupStrategy), Arc<Vec<IpAddr>>>::new("dns_resolver_ip", 1024);
+/// Caches domain name to the combined set of ipv4 and ipv6 records and their
+/// DNSSEC secure status
+static IP_CACHE: LruCacheWithTtl<(Name, IpLookupStrategy), Arc<IpAddresses>>::new("dns_resolver_ip", 1024);
 }
 
 /// Maximum number of concurrent mx resolves permitted
@@ -167,47 +169,155 @@ pub fn get_resolver() -> Arc<Box<dyn Resolver>> {
     RESOLVER.load_full()
 }
 
-/// Resolves TLSA records for a destination name and port according to
-/// <https://datatracker.ietf.org/doc/html/rfc6698#appendix-B.2>
-pub async fn resolve_dane(hostname: &str, port: u16) -> anyhow::Result<Vec<TLSA>> {
-    let name = fully_qualify(&format!("_{port}._tcp.{hostname}"))?;
-    let answer = RESOLVER.load().resolve(name, RecordType::TLSA).await?;
-    tracing::debug!("resolve_dane {hostname}:{port} TLSA answer is: {answer:?}");
+/// The outcome of attempting to resolve DANE TLSA records for an MX host,
+/// per <https://datatracker.ietf.org/doc/html/rfc7672>.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DaneStatus {
+    /// The host is not DANE-eligible: either the MX host's address (A/AAAA)
+    /// RRset was not securely (DNSSEC) resolved, or there was a secure proof
+    /// that no TLSA records exist (NODATA/NXDOMAIN). Delivery should continue
+    /// using the normal (opportunistic / configured) TLS policy.
+    NotApplicable,
+    /// Secure, usable DANE-TA(2)/DANE-EE(3) TLSA records were found. The
+    /// connection must use TLS and authenticate the peer against these records.
+    Records(Vec<TLSA>),
+    /// Secure TLSA records were published, but none are usable for DANE SMTP
+    /// (e.g. only PKIX-TA(0)/PKIX-EE(1), private/unassigned usages, or
+    /// unsupported selector/matching types). Per RFC 7672 section 4.1 the
+    /// client must still require STARTTLS but cannot authenticate the peer.
+    Unusable,
+    /// The secure status of the TLSA records (or of the MX host's address
+    /// records) could not be determined, e.g. due to SERVFAIL, a timeout, or a
+    /// DNSSEC validation failure (bogus). To preserve downgrade resistance the
+    /// delivery must be deferred rather than continuing without authentication.
+    TempFail(String),
+}
+
+/// Decides whether a single TLSA record is usable for DANE SMTP.
+///
+/// RFC 7672 section 3.1.3 restricts SMTP DANE to the DANE-TA(2) and DANE-EE(3)
+/// certificate usages; PKIX-TA(0), PKIX-EE(1), and private/unassigned usages
+/// MUST be treated as unusable. We also require a selector and matching type
+/// that we (and OpenSSL) understand, and a digest of the correct length.
+fn tlsa_is_usable(tlsa: &TLSA) -> bool {
+    match tlsa.cert_usage {
+        CertUsage::DaneTa | CertUsage::DaneEe => {}
+        _ => return false,
+    }
+    match tlsa.selector {
+        Selector::Full | Selector::Spki => {}
+        _ => return false,
+    }
+    let expected_len = match tlsa.matching {
+        Matching::Raw => None,
+        Matching::Sha256 => Some(32),
+        Matching::Sha512 => Some(64),
+        _ => return false,
+    };
+    match expected_len {
+        Some(len) if tlsa.cert_data.len() != len => false,
+        _ => true,
+    }
+}
+
+/// Resolves DANE TLSA records for the given MX host and port, applying the
+/// RFC 7672 rules required for downgrade-resistant DANE SMTP.
+///
+/// `mx_host` must be the MX hostname (RFC 7672 section 3.2.2: the MX hostname is
+/// the only reference identifier), not the envelope/routing domain.
+///
+/// The caller is responsible for only invoking this when the chain to the MX
+/// host was securely (DNSSEC) resolved: both the MX RRset (see
+/// [`MailExchanger::is_secure`]) and the MX host's address records (see
+/// [`ResolvedAddress::is_secure`](kumo_log_types::ResolvedAddress)) must be
+/// secure. RFC 7672 section 2.2 requires the address records to be secure
+/// before it is safe to rely on TLSA records; we satisfy that by gating on the
+/// secure status of the very address we are about to connect to.
+pub async fn resolve_dane(mx_host: &str, port: u16) -> anyhow::Result<DaneStatus> {
+    let name = fully_qualify(&format!("_{port}._tcp.{mx_host}"))?;
+    let answer = RESOLVER.load().resolve(name, RecordType::TLSA).await;
+    Ok(classify_tlsa_answer(mx_host, port, answer))
+}
+
+/// Maps the result of the TLSA lookup onto a [`DaneStatus`], applying the
+/// RFC 7672 rules. Split out from [`resolve_dane`] so that it can be unit
+/// tested without a live (DNSSEC validating) resolver.
+fn classify_tlsa_answer(mx_host: &str, port: u16, answer: Result<Answer, DnsError>) -> DaneStatus {
+    let answer = match answer {
+        Ok(answer) => answer,
+        Err(err) => {
+            // No answer at all (a timeout or other communication/resource
+            // failure); the TLSA status is unknown, so we must not downgrade.
+            // Failure RCODEs such as SERVFAIL are handled in the match below.
+            return DaneStatus::TempFail(format!("TLSA lookup for {mx_host}:{port} failed: {err}"));
+        }
+    };
+    tracing::debug!("resolve_dane {mx_host}:{port} TLSA answer is: {answer:?}");
 
     if answer.bogus {
         // Bogus records are either tampered with, or due to misconfiguration
-        // of the local resolver
-        anyhow::bail!(
-            "DANE result for {hostname}:{port} unusable because: {}",
+        // of the local resolver.
+        return DaneStatus::TempFail(format!(
+            "TLSA records for {mx_host}:{port} are bogus: {}",
             answer
                 .why_bogus
                 .as_deref()
                 .unwrap_or("DNSSEC validation failed")
-        );
+        ));
     }
 
-    let mut result = vec![];
-    // We ignore TLSA records unless they are validated; in other words,
-    // we'll return an empty list (without raising an error) if the resolver
-    // is not configured to verify DNSSEC
-    if answer.secure {
-        for r in &answer.records {
-            if let RData::TLSA(tlsa) = r {
-                result.push(tlsa.clone());
-            }
+    match answer.response_code {
+        ResponseCode::NoError => {}
+        // A secure (or insecure) denial of existence means there are no TLSA
+        // records; the host is simply not a DANE host.
+        ResponseCode::NXDomain => return DaneStatus::NotApplicable,
+        // SERVFAIL, REFUSED, NOTIMP, etc. leave the status unknown.
+        rcode => {
+            return DaneStatus::TempFail(format!(
+                "TLSA lookup for {mx_host}:{port} returned {rcode}"
+            ));
         }
-        // DNS results are unordered. For the sake of tests,
-        // sort these records.
-        // Unfortunately, the TLSA type is nor Ord so we
-        // convert to string and order by that, which is a bit
-        // wasteful but the cardinality of TLSA records is
-        // generally low
-        result.sort_by_key(|a| a.to_string());
     }
 
-    tracing::info!("resolve_dane {hostname}:{port} result is: {result:?}");
+    // We can only trust TLSA records that were DNSSEC validated.
+    if !answer.secure {
+        return DaneStatus::NotApplicable;
+    }
 
-    Ok(result)
+    let mut published = vec![];
+    for r in &answer.records {
+        if let RData::TLSA(tlsa) = r {
+            published.push(tlsa.clone());
+        }
+    }
+
+    if published.is_empty() {
+        // Secure proof that no TLSA records exist (NODATA).
+        return DaneStatus::NotApplicable;
+    }
+
+    let mut usable: Vec<TLSA> = published.into_iter().filter(tlsa_is_usable).collect();
+
+    if usable.is_empty() {
+        // TLSA records exist but none are usable for DANE SMTP.
+        return DaneStatus::Unusable;
+    }
+
+    // DNS results are unordered; sort for stable behavior and tests. The TLSA
+    // type is an upstream type and does not implement Ord, so sort on its
+    // component fields directly.
+    usable.sort_by_key(|a| {
+        (
+            u8::from(a.cert_usage),
+            u8::from(a.selector),
+            u8::from(a.matching),
+            a.cert_data.clone(),
+        )
+    });
+
+    tracing::info!("resolve_dane {mx_host}:{port} usable TLSA records: {usable:?}");
+
+    DaneStatus::Records(usable)
 }
 
 /// If the provided parameter ends with `:PORT` and `PORT` is a valid u16,
@@ -336,6 +446,7 @@ pub async fn resolve_a_or_aaaa(
                     return Ok(vec![ResolvedAddress {
                         name: domain_name.to_string(),
                         addr: std::net::IpAddr::V6(addr).into(),
+                        is_secure: false,
                     }]);
                 }
                 Err(err) => {
@@ -352,6 +463,7 @@ pub async fn resolve_a_or_aaaa(
                 return Ok(vec![ResolvedAddress {
                     name: domain_name.to_string(),
                     addr: addr.into(),
+                    is_secure: false,
                 }]);
             }
             Err(err) => {
@@ -364,17 +476,20 @@ pub async fn resolve_a_or_aaaa(
             return Ok(vec![ResolvedAddress {
                 name: domain_name.to_string(),
                 addr: addr.into(),
+                is_secure: false,
             }]);
         }
     }
 
     match ip_lookup(domain_name, resolver, strategy).await {
-        Ok((addrs, _expires)) => {
-            let addrs = addrs
+        Ok((result, _expires)) => {
+            let addrs = result
+                .addrs
                 .iter()
                 .map(|&addr| ResolvedAddress {
                     name: domain_name.to_string(),
                     addr: addr.into(),
+                    is_secure: result.secure,
                 })
                 .collect();
             Ok(addrs)
@@ -403,25 +518,30 @@ pub async fn resolve_socket_addr(
             Ok(vec![ResolvedAddress {
                 name,
                 addr: HostOrSocketAddress::UnixDomain(unix.clone()),
+                is_secure: false,
             }])
         }
         ResolvableSocketAddr::V4(sa) => Ok(vec![ResolvedAddress {
             name: sa.to_string(),
             addr: HostOrSocketAddress::V4Socket(sa.clone()),
+            is_secure: false,
         }]),
         ResolvableSocketAddr::V6(sa) => Ok(vec![ResolvedAddress {
             name: sa.to_string(),
             addr: HostOrSocketAddress::V6Socket(sa.clone()),
+            is_secure: false,
         }]),
         ResolvableSocketAddr::Hostname { host, port } => {
             match ip_lookup(host, resolver, strategy).await {
-                Ok((addrs, _expires)) => Ok(addrs
+                Ok((result, _expires)) => Ok(result
+                    .addrs
                     .iter()
                     .map(|&ip| {
                         let sa = SocketAddr::new(ip, *port);
                         ResolvedAddress {
                             name: host.clone(),
                             addr: sa.into(),
+                            is_secure: result.secure,
                         }
                     })
                     .collect()),
@@ -571,6 +691,7 @@ impl MailExchanger {
                     by_pref.push(ResolvedAddress {
                         name: mx_host.to_string(),
                         addr: addr.into(),
+                        is_secure: false,
                     });
                     continue;
                 }
@@ -580,8 +701,8 @@ impl MailExchanger {
                         tracing::error!("failed to resolve {mx_host}: {err:#}");
                         continue;
                     }
-                    Ok((addresses, _expires)) => {
-                        for addr in addresses.iter() {
+                    Ok((result, _expires)) => {
+                        for addr in result.addrs.iter() {
                             let mut addr: HostOrSocketAddress = (*addr).into();
                             if let Some(port) = opt_port {
                                 addr.set_port(port);
@@ -589,6 +710,7 @@ impl MailExchanger {
                             by_pref.push(ResolvedAddress {
                                 name: mx_host.to_string(),
                                 addr,
+                                is_secure: result.secure,
                             });
                         }
                     }
@@ -637,11 +759,15 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
             anyhow::bail!("NXDOMAIN");
         }
 
+        // No MX records: the domain's own A/AAAA records act as the implicit
+        // MX. This implicit MX is secure exactly when the MX NODATA response
+        // was securely (DNSSEC) resolved, which is common for signed domains
+        // that publish no MX (e.g. many `.br` domains).
         return Ok((
             vec![ByPreference {
                 hosts: vec![domain_name.to_lowercase().to_ascii()],
                 pref: 1,
-                is_secure: false,
+                is_secure: mx_lookup.secure,
                 is_mx: false,
             }],
             mx_lookup.expires,
@@ -696,11 +822,22 @@ pub enum IpLookupStrategy {
     Ipv4ThenIpv6,
 }
 
+/// A set of resolved IP addresses together with whether the DNS lookup that
+/// produced them was DNSSEC validated (secure). The secure flag is what lets
+/// the delivery path decide DANE eligibility without performing a second
+/// lookup; see [`ResolvedAddress::is_secure`](kumo_log_types::ResolvedAddress).
+#[derive(Clone, Debug)]
+pub struct IpAddresses {
+    pub addrs: Vec<IpAddr>,
+    /// True only when every address here came from a DNSSEC-validated lookup.
+    pub secure: bool,
+}
+
 pub async fn ip_lookup(
     key: &str,
     resolver: Option<&dyn Resolver>,
     strategy: IpLookupStrategy,
-) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
+) -> anyhow::Result<(Arc<IpAddresses>, Instant)> {
     let key_fq = fully_qualify(key)?;
 
     if resolver.is_none() {
@@ -719,9 +856,9 @@ pub async fn ip_lookup(
         IpLookupStrategy::Ipv6ThenIpv4 => {
             let v6 = ipv6_lookup(key, resolver).await;
             match v6 {
-                Ok((addrs, exp)) if addrs.is_empty() => (
+                Ok((answer, exp)) if answer.addrs.is_empty() => (
                     Some(ipv4_lookup(key, resolver).await),
-                    Some(Ok((addrs, exp))),
+                    Some(Ok((answer, exp))),
                 ),
                 Err(err) => (Some(ipv4_lookup(key, resolver).await), Some(Err(err))),
                 Ok(res) => (None, Some(Ok(res))),
@@ -730,8 +867,8 @@ pub async fn ip_lookup(
         IpLookupStrategy::Ipv4ThenIpv6 => {
             let v4 = ipv4_lookup(key, resolver).await;
             match v4 {
-                Ok((addrs, exp)) if addrs.is_empty() => (
-                    Some(Ok((addrs, exp))),
+                Ok((answer, exp)) if answer.addrs.is_empty() => (
+                    Some(Ok((answer, exp))),
                     Some(ipv6_lookup(key, resolver).await),
                 ),
                 Err(err) => (Some(Err(err)), Some(ipv6_lookup(key, resolver).await)),
@@ -740,56 +877,54 @@ pub async fn ip_lookup(
         }
     };
 
-    let mut results = vec![];
+    let mut addrs = vec![];
+    let mut any_addr = false;
+    let mut all_secure = true;
     let mut errors = vec![];
-    let mut expires = None;
+    let mut expires: Option<Instant> = None;
 
-    match v4 {
-        Some(Ok((addrs, exp))) => {
-            expires.replace(exp);
-            for a in addrs.iter() {
-                results.push(*a);
+    for family in [v4, v6] {
+        match family {
+            Some(Ok((answer, exp))) => {
+                expires = Some(match expires {
+                    Some(existing) => exp.min(existing),
+                    None => exp,
+                });
+                if !answer.addrs.is_empty() {
+                    any_addr = true;
+                    all_secure &= answer.secure;
+                    addrs.extend_from_slice(&answer.addrs);
+                }
             }
+            Some(Err(err)) => errors.push(err),
+            None => {}
         }
-        Some(Err(err)) => errors.push(err),
-        None => {}
     }
 
-    match v6 {
-        Some(Ok((addrs, exp))) => {
-            let exp = match expires.take() {
-                Some(existing) => exp.min(existing),
-                None => exp,
-            };
-            expires.replace(exp);
-
-            for a in addrs.iter() {
-                results.push(*a);
-            }
-        }
-        Some(Err(err)) => errors.push(err),
-        None => {}
-    }
-
-    if results.is_empty() && !errors.is_empty() {
+    if addrs.is_empty() && !errors.is_empty() {
         return Err(errors.remove(0));
     }
 
-    let addr = Arc::new(results);
-    let exp = expires.take().unwrap_or_else(Instant::now);
+    let result = Arc::new(IpAddresses {
+        addrs,
+        // Only claim secure if we actually have addresses and every family that
+        // contributed one was DNSSEC validated.
+        secure: any_addr && all_secure,
+    });
+    let exp = expires.unwrap_or_else(Instant::now);
 
     if resolver.is_none() {
         IP_CACHE
-            .insert((key_fq, strategy), addr.clone(), exp.into())
+            .insert((key_fq, strategy), result.clone(), exp.into())
             .await;
     }
-    Ok((addr, exp))
+    Ok((result, exp))
 }
 
 pub async fn ipv4_lookup(
     key: &str,
     resolver: Option<&dyn Resolver>,
-) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
+) -> anyhow::Result<(Arc<IpAddresses>, Instant)> {
     let key_fq = fully_qualify(key)?;
     if resolver.is_none() {
         if let Some(lookup) = IPV4_CACHE.lookup(&key_fq) {
@@ -806,20 +941,23 @@ pub async fn ipv4_lookup(
                 .await?
         }
     };
-    let ips = answer.as_addr();
-
-    let ips = Arc::new(ips);
+    let result = Arc::new(IpAddresses {
+        addrs: answer.as_addr(),
+        secure: answer.secure,
+    });
     let expires = answer.expires;
     if resolver.is_none() {
-        IPV4_CACHE.insert(key_fq, ips.clone(), expires.into()).await;
+        IPV4_CACHE
+            .insert(key_fq, result.clone(), expires.into())
+            .await;
     }
-    Ok((ips, expires))
+    Ok((result, expires))
 }
 
 pub async fn ipv6_lookup(
     key: &str,
     resolver: Option<&dyn Resolver>,
-) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
+) -> anyhow::Result<(Arc<IpAddresses>, Instant)> {
     let key_fq = fully_qualify(key)?;
     if resolver.is_none() {
         if let Some(lookup) = IPV6_CACHE.lookup(&key_fq) {
@@ -836,14 +974,17 @@ pub async fn ipv6_lookup(
                 .await?
         }
     };
-    let ips = answer.as_addr();
-
-    let ips = Arc::new(ips);
+    let result = Arc::new(IpAddresses {
+        addrs: answer.as_addr(),
+        secure: answer.secure,
+    });
     let expires = answer.expires;
     if resolver.is_none() {
-        IPV6_CACHE.insert(key_fq, ips.clone(), expires.into()).await;
+        IPV6_CACHE
+            .insert(key_fq, result.clone(), expires.into())
+            .await;
     }
-    Ok((ips, expires))
+    Ok((result, expires))
 }
 
 /// Given a list of host names, produce a pseudo-regex style alternation list
@@ -928,6 +1069,216 @@ fn factor_names<S: AsRef<str>>(name_strings: &[S]) -> String {
 mod test {
     use super::*;
 
+    fn answer(records: Vec<RData>, secure: bool, response_code: ResponseCode) -> Answer {
+        Answer {
+            canon_name: None,
+            records,
+            nxdomain: response_code == ResponseCode::NXDomain,
+            secure,
+            bogus: false,
+            why_bogus: None,
+            expires: Instant::now(),
+            response_code,
+        }
+    }
+
+    fn sha256_tlsa(usage: CertUsage, selector: Selector) -> TLSA {
+        TLSA::new(usage, selector, Matching::Sha256, vec![0u8; 32])
+    }
+
+    fn dane_ee_record() -> TLSA {
+        sha256_tlsa(CertUsage::DaneEe, Selector::Spki)
+    }
+
+    #[test]
+    fn tlsa_usability() {
+        // DANE-TA(2) and DANE-EE(3) are usable for DANE SMTP.
+        assert!(tlsa_is_usable(&sha256_tlsa(
+            CertUsage::DaneTa,
+            Selector::Full
+        )));
+        assert!(tlsa_is_usable(&sha256_tlsa(
+            CertUsage::DaneEe,
+            Selector::Spki
+        )));
+        // PKIX-TA(0)/PKIX-EE(1) are not in scope for DANE SMTP (RFC 7672 3.1.3).
+        assert!(!tlsa_is_usable(&sha256_tlsa(
+            CertUsage::PkixTa,
+            Selector::Full
+        )));
+        assert!(!tlsa_is_usable(&sha256_tlsa(
+            CertUsage::PkixEe,
+            Selector::Spki
+        )));
+        // Private and unassigned usages are unusable.
+        assert!(!tlsa_is_usable(&sha256_tlsa(
+            CertUsage::Private,
+            Selector::Spki
+        )));
+        assert!(!tlsa_is_usable(&sha256_tlsa(
+            CertUsage::Unassigned(200),
+            Selector::Spki
+        )));
+        // Unknown selector/matching types and bad digest lengths are unusable.
+        assert!(!tlsa_is_usable(&sha256_tlsa(
+            CertUsage::DaneEe,
+            Selector::Unassigned(7)
+        )));
+        assert!(!tlsa_is_usable(&TLSA::new(
+            CertUsage::DaneEe,
+            Selector::Spki,
+            Matching::Unassigned(9),
+            vec![0u8; 32]
+        )));
+        assert!(!tlsa_is_usable(&TLSA::new(
+            CertUsage::DaneEe,
+            Selector::Spki,
+            Matching::Sha256,
+            vec![0u8; 31]
+        )));
+        // Raw (full value, matching type 0) has no fixed length.
+        assert!(tlsa_is_usable(&TLSA::new(
+            CertUsage::DaneEe,
+            Selector::Full,
+            Matching::Raw,
+            vec![0u8; 100]
+        )));
+    }
+
+    #[test]
+    fn tlsa_answer_classification() {
+        // Usable, secure DANE-EE record.
+        k9::assert_equal!(
+            classify_tlsa_answer(
+                "mx.example.com",
+                25,
+                Ok(answer(
+                    vec![RData::TLSA(dane_ee_record())],
+                    true,
+                    ResponseCode::NoError
+                ))
+            ),
+            DaneStatus::Records(vec![dane_ee_record()])
+        );
+        // Secure NODATA: no TLSA records, not a DANE host.
+        k9::assert_equal!(
+            classify_tlsa_answer(
+                "mx.example.com",
+                25,
+                Ok(answer(vec![], true, ResponseCode::NoError))
+            ),
+            DaneStatus::NotApplicable
+        );
+        // Secure NXDOMAIN: not a DANE host.
+        k9::assert_equal!(
+            classify_tlsa_answer(
+                "mx.example.com",
+                25,
+                Ok(answer(vec![], true, ResponseCode::NXDomain))
+            ),
+            DaneStatus::NotApplicable
+        );
+        // TLSA records present but unvalidated must not be trusted.
+        k9::assert_equal!(
+            classify_tlsa_answer(
+                "mx.example.com",
+                25,
+                Ok(answer(
+                    vec![RData::TLSA(dane_ee_record())],
+                    false,
+                    ResponseCode::NoError
+                ))
+            ),
+            DaneStatus::NotApplicable
+        );
+        // Secure records present, but only disallowed usages: unusable, so
+        // STARTTLS is required without authentication.
+        k9::assert_equal!(
+            classify_tlsa_answer(
+                "mx.example.com",
+                25,
+                Ok(answer(
+                    vec![RData::TLSA(sha256_tlsa(CertUsage::PkixEe, Selector::Spki))],
+                    true,
+                    ResponseCode::NoError
+                ))
+            ),
+            DaneStatus::Unusable
+        );
+        // SERVFAIL leaves the status unknown: defer, do not downgrade.
+        assert!(matches!(
+            classify_tlsa_answer(
+                "mx.example.com",
+                25,
+                Ok(answer(vec![], false, ResponseCode::ServFail))
+            ),
+            DaneStatus::TempFail(_)
+        ));
+        // A resolver error is also a temporary failure.
+        assert!(matches!(
+            classify_tlsa_answer(
+                "mx.example.com",
+                25,
+                Err(DnsError::ResolveFailed("boom".to_string()))
+            ),
+            DaneStatus::TempFail(_)
+        ));
+    }
+
+    /// Confirms that a DNSSEC-validating hickory resolver, via our adapter,
+    /// reports signed records as secure and resolves unsigned records as
+    /// insecure (rather than failing). Validation requires a DNSSEC-capable
+    /// upstream reachable over TCP, since DNSKEY/RRSIG responses are large.
+    #[cfg(feature = "live-dns-tests")]
+    #[tokio::test]
+    async fn hickory_dnssec_validation() {
+        use hickory_resolver::config::{
+            ConnectionConfig, NameServerConfig, ProtocolConfig, ResolverConfig,
+        };
+        use hickory_resolver::net::runtime::TokioRuntimeProvider;
+        use hickory_resolver::TokioResolver;
+
+        let mut udp = ConnectionConfig::new(ProtocolConfig::Udp);
+        udp.port = 53;
+        let mut tcp = ConnectionConfig::new(ProtocolConfig::Tcp);
+        tcp.port = 53;
+        let config = ResolverConfig::from_parts(
+            None,
+            vec![],
+            vec![NameServerConfig::new(
+                "1.1.1.1".parse().unwrap(),
+                true,
+                vec![udp, tcp],
+            )],
+        );
+        let mut builder =
+            TokioResolver::builder_with_config(config, TokioRuntimeProvider::default());
+        builder.options_mut().validate = true;
+        let resolver = HickoryResolver::from(builder.build().unwrap());
+
+        let tlsa = resolver
+            .resolve(
+                fully_qualify("_25._tcp.do.havedane.net").unwrap(),
+                RecordType::TLSA,
+            )
+            .await
+            .unwrap();
+        assert!(tlsa.secure, "signed TLSA should validate as secure");
+        assert!(!tlsa.bogus);
+        assert!(!tlsa.records.is_empty());
+
+        let unsigned = resolver
+            .resolve(fully_qualify("google.com").unwrap(), RecordType::A)
+            .await
+            .unwrap();
+        assert!(!unsigned.secure, "unsigned zone is not secure");
+        assert!(!unsigned.bogus);
+        assert!(
+            !unsigned.records.is_empty(),
+            "unsigned zone still resolves successfully"
+        );
+    }
+
     #[tokio::test]
     async fn literal_resolve() {
         let v4_loopback = MailExchanger::resolve("[127.0.0.1]").await.unwrap();
@@ -962,6 +1313,7 @@ Addresses(
         ResolvedAddress {
             name: "127.0.0.1",
             addr: 127.0.0.1,
+            is_secure: false,
         },
     ],
 )
@@ -1000,6 +1352,7 @@ Addresses(
         ResolvedAddress {
             name: "::1",
             addr: ::1,
+            is_secure: false,
         },
     ],
 )
@@ -1038,6 +1391,7 @@ Addresses(
         ResolvedAddress {
             name: "::1",
             addr: ::1,
+            is_secure: false,
         },
     ],
 )
@@ -1239,7 +1593,9 @@ Addresses(
         k9::snapshot!(err, "MX lookup for not-mairs.aasland.com failed: NXDOMAIN");
     }
 
-    #[cfg(feature = "live-dns-tests")]
+    // Asserts a DNSSEC-secure result, so it only holds when the default
+    // resolver validates, i.e. the unbound backend.
+    #[cfg(all(feature = "live-dns-tests", feature = "default-unbound"))]
     #[tokio::test]
     async fn lookup_example_com() {
         // Has a NULL MX record
@@ -1266,7 +1622,9 @@ MailExchanger {
         );
     }
 
-    #[cfg(feature = "live-dns-tests")]
+    // Asserts a DNSSEC-secure result, so it only holds when the default
+    // resolver validates, i.e. the unbound backend.
+    #[cfg(all(feature = "live-dns-tests", feature = "default-unbound"))]
     #[tokio::test]
     async fn lookup_have_dane() {
         let mx = MailExchanger::resolve("do.havedane.net").await.unwrap();
@@ -1292,10 +1650,14 @@ MailExchanger {
         );
     }
 
-    #[cfg(feature = "live-dns-tests")]
+    // Requires DNSSEC-validated TLSA records, so it only holds when the default
+    // resolver validates, i.e. the unbound backend.
+    #[cfg(all(feature = "live-dns-tests", feature = "default-unbound"))]
     #[tokio::test]
     async fn tlsa_have_dane() {
-        let tlsa = resolve_dane("do.havedane.net", 25).await.unwrap();
+        let DaneStatus::Records(tlsa) = resolve_dane("do.havedane.net", 25).await.unwrap() else {
+            panic!("expected usable DANE records");
+        };
         k9::snapshot!(
             tlsa,
             "
