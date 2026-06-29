@@ -25,6 +25,18 @@
 
 ## Other Changes and Enhancements
 
+ * When running under a cgroup memory limit, `memory_usage` is now the
+   cgroup *working set* (`memory.current - inactive_file`, floored by
+   anonymous memory) rather than the raw `memory.current`. This excludes
+   cold, kernel-reclaimable file-backed page cache, which the kernel drops
+   before it would OOM-kill the container, and matches what kubelet/cAdvisor
+   report as `container_memory_working_set_bytes`. It removes premature load
+   shedding caused by phantom cache pressure for workloads that write a lot of
+   logs or spool to disk. **This lowers the observed `memory_usage` for any
+   deployment under a cgroup limit; alerts keyed on `memory_usage` may need
+   re-baselining.** See
+   [Memory Management](../reference/memory.md#working-set-under-a-cgroup).
+
  * Upgraded the embedded hickory-resolver 0.26 and libunbound 1.25.1. New
    [kumo.dns.load_resolv_conf](../reference/kumo.dns/load_resolv_conf.md)
    reads a resolv.conf-format file into a mutable resolver config table,
