@@ -369,11 +369,8 @@ impl<'a> MimePart<'a> {
                 // favor of what we're parsing out here now
                 self.body_len = 0;
                 for span in layout.parts {
-                    let child = Self::parse_impl(
-                        body.slice(span),
-                        MessageConformance::default(),
-                        false,
-                    )?;
+                    let child =
+                        Self::parse_impl(body.slice(span), MessageConformance::default(), false)?;
                     self.conformance |= child.conformance;
                     self.parts.push(child);
                 }
