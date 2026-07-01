@@ -433,8 +433,15 @@ pub async fn resolve_socket_addr(
 
 impl MailExchanger {
     pub async fn resolve(domain_name: &str) -> anyhow::Result<Arc<Self>> {
+        Self::resolve_with_resolver(domain_name, None).await
+    }
+
+    pub async fn resolve_with_resolver(
+        domain_name: &str,
+        resolver: Option<&dyn Resolver>,
+    ) -> anyhow::Result<Arc<Self>> {
         MX_IN_PROGRESS.inc();
-        let result = Self::resolve_impl(domain_name).await;
+        let result = Self::resolve_impl(domain_name, resolver).await;
         MX_IN_PROGRESS.dec();
         if result.is_ok() {
             MX_SUCCESS.inc();
@@ -444,7 +451,10 @@ impl MailExchanger {
         result
     }
 
-    async fn resolve_impl(domain_name: &str) -> anyhow::Result<Arc<Self>> {
+    async fn resolve_impl(
+        domain_name: &str,
+        resolver: Option<&dyn Resolver>,
+    ) -> anyhow::Result<Arc<Self>> {
         let (name_fq, opt_port) = match DomainClassification::classify(domain_name)? {
             DomainClassification::Literal(addr) => {
                 let mut by_pref = BTreeMap::new();
@@ -463,6 +473,22 @@ impl MailExchanger {
             DomainClassification::Domain(name_fq, opt_port) => (name_fq, opt_port),
         };
 
+        if let Some(resolver) = resolver {
+            MX_QUERIES.inc();
+            let start = Instant::now();
+            let (by_pref, expires) =
+                lookup_mx_record(&name_fq, Some(resolver))
+                    .await
+                    .map_err(|err| {
+                        anyhow::anyhow!(
+                            "MX lookup for {domain_name} failed after {elapsed:?}: {err:#}",
+                            elapsed = start.elapsed()
+                        )
+                    })?;
+
+            return Ok(Self::from_mx_lookup(&name_fq, opt_port, by_pref, expires));
+        }
+
         let lookup_result = MX_CACHE
             .get_or_try_insert(
                 &(name_fq.clone(), opt_port),
@@ -479,7 +505,7 @@ impl MailExchanger {
                 async {
                     MX_QUERIES.inc();
                     let start = Instant::now();
-                    let (mut by_pref, expires) = match lookup_mx_record(&name_fq).await {
+                    let (by_pref, expires) = match lookup_mx_record(&name_fq, None).await {
                         Ok((by_pref, expires)) => (by_pref, expires),
                         Err(err) => {
                             let error = format!(
@@ -492,37 +518,9 @@ impl MailExchanger {
                         }
                     };
 
-                    let mut hosts = vec![];
-                    for pref in &mut by_pref {
-                        for host in &mut pref.hosts {
-                            if let Some(port) = opt_port {
-                                *host = format!("{host}:{port}");
-                            };
-                            hosts.push(host.to_string());
-                        }
-                    }
-
-                    let is_secure = by_pref.iter().all(|p| p.is_secure);
-                    let is_mx = by_pref.iter().all(|p| p.is_mx);
-
-                    let by_pref = by_pref
-                        .into_iter()
-                        .map(|pref| (pref.pref, pref.hosts))
-                        .collect();
-
-                    let site_name = factor_names(&hosts);
-                    let mx = Self {
-                        hosts,
-                        domain_name: name_fq.to_ascii(),
-                        site_name,
-                        by_pref,
-                        is_domain_literal: false,
-                        is_secure,
-                        is_mx,
-                        expires: Some(expires),
-                    };
-
-                    Ok(Ok(Arc::new(mx)))
+                    Ok(Ok(Self::from_mx_lookup(
+                        &name_fq, opt_port, by_pref, expires,
+                    )))
                 },
             )
             .await
@@ -533,6 +531,43 @@ impl MailExchanger {
         }
 
         lookup_result.item.map_err(|err| anyhow::anyhow!("{err}"))
+    }
+
+    fn from_mx_lookup(
+        name_fq: &Name,
+        opt_port: Option<u16>,
+        mut by_pref: Vec<ByPreference>,
+        expires: Instant,
+    ) -> Arc<Self> {
+        let mut hosts = vec![];
+        for pref in &mut by_pref {
+            for host in &mut pref.hosts {
+                if let Some(port) = opt_port {
+                    *host = format!("{host}:{port}");
+                };
+                hosts.push(host.to_string());
+            }
+        }
+
+        let is_secure = by_pref.iter().all(|p| p.is_secure);
+        let is_mx = by_pref.iter().all(|p| p.is_mx);
+
+        let by_pref = by_pref
+            .into_iter()
+            .map(|pref| (pref.pref, pref.hosts))
+            .collect();
+
+        let site_name = factor_names(&hosts);
+        Arc::new(Self {
+            hosts,
+            domain_name: name_fq.to_ascii(),
+            site_name,
+            by_pref,
+            is_domain_literal: false,
+            is_secure,
+            is_mx,
+            expires: Some(expires),
+        })
     }
 
     pub fn has_expired(&self) -> bool {
@@ -621,13 +656,20 @@ struct ByPreference {
     is_mx: bool,
 }
 
-async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreference>, Instant)> {
+async fn lookup_mx_record(
+    domain_name: &Name,
+    resolver: Option<&dyn Resolver>,
+) -> anyhow::Result<(Vec<ByPreference>, Instant)> {
     let mx_lookup = timeout(get_mx_timeout(), async {
         let _permit = MX_CONCURRENCY_SEMA.acquire().await;
-        RESOLVER
-            .load()
-            .resolve(domain_name.clone(), RecordType::MX)
-            .await
+        if let Some(resolver) = resolver {
+            resolver.resolve(domain_name.clone(), RecordType::MX).await
+        } else {
+            RESOLVER
+                .load()
+                .resolve(domain_name.clone(), RecordType::MX)
+                .await
+        }
     })
     .await??;
     let mx_records = mx_lookup.records;
@@ -1219,6 +1261,36 @@ Addresses(
     ],
 )
 "#
+        );
+    }
+
+    #[tokio::test]
+    async fn lookup_gmail_mx_with_resolver() {
+        let resolver = TestResolver::default()
+            .with_zone(
+                r#"$ORIGIN gmail.com.
+@       600  IN MX  5 gmail-smtp-in.l.google.com.
+                MX  10 alt1.gmail-smtp-in.l.google.com.
+                MX  30 alt3.gmail-smtp-in.l.google.com.
+                MX  20 alt2.gmail-smtp-in.l.google.com.
+                MX  40 alt4.gmail-smtp-in.l.google.com."#,
+            )
+            .unwrap();
+        let gmail = MailExchanger::resolve_with_resolver("gmail.com", Some(&resolver))
+            .await
+            .unwrap();
+
+        assert_eq!(gmail.domain_name, "gmail.com.");
+        assert!(gmail.is_mx);
+        assert_eq!(
+            gmail.hosts,
+            vec![
+                "gmail-smtp-in.l.google.com.".to_string(),
+                "alt1.gmail-smtp-in.l.google.com.".to_string(),
+                "alt2.gmail-smtp-in.l.google.com.".to_string(),
+                "alt3.gmail-smtp-in.l.google.com.".to_string(),
+                "alt4.gmail-smtp-in.l.google.com.".to_string(),
+            ]
         );
     }
 
