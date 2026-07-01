@@ -12,9 +12,11 @@ Usage documentation is at `/opt/kumomta/sbin/proxy-server --help`
 
 ## Configuring KumpProxy to survive a restart
 
-KumoProxy can be configured as a systemd service
+The above simplified instructions work well with the classic proxy-server cli, but as of the 2026-03-04 release there have been many enhancements.  The instructions below leverage those changes.
 
-Note that this has only been tested for Ubuntu 24.  Your OS may require slightly different configuration.
+KumoProxy can be configured as a systemd service and can read configuration from a Lua file.
+
+Note that the instructions here were tested on Ubuntu 24, your OS may require slightly different configuration.
 
 You will need sudo access to perform these changes.  Start by creating a service file.
 
@@ -29,24 +31,37 @@ After=syslog.target network.target
 [Service]
 Type=simple
 Restart=always
-EnvironmentFile=-/opt/kumomta/etc/kumoproxy.env
-ExecStart=/opt/kumomta/sbin/proxy-server --listen ${PROXY_IP}:${PROXY_PORT}
+ExecStart=/opt/kumomta/sbin/proxy-server --proxy-config /opt/kumomta/etc/policy/proxy_init.lua
 TimeoutStopSec=10
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Next, create an environment file where you can add your system variables.
+Next, create an lua config file where you can add your proxy config.
 
-`sudo vi /opt/kumomta/etc/kumoproxy.env`
+`sudo vi /opt/kumomta/etc/policy/proxy_init.lua`
 
-Populate with your IP and Port
+Populate with your proxy config.  You can read more about proxy config options [here](../../reference/proxy/start_proxy_listener/_index.md)
 
 IE:
-```console
-PROXY_IP="172.31.37.164"
-PROXY_PORT="5000"
+```lua
+local kumo = require 'kumo'
+local proxy = require 'proxy'
+
+kumo.on('proxy_init', function()
+  -- Start SOCKS5 proxy listener on port 5000 across all plumbed IPs
+  proxy.start_proxy_listener {
+    listen = '0.0.0.0:5000',
+    timeout = '60 seconds',
+  }
+
+  -- Start HTTP listener for metrics and administration
+  proxy.start_http_listener {
+    listen = '0.0.0.0:8000',
+    trusted_hosts = { '127.0.0.1', '::1' },
+  }
+end)
 ```
 
 Reload the services:
