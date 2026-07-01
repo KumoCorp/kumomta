@@ -1840,19 +1840,12 @@ pub struct AuthenticationResults {
     pub results: Vec<AuthenticationResult>,
 }
 
-/// Emits a value into target, quoting it if it contains characters outside
-/// the mime-token set. Control characters are stripped. They are not valid
-/// in RFC 5322 quoted-strings and can appear in ARC error reason strings
-/// produced by the multi-line diagnostic formatter.
 fn emit_value_token(value: &[u8], target: &mut Vec<u8>) {
     // Allow '@' bare since the pvalue parser handles @domain and local@domain
     let use_quoted_string = !value.iter().all(|&c| is_mime_token(c) || c == b'@');
     if use_quoted_string {
         target.push(b'"');
         for (start, end, c) in value.char_indices() {
-            if is_ctl(c as u8) {
-                continue;
-            }
             if c == '"' || c == '\\' {
                 target.push(b'\\');
             }
