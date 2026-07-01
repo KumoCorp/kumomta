@@ -12,6 +12,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::borrow::Cow;
+use std::ops::Range;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -165,6 +166,100 @@ impl Rfc2045Info {
     }
 }
 
+/// The result of scanning a multipart body: the byte ranges, relative to the
+/// start of the body (ie: `body_offset`), of the preamble, of each child part,
+/// and of the epilogue.
+#[derive(Debug, PartialEq)]
+struct MultipartLayout {
+    /// The preamble plus its terminating line ending (empty when there is no
+    /// preamble). Corresponds to `[preamble CRLF]` in the RFC 2046 grammar.
+    intro: Range<usize>,
+    /// One range per child part. Each range includes the line ending that
+    /// precedes the following boundary delimiter; `write_message` relies on that
+    /// trailing line ending when it re-serializes the message.
+    parts: Vec<Range<usize>>,
+    /// The epilogue: everything after the close-delimiter's line (empty when
+    /// there is none).
+    outro: Range<usize>,
+}
+
+/// Locate the boundaries within a multipart `body` (the bytes starting at
+/// `body_offset`). Returns `None` when no opening boundary is present.
+///
+/// `body` is addressed in its own coordinate space starting at the first body
+/// byte, so callers never need to reach back before `body_offset`. The first
+/// `dash-boundary` either opens the body directly (no preamble) or is introduced
+/// by a line ending; every subsequent boundary is introduced by a line ending,
+/// so matching a bare `\n` covers both CRLF and bare-LF inputs.
+///
+/// RFC 2046 grammar, for reference:
+/// ```text
+/// multipart-body  := [preamble CRLF] dash-boundary transport-padding CRLF
+///                    body-part *encapsulation
+///                    close-delimiter transport-padding [CRLF epilogue]
+/// encapsulation   := delimiter transport-padding CRLF body-part
+/// delimiter       := CRLF dash-boundary
+/// close-delimiter := delimiter "--"
+/// dash-boundary   := "--" boundary
+/// ```
+fn scan_multipart(body: &[u8], boundary_name: &str) -> Option<MultipartLayout> {
+    let dash_boundary = format!("--{boundary_name}");
+    let delimiter = format!("\n--{boundary_name}");
+
+    let first_dash = if body.starts_with(dash_boundary.as_bytes()) {
+        0
+    } else {
+        // `+ 1` steps past the `\n` to the `--` that begins the dash-boundary.
+        memchr::memmem::find(body, delimiter.as_bytes()).map(|nl| nl + 1)?
+    };
+
+    let intro = 0..first_dash;
+    let mut parts = vec![];
+    let mut outro = body.len()..body.len();
+
+    // `boundary_end` always points just past a `--boundary` token.
+    let mut boundary_end = first_dash + dash_boundary.len();
+    loop {
+        // The body-part begins after the boundary line's transport-padding and
+        // terminating line ending.
+        let Some(rel_nl) = memchr::memchr(b'\n', &body[boundary_end..]) else {
+            break;
+        };
+        let part_start = boundary_end + rel_nl + 1;
+
+        // The part runs up to and including the line ending that introduces the
+        // next boundary (or to the end of the body if the message is truncated).
+        let next_delim =
+            memchr::memmem::find(&body[part_start..], delimiter.as_bytes()).map(|p| part_start + p);
+        let part_end = next_delim.map(|nl| nl + 1).unwrap_or(body.len());
+        parts.push(part_start..part_end);
+
+        let Some(next_nl) = next_delim else {
+            // No further boundary; the message ended without a close-delimiter.
+            break;
+        };
+        boundary_end = next_nl + delimiter.len();
+
+        if boundary_end + 2 > body.len() {
+            break;
+        }
+        if &body[boundary_end..boundary_end + 2] == b"--" {
+            // close-delimiter := delimiter "--"; the epilogue is whatever follows
+            // its line ending.
+            if let Some(rel_nl) = memchr::memchr(b'\n', &body[boundary_end..]) {
+                outro = (boundary_end + rel_nl + 1)..body.len();
+            }
+            break;
+        }
+    }
+
+    Some(MultipartLayout {
+        intro,
+        parts,
+        outro,
+    })
+}
+
 impl<'a> MimePart<'a> {
     /// Parse some data into a tree of MimeParts
     pub fn parse<S>(bytes: S) -> Result<Self>
@@ -266,58 +361,21 @@ impl<'a> MimePart<'a> {
             .as_ref()
             .and_then(|ct| ct.get("boundary").map(|b| (b, info.is_multipart)))
         {
-            let boundary = format!("\n--{boundary}");
-            let raw_body = self
-                .bytes
-                .slice(self.body_offset.saturating_sub(1)..self.bytes.len());
-
-            let mut iter = memchr::memmem::find_iter(raw_body.as_bytes(), &boundary);
-            if let Some(first_boundary_pos) = iter.next() {
-                self.intro = raw_body.slice(0..first_boundary_pos);
-
+            let body = self.bytes.slice(self.body_offset..self.bytes.len());
+            if let Some(layout) = scan_multipart(body.as_bytes(), &boundary.to_string()) {
+                self.intro = body.slice(layout.intro);
+                self.outro = body.slice(layout.outro);
                 // When we create parts, we ignore the original body span in
                 // favor of what we're parsing out here now
                 self.body_len = 0;
-
-                let mut boundary_end = first_boundary_pos + boundary.len();
-
-                while let Some(part_start) =
-                    memchr::memchr(b'\n', &raw_body.as_bytes()[boundary_end..])
-                        .map(|p| p + boundary_end + 1)
-                {
-                    let part_end = iter
-                        .next()
-                        .map(|p| {
-                            // P is the newline; we want to include it in the raw
-                            // bytes for this part, so look beyond it
-                            p + 1
-                        })
-                        .unwrap_or(raw_body.len());
-
+                for span in layout.parts {
                     let child = Self::parse_impl(
-                        raw_body.slice(part_start..part_end),
+                        body.slice(span),
                         MessageConformance::default(),
                         false,
                     )?;
                     self.conformance |= child.conformance;
                     self.parts.push(child);
-
-                    boundary_end = part_end -
-                        1 /* newline we adjusted for when assigning part_end */
-                        + boundary.len();
-
-                    if boundary_end + 2 > raw_body.len() {
-                        break;
-                    }
-                    if &raw_body.as_bytes()[boundary_end..boundary_end + 2] == b"--" {
-                        if let Some(after_boundary) =
-                            memchr::memchr(b'\n', &raw_body.as_bytes()[boundary_end..])
-                                .map(|p| p + boundary_end + 1)
-                        {
-                            self.outro = raw_body.slice(after_boundary..raw_body.len());
-                        }
-                        break;
-                    }
                 }
             }
         }
@@ -1304,6 +1362,39 @@ impl<'a> DecodedBody<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    fn scan_strs<'a>(body: &'a str, boundary: &str) -> Option<(&'a str, Vec<&'a str>, &'a str)> {
+        let layout = scan_multipart(body.as_bytes(), boundary)?;
+        Some((
+            &body[layout.intro],
+            layout.parts.iter().map(|r| &body[r.clone()]).collect(),
+            &body[layout.outro],
+        ))
+    }
+
+    #[test]
+    fn scan_multipart_spans() {
+        // No preamble: intro is empty, the single part includes its trailing CRLF.
+        k9::assert_equal!(
+            scan_strs("--B\r\nhdr\r\n\r\nbody\r\n--B--\r\n", "B"),
+            Some(("", vec!["hdr\r\n\r\nbody\r\n"], ""))
+        );
+
+        // Preamble is captured (with its terminating CRLF) as the intro.
+        k9::assert_equal!(
+            scan_strs("preamble\r\n--B\r\nhdr\r\n\r\nbody\r\n--B--\r\n", "B"),
+            Some(("preamble\r\n", vec!["hdr\r\n\r\nbody\r\n"], ""))
+        );
+
+        // Two parts plus an epilogue after the close-delimiter.
+        k9::assert_equal!(
+            scan_strs("--B\r\na\r\n--B\r\nb\r\n--B--\r\nepilogue\r\n", "B"),
+            Some(("", vec!["a\r\n", "b\r\n"], "epilogue\r\n"))
+        );
+
+        // No boundary present at all.
+        k9::assert_equal!(scan_strs("just a body\r\n", "B"), None);
+    }
 
     #[test]
     fn msg_parsing() {
