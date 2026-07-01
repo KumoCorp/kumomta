@@ -50,7 +50,10 @@ and values:
 
 * `suffix` - a string to append to the generated segment file name.
   For example, `suffix = '.csv'` will generate names like `20230306-022811.csv`.
-* `log_dir` - specify an alternative log directory for this type
+* `log_dir` - specify an alternative log directory for this type.
+  The same `strftime` expansion described in [log_dir](log_dir.md) is available.
+  Set `log_dir_timezone = 'UTC'` or `'Local'` to override the timezone used for
+  expansion (if omitted, the global `log_dir_timezone` applies).
 * `enable` - defaults to `true`. If you set it to `false`, records of this
   type will not be logged
 * `segment_header` - ({{since('2023.11.28-b5252a41', inline=True)}}) text that will be written
