@@ -1840,6 +1840,7 @@ pub struct AuthenticationResults {
     pub results: Vec<AuthenticationResult>,
 }
 
+/// Emits a value that was parsed by `value`, into target
 fn emit_value_token(value: &[u8], target: &mut Vec<u8>) {
     // Allow '@' bare since the pvalue parser handles @domain and local@domain
     let use_quoted_string = !value.iter().all(|&c| is_mime_token(c) || c == b'@');
