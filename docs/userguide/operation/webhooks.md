@@ -133,6 +133,51 @@ log_hooks:new {
 You can use the above to define logging that uses other protocols
 than HTTP, such as AMQP or Kafka.
 
+## Disposition hooks
+
+The `log_hooks.lua` helper can also configure disposition log hooks. These
+hooks run immediately as disposition records are generated, and receive both
+the original message and the generated log record.
+
+```lua
+local log_hooks = require 'policy-extras.log_hooks'
+
+log_hooks:new_disposition_hook {
+  name = 'ndr_generator',
+  -- log_parameters are combined with the name and
+  -- passed through to kumo.configure_log_disposition_hook
+  log_parameters = {
+    per_record = {
+      Any = {
+        enable = false,
+      },
+      Bounce = {
+        enable = true,
+      },
+    },
+  },
+  hook = function(msg, log_record)
+    local bounce_msg = kumo.generate_rfc3464_message({
+      include_original_message = 'FullContent',
+      enable_expiration = false,
+      enable_bounce = true,
+      reporting_mta = {
+        mta_type = 'dns',
+        name = 'mta1.example.com',
+      },
+    }, msg, log_record)
+
+    if bounce_msg then
+      kumo.inject_message(bounce_msg)
+    end
+  end,
+}
+```
+
+See
+[kumo.configure_log_disposition_hook](../../reference/kumo/configure_log_disposition_hook.md)
+for the low-level API.
+
 ## batched hooks
 
 {{since('2024.11.08-d383b033')}}
