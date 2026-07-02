@@ -201,7 +201,19 @@ pub(crate) struct DateTimeRfc2822(pub DateTime<Utc>);
 impl FromStr for DateTimeRfc2822 {
     type Err = anyhow::Error;
     fn from_str(input: &str) -> anyhow::Result<Self> {
-        let date = DateTime::parse_from_rfc2822(input)?;
+        let date = DateTime::parse_from_rfc2822(input).or_else(|err| {
+            // Amazon SES emits an obsolete date form that uses the alphabetic
+            // zone "UTC", which is not a valid RFC 2822 zone (RFC 2822 defines
+            // "UT" and "GMT", not "UTC"), so chrono rejects it. "UTC" is exactly
+            // +0000, so normalize the zone and retry before giving up.
+            match input
+                .strip_suffix(" UTC")
+                .or_else(|| input.strip_suffix(" utc"))
+            {
+                Some(prefix) => DateTime::parse_from_rfc2822(&format!("{prefix} +0000")),
+                None => Err(err),
+            }
+        })?;
         Ok(Self(date.into()))
     }
 }
@@ -308,6 +320,26 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn datetime_rfc2822_obsolete_utc_zone() {
+        // Amazon SES emits dates with the non-standard alphabetic zone "UTC".
+        let parsed: DateTime<Utc> = "Thu, 02 Jul 26 18:55:38 UTC"
+            .parse::<DateTimeRfc2822>()
+            .expect("SES obsolete UTC zone should parse")
+            .into();
+        assert_eq!(parsed.to_rfc3339(), "2026-07-02T18:55:38+00:00");
+
+        // Standard forms keep working.
+        let canonical: DateTime<Utc> = "Thu, 02 Jul 2026 18:55:38 +0000"
+            .parse::<DateTimeRfc2822>()
+            .unwrap()
+            .into();
+        assert_eq!(parsed, canonical);
+
+        // A genuinely unparseable value still errors.
+        assert!("not a date".parse::<DateTimeRfc2822>().is_err());
+    }
 
     #[test]
     fn rfc5965_1() {

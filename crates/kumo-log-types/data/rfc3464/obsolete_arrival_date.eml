@@ -1,0 +1,31 @@
+From: mailer-daemon@mx.example.com
+To: bounce@example.com
+Message-ID: <0100019f242fc810-60940dcf-462f-4e71-988f-2343410adfa5-000000@example.com>
+Subject: Delivery Status Notification (Failure)
+MIME-Version: 1.0
+Content-Type: multipart/report; 
+	boundary="----=_Part_693010_1985408142.1783018539024"; 
+	report-type=delivery-status
+
+------=_Part_693010_1985408142.1783018539024
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+Content-Description: Notification
+
+Mailbox does not exist
+------=_Part_693010_1985408142.1783018539024
+Content-Type: message/delivery-status
+Content-Transfer-Encoding: 7bit
+Content-Description: Delivery Status Notification
+
+Reporting-MTA: dns; mx.example.com
+Arrival-Date: Thu, 02 Jul 26 18:55:38 UTC
+
+Action: failed
+Final-Recipient: rfc822; user@example.com
+Original-Recipient: rfc822; user@example.com
+Diagnostic-Code: smtp; 550 5.1.1 Mailbox does not exist
+Status: 5.1.1
+
+
+------=_Part_693010_1985408142.1783018539024--
