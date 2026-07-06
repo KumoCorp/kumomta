@@ -140,6 +140,25 @@ fn no_records(err: &NetError) -> Option<&hickory_resolver::net::NoRecords> {
     }
 }
 
+/// Summarize the DNSSEC status of a set of records from their validation
+/// proofs, returning `(secure, bogus)`. An answer is secure only when it
+/// carries at least one record and every record validated as secure; it is
+/// bogus when any record failed validation. With validation disabled every
+/// record is Indeterminate, so the result is simply not secure. This applies
+/// both to a positive answer (its answer section) and to a securely denied
+/// answer (the authority section that proves the absence).
+fn dnssec_status(proofs: impl Iterator<Item = Proof>) -> (bool, bool) {
+    let mut any = false;
+    let mut all_secure = true;
+    let mut bogus = false;
+    for proof in proofs {
+        any = true;
+        all_secure &= proof == Proof::Secure;
+        bogus |= proof == Proof::Bogus;
+    }
+    (any && all_secure, bogus)
+}
+
 #[async_trait]
 pub trait Resolver: Send + Sync + 'static {
     async fn resolve_ip(&self, host: &str) -> Result<Vec<IpAddr>, DnsError>;
@@ -643,15 +662,9 @@ impl Resolver for HickoryResolver {
             Ok(result) => {
                 let expires = result.valid_until();
                 let answers = result.answers();
-                // When DNSSEC validation is enabled the resolver tags each
-                // record with a proof. Treat the answer as secure only when it
-                // is non-empty and every record validated as secure, and surface
-                // bogus so that callers (e.g. DANE) can defer rather than
-                // downgrade. With validation disabled every record is
-                // Indeterminate, so this is simply not secure.
-                let secure =
-                    !answers.is_empty() && answers.iter().all(|r| r.proof == Proof::Secure);
-                let bogus = answers.iter().any(|r| r.proof == Proof::Bogus);
+                // Surface bogus so that callers (e.g. DANE) can defer rather
+                // than downgrade.
+                let (secure, bogus) = dnssec_status(answers.iter().map(|r| r.proof));
                 let records = answers.iter().map(|r| r.data.clone()).collect();
                 Ok(Answer {
                     canon_name: None,
@@ -665,17 +678,27 @@ impl Resolver for HickoryResolver {
                 })
             }
             Err(err) => match no_records(&err) {
-                Some(no_records) => Ok(Answer {
-                    canon_name: None,
-                    records: vec![],
-                    nxdomain: no_records.response_code == ResponseCode::NXDomain,
-                    secure: false,
-                    bogus: false,
-                    why_bogus: None,
-                    response_code: no_records.response_code,
-                    expires: Instant::now()
-                        + Duration::from_secs(no_records.negative_ttl.unwrap_or(60) as u64),
-                }),
+                Some(no_records) => {
+                    // A securely denied answer (NODATA/NXDOMAIN in a signed
+                    // zone) is proven by DNSSEC-validated authority records
+                    // (SOA/NSEC/RRSIG); derive its secure/bogus status from
+                    // those just as we do for a positive answer, so that a
+                    // securely proven "no MX" can still engage DANE for the
+                    // implicit MX.
+                    let authorities = no_records.authorities.as_deref().unwrap_or(&[]);
+                    let (secure, bogus) = dnssec_status(authorities.iter().map(|r| r.proof));
+                    Ok(Answer {
+                        canon_name: None,
+                        records: vec![],
+                        nxdomain: no_records.response_code == ResponseCode::NXDomain,
+                        secure,
+                        bogus,
+                        why_bogus: None,
+                        response_code: no_records.response_code,
+                        expires: Instant::now()
+                            + Duration::from_secs(no_records.negative_ttl.unwrap_or(60) as u64),
+                    })
+                }
                 None => Err(DnsError::from_resolve(&name, err)),
             },
         }

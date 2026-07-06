@@ -1422,6 +1422,63 @@ mod test {
         );
     }
 
+    /// A securely denied answer (NODATA/NXDOMAIN in a signed zone) must be
+    /// reported as secure so that, for example, a securely proven "no MX" can
+    /// engage DANE for the implicit MX. An insecure (unsigned) denial must
+    /// remain insecure. Exercises the authority-section proof handling on the
+    /// hickory backend.
+    #[cfg(feature = "live-dns-tests")]
+    #[tokio::test]
+    async fn hickory_negative_answer_secure_bit() {
+        use hickory_resolver::config::{
+            ConnectionConfig, NameServerConfig, ProtocolConfig, ResolverConfig,
+        };
+        use hickory_resolver::net::runtime::TokioRuntimeProvider;
+        use hickory_resolver::TokioResolver;
+
+        let mut udp = ConnectionConfig::new(ProtocolConfig::Udp);
+        udp.port = 53;
+        let mut tcp = ConnectionConfig::new(ProtocolConfig::Tcp);
+        tcp.port = 53;
+        let config = ResolverConfig::from_parts(
+            None,
+            vec![],
+            vec![NameServerConfig::new(
+                "1.1.1.1".parse().unwrap(),
+                true,
+                vec![udp, tcp],
+            )],
+        );
+        let mut builder =
+            TokioResolver::builder_with_config(config, TokioRuntimeProvider::default());
+        builder.options_mut().validate = true;
+        let resolver = HickoryResolver::from(builder.build().unwrap());
+
+        // Signed zone with no TLSA at the apex: a securely proven NODATA.
+        let secure_nodata = resolver
+            .resolve(fully_qualify("cloudflare.com").unwrap(), RecordType::TLSA)
+            .await
+            .unwrap();
+        assert!(secure_nodata.records.is_empty());
+        assert!(!secure_nodata.bogus);
+        assert!(
+            secure_nodata.secure,
+            "securely denied NODATA in a signed zone should be secure"
+        );
+
+        // Unsigned zone NODATA: must not be reported as secure.
+        let insecure_nodata = resolver
+            .resolve(fully_qualify("mail.anoebis.be").unwrap(), RecordType::AAAA)
+            .await
+            .unwrap();
+        assert!(insecure_nodata.records.is_empty());
+        assert!(!insecure_nodata.bogus);
+        assert!(
+            !insecure_nodata.secure,
+            "NODATA in an unsigned zone must not be secure"
+        );
+    }
+
     #[tokio::test]
     async fn literal_resolve() {
         let v4_loopback = MailExchanger::resolve("[127.0.0.1]").await.unwrap();
