@@ -49,6 +49,10 @@ struct Scenario {
     tlsa: Tlsa,
     /// Force the TLSA lookup to return SERVFAIL.
     servfail: bool,
+    /// Make the MX host a CNAME into a separate, unsigned zone, so its address
+    /// records are insecure while the MX and TLSA records stay in the secure
+    /// zone (RFC 7672 section 2.2.2).
+    cname_into_unsigned: bool,
     /// Recipient address, which selects DNS-MX (`dane.example`) vs local
     /// `mx_list` (`mxlist.example`) routing in source-dane.lua.
     recipient: &'static str,
@@ -60,6 +64,7 @@ impl Default for Scenario {
             secure: true,
             tlsa: Tlsa::MatchesCert,
             servfail: false,
+            cname_into_unsigned: false,
             recipient: "recip@dane.example",
         }
     }
@@ -163,6 +168,9 @@ async fn run_scenario(scenario: Scenario, expect: ExpectDelivery) -> anyhow::Res
     }
     if scenario.servfail {
         options = options.env("KUMOD_DANE_SERVFAIL", "true");
+    }
+    if scenario.cname_into_unsigned {
+        options = options.env("KUMOD_DANE_CNAME_UNSIGNED", "true");
     }
 
     let mut daemon = options.start().await?;
@@ -302,6 +310,39 @@ Outcome {
     ],
     tls_authenticated: Some(
         false,
+    ),
+}
+"#
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn dane_secure_cname_into_unsigned_authenticated() -> anyhow::Result<()> {
+    // The MX host is a securely published CNAME whose target lands in an
+    // unsigned zone, so its address records are insecure. RFC 7672 section
+    // 2.2.2 keeps the host DANE-eligible at the original MX name; DANE engages
+    // via the secure alias and authenticates the peer.
+    let outcome = run_scenario(
+        Scenario {
+            cname_into_unsigned: true,
+            ..Default::default()
+        },
+        ExpectDelivery::True,
+    )
+    .await?;
+    k9::snapshot!(
+        outcome,
+        r#"
+Outcome {
+    kind: Delivery,
+    response: "250 OK ids=ID",
+    dane_diagnostics: [
+        "mx.dane.example. resolves via a secure CNAME into an insecure zone; DANE remains eligible at the original name (RFC 7672 section 2.2.2)",
+        "DANE records for mx.dane.example. are: [<tlsa records>]",
+    ],
+    tls_authenticated: Some(
+        true,
     ),
 }
 "#

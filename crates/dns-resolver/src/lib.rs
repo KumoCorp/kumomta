@@ -320,6 +320,92 @@ fn classify_tlsa_answer(mx_host: &str, port: u16, answer: Result<Answer, DnsErro
     DaneStatus::Records(usable)
 }
 
+/// The outcome of an explicit `CNAME` lookup used to decide DANE eligibility
+/// for an MX host whose address chain was not fully DNSSEC-secure.
+///
+/// RFC 7672 section 2.2.2 treats an MX host that is a securely published CNAME
+/// alias as DANE-eligible at the original (unexpanded) name, even when the
+/// alias target lands in an insecure (unsigned) zone: it is the securely
+/// published TLSA RRset, not the address records, that authenticates the peer.
+#[derive(Debug, PartialEq, Eq)]
+pub enum SecureCnameStatus {
+    /// The name is a CNAME alias whose alias record was DNSSEC validated, so the
+    /// host remains DANE-eligible at its original name.
+    SecureAlias,
+    /// The name is not a securely published CNAME alias (it is not an alias at
+    /// all, or the alias was not DNSSEC validated); it is not the secure-CNAME
+    /// case and DANE must not be engaged off the back of it.
+    NotSecureAlias,
+    /// The secure status of the alias could not be determined (SERVFAIL,
+    /// timeout, or a DNSSEC validation failure). To preserve downgrade
+    /// resistance the caller must defer rather than continue.
+    TempFail(String),
+}
+
+/// Performs an explicit `CNAME` lookup for `mx_host` to determine whether it is
+/// a securely published alias.
+///
+/// This is a narrow fallback in the DANE path: when the MX host's address
+/// (A/AAAA) records did not resolve securely we may still be looking at a secure
+/// CNAME whose target merely lives in an unsigned zone. Querying the `CNAME`
+/// type explicitly isolates the alias's own DNSSEC status (a CNAME-type query is
+/// answered by the alias RRset and is not chased into the insecure target), and
+/// works uniformly across resolver backends because it relies only on the
+/// per-answer secure bit rather than per-record validation proofs.
+pub async fn resolve_secure_cname(mx_host: &str) -> anyhow::Result<SecureCnameStatus> {
+    let name = fully_qualify(mx_host)?;
+    let answer = RESOLVER.load().resolve(name, RecordType::CNAME).await;
+    Ok(classify_cname_answer(mx_host, answer))
+}
+
+/// Maps the result of the explicit `CNAME` lookup onto a [`SecureCnameStatus`].
+/// Split out from [`resolve_secure_cname`] so it can be unit tested without a
+/// live (DNSSEC validating) resolver.
+fn classify_cname_answer(mx_host: &str, answer: Result<Answer, DnsError>) -> SecureCnameStatus {
+    let answer = match answer {
+        Ok(answer) => answer,
+        Err(err) => {
+            return SecureCnameStatus::TempFail(format!(
+                "CNAME lookup for {mx_host} failed: {err}"
+            ));
+        }
+    };
+
+    if answer.bogus {
+        return SecureCnameStatus::TempFail(format!(
+            "CNAME records for {mx_host} are bogus: {}",
+            answer
+                .why_bogus
+                .as_deref()
+                .unwrap_or("DNSSEC validation failed")
+        ));
+    }
+
+    match answer.response_code {
+        ResponseCode::NoError => {}
+        // A denial of existence means there is no CNAME (and possibly no such
+        // name); either way it is not a secure alias.
+        ResponseCode::NXDomain => return SecureCnameStatus::NotSecureAlias,
+        rcode => {
+            return SecureCnameStatus::TempFail(format!(
+                "CNAME lookup for {mx_host} returned {rcode}"
+            ));
+        }
+    }
+
+    // We can only rely on a CNAME that was DNSSEC validated.
+    if !answer.secure {
+        return SecureCnameStatus::NotSecureAlias;
+    }
+
+    // A secure NODATA answer (no CNAME record) means the host is not an alias.
+    if answer.records.iter().any(|r| matches!(r, RData::CNAME(_))) {
+        SecureCnameStatus::SecureAlias
+    } else {
+        SecureCnameStatus::NotSecureAlias
+    }
+}
+
 /// If the provided parameter ends with `:PORT` and `PORT` is a valid u16,
 /// then crack apart and return the LABEL and PORT number portions.
 /// Otherwise, returns None
@@ -1088,6 +1174,63 @@ mod test {
 
     fn dane_ee_record() -> TLSA {
         sha256_tlsa(CertUsage::DaneEe, Selector::Spki)
+    }
+
+    fn cname_record() -> RData {
+        use hickory_resolver::proto::rr::rdata::CNAME;
+        RData::CNAME(CNAME(Name::from_ascii("target.unsigned.example.").unwrap()))
+    }
+
+    #[test]
+    fn cname_answer_classification() {
+        // Secure CNAME alias: DANE-eligible at the original name.
+        k9::assert_equal!(
+            classify_cname_answer(
+                "mx.example.com",
+                Ok(answer(vec![cname_record()], true, ResponseCode::NoError))
+            ),
+            SecureCnameStatus::SecureAlias
+        );
+        // Secure NODATA (not an alias): not the secure-CNAME case.
+        k9::assert_equal!(
+            classify_cname_answer(
+                "mx.example.com",
+                Ok(answer(vec![], true, ResponseCode::NoError))
+            ),
+            SecureCnameStatus::NotSecureAlias
+        );
+        // A CNAME that was not DNSSEC validated cannot be trusted.
+        k9::assert_equal!(
+            classify_cname_answer(
+                "mx.example.com",
+                Ok(answer(vec![cname_record()], false, ResponseCode::NoError))
+            ),
+            SecureCnameStatus::NotSecureAlias
+        );
+        // NXDOMAIN: not an alias.
+        k9::assert_equal!(
+            classify_cname_answer(
+                "mx.example.com",
+                Ok(answer(vec![], true, ResponseCode::NXDomain))
+            ),
+            SecureCnameStatus::NotSecureAlias
+        );
+        // SERVFAIL leaves the status unknown: defer, do not downgrade.
+        assert!(matches!(
+            classify_cname_answer(
+                "mx.example.com",
+                Ok(answer(vec![], false, ResponseCode::ServFail))
+            ),
+            SecureCnameStatus::TempFail(_)
+        ));
+        // A resolver error is also a temporary failure.
+        assert!(matches!(
+            classify_cname_answer(
+                "mx.example.com",
+                Err(DnsError::ResolveFailed("boom".to_string()))
+            ),
+            SecureCnameStatus::TempFail(_)
+        ));
     }
 
     #[test]

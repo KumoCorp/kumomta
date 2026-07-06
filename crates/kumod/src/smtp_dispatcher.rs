@@ -13,6 +13,7 @@ use config::{load_config, CallbackSignature};
 use data_loader::KeySource;
 use dns_resolver::{
     has_colon_port, resolve_a_or_aaaa, DaneStatus, IpLookupStrategy, ResolvedMxAddresses,
+    SecureCnameStatus,
 };
 use kumo_address::socket::SocketAddress;
 use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls};
@@ -671,7 +672,48 @@ impl SmtpDispatcher {
                 // when the operator opted in via treat_mx_list_as_secure.
                 None => self.treat_mx_list_as_secure,
             };
-            if mx_selection_secure && address.is_secure {
+            let dane_eligible = if mx_selection_secure && address.is_secure {
+                true
+            } else if mx_selection_secure {
+                // The MX selection was secure but the MX host's address chain
+                // was not. Per RFC 7672 section 2.2.2 the host is still
+                // DANE-eligible if it is a securely published CNAME alias whose
+                // target merely lands in an unsigned zone; the securely
+                // published TLSA RRset, not the address records, authenticates
+                // the peer. An explicit CNAME lookup tells us whether that is
+                // the case.
+                match dns_resolver::resolve_secure_cname(&address.name).await? {
+                    SecureCnameStatus::SecureAlias => {
+                        self.tracer.diagnostic(Level::INFO, || {
+                            format!(
+                                "{} resolves via a secure CNAME into an insecure \
+                                 zone; DANE remains eligible at the original name \
+                                 (RFC 7672 section 2.2.2)",
+                                address.name
+                            )
+                        });
+                        true
+                    }
+                    SecureCnameStatus::NotSecureAlias => false,
+                    SecureCnameStatus::TempFail(reason) => {
+                        record_dane_result("tempfail");
+                        // Downgrade resistance: when the CNAME status cannot be
+                        // securely determined we must not continue without
+                        // authentication. Defer instead.
+                        let message = format!(
+                            "DANE CNAME lookup for {} could not be securely \
+                                 resolved: {reason}",
+                            address.name
+                        );
+                        self.tracer.diagnostic(Level::INFO, || message.clone());
+                        anyhow::bail!("{message}");
+                    }
+                }
+            } else {
+                false
+            };
+
+            if dane_eligible {
                 match dns_resolver::resolve_dane(&address.name, port).await? {
                     DaneStatus::Records(tlsa) => {
                         record_dane_result("ok");

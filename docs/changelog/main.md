@@ -41,6 +41,12 @@
    trusted (DNSSEC-secure) MX selection, allowing DANE to apply to a statically
    configured relay that does not go through `MX` resolution.
 
+ * DANE now engages for an MX host that is a securely published `CNAME` whose
+   target lands in an unsigned zone (RFC 7672 section 2.2.2): the `TLSA` records
+   are queried at the original MX name and authenticate the peer even though the
+   address records resolve insecurely. See
+   [CNAME MX hosts](../reference/kumo/make_egress_path/enable_dane.md#cname-mx-hosts).
+
  * The [trust_anchor_file](../reference/kumo.dns/resolver_options/trust_anchor_file.md)
    resolver option now also accepts a `{ managed = "<path>" }` form, naming an
    RFC 5011 auto-maintained DNSSEC trust anchor file that stays current across

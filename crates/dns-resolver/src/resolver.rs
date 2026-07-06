@@ -319,6 +319,34 @@ impl TestResolver {
         });
 
         let Some(records) = records else {
+            // Follow a single CNAME for non-CNAME queries, mirroring how a
+            // recursive resolver expands aliases. The DNSSEC secure status of
+            // the overall answer is the AND of every step, so a secure alias
+            // targeting an insecure zone yields an insecure address answer
+            // (while an explicit CNAME-type query still reports the alias's own
+            // secure bit, since it matches a record here and never reaches this
+            // branch).
+            if record_type != RecordType::CNAME {
+                if let Some(cname_rs) = zone.records.get(&RrKey {
+                    name: LowerName::from(&full_fqdn),
+                    record_type: RecordType::CNAME,
+                }) {
+                    if let Some(target) =
+                        cname_rs
+                            .records_without_rrsigs()
+                            .find_map(|r| match &r.data {
+                                RData::CNAME(cname) => Some(cname.0.clone()),
+                                _ => None,
+                            })
+                    {
+                        let mut target_answer = self.get(&target, record_type)?;
+                        target_answer.canon_name = Some(target.to_ascii());
+                        target_answer.secure = target_answer.secure && zone.secure;
+                        return Ok(target_answer);
+                    }
+                }
+            }
+
             return Ok(Answer {
                 canon_name: None,
                 records: vec![],

@@ -13,14 +13,27 @@ local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 local SINK_PORT = tonumber(os.getenv 'KUMOD_SMTP_SINK_PORT')
 
 local function configure_resolver()
+  -- When set, the MX host is a CNAME into a separate, unsigned zone (its A
+  -- record is therefore insecure), while the MX and TLSA records remain in the
+  -- secure dane.example zone. This models RFC 7672 section 2.2.2: DANE must
+  -- still engage at the original MX name via the secure CNAME alias.
+  local cname_unsigned = os.getenv 'KUMOD_DANE_CNAME_UNSIGNED' == 'true'
+
+  local mx_address_record = 'mx 3600 IN A 127.0.0.1\n'
+  if cname_unsigned then
+    mx_address_record = 'mx 3600 IN CNAME target.unsigned.example.\n'
+  end
+
   -- The TLSA record is published at _<port>._tcp.<mxhost>, where <port> is the
   -- port we actually connect on; we set the egress source remote_port to the
   -- sink port, so use that here too.
-  local zone = string.format [[
+  local zone = string.format(
+    [[
 $ORIGIN dane.example.
 @ 3600 IN MX 10 mx.dane.example.
-mx 3600 IN A 127.0.0.1
-]]
+%s]],
+    mx_address_record
+  )
 
   local tlsa = os.getenv 'KUMOD_DANE_TLSA'
   if tlsa then
@@ -28,13 +41,25 @@ mx 3600 IN A 127.0.0.1
       .. string.format('_%d._tcp.mx 3600 IN TLSA %s\n', SINK_PORT, tlsa)
   end
 
-  local config = {
-    zones = {
-      {
-        zone = zone,
-        secure = os.getenv 'KUMOD_DANE_SECURE' == 'true',
-      },
+  local zones = {
+    {
+      zone = zone,
+      secure = os.getenv 'KUMOD_DANE_SECURE' == 'true',
     },
+  }
+
+  if cname_unsigned then
+    zones[#zones + 1] = {
+      zone = [[
+$ORIGIN unsigned.example.
+target 3600 IN A 127.0.0.1
+]],
+      secure = false,
+    }
+  end
+
+  local config = {
+    zones = zones,
   }
 
   if os.getenv 'KUMOD_DANE_SERVFAIL' == 'true' then

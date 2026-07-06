@@ -10,10 +10,12 @@ The table below applies when `enable_dane = true`. A *secure chain* means the
 MX host selection is trusted — either the `MX` RRset was DNSSEC-validated, or the
 host was supplied via a locally-configured `mx_list` for which you set
 [treat_mx_list_as_secure](../make_queue_config/protocol.md#treat_mx_list_as_secure)
-— **and** the MX host's address (`A`/`AAAA`) records were DNSSEC-validated. The
-`TLSA` records are looked up against the MX hostname (the DANE reference
-identifier), not the envelope/routing domain. A destination given as an IP
-address literal is never DANE-eligible (there is no name to query).
+— **and** the MX host's address (`A`/`AAAA`) records were DNSSEC-validated *or*
+the host is a securely published `CNAME` whose target merely lands in an
+unsigned zone (see [CNAME MX hosts](#cname-mx-hosts) below). The `TLSA` records
+are looked up against the MX hostname (the DANE reference identifier), not the
+envelope/routing domain. A destination given as an IP address literal is never
+DANE-eligible (there is no name to query).
 
 | DNSSEC chain to MX host | `TLSA` lookup result | Effective `enable_tls` | Outcome |
 |---|---|---|---|
@@ -96,6 +98,58 @@ end)
     `udp_then_tcp` protocol) provide TCP fallback automatically; do not pin a
     validating resolver's name server to `protocol = 'udp'`, or every lookup
     will be reported as bogus.
+
+## CNAME MX hosts
+
+When an MX host is a `CNAME`, KumoMTA looks up `TLSA` records at the **original**
+MX name (RFC 7672 section 2.2.2), not the expanded target. This includes the
+case where the alias target lands in an **unsigned** (non-DNSSEC) zone: provided
+the `CNAME` itself is securely (DNSSEC) published, DANE still engages at the
+original name, because it is the securely published `TLSA` RRset — not the
+address records — that authenticates the peer.
+
+You can recognize this shape with `dig` by querying the MX host's address with
+`+dnssec` and watching the `RRSIG` records: the `CNAME` carries an `RRSIG` (it
+lives in a signed zone) while the target `A`/`AAAA` records do not (the target
+zone is unsigned).
+
+```console
+$ dig +dnssec mx.example.com. A
+
+;; ANSWER SECTION:
+mx.example.com.      3600 IN CNAME  mail.provider.net.
+mx.example.com.      3600 IN RRSIG  CNAME 13 3 3600 ( ... )   ; the CNAME is signed
+mail.provider.net.    300 IN A      192.0.2.25                ; target: no RRSIG
+
+$ dig +dnssec _25._tcp.mx.example.com. TLSA
+
+;; ANSWER SECTION:
+_25._tcp.mx.example.com. 3600 IN TLSA  3 1 1 ( ... )
+_25._tcp.mx.example.com. 3600 IN RRSIG TLSA 13 4 3600 ( ... )
+```
+
+To confirm the secure status of the alias itself, KumoMTA issues an explicit
+`CNAME`-type query; that query is answered by the alias RRset and is not chased
+into the unsigned target, so its DNSSEC status reflects only the alias's own
+zone. If the `CNAME` is securely published, DANE engages; if the alias is not
+securely published (for example the MX host's own zone is unsigned), DANE does
+not apply and the configured [enable_tls](enable_tls.md) value is used.
+
+## Limitations
+
+### TLSA records published only at the CNAME-expanded name
+
+KumoMTA queries `TLSA` records at the original MX name only. The one `CNAME`
+shape it does **not** handle is a secure alias whose `TLSA` records are
+published *solely* at the fully-expanded (canonical) name and not at the
+original MX name. RFC 7672 section 2.2.3 permits trying the expanded name as an
+additional `TLSA` base; KumoMTA does not, so such a destination is treated as
+having no DANE policy.
+
+This is uncommon, and like every non-engaging case it fails safe: KumoMTA never
+falsely passes DANE and never downgrades a DANE-eligible host to cleartext — the
+only effect is *missed* pinning, after which the configured
+[enable_tls](enable_tls.md) value applies.
 
 ## Trust anchors
 
