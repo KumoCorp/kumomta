@@ -1,8 +1,5 @@
-use config::{
-    any_err, declare_event, get_or_create_sub_module, load_config, serialize_options,
-    SerdeWrappedValue,
-};
-use kumo_dmarc::{startup_error_reporter, Disposition, DmarcPassContext, ReportingInfo};
+use config::{any_err, get_or_create_sub_module, serialize_options, SerdeWrappedValue};
+use kumo_dmarc::{startup_dmarc_reporter, Disposition, DmarcPassContext, ReportingInfo};
 use mailparsing::AuthenticationResult;
 use message::Message;
 use mlua::{Lua, LuaSerdeExt, UserDataRef};
@@ -18,29 +15,13 @@ struct CheckHostOutput {
     result: AuthenticationResult,
 }
 
-declare_event! {
-    static DMARC_REPORT_GENERATED: Multiple("dmarc_report_generated",
-        report_content: String,
-        report_email: String) -> ();
-}
-
-fn send_generated_report(report_content: String, report_email: String) {
-    tokio::spawn(async move {
-        let mut config = load_config().await?;
-
-        config
-            .async_call_callback(&DMARC_REPORT_GENERATED, (report_content, report_email))
-            .await
-    });
-}
-
 pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
     let dmarc_mod = get_or_create_sub_module(lua, "dmarc")?;
 
     dmarc_mod.set(
         "start_dmarc_reporter",
         lua.create_function(|_, _: ()| {
-            startup_error_reporter(send_generated_report);
+            startup_dmarc_reporter();
 
             Ok(mlua::Value::Nil)
         })?,
