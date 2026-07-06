@@ -50,8 +50,11 @@ kumo.on('init', function()
   local rocks_params = {
     -- Tiny write_buffer_size forces fast SST production so that the
     -- test can drive rocksdb through its flush/compact lifecycle in
-    -- a handful of writes.
-    write_buffer_size = 4096,
+    -- a handful of writes.  A test that wants freshly-written data to
+    -- stay in the WAL (rather than being flushed to an SST) raises
+    -- this via KUMOD_ROCKS_WRITE_BUFFER_SIZE.
+    write_buffer_size = tonumber(os.getenv 'KUMOD_ROCKS_WRITE_BUFFER_SIZE')
+      or 4096,
     -- Short window so the gate latches in test time rather than in
     -- 15 seconds of real time.  Combined with the 5-second
     -- metrics_monitor tick, the gate engages within ~5-10s of the

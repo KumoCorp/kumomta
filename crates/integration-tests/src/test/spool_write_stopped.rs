@@ -101,6 +101,21 @@ async fn find_sst(dir: &Path) -> anyhow::Result<PathBuf> {
     anyhow::bail!("no .sst file found in {}", dir.display());
 }
 
+/// Find a rocksdb write-ahead log (a `NNNNNN.log` file) under `dir`.
+/// Returns the first one encountered in directory-iteration order.
+async fn find_wal(dir: &Path) -> anyhow::Result<PathBuf> {
+    let mut rd = fs::read_dir(dir)
+        .await
+        .with_context(|| format!("read_dir {}", dir.display()))?;
+    while let Some(entry) = rd.next_entry().await? {
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "log") {
+            return Ok(path);
+        }
+    }
+    anyhow::bail!("no .log file found in {}", dir.display());
+}
+
 /// Poll the daemon's /metrics endpoint until
 /// `rocks_spool_load_shed_active` reports a non-zero value on any
 /// labelled time series, or the timeout elapses.
@@ -262,6 +277,233 @@ async fn spool_write_stopped_load_shedding() -> anyhow::Result<()> {
     // if this proves flaky in practice we can revisit.
     daemon.stop_both().await.context("stop_both")?;
 
+    Ok(())
+}
+
+/// Happy-path counterpart to the corruption tests below: verifies
+/// that a rocksdb-backed spool survives a graceful stop/start with no
+/// tampering, i.e. queued messages are still present and deliverable
+/// after the process restarts.  This is the scenario a user incident
+/// report claimed was broken ("kumod re-initializes the RocksDB
+/// database as new on every start" -> queued mail lost across
+/// restart).  We mirror that scenario as closely as the harness
+/// allows: inject messages that are held in the spool, force a
+/// flush+compaction so the data lives in SST files (the "already
+/// flushed to SST" symptom), stop cleanly, restart against the same
+/// on-disk state, and confirm every message is recovered and
+/// ultimately delivered.
+#[tokio::test]
+async fn spool_restart_clean_recovery() -> anyhow::Result<()> {
+    const COUNT: usize = 20;
+
+    let mut daemon = DaemonWithMaildirOptions::new()
+        .policy_file("source-rocks-spool.lua")
+        .start()
+        .await
+        .context("start daemon")?;
+
+    // Suspend example.com so accepted messages stay in the spool
+    // rather than being delivered (and removed) immediately.
+    suspend_example_com(&daemon, "hold for clean-recovery test")
+        .await
+        .context("suspend pre-restart")?;
+
+    for _ in 0..COUNT {
+        assert_equal!(send_one(&daemon).await.context("pre-restart send")?, 250);
+    }
+
+    // Force flush + compact for both spools so the message data and
+    // metadata live in on-disk SST files rather than only in the
+    // WAL.  This reproduces the "data was already flushed to SST
+    // (empty WAL)" variant from the incident report, which is the
+    // case they said silently lost the queue.
+    for name in ["data", "meta"] {
+        daemon
+            .source
+            .kcli_text(["spool-compact", "--name", name])
+            .await
+            .with_context(|| format!("pre-restart spool-compact {name}"))?;
+    }
+
+    let stopped = daemon
+        .source
+        .stop_temporarily()
+        .await
+        .context("graceful stop before restart")?;
+
+    // Sanity check the on-disk state the way an operator would:
+    // CURRENT and at least one SST must be present for both spools
+    // before we restart.  If kumod were truly re-initializing the
+    // DB as new, these would be the files that get discarded.
+    for sub in ["data-spool", "meta-spool"] {
+        let dir = stopped.path().join(sub);
+        assert!(
+            dir.join("CURRENT").exists(),
+            "expected CURRENT in {}",
+            dir.display()
+        );
+        // Presence of an SST confirms the compaction above landed
+        // durable data on disk (not just WAL).
+        find_sst(&dir)
+            .await
+            .with_context(|| format!("expected an SST in {}", dir.display()))?;
+    }
+
+    // Restart against the same on-disk state.  Reuse the still-running
+    // sink's SMTP listener so routing continues to resolve.
+    let sink_smtp_port = daemon.sink.listener("smtp").port();
+    daemon.source = stopped
+        .start(KumoArgs {
+            policy_file: "source-rocks-spool.lua".to_string(),
+            env: vec![(
+                "KUMOD_SMTP_SINK_PORT".to_string(),
+                sink_smtp_port.to_string(),
+            )],
+        })
+        .await
+        .context("restart source")?;
+
+    // The fresh process has an empty suspend table, so the recovered
+    // messages are eligible again -- but their next-due times are
+    // still in the future.  Rebind with --always-flush to make them
+    // immediately eligible for delivery.
+    daemon
+        .source
+        .kcli_text([
+            "rebind",
+            "--everything",
+            "--always-flush",
+            "--reason",
+            "flush recovered messages",
+        ])
+        .await
+        .context("post-restart rebind")?;
+
+    // If the spool recovered correctly, all COUNT messages load from
+    // the (untampered) spool and deliver to the sink maildir.  A
+    // re-initialized/empty DB would deliver zero.
+    assert!(
+        daemon
+            .wait_for_maildir_count(COUNT, Duration::from_secs(60))
+            .await,
+        "expected {COUNT} messages to be recovered from the spool and delivered"
+    );
+
+    daemon.stop_both().await.context("stop_both")?;
+    Ok(())
+}
+
+/// Companion to spool_restart_clean_recovery that exercises the other
+/// variant from the incident report: data that was never flushed to
+/// an SST and lives only in the write-ahead log at shutdown.  The
+/// user reported that in this state a restart either fails to start
+/// ("wal_dir contains existing log file") or comes up with an empty
+/// queue, both of which imply rocksdb took the fresh-database path
+/// instead of replaying the WAL.  Here we raise write_buffer_size so
+/// the injected messages stay in the memtable/WAL (no SST is
+/// produced), stop cleanly, restart, and confirm the WAL replays and
+/// every message is recovered and delivered.
+#[tokio::test]
+async fn spool_restart_wal_replay() -> anyhow::Result<()> {
+    const COUNT: usize = 20;
+    // Large enough that a handful of small messages never fill the
+    // memtable, so rocksdb keeps the data in the WAL rather than
+    // flushing it to an SST.
+    const BIG_WRITE_BUFFER: &str = "67108864";
+
+    let mut daemon = DaemonWithMaildirOptions::new()
+        .policy_file("source-rocks-spool.lua")
+        .env("KUMOD_ROCKS_WRITE_BUFFER_SIZE", BIG_WRITE_BUFFER)
+        .start()
+        .await
+        .context("start daemon")?;
+
+    // Suspend example.com so accepted messages stay in the spool
+    // rather than being delivered (and removed) immediately.
+    suspend_example_com(&daemon, "hold for wal-replay test")
+        .await
+        .context("suspend pre-restart")?;
+
+    for _ in 0..COUNT {
+        assert_equal!(send_one(&daemon).await.context("pre-restart send")?, 250);
+    }
+
+    let stopped = daemon
+        .source
+        .stop_temporarily()
+        .await
+        .context("graceful stop before restart")?;
+
+    // Confirm the on-disk shape is the WAL-only case: a .log file is
+    // present and no SST has been produced for either spool.  If an
+    // SST existed here we would be testing the same path as the
+    // flush-to-SST test above rather than WAL replay.
+    for sub in ["data-spool", "meta-spool"] {
+        let dir = stopped.path().join(sub);
+        assert!(
+            dir.join("CURRENT").exists(),
+            "expected CURRENT in {}",
+            dir.display()
+        );
+        find_wal(&dir)
+            .await
+            .with_context(|| format!("expected a WAL log file in {}", dir.display()))?;
+        if let Ok(sst) = find_sst(&dir).await {
+            anyhow::bail!(
+                "expected no SST in {} but found {}; data was flushed, so this is not a WAL-replay test",
+                dir.display(),
+                sst.display()
+            );
+        }
+    }
+
+    // Restart against the same on-disk state.  Reuse the still-running
+    // sink's SMTP listener so routing continues to resolve.
+    let sink_smtp_port = daemon.sink.listener("smtp").port();
+    daemon.source = stopped
+        .start(KumoArgs {
+            policy_file: "source-rocks-spool.lua".to_string(),
+            env: vec![
+                (
+                    "KUMOD_SMTP_SINK_PORT".to_string(),
+                    sink_smtp_port.to_string(),
+                ),
+                (
+                    "KUMOD_ROCKS_WRITE_BUFFER_SIZE".to_string(),
+                    BIG_WRITE_BUFFER.to_string(),
+                ),
+            ],
+        })
+        .await
+        .context("restart source")?;
+
+    // The fresh process has an empty suspend table, so the recovered
+    // messages are eligible again -- but their next-due times are
+    // still in the future.  Rebind with --always-flush to make them
+    // immediately eligible for delivery.
+    daemon
+        .source
+        .kcli_text([
+            "rebind",
+            "--everything",
+            "--always-flush",
+            "--reason",
+            "flush recovered messages",
+        ])
+        .await
+        .context("post-restart rebind")?;
+
+    // If the WAL replayed correctly, all COUNT messages load from the
+    // spool and deliver to the sink maildir.  A fresh-database path
+    // (their reported failure) would deliver zero.
+    assert!(
+        daemon
+            .wait_for_maildir_count(COUNT, Duration::from_secs(60))
+            .await,
+        "expected {COUNT} messages to be recovered from the WAL and delivered"
+    );
+
+    daemon.stop_both().await.context("stop_both")?;
     Ok(())
 }
 
