@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.06.20-d08d4e25"
+    "version": "2026.06.23-db312236"
   },
   "paths": {
     "/api/admin/abort-ready-q-conn/v1": {
@@ -193,6 +193,15 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "include_scheduled_queues",
+            "in": "query",
+            "description": "When true, the response includes the list of scheduled queue\nnames that have promoted messages into this ready queue.\nWalking the set is bounded but proportional to the number of\nlive scheduled queues, so the field is opt-in.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -1744,6 +1753,16 @@
           },
           "queue_name": {
             "type": "string"
+          },
+          "scheduled_queue_names": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Scheduled queue names that currently feed this ready queue.\nPopulated only when the request's `include_scheduled_queues`\nflag is true; otherwise None."
           },
           "state": {
             "$ref": "#/components/schemas/ReadyQueueStateSnapshot"

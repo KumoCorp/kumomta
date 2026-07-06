@@ -38,6 +38,10 @@ This is an object value, with the following properties:
 
   * `queue_name` - required `string`. 
 
+  * `scheduled_queue_names` - optional array of `string`. Scheduled queue names that currently feed this ready queue.
+    Populated only when the request's `include_scheduled_queues`
+    flag is true; otherwise None.
+
   * `state` - required [ReadyQueueStateSnapshot](ReadyQueueStateSnapshot.md). Snapshot of the operational state of a ready queue.
     
     {{since('dev')}}
@@ -104,6 +108,9 @@ This is an object value, with the following properties:
   "path_config": {},
   "protocol": "smtp_client",
   "queue_name": "string",
+  "scheduled_queue_names": [
+    "string"
+  ],
   "state": {
     "connection_count": 42,
     "connection_limited": {

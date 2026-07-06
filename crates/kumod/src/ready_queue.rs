@@ -32,6 +32,7 @@ use kumo_api_types::egress_path::{
 };
 use kumo_prometheus::declare_metric;
 use kumo_server_common::config_handle::ConfigHandle;
+use kumo_server_common::hashable_weak::HashableWeak;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription, ShuttingDownError};
 use kumo_server_memory::{
     get_headroom, memory_status, subscribe_to_memory_status_changes_async, MemoryStatus,
@@ -42,10 +43,11 @@ use message::Message;
 use parking_lot::FairMutex;
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::Serialize;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Weak};
 use std::time::{Duration, Instant};
 use throttle::limit::{LimitLease, LimitSpecWithDuration};
 use throttle::ThrottleSpec;
@@ -457,7 +459,6 @@ impl ReadyQueueManager {
 
             Arc::new(ReadyQueue {
                 name: name.clone(),
-                queue_name_for_config_change_purposes_only: queue_name.to_string(),
                 ready,
                 mx,
                 notify_dispatcher,
@@ -475,6 +476,7 @@ impl ReadyQueueManager {
                 next_config_refresh: FairMutex::new(next_config_refresh),
                 config_epoch: FairMutex::new(config_epoch),
                 states: Arc::new(FairMutex::new(ReadyQueueStates::default())),
+                scheduled_queues: FairMutex::new(HashSet::new()),
             })
         });
         Ok(handle.clone())
@@ -846,7 +848,6 @@ pub struct DispatcherSlot {
 
 pub struct ReadyQueue {
     name: String,
-    queue_name_for_config_change_purposes_only: String,
     ready: Arc<Fifo>,
     mx: Option<Arc<MailExchanger>>,
     notify_maintainer: Arc<Notify>,
@@ -864,6 +865,12 @@ pub struct ReadyQueue {
     next_config_refresh: FairMutex<Instant>,
     config_epoch: FairMutex<ConfigEpoch>,
     pub states: Arc<FairMutex<ReadyQueueStates>>,
+    /// Scheduled queues that have promoted messages into this ready
+    /// queue. Used to find a live `Queue` for config refresh
+    /// purposes and (optionally) to surface the fan-in for
+    /// diagnostic tooling. Pruned by the maintainer when entries
+    /// no longer upgrade.
+    scheduled_queues: FairMutex<HashSet<HashableWeak<Queue>>>,
 }
 
 impl ReadyQueue {
@@ -871,8 +878,55 @@ impl ReadyQueue {
         &self.name
     }
 
+    /// Record that the given scheduled queue has promoted a message
+    /// into this ready queue. Idempotent at pointer identity; the
+    /// set deduplicates calls for the same `Arc<Queue>`.
+    pub fn note_scheduled_queue(&self, queue: &Arc<Queue>) {
+        let mut scheduled_queues = self.scheduled_queues.lock();
+        scheduled_queues.insert(HashableWeak::new(queue));
+    }
+
+    /// Drop scheduled queue entries whose underlying `Arc<Queue>`
+    /// has been dropped. Called periodically by the maintainer.
+    pub fn sweep_dead_scheduled_queues(&self) {
+        let mut scheduled_queues = self.scheduled_queues.lock();
+        scheduled_queues.retain(|hw| hw.0.upgrade().is_some());
+    }
+
+    /// Snapshot of currently-live scheduled queue names. Filters
+    /// dead entries on the fly; does not mutate. Sorted so the
+    /// output is human-friendly regardless of the underlying set's
+    /// iteration order.
+    pub fn scheduled_queue_names(&self) -> Vec<String> {
+        let scheduled_queues = self.scheduled_queues.lock();
+        let mut names: Vec<String> = scheduled_queues
+            .iter()
+            .filter_map(|hw| hw.0.upgrade().map(|q| q.name.to_string()))
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// Returns the name of any currently-live scheduled queue, or
+    /// None when none are registered. Which entry is returned is
+    /// unspecified — callers must consider whether this is acceptable
+    /// for their use case. For example, the Lua dispatcher uses
+    /// this to obtain a representative `(domain, tenant, campaign)`
+    /// decomposition for its constructor hook on Lua-protocol
+    /// queues, where the operator has implicitly accepted that
+    /// fan-in into the same constructor is one-size-fits-all.
+    pub fn pick_unspecified_live_scheduled_queue_name(&self) -> Option<String> {
+        let scheduled_queues = self.scheduled_queues.lock();
+        scheduled_queues
+            .iter()
+            .find_map(|hw| hw.0.upgrade().map(|q| q.name.to_string()))
+    }
+
     /// Build the response payload for the inspect-ready-q endpoint.
-    pub fn build_inspect_response(&self) -> kumo_api_types::InspectReadyQV1Response {
+    pub fn build_inspect_response(
+        &self,
+        include_scheduled_queues: bool,
+    ) -> kumo_api_types::InspectReadyQV1Response {
         use chrono::Utc;
         let now = Utc::now();
         let watchdog_threshold = self.calculate_dispatcher_progress_watchdog_timeout();
@@ -961,6 +1015,12 @@ impl ReadyQueue {
         let path_config = (**self.path_config.borrow()).clone();
         let constraints = path_config.compute_constraints(None);
 
+        let scheduled_queue_names = if include_scheduled_queues {
+            Some(self.scheduled_queue_names())
+        } else {
+            None
+        };
+
         kumo_api_types::InspectReadyQV1Response {
             queue_name: self.name.clone(),
             mx,
@@ -970,6 +1030,7 @@ impl ReadyQueue {
             state,
             path_config,
             constraints,
+            scheduled_queue_names,
             dispatchers,
             now,
         }
@@ -1067,7 +1128,13 @@ impl ReadyQueue {
         &self.path_config
     }
 
-    pub async fn redeem_reservation(&self, msg: Message, reservation: FifoReservation) {
+    pub async fn redeem_reservation(
+        &self,
+        msg: Message,
+        reservation: FifoReservation,
+        scheduled_queue: &Arc<Queue>,
+    ) {
+        self.note_scheduled_queue(scheduled_queue);
         let action = match memory_status() {
             MemoryStatus::LowMemory => self.path_config.borrow().low_memory_reduction_policy,
             MemoryStatus::NoMemory => self.path_config.borrow().no_memory_reduction_policy,
@@ -1277,6 +1344,9 @@ impl ReadyQueue {
             connections.len()
         };
 
+        // Drop entries whose scheduled queue has been reaped.
+        self.sweep_dead_scheduled_queues();
+
         let path_config = self.path_config.borrow();
 
         tracing::trace!(
@@ -1445,8 +1515,7 @@ impl ReadyQueue {
 
             // Open a new connection
             let name = self.name.clone();
-            let queue_name_for_config_change_purposes_only =
-                self.queue_name_for_config_change_purposes_only.clone();
+            let ready_queue_weak = Arc::downgrade(self);
             let mx = self.mx.clone();
             let ready = Arc::clone(&self.ready);
             let notify_dispatcher = self.notify_dispatcher.clone();
@@ -1465,7 +1534,7 @@ impl ReadyQueue {
             if let Ok(handle) = self.readyq_spawn(format!("smtp client {name}"), async move {
                 if let Err(err) = Dispatcher::run(
                     &name,
-                    queue_name_for_config_change_purposes_only,
+                    ready_queue_weak,
                     mx,
                     ready,
                     notify_dispatcher,
@@ -1539,25 +1608,41 @@ impl ReadyQueue {
         *self.config_epoch.lock() = *epoch;
         tracing::trace!("perform_config_refresh for {}", self.name);
 
+        // Pick any live scheduled queue to drive the refresh. Its
+        // queue_config is the source of truth; the ready queue's
+        // own cached queue_config is just a derivative.
+        let live = {
+            let scheduled_queues = self.scheduled_queues.lock();
+            scheduled_queues.iter().find_map(|hw| hw.0.upgrade())
+        };
+        let Some(scheduled_queue) = live else {
+            tracing::trace!(
+                "perform_config_refresh: no live scheduled queues for {}, skipping",
+                self.name
+            );
+            return;
+        };
+
         match ReadyQueueManager::compute_config(
-            &self.queue_name_for_config_change_purposes_only,
-            &self.queue_config,
+            &scheduled_queue.name,
+            &scheduled_queue.queue_config,
             &self.egress_source.name,
         )
         .await
         {
             Ok(ReadyQueueConfig { path_config, .. }) => {
                 if self.protocol != self.queue_config.borrow().protocol {
-                    // This can happen if eg: the smtp protocol has its mx_list changed.
-                    // In this situation it is very important that we stop trying to
-                    // service the ready queue with an existing maintainer, as the
-                    // ready queue has what amounts to cached copies of data in its
-                    // `queue_name_for_config_change_purposes_only` and `queue_config`
-                    // fields: the former name may no longer be the correct canonical
-                    // name for the current protocol settings, and the latter is a
-                    // derivative of the former.
-                    // We remove this ready queue instance from the manager and wake it
-                    // up so that it can manage winding down any current connections.
+                    // The cached `protocol` no longer matches what the
+                    // current queue config produces (e.g. the smtp protocol
+                    // had its mx_list changed, or a custom_lua constructor
+                    // was reassigned). Downstream behaviours — queue name
+                    // formula, MX vs lua resolution, mx caching — all
+                    // depend on the protocol shape, so the cached state is
+                    // inconsistent. Remove this ready queue from the
+                    // manager and wake it up so it can wind down its
+                    // current connections; a fresh instance with the
+                    // correct protocol will be created on the next
+                    // promotion.
                     tracing::trace!("{}: protocol changed, will replace ready queue", self.name);
                     if let Some((_name, removed)) = MANAGER
                         .queues
@@ -1653,13 +1738,9 @@ pub trait QueueDispatcher: Debug + Send {
 
 pub struct Dispatcher {
     pub name: String,
-    /// You probably do not want to use queue_name_for_config_change_purposes_only
-    /// in an SMTP Dispatcher, because it is a snapshot of the queue name of
-    /// the very first scheduled queue to feed into the associated ReadyQueue.
-    /// There may be many different scheduled queues feeding in, so if you
-    /// want to resolve to the appropriate scheduled queue, you must do so
-    /// via msg.get_queue_name() instead of using this stashed value.
-    pub queue_name_for_config_change_purposes_only: String,
+    /// Weak back-reference to the parent ReadyQueue, available for
+    /// dispatcher impls that need to query its state.
+    pub ready_queue: Weak<ReadyQueue>,
     pub ready: Arc<Fifo>,
     pub notify_dispatcher: Arc<Notify>,
     pub path_config: ConfigHandle<EgressPathConfig>,
@@ -1797,7 +1878,7 @@ impl Dispatcher {
     #[instrument(skip(ready, metrics, notify_dispatcher))]
     async fn run(
         name: &str,
-        queue_name_for_config_change_purposes_only: String,
+        ready_queue: Weak<ReadyQueue>,
         mx: Option<Arc<MailExchanger>>,
         ready: Arc<Fifo>,
         notify_dispatcher: Arc<Notify>,
@@ -1829,7 +1910,7 @@ impl Dispatcher {
         let session_id = state.session_id;
         let mut dispatcher = Self {
             name: name.to_string(),
-            queue_name_for_config_change_purposes_only,
+            ready_queue,
             ready,
             notify_dispatcher,
             mx,

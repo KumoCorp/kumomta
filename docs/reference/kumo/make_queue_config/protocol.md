@@ -212,5 +212,49 @@ end)
 See [should_enqueue_log_record](../../events/should_enqueue_log_record.md) for
 a more complete example.
 
+#### Where the constructor's `(domain, tenant, campaign)` come from
+
+The constructor event (e.g. `make.webhook` above) is fired once per
+connection session, before any message is delivered through it. The
+`(domain, tenant, campaign)` arguments come from one of the scheduled
+queues that feeds the dispatcher's ready queue, captured at session
+start.
+
+Multiple scheduled queues can share the same Lua ready queue.
+Scheduled queues converge on the same ready queue when they all
+resolve to the same egress source, routing domain, and Lua
+constructor name. That can happen for many reasons — different
+`(domain, tenant, campaign)` triples that map to a common
+`routing_domain`, explicit routing via the `domain!routing_domain`
+syntax, scheduled queue names that happen to share components, or
+any `get_queue_config` implementation that yields the same
+`custom_lua.constructor` value for distinct inputs.
+
+When any of those produces fan-in, the constructor's arguments are
+*representative*: they reflect one scheduled queue currently
+feeding the session, but other messages delivered through the same
+session may have originated from different scheduled queues with
+different `(tenant, campaign)` values.
+
+If the connection setup itself depends on per-message values, use
+the constructor arguments only for one-time setup that is invariant
+across the queues sharing this constructor, and resolve per-message
+values inside `send` (or `send_batch`) using `message:get_meta` or
+[message:queue_name](../../message/queue_name.md):
+
+```lua
+kumo.on('make.webhook', function(domain, tenant, campaign)
+  local connection = {}
+  function connection:send(message)
+    -- Source of truth for this specific message:
+    local msg_tenant = message:get_meta 'tenant'
+    local msg_campaign = message:get_meta 'campaign'
+    -- ... use msg_tenant / msg_campaign for per-message routing ...
+    return 'OK'
+  end
+  return connection
+end)
+```
+
 
 
