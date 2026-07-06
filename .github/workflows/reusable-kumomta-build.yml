@@ -214,7 +214,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build Image
         id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v7.2.0
         with:
           push: ${{ github.event_name != 'pull_request' }}
           platforms: ${{ inputs.docker_platform }}
