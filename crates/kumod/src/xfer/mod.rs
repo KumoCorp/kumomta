@@ -333,6 +333,7 @@ pub async fn inject_xfer_v1(
         peer_address: Some(&ResolvedAddress {
             name: "".to_string(),
             addr: peer_address.into(),
+            is_secure: false,
         }),
         response: Response {
             code: 250,

@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use hickory_resolver::net::{DnsError as NetDnsError, NetError};
+use hickory_resolver::proto::dnssec::Proof;
 use hickory_resolver::proto::op::ResponseCode;
 use hickory_resolver::proto::rr::rdata::{A, AAAA, PTR, TXT};
 #[cfg(feature = "unbound")]
@@ -11,7 +12,7 @@ use hickory_resolver::proto::serialize::txt::Parser;
 use hickory_resolver::TokioResolver;
 #[cfg(feature = "unbound")]
 use libunbound::{AsyncContext, Context};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::net::IpAddr;
 use std::str::FromStr;
@@ -139,6 +140,25 @@ fn no_records(err: &NetError) -> Option<&hickory_resolver::net::NoRecords> {
     }
 }
 
+/// Summarize the DNSSEC status of a set of records from their validation
+/// proofs, returning `(secure, bogus)`. An answer is secure only when it
+/// carries at least one record and every record validated as secure; it is
+/// bogus when any record failed validation. With validation disabled every
+/// record is Indeterminate, so the result is simply not secure. This applies
+/// both to a positive answer (its answer section) and to a securely denied
+/// answer (the authority section that proves the absence).
+fn dnssec_status(proofs: impl Iterator<Item = Proof>) -> (bool, bool) {
+    let mut any = false;
+    let mut all_secure = true;
+    let mut bogus = false;
+    for proof in proofs {
+        any = true;
+        all_secure &= proof == Proof::Secure;
+        bogus |= proof == Proof::Bogus;
+    }
+    (any && all_secure, bogus)
+}
+
 #[async_trait]
 pub trait Resolver: Send + Sync + 'static {
     async fn resolve_ip(&self, host: &str) -> Result<Vec<IpAddr>, DnsError>;
@@ -180,12 +200,32 @@ impl Resolver for Box<dyn Resolver> {
 }
 
 #[derive(Debug, Default)]
+struct TestZone {
+    records: BTreeMap<RrKey, RecordSet>,
+    /// Whether answers from this zone should be reported as DNSSEC validated.
+    secure: bool,
+}
+
+#[derive(Debug, Default)]
 pub struct TestResolver {
-    records: BTreeMap<Name, BTreeMap<RrKey, RecordSet>>,
+    zones: BTreeMap<Name, TestZone>,
+    /// Owner names for which any lookup should return SERVFAIL, used to model
+    /// resolution failures (e.g. for DANE downgrade-resistance tests).
+    servfail: BTreeSet<Name>,
 }
 
 impl TestResolver {
-    pub fn with_zone(mut self, zone: &str) -> Result<Self, String> {
+    /// Add an insecure (non-DNSSEC) zone.
+    pub fn with_zone(self, zone: &str) -> Result<Self, String> {
+        self.add_zone(zone, false)
+    }
+
+    /// Add a zone whose answers are reported as DNSSEC validated (secure).
+    pub fn with_secure_zone(self, zone: &str) -> Result<Self, String> {
+        self.add_zone(zone, true)
+    }
+
+    fn add_zone(mut self, zone: &str, secure: bool) -> Result<Self, String> {
         let (mut name, records) = Parser::new(zone, None, None)
             .parse()
             .map_err(|err| format!("{err:#}"))?;
@@ -205,8 +245,24 @@ impl TestResolver {
                 }
             })
             .collect();
-        self.records.insert(name, fqdn_records);
+        self.zones.insert(
+            name,
+            TestZone {
+                records: fqdn_records,
+                secure,
+            },
+        );
         Ok(self)
+    }
+
+    /// Cause any lookup for `name` to return SERVFAIL.
+    pub fn with_servfail(mut self, name: &str) -> Self {
+        let mut name = Name::from_str_relaxed(name)
+            .expect("valid name passed to with_servfail")
+            .to_lowercase();
+        name.set_fqdn(true);
+        self.servfail.insert(name);
+        self
     }
 
     pub fn with_txt(self, domain: &str, value: impl Into<String>) -> Self {
@@ -226,9 +282,10 @@ impl TestResolver {
         for item in value {
             records.add_rdata(RData::TXT(TXT::new(vec![item])));
         }
-        self.records
+        self.zones
             .entry(authority)
             .or_default()
+            .records
             .insert(key, records);
 
         self
@@ -237,11 +294,25 @@ impl TestResolver {
     fn get(&self, full: &Name, record_type: RecordType) -> Result<Answer, DnsError> {
         let mut full_fqdn = full.clone();
         full_fqdn.set_fqdn(true);
+
+        if self.servfail.contains(&full_fqdn.to_lowercase()) {
+            return Ok(Answer {
+                canon_name: None,
+                records: vec![],
+                nxdomain: false,
+                secure: false,
+                bogus: false,
+                why_bogus: None,
+                expires: Instant::now() + Duration::from_secs(60),
+                response_code: ResponseCode::ServFail,
+            });
+        }
+
         let mut authority = full_fqdn.clone();
 
-        let records = loop {
-            if let Some(records) = self.records.get(&authority) {
-                break records;
+        let zone = loop {
+            if let Some(zone) = self.zones.get(&authority) {
+                break zone;
             };
 
             if authority.num_labels() > 1 {
@@ -261,17 +332,45 @@ impl TestResolver {
             });
         };
 
-        let records = records.get(&RrKey {
+        let records = zone.records.get(&RrKey {
             name: LowerName::from(&full_fqdn),
             record_type,
         });
 
         let Some(records) = records else {
+            // Follow a single CNAME for non-CNAME queries, mirroring how a
+            // recursive resolver expands aliases. The DNSSEC secure status of
+            // the overall answer is the AND of every step, so a secure alias
+            // targeting an insecure zone yields an insecure address answer
+            // (while an explicit CNAME-type query still reports the alias's own
+            // secure bit, since it matches a record here and never reaches this
+            // branch).
+            if record_type != RecordType::CNAME {
+                if let Some(cname_rs) = zone.records.get(&RrKey {
+                    name: LowerName::from(&full_fqdn),
+                    record_type: RecordType::CNAME,
+                }) {
+                    if let Some(target) =
+                        cname_rs
+                            .records_without_rrsigs()
+                            .find_map(|r| match &r.data {
+                                RData::CNAME(cname) => Some(cname.0.clone()),
+                                _ => None,
+                            })
+                    {
+                        let mut target_answer = self.get(&target, record_type)?;
+                        target_answer.canon_name = Some(target.to_ascii());
+                        target_answer.secure = target_answer.secure && zone.secure;
+                        return Ok(target_answer);
+                    }
+                }
+            }
+
             return Ok(Answer {
                 canon_name: None,
                 records: vec![],
                 nxdomain: false,
-                secure: false,
+                secure: zone.secure,
                 bogus: false,
                 why_bogus: None,
                 expires: Instant::now() + Duration::from_secs(60),
@@ -286,7 +385,7 @@ impl TestResolver {
                 .map(|r| r.data.clone())
                 .collect(),
             nxdomain: false,
-            secure: false,
+            secure: zone.secure,
             bogus: false,
             why_bogus: None,
             expires: Instant::now() + Duration::from_secs(60),
@@ -562,30 +661,44 @@ impl Resolver for HickoryResolver {
         match self.inner.lookup(name.clone(), rrtype).await {
             Ok(result) => {
                 let expires = result.valid_until();
-                let records = result.answers().iter().map(|r| r.data.clone()).collect();
+                let answers = result.answers();
+                // Surface bogus so that callers (e.g. DANE) can defer rather
+                // than downgrade.
+                let (secure, bogus) = dnssec_status(answers.iter().map(|r| r.proof));
+                let records = answers.iter().map(|r| r.data.clone()).collect();
                 Ok(Answer {
                     canon_name: None,
                     records,
                     nxdomain: false,
-                    secure: false,
-                    bogus: false,
+                    secure,
+                    bogus,
                     why_bogus: None,
                     expires,
                     response_code: ResponseCode::NoError,
                 })
             }
             Err(err) => match no_records(&err) {
-                Some(no_records) => Ok(Answer {
-                    canon_name: None,
-                    records: vec![],
-                    nxdomain: no_records.response_code == ResponseCode::NXDomain,
-                    secure: false,
-                    bogus: false,
-                    why_bogus: None,
-                    response_code: no_records.response_code,
-                    expires: Instant::now()
-                        + Duration::from_secs(no_records.negative_ttl.unwrap_or(60) as u64),
-                }),
+                Some(no_records) => {
+                    // A securely denied answer (NODATA/NXDOMAIN in a signed
+                    // zone) is proven by DNSSEC-validated authority records
+                    // (SOA/NSEC/RRSIG); derive its secure/bogus status from
+                    // those just as we do for a positive answer, so that a
+                    // securely proven "no MX" can still engage DANE for the
+                    // implicit MX.
+                    let authorities = no_records.authorities.as_deref().unwrap_or(&[]);
+                    let (secure, bogus) = dnssec_status(authorities.iter().map(|r| r.proof));
+                    Ok(Answer {
+                        canon_name: None,
+                        records: vec![],
+                        nxdomain: no_records.response_code == ResponseCode::NXDomain,
+                        secure,
+                        bogus,
+                        why_bogus: None,
+                        response_code: no_records.response_code,
+                        expires: Instant::now()
+                            + Duration::from_secs(no_records.negative_ttl.unwrap_or(60) as u64),
+                    })
+                }
                 None => Err(DnsError::from_resolve(&name, err)),
             },
         }

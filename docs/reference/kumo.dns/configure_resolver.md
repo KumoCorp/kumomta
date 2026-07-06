@@ -89,6 +89,56 @@ kumo.on('init', function()
 end)
 ```
 
+## Structured resolver configurations
+
+In addition to the `name_servers`/`options` form above, `configure_resolver`
+accepts the same structured resolver configurations as
+[kumo.dns.define_resolver](define_resolver.md), namely the `Hickory`,
+`HickorySystemConfig`, `Unbound`, `Test`, and `Aggregate` forms.
+
+The `Test` form provides fixed, locally-available zone data and is primarily
+intended for testing. {{since('dev', inline=True)}} each entry in its `zones`
+list may be either a plain zone string (an *insecure*, non-DNSSEC zone) or a
+table of the form `{ zone = "...", secure = true }` whose answers are reported
+as DNSSEC-validated; this is required to exercise features that only trust
+securely-resolved data, such as
+[DANE](../kumo/make_egress_path/enable_dane.md). The `Test` form also accepts
+an optional `servfail` list of owner names for which any lookup returns
+`SERVFAIL`, which is useful for exercising failure-handling paths.
+
+```lua
+kumo.on('init', function()
+  kumo.dns.configure_resolver {
+    Test = {
+      zones = {
+        -- A DNSSEC-validated (secure) zone
+        {
+          zone = [[
+$ORIGIN dane.example.
+@ 3600 IN MX 10 mx.dane.example.
+mx 3600 IN A 127.0.0.1
+_25._tcp.mx 3600 IN TLSA 3 1 1 abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  ]],
+          secure = true,
+        },
+        -- A plain string entry is treated as an insecure zone
+        [[
+$ORIGIN insecure.example.
+@ 3600 IN A 127.0.0.2
+  ]],
+      },
+      -- Any lookup for these names returns SERVFAIL
+      servfail = {
+        '_25._tcp.broken.example',
+      },
+    },
+  }
+end)
+```
+
+See [define_resolver](define_resolver.md) for details on each of the structured
+forms.
+
 ## Name server entries
 
 Each entry in `name_servers` is one of:

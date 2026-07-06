@@ -934,6 +934,11 @@ impl SmtpClient {
             }
         };
 
+        // On a successful handshake the peer was authenticated iff verification
+        // was required: when `insecure` is set we accept the peer's certificate
+        // without validating it, so the session is encrypted but unauthenticated.
+        tls_info.authenticated = !options.insecure;
+
         if let Some(tracer) = &self.tracer {
             tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
                 level: Level::INFO,
@@ -1189,6 +1194,11 @@ pub struct TlsInformation {
     pub protocol_version: String,
     pub subject_name: Vec<String>,
     pub provider_name: String,
+    /// Whether the peer certificate was authenticated (validated) as part of
+    /// the handshake. False when the session is encrypted but the peer was not
+    /// verified (e.g. opportunistic-insecure, or DANE with no usable TLSA
+    /// records).
+    pub authenticated: bool,
 }
 
 impl Drop for SmtpClient {

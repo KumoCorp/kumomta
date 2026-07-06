@@ -177,19 +177,55 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     #[derive(serde::Deserialize, Debug)]
-    #[serde(deny_unknown_fields)]
-    struct TestResolverConfig {
-        zones: Vec<String>,
+    #[serde(untagged)]
+    enum ZoneSpec {
+        /// An insecure (non-DNSSEC) zone.
+        Insecure(String),
+        /// A zone with an explicit DNSSEC secure flag.
+        Detailed {
+            zone: String,
+            #[serde(default)]
+            secure: bool,
+        },
+    }
+
+    #[derive(serde::Deserialize, Debug)]
+    #[serde(untagged)]
+    enum TestResolverConfig {
+        /// A bare list of zones (each an insecure string or `{zone, secure}`).
+        Zones(Vec<ZoneSpec>),
+        /// The full form, which additionally supports forcing SERVFAIL for a
+        /// set of owner names.
+        Detailed {
+            zones: Vec<ZoneSpec>,
+            #[serde(default)]
+            servfail: Vec<String>,
+        },
     }
 
     impl TestResolverConfig {
         fn make_resolver(&self) -> anyhow::Result<TestResolver> {
             let mut resolver = TestResolver::default();
 
-            for zone in &self.zones {
-                resolver = resolver
-                    .with_zone(zone)
-                    .map_err(|err| anyhow::anyhow!("{err}"))?;
+            let (zones, servfail): (&[ZoneSpec], &[String]) = match self {
+                Self::Zones(zones) => (zones, &[]),
+                Self::Detailed { zones, servfail } => (zones, servfail),
+            };
+
+            for zone in zones {
+                resolver = match zone {
+                    ZoneSpec::Insecure(zone) => resolver.with_zone(zone),
+                    ZoneSpec::Detailed { zone, secure: true } => resolver.with_secure_zone(zone),
+                    ZoneSpec::Detailed {
+                        zone,
+                        secure: false,
+                    } => resolver.with_zone(zone),
+                }
+                .map_err(|err| anyhow::anyhow!("{err}"))?;
+            }
+
+            for name in servfail {
+                resolver = resolver.with_servfail(name);
             }
 
             Ok(resolver)
@@ -283,8 +319,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     dns_mod.set(
         "configure_test_resolver",
-        lua.create_function(move |_lua, zones: Vec<String>| {
-            let config = TestResolverConfig { zones };
+        lua.create_function(move |lua, config: mlua::Value| {
+            let config = lua
+                .from_value::<TestResolverConfig>(config)
+                .map_err(any_err)?;
             let resolver = config.make_resolver().map_err(any_err)?;
             dns_resolver::reconfigure_resolver(resolver);
             Ok(())

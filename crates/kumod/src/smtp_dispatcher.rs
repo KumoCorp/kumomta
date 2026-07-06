@@ -11,10 +11,14 @@ use async_trait::async_trait;
 use bounce_classify::{BounceClass, PreDefinedBounceClass};
 use config::{load_config, CallbackSignature};
 use data_loader::KeySource;
-use dns_resolver::{has_colon_port, resolve_a_or_aaaa, IpLookupStrategy, ResolvedMxAddresses};
+use dns_resolver::{
+    has_colon_port, resolve_a_or_aaaa, DaneStatus, IpLookupStrategy, ResolvedMxAddresses,
+    SecureCnameStatus,
+};
 use kumo_address::socket::SocketAddress;
 use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls};
 use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
+use kumo_prometheus::declare_metric;
 use kumo_server_lifecycle::{ShutdownSubcription, ShuttingDownError};
 use kumo_server_runtime::spawn;
 use message::message::QueueNameComponents;
@@ -43,10 +47,80 @@ lruttl::declare_cache! {
 static CLIENT_CERT: LruCacheWithTtl<KeySource, Result<Option<Arc<Box<[u8]>>>, String>>::new("smtp_dispatcher_client_certificate", 1024);
 }
 
+declare_metric! {
+/// Number of DANE policy decisions made on the SMTP delivery path, labelled by
+/// `result`.
+///
+/// {{since('dev')}}
+///
+/// The `result` label is one of:
+///
+///   * `ok`: usable DANE-TA(2)/DANE-EE(3) TLSA records were found; the peer
+///     certificate is checked against them.
+///   * `unusable`: TLSA records were published but none are usable; STARTTLS is
+///     required but the peer certificate is not checked.
+///   * `not_applicable`: the chain to the MX host was DNSSEC-validated but there
+///     are no TLSA records (securely absent), so DANE does not apply.
+///   * `insecure_chain`: DANE is enabled but the chain to the MX host was not
+///     DNSSEC-validated, so DANE does not apply. A persistently high value here
+///     with none of the other results can indicate that the resolver is not
+///     performing DNSSEC validation.
+///   * `tempfail`: the TLSA lookup could not be securely resolved (SERVFAIL,
+///     timeout, or bogus); delivery is deferred.
+///
+/// These are counters; reason about them as rates.
+///
+/// **Confirming DANE is working:** with `enable_dane = true`, a healthy
+/// deployment shows a steady stream of `not_applicable` (most DNSSEC-signed
+/// domains do not publish TLSA records) plus some `ok` for the destinations
+/// that do. The single most useful health check is: if you only ever see
+/// `insecure_chain` and never `ok` or `not_applicable`, your
+/// resolver is almost certainly not performing DNSSEC validation, so DANE is
+/// silently doing nothing — verify that you configured a validating resolver.
+/// For an ad-hoc check that does not require standing up a sink or large-scale
+/// test, <https://havedane.net> publishes known-good TLSA records: send a test
+/// message to an address there and confirm that `ok` increments.
+///
+/// **What to alert on:**
+///
+///   * A sustained or rising rate of `tempfail` is the highest-signal problem:
+///     each one is a *deferred delivery* because the TLSA lookup could not be
+///     securely resolved. This usually points at resolver or upstream-DNS
+///     trouble (SERVFAIL, timeouts, bogus answers), and only rarely at an
+///     active downgrade attempt; either way, mail is being delayed, so it is
+///     worth paging on.
+///   * `ok` pinned at zero while `insecure_chain` is high (with
+///     `enable_dane = true`) indicates a non-validating resolver, i.e. DANE is
+///     not engaging at all.
+///   * `unusable` is informational: a remote operator published TLSA records
+///     that are not usable for SMTP DANE (for example, only PKIX usages). A low
+///     background level is normal and reflects the remote side, not your
+///     infrastructure.
+///   * `not_applicable` and `insecure_chain` are expected in normal operation
+///     for the large fraction of destinations that do not publish usable TLSA
+///     records or are not DNSSEC-signed; do not alert on these in isolation.
+static DANE_RESULT: IntCounterVec(
+        "dane_result_count",
+        &["result"]);
+}
+
+fn record_dane_result(result: &str) {
+    if let Ok(counter) = DANE_RESULT.get_metric_with_label_values(&[result]) {
+        counter.inc();
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
 pub struct SmtpProtocol {
     #[serde(default)]
     pub mx_list: Vec<MxListEntry>,
+
+    /// Treat the hosts in `mx_list` as a trusted (DNSSEC-secure) MX selection
+    /// for the purposes of DANE downgrade resistance. Leave this false (the
+    /// default) when `mx_list` is derived from an untracked DNS lookup;
+    /// otherwise a spoofed lookup could let an attacker-chosen host pass DANE.
+    #[serde(default)]
+    pub treat_mx_list_as_secure: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
@@ -119,6 +193,7 @@ pub struct SmtpDispatcher {
     site_has_broken_tls: bool,
     terminated_ok: bool,
     attempted_message_send: bool,
+    treat_mx_list_as_secure: bool,
     recips_last_txn: HashMap<(SpoolId, ForwardPath), u8>,
 }
 
@@ -281,6 +356,7 @@ impl SmtpDispatcher {
             site_has_broken_tls: false,
             terminated_ok: false,
             attempted_message_send: false,
+            treat_mx_list_as_secure: proto_config.treat_mx_list_as_secure,
             recips_last_txn: HashMap::new(),
         }))
     }
@@ -559,6 +635,11 @@ impl SmtpDispatcher {
 
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
+        // Set when DANE published TLSA records that turned out to be unusable:
+        // STARTTLS is then mandatory (the host committed to TLS) even though we
+        // cannot authenticate it, so MTA-STS may add authentication but must not
+        // relax the requirement back to opportunistic.
+        let mut dane_requires_starttls = false;
 
         let mut certificate_from_pem = None;
         let mut private_key_from_pem = None;
@@ -577,33 +658,119 @@ impl SmtpDispatcher {
         let rustls_cipher_suites = path_config.rustls_cipher_suites.clone();
 
         if path_config.enable_dane {
-            if let Some(mx) = &dispatcher.mx {
-                match dns_resolver::resolve_dane(&mx.domain_name, port).await {
-                    Ok(tlsa) => {
-                        dane_tlsa = tlsa;
+            // RFC 7672 sections 2.1/2.2: DANE only applies when the chain to
+            // the MX host was securely resolved. The host selection is trusted
+            // when it came from a DNSSEC-validated MX RRset, or when it is a
+            // locally-configured mx_list that the operator marked trusted via
+            // treat_mx_list_as_secure. In either case DANE additionally requires
+            // the host's address records to have been securely (DNSSEC)
+            // resolved; the TLSA records are queried against the MX host
+            // (RFC 7672 section 3.2.2), not the envelope/routing domain.
+            let mx_selection_secure = match &dispatcher.mx {
+                Some(mx) => mx.is_secure,
+                // No DNS MX RRset: a locally-configured mx_list, trusted only
+                // when the operator opted in via treat_mx_list_as_secure.
+                None => self.treat_mx_list_as_secure,
+            };
+            let dane_eligible = if mx_selection_secure && address.is_secure {
+                true
+            } else if mx_selection_secure {
+                // The MX selection was secure but the MX host's address chain
+                // was not. Per RFC 7672 section 2.2.2 the host is still
+                // DANE-eligible if it is a securely published CNAME alias whose
+                // target merely lands in an unsigned zone; the securely
+                // published TLSA RRset, not the address records, authenticates
+                // the peer. An explicit CNAME lookup tells us whether that is
+                // the case.
+                match dns_resolver::resolve_secure_cname(&address.name).await? {
+                    SecureCnameStatus::SecureAlias => {
                         self.tracer.diagnostic(Level::INFO, || {
-                            format!("DANE records for {} are: {dane_tlsa:?}", mx.domain_name)
+                            format!(
+                                "{} resolves via a secure CNAME into an insecure \
+                                 zone; DANE remains eligible at the original name \
+                                 (RFC 7672 section 2.2.2)",
+                                address.name
+                            )
                         });
-                        if !dane_tlsa.is_empty() {
-                            enable_tls = Tls::Required;
-                            // Do not use MTA-STS when there are DANE results
-                            mta_sts_eligible = false;
-                        }
+                        true
                     }
-                    Err(err) => {
-                        // Do not use MTA-STS when DANE results have been tampered
-                        mta_sts_eligible = false;
-                        self.tracer.diagnostic(Level::INFO, || {
-                            format!("DANE resolve error for {}: {err:#}", mx.domain_name)
-                        });
-                        tracing::error!("DANE result for {}: {err:#}", mx.domain_name);
-                        // TODO: should we prevent continuing in the clear here? probably
+                    SecureCnameStatus::NotSecureAlias => false,
+                    SecureCnameStatus::TempFail(reason) => {
+                        record_dane_result("tempfail");
+                        // Downgrade resistance: when the CNAME status cannot be
+                        // securely determined we must not continue without
+                        // authentication. Defer instead.
+                        let message = format!(
+                            "DANE CNAME lookup for {} could not be securely \
+                                 resolved: {reason}",
+                            address.name
+                        );
+                        self.tracer.diagnostic(Level::INFO, || message.clone());
+                        anyhow::bail!("{message}");
                     }
                 }
             } else {
+                false
+            };
+
+            if dane_eligible {
+                match dns_resolver::resolve_dane(&address.name, port).await? {
+                    DaneStatus::Records(tlsa) => {
+                        record_dane_result("ok");
+                        dane_tlsa = tlsa;
+                        self.tracer.diagnostic(Level::INFO, || {
+                            format!("DANE records for {} are: {dane_tlsa:?}", address.name)
+                        });
+                        enable_tls = Tls::Required;
+                        // Do not use MTA-STS when we have usable DANE records
+                        mta_sts_eligible = false;
+                    }
+                    DaneStatus::Unusable => {
+                        record_dane_result("unusable");
+                        // RFC 7672 section 4.1: TLSA records are published
+                        // but none are usable; STARTTLS is required but we
+                        // cannot authenticate the peer. The domain has no
+                        // usable DANE policy, so MTA-STS may still apply as
+                        // an authentication fallback (but must not relax the
+                        // mandatory STARTTLS).
+                        self.tracer.diagnostic(Level::INFO, || {
+                            format!(
+                                "DANE TLSA records for {} exist but none are usable; \
+                                     requiring unauthenticated STARTTLS",
+                                address.name
+                            )
+                        });
+                        enable_tls = Tls::RequiredInsecure;
+                        dane_requires_starttls = true;
+                    }
+                    DaneStatus::TempFail(reason) => {
+                        record_dane_result("tempfail");
+                        // Downgrade resistance: when the TLSA status cannot
+                        // be securely determined we must not continue
+                        // without authentication. Defer instead.
+                        let message = format!(
+                            "DANE TLSA lookup for {} could not be securely \
+                                 resolved: {reason}",
+                            address.name
+                        );
+                        self.tracer.diagnostic(Level::INFO, || message.clone());
+                        anyhow::bail!("{message}");
+                    }
+                    DaneStatus::NotApplicable => {
+                        record_dane_result("not_applicable");
+                        self.tracer.diagnostic(Level::INFO, || {
+                            format!("{} is not DANE-eligible", address.name)
+                        });
+                    }
+                }
+            } else {
+                record_dane_result("insecure_chain");
                 self.tracer.diagnostic(Level::INFO, || {
                     format!(
-                        "DANE is enabled for this path, but it is not using MX records from DNS"
+                        "DANE is enabled but the chain to {} is not fully \
+                             DNSSEC-secure (mx_selection_secure={mx_selection_secure}, \
+                             address_secure={}); not using DANE",
+                        address.name, address.is_secure
                     )
                 });
             }
@@ -636,7 +803,11 @@ impl SmtpDispatcher {
                                 }
                             }
                             PolicyMode::Testing => {
-                                enable_tls = Tls::OpportunisticInsecure;
+                                // Don't relax a mandatory STARTTLS established by
+                                // unusable DANE TLSA records.
+                                if !dane_requires_starttls {
+                                    enable_tls = Tls::OpportunisticInsecure;
+                                }
                             }
                             PolicyMode::None => {}
                         }
@@ -854,10 +1025,27 @@ impl SmtpDispatcher {
         };
 
         if let Some(username) = &path_config.smtp_auth_plain_username {
-            if !tls_enabled && !path_config.allow_smtp_auth_plain_without_tls {
-                anyhow::bail!(
-                    "TLS is not enabled and AUTH PLAIN is required. Skipping ({address:?}:{port})"
-                );
+            if !tls_enabled {
+                if !path_config.allow_smtp_auth_plain_without_tls {
+                    anyhow::bail!(
+                        "TLS is not enabled and AUTH PLAIN is required. Skipping ({address:?}:{port})"
+                    );
+                }
+            } else {
+                // The session is encrypted; refuse to send credentials unless
+                // the peer certificate was validated, otherwise an active
+                // attacker could capture them.
+                let validated = self
+                    .tls_info
+                    .as_ref()
+                    .map(|info| info.authenticated)
+                    .unwrap_or(false);
+                if !validated && !path_config.allow_smtp_auth_plain_without_valid_certificate {
+                    anyhow::bail!(
+                        "TLS peer certificate was not validated and AUTH PLAIN \
+                         requires a valid certificate. Skipping ({address:?}:{port})"
+                    );
+                }
             }
 
             let password = if let Some(pw) = &path_config.smtp_auth_plain_password {
