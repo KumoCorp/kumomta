@@ -13,19 +13,21 @@ use crate::types::results::{AuthResults, DmarcResult, PolicyEvaluated, Results, 
 pub use crate::types::results::{Disposition, DispositionWithContext};
 use bstr::BString;
 use chrono::{DateTime, Utc};
+use config::{declare_event, load_config};
 use dns_resolver::Resolver;
 use mailparsing::AuthenticationResult;
 use parking_lot::FairMutex as Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::IpAddr;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc::error::SendError;
-use tokio::sync::mpsc::{self, Receiver};
+use tokio::sync::mpsc::{self, Receiver, Sender};
 use uuid::Uuid;
 
 mod types;
@@ -35,12 +37,61 @@ mod tests;
 
 const DMARC_REPORT_LOG_FILEPATH: &'static str = "/var/log/kumomta/dmarc.log";
 
-static ERROR_STREAM: LazyLock<Mutex<Option<mpsc::Sender<ErrorRecord>>>> =
+declare_event! {
+    static DMARC_REPORT_GENERATED: Single("dmarc_report_generated",
+        report_content: String,
+        report_email: String) -> ();
+}
+
+static RECORD_STREAM: LazyLock<Mutex<Option<mpsc::Sender<ErrorRecord>>>> =
     LazyLock::new(|| Mutex::new(None));
 
-pub(crate) async fn send_error_message(record: ErrorRecord) -> Result<(), SendError<ErrorRecord>> {
+const DEFAULT_REPORT_WINDOW_SIZE: Duration = Duration::new(60 * 60, 0);
+static REPORTER_CONFIG: LazyLock<Mutex<ReporterConfig>> = LazyLock::new(|| Default::default());
+
+#[derive(Default)]
+struct ReporterConfig {
+    /// How long between sending reports.  You can pick a better name!
+    window_size: Duration,
+    /// Where to put the records on disk.  Default `/var/log/kumomta/dmarc-reports`
+    log_dir: PathBuf,
+}
+
+fn get_record_stream() -> Option<Sender<ErrorRecord>> {
+    RECORD_STREAM.lock().clone()
+}
+
+async fn send_generated_report(report_content: String, report_email: String) -> anyhow::Result<()> {
+    let mut config = load_config().await?;
+
+    config
+        .async_call_callback(&DMARC_REPORT_GENERATED, (report_content, report_email))
+        .await
+}
+
+pub fn startup_dmarc_reporter() {
+    tokio::spawn(async move {
+        // Do the initial flush of all pre-existing records that need to be reported from the previous instance
+        match send_aggregated_reports().await {
+            Err(_err) => {
+                // todo: do something with this error
+            }
+            _ => {}
+        }
+
+        let (sender, receiver) = mpsc::channel::<ErrorRecord>(100);
+
+        dmarc_reporter_loop(receiver).await;
+
+        *RECORD_STREAM.lock() = Some(sender);
+    });
+}
+
+pub(crate) async fn capture_error_record(
+    record: ErrorRecord,
+) -> Result<(), SendError<ErrorRecord>> {
     // Take a copy of the sending stream for ourselves so we can safely send on it
-    let stream = ERROR_STREAM.lock().clone();
+    let stream = get_record_stream();
     if let Some(stream) = stream {
         stream.send(record).await
     } else {
@@ -48,30 +99,78 @@ pub(crate) async fn send_error_message(record: ErrorRecord) -> Result<(), SendEr
     }
 }
 
-pub fn startup_error_reporter(reporting_callback: fn(String, String)) {
-    let (sender, receiver) = mpsc::channel::<ErrorRecord>(100);
+pub(crate) async fn send_aggregated_reports() -> anyhow::Result<()> {
+    let email_reports = aggregate_errors().await;
 
-    tokio::spawn(async move {
-        error_reporter_loop(receiver, reporting_callback).await;
-    });
+    if let Ok(email_reports) = email_reports {
+        for (email, report) in email_reports {
+            if let Ok(result) = instant_xml::to_string(&report) {
+                send_generated_report(result, email).await?;
+            }
+        }
+    } else {
+        // todo: we need a way to warn the user the report could not be processed
+    }
 
-    *ERROR_STREAM.lock() = Some(sender);
+    Ok(())
 }
 
-async fn error_reporter_loop<'a>(
-    mut receiver: Receiver<ErrorRecord>,
-    reporting_callback: fn(String, String),
-) {
-    let mut timer = tokio::time::interval(Duration::from_secs(60 * 60));
+fn get_current_log_filename() -> String {
+    let secs_since_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH);
+
+    match secs_since_epoch {
+        Ok(duration) => {
+            let secs = duration.as_secs();
+            let secs = secs - secs % (60 * 60);
+
+            format!("{}.{}", DMARC_REPORT_LOG_FILEPATH, secs)
+        }
+        _ => DMARC_REPORT_LOG_FILEPATH.into(),
+    }
+}
+
+async fn dmarc_reporter_loop<'a>(mut receiver: Receiver<ErrorRecord>) {
+    // Start initial timeout as the remaining time before the end of the current interval
+
+    let secs_since_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH);
+
+    let window_in_seconds = DEFAULT_REPORT_WINDOW_SIZE.as_secs();
+
+    let mut remaining_time = match secs_since_epoch {
+        Ok(duration) => {
+            let secs = duration.as_secs();
+
+            Duration::from_secs(secs % window_in_seconds)
+        }
+        _ => DEFAULT_REPORT_WINDOW_SIZE,
+    };
+
     loop {
-        tokio::select! {
-            r = receiver.recv() => {
+        match tokio::time::timeout(remaining_time, receiver.recv()).await {
+            Ok(r) => {
                 match r {
                     Some(error_record) => {
-                        // SJT: do we want this to report out if we can't serialise for the report?
-                        if let Ok(result) = serde_json::to_string(&error_record) {
-                            if let Ok(mut f) = File::options().append(true).open(DMARC_REPORT_LOG_FILEPATH) {
-                                let _ = writeln!(f, "{result}");
+                        let mut incoming_batch = vec![error_record];
+
+                        while !receiver.is_empty() {
+                            match receiver.recv().await {
+                                Some(next_record) => {
+                                    incoming_batch.push(next_record);
+                                }
+                                _ => {
+                                    break;
+                                }
+                            }
+                        }
+
+                        let current_log = get_current_log_filename();
+
+                        if let Ok(mut f) = File::options().append(true).open(current_log) {
+                            for error_record in incoming_batch {
+                                // TODO how do we want this to report out if we can't serialise for the report?
+                                if let Ok(result) = serde_json::to_string(&error_record) {
+                                    let _ = writeln!(f, "{result}");
+                                }
                             }
                         }
                     }
@@ -80,19 +179,19 @@ async fn error_reporter_loop<'a>(
                     }
                 }
             }
-            _ = timer.tick() => {
-                let email_reports = aggregate_errors().await;
+            Err(_) => {
+                // Timeout reached
+                // todo: handle when reports fail to send
+                let _ = send_aggregated_reports().await;
 
-                if let Ok(email_reports) = email_reports {
-                    for (email, report) in email_reports {
-                        if let Ok(result) = instant_xml::to_string(&report) {
-                            reporting_callback(result, email);
-                        }
+                remaining_time = match secs_since_epoch {
+                    Ok(duration) => {
+                        let secs = duration.as_secs();
+
+                        Duration::from_secs(secs % window_in_seconds)
                     }
-                } else {
-                    // todo: we need a way to warn the user the report could not be processed
+                    _ => DEFAULT_REPORT_WINDOW_SIZE,
                 }
-
             }
         }
     }
@@ -100,22 +199,47 @@ async fn error_reporter_loop<'a>(
 
 pub async fn aggregate_errors() -> anyhow::Result<HashMap<String, Feedback>> {
     let mut input_records = vec![];
-    let file = File::open(DMARC_REPORT_LOG_FILEPATH)?;
-    let lines = BufReader::new(file).lines();
 
-    for line in lines.map_while(Result::ok) {
-        let result: anyhow::Result<ErrorRecord> = serde_json::from_str::<ErrorRecord>(&line)
-            .map_err(|error| {
-                anyhow::Error::new(error).context(format!(
-                    "Failed to decode a line from the DMARC report file \
-           {DMARC_REPORT_LOG_FILEPATH}. \
+    let current_log = get_current_log_filename();
+
+    let file_blob = format!("{}*", DMARC_REPORT_LOG_FILEPATH);
+    let mut matching_historical_logs = vec![];
+
+    if let Ok(paths) = glob::glob(&file_blob) {
+        for file in paths {
+            if let Ok(file) = file {
+                if file != current_log {
+                    matching_historical_logs.push(file);
+                }
+            }
+        }
+    }
+
+    for matching_historical_log in matching_historical_logs {
+        {
+            let file = File::open(&matching_historical_log)?;
+            let lines = BufReader::new(file).lines();
+
+            for line in lines.map_while(Result::ok) {
+                let result: anyhow::Result<ErrorRecord> =
+                    serde_json::from_str::<ErrorRecord>(&line)
+                        .map_err(|error| {
+                            anyhow::Error::new(error).context(format!(
+                                "Failed to decode a line from the DMARC report file \
+           {}. \
            The line was: {line}. \
-           Is the file corrupt?"
-                ))
-            })
-            .into();
+           Is the file corrupt?",
+                                matching_historical_log.to_string_lossy()
+                            ))
+                        })
+                        .into();
 
-        input_records.push(result?);
+                input_records.push(result?);
+            }
+        }
+
+        // What should we do if this fails to remove?
+        let _ = std::fs::remove_file(matching_historical_log);
     }
 
     let mut errors_grouped_by_email: HashMap<String, BTreeMap<IpAddr, Vec<ErrorRecord>>> =
@@ -450,7 +574,7 @@ impl<'a> DmarcContext<'a> {
                 },
             };
 
-            send_error_message(error_record).await?;
+            capture_error_record(error_record).await?;
         }
 
         Ok(())

@@ -7,9 +7,12 @@ edition = "2021"
 anyhow.workspace = true
 bstr.workspace = true
 chrono = { workspace = true }
+config = { path = "../config" }
 dns-resolver = { path = "../dns-resolver" }
 instant-xml = { workspace = true }
+glob = { workspace = true }
 kumo-spf = { path = "../kumo-spf" }
+linkme.workspace = true
 mailparsing = { path = "../mailparsing" }
 parking_lot = { workspace = true }
 psl-utils = { workspace = true }
