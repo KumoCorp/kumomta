@@ -173,6 +173,11 @@
 
 ## Fixes
 
+ * An SMTP command line containing bytes that are not valid UTF-8 is now
+   rejected with a `501` syntax error and the session continues, rather
+   than aborting the connection with a `421 technical difficulties`
+   response. #550
+
  * [DANE](../reference/kumo/make_egress_path/enable_dane.md) (RFC 7672)
    support was too permissive and is now downgrade resistant. #543
 

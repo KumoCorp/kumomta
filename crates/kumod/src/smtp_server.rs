@@ -1422,7 +1422,10 @@ impl SmtpServerSession {
 
                 self.read_buffer.drain(0..i + 2);
                 tracing::trace!("{line:?}");
-                return Ok(ReadLine::Line(line?));
+                return Ok(match line {
+                    Ok(line) => ReadLine::Line(line),
+                    Err(_) => ReadLine::InvalidUtf8,
+                });
             }
             tracing::trace!("read_buffer len is {}", self.read_buffer.len());
             if self.read_buffer.len() > override_limit.unwrap_or(self.params.line_length_hard_limit)
@@ -1688,6 +1691,16 @@ impl SmtpServerSession {
             let line = match self.read_line(None).await? {
                 ReadLine::Disconnected => return Ok(()),
                 ReadLine::Line(line) => line,
+                ReadLine::InvalidUtf8 => {
+                    self.write_response(
+                        501,
+                        "5.5.2 Invalid UTF-8 in command",
+                        None,
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
+                    continue;
+                }
                 ReadLine::TimedOut => {
                     self.write_response(
                         421,
@@ -2565,6 +2578,16 @@ impl SmtpServerSession {
             match self.read_line(Some(16384)).await? {
                 ReadLine::Disconnected => return Ok(CommandDisposition::Terminate),
                 ReadLine::Line(line) => line,
+                ReadLine::InvalidUtf8 => {
+                    self.write_response(
+                        501,
+                        "5.5.2 Invalid UTF-8 in authentication exchange",
+                        Some(line),
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
+                    return Ok(CommandDisposition::Continue);
+                }
                 ReadLine::TimedOut => {
                     self.write_response(
                         421,
@@ -3426,6 +3449,7 @@ const MAX_LINE_LEN: usize = 998;
 #[derive(PartialEq)]
 enum ReadLine {
     Line(String),
+    InvalidUtf8,
     TooLong,
     ShuttingDown,
     TimedOut,
