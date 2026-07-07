@@ -6,9 +6,9 @@ following order:
 1. The values for the `default` domain block are taken as the base
 2. Any matching `provider` blocks are then merged in
 3. Any matching `provider` + `source` blocks for the current source are merged in
-4. Any matching *site name* blocks are merged in. These are domain blocks that have the default (implied) or explicitly configured `mx_rollup = true` option set in them.
+4. Any matching _site name_ blocks are merged in. These are domain blocks that have the default (implied) or explicitly configured `mx_rollup = true` option set in them.
 5. Any matching domain blocks are merged in. These are domain blocks that have `mx_rollup=false` set in them.
-6. Any matching *site name* + `source` blocks are merged.
+6. Any matching _site name_ + `source` blocks are merged.
 7. Any matching domain + `source` blocks are merged.
 
 Within any of these steps above, the options are merged in the order that they

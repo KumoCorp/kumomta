@@ -80,7 +80,7 @@ In addition, it should be noted that the MX record for your domain will still
 be pointed at the KumoMTA instance, which means that in order to avoid a mail
 loop you will need to configure routing for the domain to specify where the
 message should be relayed to from the KumoMTA instance, by overriding the
-destination queue for the message in the *smtp_server_message_received* event:
+destination queue for the message in the `smtp_server_message_received` event:
 
 ```lua
 kumo.on('smtp_server_message_received', function(msg)

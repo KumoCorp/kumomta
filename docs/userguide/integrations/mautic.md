@@ -44,7 +44,7 @@ If you already have Mautic version 4 or earlier, the next step may be as easy
 as completing the configuration
 [here](https://docs.mautic.org/en/5.x/getting_started/how_to_install_mautic.html#configuring-email-settings)
 
-If you have Mautic version 5 or newer, then the above is *likely* still true,
+If you have Mautic version 5 or newer, then the above is _likely_ still true,
 but you may need to configure settings to specify the DSN as described
 [here](https://docs.mautic.org/en/5.x/configuration/settings.html#smtp-transport) or use this [community contributed webhook callback](https://github.com/jos0405/mautickumomtacallback). 
 

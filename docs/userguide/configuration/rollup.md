@@ -1,7 +1,7 @@
 # Configuring Queue Rollup
 
 By default, KumoMTA will perform automatic "rollup" of the ready queue based on
-the *site name* that it derives from the MX records for the destination domain,
+the _site name_ that it derives from the MX records for the destination domain,
 which means that your shaping rules will automatically apply across sites that
 share the same MX hosts with no additional configuration required.
 
@@ -56,7 +56,7 @@ destination site.
 
 This technique analyzes the host names returned from the MX record
 of the destination domain and compares them against a mapping table
-of *hostname suffix* to *routing domain*.  If every hostname in
+of _hostname suffix_ to _routing domain_.  If every hostname in
 the set of MX records matches a suffix in the mapping table, then
 it is considered to be an overall match and the `routing_domain`
 meta value is set to the corresponding domain.
@@ -90,7 +90,7 @@ be applied.
 
 ## IP Based Rollup
 
-!!! info
+!!! note
     This technique has a number of caveats and is not generally recommended
     unless you have no other choice.
 
@@ -143,7 +143,7 @@ $ dig +short a foo-com.mail.protection.outlook.com.
 
 what will happen is:
 
-* The message will be queued to a *scheduled queue* named `foo.com!outlook.ip_rollup`
+* The message will be queued to a _scheduled queue_ named `foo.com!outlook.ip_rollup`
 * The ready queue that it will use to egress will be named `mx_list:[104.47.24.36],[104.47.25.36]`.
 
 For some other domain, for example, a hypothetical `bar.com` domain whose
@@ -159,7 +159,7 @@ $ dig +short a bar-com.mail.protection.outlook.com.
 
 what will happen is:
 
-* The message will be queued to a *scheduled queue* named `bar.com!outlook.ip_rollup`
+* The message will be queued to a _scheduled queue_ named `bar.com!outlook.ip_rollup`
 * The ready queue that it will use to egress will be named `mx_list:[104.47.24.36],[104.47.25.36]`.
 
 In this scenario, both `foo.com` and `bar.com` will egress through the same

@@ -104,7 +104,7 @@ You can safely run this concurrently with an active `kumod` service; they will
 not conflict with each other.
 
 When run in this mode, the various helpers that you have enabled will perform
-deep *referential integrity* checks, as well as some other extended validations that
+deep _referential integrity_ checks, as well as some other extended validations that
 are not normally performed when the underlying configuration files are refreshed.
 The sorts of checks performed include the following:
 

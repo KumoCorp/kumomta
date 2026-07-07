@@ -98,7 +98,7 @@ other domain whose MX host names all have the suffix `.olc.protection.outlook.co
 will match the `outlook` provider block and have the options defined there applied, including an automation rule, and any Office 365 hosted domain using the new `.mx.microsoft` pattern will have DANE enabled.
 
 The `match` field is an array and can list multiple match candidates. A provider
-block matches if *any* of the `match` elements are matched, as seen in this example:
+block matches if _any_ of the `match` elements are matched, as seen in this example:
 
 {% call toml_data() %}
 [provider."google"]
@@ -128,10 +128,10 @@ this is to avoid pathologically weird situations when someone has a vanity
 domain that blends multiple different providers together.
 
 !!! note
-    The suffix matching is *not* a regex operation, it is purely based on whether the string specified appears at the end of the MX or domain being tested. Do not use any wildcard characters.
+    The suffix matching is _not_ a regex operation, it is purely based on whether the string specified appears at the end of the MX or domain being tested. Do not use any wildcard characters.
 
 !!! warning
-    When a provider is defined, it does ***not*** merge the various `site_name` queues covered by the provider together, which means that the `connection_limit` and `max_message_rate` options will not be enforced across all matching queues, but will be applied separately to each ready queue covered by the provider block.
+    When a provider is defined, it does **_not_** merge the various `site_name` queues covered by the provider together, which means that the `connection_limit` and `max_message_rate` options will not be enforced across all matching queues, but will be applied separately to each ready queue covered by the provider block.
 
 The provider block introduces two new options: `provider_connection_limit` and `provider_max_message_rate`. When the `provider_connection_limit` and `provider_max_message_rate` options are set, the throttles defined will be enforced across all matching site_name ready queues for that provider. This is typically the desired behavior. One example of a scenario where the provider_ options would not be used is Mimecast: each regional MX pattern used by Mimecast is a separate set of servers in that region, but traffic shaping expectations are the same for all regions. To address this we use a provider block without the `provider_` throttles:
 

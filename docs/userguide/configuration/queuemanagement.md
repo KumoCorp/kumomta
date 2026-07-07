@@ -9,11 +9,11 @@ Concepts](./concepts.md) for more information.
 
 ## Using The Queues Helper
 
-To help simplify configuration for those with typical use cases, we have provided the *queue.lua* policy helper.
+To help simplify configuration for those with typical use cases, we have provided the `queue.lua` policy helper.
 
-The *queue.lua* policy helper simplifies configuration of queue management, including identifying and assigning tenant and campaign information as well as message scheduling.
+The `queue.lua` policy helper simplifies configuration of queue management, including identifying and assigning tenant and campaign information as well as message scheduling.
 
-To use the *queue.lua* policy helper, adding the following to your *init.lua* policy:
+To use the `queue.lua` policy helper, adding the following to your `init.lua` policy:
 
 ```lua
 local queue_module = require 'policy-extras.queue'
@@ -220,9 +220,9 @@ max_age = '24 hours'
 max_message_rate = '100/s'
 {% endcall %}
 
-Note that the `max_message_rate` option applies on a per-queue basis even when configured for a less specific scope, where a queue is defined as campaign@tenant:domain. This means that if you set the `max_message_rate` option for a given tenant, it does **not** limit the tenant to a given rate, it limits *every created queue for that tenant* to the specified rate.
+Note that the `max_message_rate` option applies on a per-queue basis even when configured for a less specific scope, where a queue is defined as campaign@tenant:domain. This means that if you set the `max_message_rate` option for a given tenant, it does **not** limit the tenant to a given rate, it limits _every created queue for that tenant_ to the specified rate.
 
-To limit the *collective* set of queues for a given scope use the `overall_max_message_rate` option. This will enforce the limit across all Scheduled queues for the defined scope:
+To limit the _collective_ set of queues for a given scope use the `overall_max_message_rate` option. This will enforce the limit across all Scheduled queues for the defined scope:
 
 {% call toml_data() %}
 [tenant.'mytenant']

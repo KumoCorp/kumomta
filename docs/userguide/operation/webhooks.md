@@ -151,7 +151,7 @@ above.
 When in batch mode, the connection will receive a batch consisting of
 1 or more messages, up to the `batch_size` that you configured. The batch
 can be less than the `batch_size`; the connection will pop off up-to the
-configured number of messages from the *ready queue*. That queue holds
+configured number of messages from the _ready queue_. That queue holds
 only a finite number of messages that are immediately ready for delivery.
 The popping process does not artificially delay to encourage a larger
 batch size. It will grab whatever is immediately ready and send it

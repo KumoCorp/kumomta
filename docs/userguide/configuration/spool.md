@@ -1,7 +1,7 @@
 # Configuring Spooling
 
 KumoMTA uses separate storage areas for metadata and message contents, named
-*meta* and *data* respectively. The spool is defined as part of the init event
+`meta` and `data` respectively. The spool is defined as part of the init event
 within the server's init.lua policy.
 
 KumoMTA supports multiple message spooling options.
@@ -19,7 +19,7 @@ filesystem IO performance, and it is strongly recommended that the spool be
 mounted on separate storage from the logs and the rest of the server OS for
 maximum performance. If SSD drives are not used, 15K RPM disks are
 recommended. When using disk spooling, we recommend using ext4 with the
-*noatime* flag.
+`noatime` flag.
 
 ```txt
 LABEL=/var/spool/kumomta/data /var/spool/kumomta/data ext4 rw,noatime,barrier=0 0 2

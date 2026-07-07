@@ -14,11 +14,11 @@ within its associated pool.  When a scheduled queue is idle for approximately
 10 minutes, it will idle out and the round robin state will be reset for the
 next send.
 
-!!! info
-    The *Weighted Round Robin* implementation in kumomta is considered to be
+!!! note
+    The _Weighted Round Robin_ implementation in kumomta is considered to be
     **probabilistic**, achieving the configured distribution only when the rate
     of sending is sufficiently high (at least 1 message to a given site every
-    few minutes), and is scoped per-*scheduled*-queue. There is no whole-machine
+    few minutes), and is scoped per-_scheduled_-queue. There is no whole-machine
     nor whole-cluster coordination in the round robin implementation as those
     techniques introduce bottlenecks that limit scalability and are unnecessary
     at the kinds of volumes where it is important to implement distribution
@@ -92,7 +92,7 @@ for more information.
     and paste these into your configuration and use them as-is, we strongly
     recommend that you use the sources.lua module instead.**
 
-In KumoMTA, source IPs are described in an *Egress Source.* And Egress Source
+In KumoMTA, source IPs are described in an _Egress Source._ And Egress Source
 represents an object that can be used to send messages and is not attached to a
 particular protocol. While the most common use case is an IP address used for
 SMTP, it could also define a specific outbound port for sending through
@@ -122,7 +122,7 @@ Typically an Egress source is used to assign messages to a specific IP address
 for sending. It is a best practice for each source IP to have a unique hostname
 used during the EHLO command, that matches a PTR record that points to the
 external IP associated with the Egress Source. The IP address is set with
-the *source* address option and the hostname is set using the *ehlo_domain*
+the `source` address option and the hostname is set using the `ehlo_domain`
 option. The IP address used is not required to be unique to a given Egress
 Source:
 

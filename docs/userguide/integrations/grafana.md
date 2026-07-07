@@ -4,7 +4,7 @@
 
 [Grafana](https://grafana.com/) is a popular tool for visualizing data and generating alerts.
 
-Grafana does not directly integrate with KumoMTA, but is a recommended visualization tool that can consume the feed from Prometheus, which *does* directly integrate with KumomTA.
+Grafana does not directly integrate with KumoMTA, but is a recommended visualization tool that can consume the feed from Prometheus, which _does_ directly integrate with KumomTA.
 
 ## Instructions
 

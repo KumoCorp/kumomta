@@ -99,7 +99,7 @@ This is particularly useful when you have multiple keys stored in the same vault
 
 ## Ways to Use Vault With KumoMTA
 
-Vault has a number of advantages over statically storing secrets. Aside from the obvious security benefits of not exposing your passwords and security keys in your code, it also allows you to *physically* separate the information. One key use case is storing the vault server in a private network while the KumoMTA instances are deployed around the world or in public colocation or cloud services. If a remote server is compromised, the local vault server can be secured to prevent data leakage.
+Vault has a number of advantages over statically storing secrets. Aside from the obvious security benefits of not exposing your passwords and security keys in your code, it also allows you to _physically_ separate the information. One key use case is storing the vault server in a private network while the KumoMTA instances are deployed around the world or in public colocation or cloud services. If a remote server is compromised, the local vault server can be secured to prevent data leakage.
 
 Another advantage is being able to dynamically load keys on demand. This can be very helpful with DKIM key rotation. With the keys stored within the vault, they can be loaded as-needed when messages pass through the server that need a particular key:
 

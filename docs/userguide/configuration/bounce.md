@@ -51,7 +51,7 @@ end)
 ```
 
 Once configured, the Bounce Classifier will populate the
-*bounce_classification* field in the logs with the applicable category.
+`bounce_classification` field in the logs with the applicable category.
 
 An example of classification rules:
 

@@ -8,7 +8,7 @@ KumoMTA makes heavy use of files, RAM, CPU and network resources. Setting these 
 
 The following tuning parameters should be reviewed to ensure they are properly tuned for your workload.
 
-These parameters should be added or updated in */etc/sysctl.conf*:
+These parameters should be added or updated in `/etc/sysctl.conf`:
 
 * vm.max_map_count
 * net.core.rmem_default

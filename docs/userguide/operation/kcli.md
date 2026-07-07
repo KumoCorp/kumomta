@@ -99,7 +99,7 @@ If omitted, any tenant will match.
 
 !!! danger
     If you specify none of `domain`, `campaign` or `tenant`, then
-    *ALL* queues will be bounced.
+    _ALL_ queues will be bounced.
 
     With great power, comes great responsibility!
 
