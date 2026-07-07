@@ -4,7 +4,7 @@ Lua is Portuguese for moon.  It is also the name of the scripting language we us
 
 Understanding Lua is not required to deploy and use KumoMTA, but it will help you leverage the full power of this incredibly flexible system. Lua is easy to learn, easy to read, and easy to implement.
 
-You can find many resources at the [official Lua [site](https://www.lua.org/home.html) including online documentation and physical reference books.
+You can find many resources at the [official Lua site](https://www.lua.org/home.html), including online documentation and physical reference books.
 
 Here is a simplified primer to help you read the KumoMTA script/configs:
 

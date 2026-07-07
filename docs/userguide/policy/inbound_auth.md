@@ -1,6 +1,6 @@
 # Checking Inbound SMTP Authentication
 
-When hosting relay users it is important to protect your infrastructure from malicious senders, often without the ability to whitelist the IP addresses of legitimate users. In such environments, it is critical to setup SMTP Authentication to validate injecting hosts before relaying their mail.
+When hosting relay users it is important to protect your infrastructure from malicious senders, often without the ability to whitelist the IP addresses of legitimate users. In such environments, it is critical to set up SMTP Authentication to validate injecting hosts before relaying their mail.
 
 !!! note
     Authentication in KumoMTA can only occur on a TLS protected connection after `STARTTLS` has successfully been processed. This is because AUTH PLAIN credentials can be decoded and should not be sent over an open connection.

@@ -49,7 +49,7 @@ While the default max_deliveries_per_connection is 100, it is overridden for yah
 
 There are a number of mailbox providers that host multiple domains, but which do not provide consistent MX results across all hosted domains.
 
-For those situations is is desirable to adopt pattern matching against the hostnames used by the provider's MX records,
+For those situations it is desirable to adopt pattern matching against the hostnames used by the provider's MX records,
 and employ connection limits and message rate throttles for all destination hosts that match.
 
 You can configure this using a `provider` block in your shaping file(s).
@@ -66,7 +66,7 @@ $ dig +short mx outlook.com
 We can see that the individual MX hostnames have the same
 `.olc.protection.outlook.com` suffix, so we can use that to identify the consumer MXes.
 
-In addition, Microsoft has recently announced a change to the MX hostnames used by Office 365, where existing MX records will end in `.mail.protection.outlook.com` but any user who wishes to active DANE to enhance security is to use an MX hostname that ends in `.mx.microsoft`.
+In addition, Microsoft has recently announced a change to the MX hostnames used by Office 365, where existing MX records will end in `.mail.protection.outlook.com` but any user who wishes to activate DANE to enhance security is to use an MX hostname that ends in `.mx.microsoft`.
 
 To address these three scenarios, we can use the following provider blocks:
 
@@ -145,4 +145,4 @@ connection_limit = 10
 In this case we can define traffic shaping rules that apply to Mimecast globally, but which are still enforced by each region's ready queue without limiting worldwide traffic.
 
 !!! note
-    Both the `provider_` and regular throttles can be set, where `connection_limit` would be for the individual site names, and `provider_connection_limit` would cap the overall connection count. The same would apply for `max_message_rate` and `provider_max_message_rate`. Combining the `provider_` and regular throttles should be done with care, as it easy to over-constrain the server if the settings are not aligned correctly.
+    Both the `provider_` and regular throttles can be set, where `connection_limit` would be for the individual site names, and `provider_connection_limit` would cap the overall connection count. The same would apply for `max_message_rate` and `provider_max_message_rate`. Combining the `provider_` and regular throttles should be done with care, as it is easy to over-constrain the server if the settings are not aligned correctly.

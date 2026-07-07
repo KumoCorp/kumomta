@@ -24,6 +24,6 @@ For example: if a sender wanted to limit connections to 10 per domain, and Googl
 Messages in the Ready Queue are grouped into separate queues based on the combination of `egress_source` and `site_name`. The `routing_domain` is provided for convenience when working out what parameters to use.
 
 !!! note
-    It is important to understand that while KumoMTA will build queues based on a `site_name`, it is not expected that the end user will configure traffic shaping using a `site_name`. Instead, configuration is done using a domain identifier that belongs to a given `site_name` and compare the generated `site_name` to it, as is done in the `shaping.lua` helper.
+    It is important to understand that while KumoMTA will build queues based on a `site_name`, it is not expected that the end user will configure traffic shaping using a `site_name`. Instead, configuration is done using a domain identifier that belongs to a given `site_name`, and the generated `site_name` is compared to it, as is done in the `shaping.lua` helper.
 
-    For example, when using the helper to configure traffic shaping for the Yahoo! domains, a user would configure traffic shaping for `yahoo.com`, knowing that all domains that have a matching `site_name` would also have the same traffic shaping configuration applies.
+    For example, when using the helper to configure traffic shaping for the Yahoo! domains, a user would configure traffic shaping for `yahoo.com`, knowing that all domains that have a matching `site_name` would also have the same traffic shaping configuration applied.

@@ -3,7 +3,7 @@
 By default, all traffic injected to the KumoMTA server will be delivered using
 the default interface configured on the host server. For smaller installations
 this is acceptable, but best practices recommend separating mail streams into
-their own IPs addresses in order to isolate reputation and enable larger
+their own IP addresses in order to isolate reputation and enable larger
 sending volumes than would be possible on a single IP address.
 
 KumoMTA has the concept of pools of IPs. A given scheduled queue can be
@@ -88,11 +88,11 @@ for more information.
 !!! note
     Most users will be satisfied with using the policy helper shown above.
     This section and the remainder of this page is for more advanced users.
-    **The examples show here are illustrative: if all you intend is to copy
+    **The examples shown here are illustrative: if all you intend is to copy
     and paste these into your configuration and use them as-is, we strongly
     recommend that you use the sources.lua module instead.**
 
-In KumoMTA, source IPs are described in an _Egress Source._ And Egress Source
+In KumoMTA, source IPs are described in an _Egress Source._ An Egress Source
 represents an object that can be used to send messages and is not attached to a
 particular protocol. While the most common use case is an IP address used for
 SMTP, it could also define a specific outbound port for sending through
@@ -162,7 +162,7 @@ end)
 !!! note
     Most users will be satisfied with using the policy helper shown above.
     This section and the remainder of this page is for more advanced users.
-    **The examples show here are illustrative: if all you intend is to copy
+    **The examples shown here are illustrative: if all you intend is to copy
     and paste these into your configuration and use them as-is, we strongly
     recommend that you use the sources.lua module instead.**
 

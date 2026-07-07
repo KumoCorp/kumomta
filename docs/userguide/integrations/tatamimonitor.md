@@ -2,8 +2,8 @@
 
 ## Introduction
 
-[Tatami Monitor](https://tatamimonitor.com/) is an email monitoring and alerting platform that brings real-time insights to your email infrastructure. This integration describes how to us
-e Tatami Monitor with KumoMTA.
+[Tatami Monitor](https://tatamimonitor.com/) is an email monitoring and alerting platform that brings real-time insights to your email infrastructure. This integration describes how to use
+Tatami Monitor with KumoMTA.
 
 ## Instructions
 

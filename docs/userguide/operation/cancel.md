@@ -6,7 +6,7 @@ administratively canceling messages with surgical precision. The [Admin
 Bounce](../../reference/http/kumod/api_admin_bounce_v1_post.md) API can
 target a specific Campaign, Queue, or entire Tenant for cancellation.
 
-You easiest way to invoke this API is via the [kcli
+The easiest way to invoke this API is via the [kcli
 bounce](../../reference/kcli/bounce.md) utility, but you can also use `curl`
 directly.
 

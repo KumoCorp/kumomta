@@ -1,6 +1,6 @@
 # Security Considerations
 
-This page summarizies the key considerations for deploying a secure installation of KumoMTA.
+This page summarizes the key considerations for deploying a secure installation of KumoMTA.
 
 ## Operating System
 

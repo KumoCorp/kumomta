@@ -54,4 +54,4 @@ graph TD
 
   * The **site name** is an identifier string created by merging the combined MX hostnames for a given destination domain. This approach allows the server to queue and throttle based not on the destination domain for a given message, but on the aggregate of all domains that share the same set of MXes.
 
-5) All delivery attempts are logged, and any messages that receive a 4xx tempfail response from the remote host are returned to the Scheduled Queue to await a retry attempt. See the [Configuring Logging](../configuration/logging.md) chapter for more information on logging.
+4) All delivery attempts are logged, and any messages that receive a 4xx tempfail response from the remote host are returned to the Scheduled Queue to await a retry attempt. See the [Configuring Logging](../configuration/logging.md) chapter for more information on logging.

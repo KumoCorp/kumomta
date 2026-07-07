@@ -1,6 +1,6 @@
 # Viewing Logs
 
-An important part of routine opperations is checking logs. KumoMTA compressed
+An important part of routine operations is checking logs. KumoMTA compressed
 logs are found in `/var/log/kumomta/` and are named by date stamp. Logs are
 segmented by a combination of size/time and stored in compressed files named
 after the time that the segment was started. To read these, you need to unpack
@@ -67,7 +67,7 @@ $ zstdcat /var/log/kumomta/20230428-201424_recv
 "feedback_report":null,"meta":{},"headers":{"Subject":"hello"}}
 ```
 
-These JSON formatted logs can be programatically consumed or read manually as
+These JSON formatted logs can be programmatically consumed or read manually as
 shown above for debugging and maintenance.
 
 [Formatting](../configuration/logging.md#customizing-the-log-format)

@@ -35,7 +35,7 @@ See the [make_egress_path](../../reference/kumo/make_egress_path/index.md) secti
 
 Storing credentials in a static policy file is not recommended. KumoMTA supports multiple options for secure key storage, and we highly recommend that all authentication and signing keys be stored in a keysource.
 
-When using a keysource, the value of `smtp_auth_plain_password is any [keysource](../../reference/keysource.md), which allows for specifying the password via a credential manager such as HashiCorp Vault.
+When using a keysource, the value of `smtp_auth_plain_password` is any [keysource](../../reference/keysource.md), which allows for specifying the password via a credential manager such as HashiCorp Vault.
 
 ```lua
 kumo.on(

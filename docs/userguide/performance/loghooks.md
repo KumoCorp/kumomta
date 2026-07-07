@@ -22,13 +22,13 @@ The **key concept** in this flow is that when you enable shipping logs via HTTP/
 
 This means that when planning server capacity you must take into account the events that will be associated with each message and count them toward the capacity goal.
 
-For example: if your target is to relay 1,000,000 messages per hour through a server, and you plan on delivering log data via HTTP as webhooks, and you estimate that on average each message will have three log events (receiption, one transient failure (4xx), and one delivered or permanent failure (5XX)), then your required server throughput is actually 4,000,000 messages per hour. Inversely, if your server is designed to relay 1,000,000 messages per hour it will in fact only be able to relay 250,000 outbound messages and 750,000 log events.
+For example: if your target is to relay 1,000,000 messages per hour through a server, and you plan on delivering log data via HTTP as webhooks, and you estimate that on average each message will have three log events (reception, one transient failure (4xx), and one delivered or permanent failure (5XX)), then your required server throughput is actually 4,000,000 messages per hour. Inversely, if your server is designed to relay 1,000,000 messages per hour it will in fact only be able to relay 250,000 outbound messages and 750,000 log events.
 
 ## Traffic Shaping For Log Queues
 
 KumoMTA's default traffic shaping rules are configured to prevent reputation damage when sending by respecting the expectation of MailBox Providers(MBPs).
 
-While those defaults can help prevent throttling, they are overly restrictive when sending messages to internal HTTP/AMQP/Kafka endpoints, and can result is queue backpressure.
+While those defaults can help prevent throttling, they are overly restrictive when sending messages to internal HTTP/AMQP/Kafka endpoints, and can result in queue backpressure.
 
 To prevent queue buildup, your traffic shaping configuration should explicitly define shaping rules for your webhook queue.
 
@@ -63,7 +63,7 @@ connection_limit = "local:10"
 max_connection_rate = "1000/s"
 # Allow a healthy amount in the ready queue in case things get busy
 max_ready = 10000
-# Limit how long we wait for connections to close at shutdown so we don't delay unneccessarily
+# Limit how long we wait for connections to close at shutdown so we don't delay unnecessarily
 system_shutdown_timeout = "30s"
 ```
 

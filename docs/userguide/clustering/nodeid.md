@@ -1,7 +1,7 @@
 # Node ID
 
 Each KumoMTA (`kumod`) instance can have its own `NodeId`, which is a UUID
-intended identify that specific instance within your own local cluster, help
+intended to identify that specific instance within your own local cluster, help
 with disambiguation during reporting, and also for future configuration
 management/provisioning related functionality.
 

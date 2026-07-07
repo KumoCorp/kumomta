@@ -1,8 +1,7 @@
 # An Example Configuration
 
-A default policy file is not published with KumoMTA to prevent the average
-installation from having an excess of commented-out boilerplate from filling
-production configurations.
+KumoMTA does not ship with a default policy file, because bundled defaults
+tend to end up in production configurations as commented-out boilerplate.
 
 The following serves as an example of a complete base policy for a functional
 installation that addresses common use cases for a typical installation. This

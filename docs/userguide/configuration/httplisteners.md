@@ -2,7 +2,7 @@
 
 An HTTP listener can be defined with a `kumo.start_http_listener` function.  In
 the example below you can see the definition of IP address, Port, and specific
-trusted hosts that are permitted to to use that listener.
+trusted hosts that are permitted to use that listener.
 
 Each listener can have its own trust list, hostname and TLS settings.
 

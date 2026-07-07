@@ -37,11 +37,11 @@ Hey, this is my first email!
 
 If that returns a `250 OK`, then any more complex injection should work as well.
 
-In most campaign systems that connect with third-party MTA's, you will need to
-enter the configuration settings, and find something like "SMTP" or "OutBound
-Email" and set the SMTP Port, Hostname or IP ddress and If you have configured
-[SMTP_Auth](../..//reference/events/smtp_server_auth_plain.md),
-your injection username and password as well.
+Most campaign systems that connect to a third-party MTA have a settings
+section named something like "SMTP" or "Outbound Email". Enter the SMTP port
+and the hostname or IP address there, along with your injection username and
+password if you have configured
+[SMTP_Auth](../..//reference/events/smtp_server_auth_plain.md).
 
 Below is a configuration screen for [Ongage](https://www.ongage.com/)
 

@@ -10,7 +10,7 @@ Common throttles include concurrent connection limits, messages per connection, 
 
 All messages are relayed to external hosts along an **egress path**, which is defined as a combination of a **routing domain**, **egress source**, and a **site name**, triggered via the `get_egress_path_config` event.
 
-In response to the `get_egress_path_config` event, the user calls `kumo.make_egress_path` and provided the desired parameters for the specific combination of source and destination:
+In response to the `get_egress_path_config` event, the user calls `kumo.make_egress_path` and provides the desired parameters for the specific combination of source and destination:
 
 ```lua
 kumo.on('get_egress_path_config', function(domain, source_name, site_name)
@@ -30,7 +30,7 @@ The remainder of this chapter is focused on the use of the `shaping.lua` helper.
 
 ## Traffic Shaping Automation
 
-Many of the largest MailBox Providers (MBPs) operate platforms that provide feedback to senders through their response codes during the SMTP conversation. This feedback will include information related to the traffic shaping patterns in use by the sending including bounces for too many connections, too many messages per connection, sending rate, and sender reputation.
+Many of the largest MailBox Providers (MBPs) operate platforms that provide feedback to senders through their response codes during the SMTP conversation. This feedback will include information related to the traffic shaping patterns in use by the sender, including bounces for too many connections, too many messages per connection, sending rate, and sender reputation.
 
 To ensure optimum throughput and deliverability, KumoMTA features Traffic Shaping Automation (TSA) that monitors responses from remote hosts and adjusts traffic shaping rules on a granular level in realtime.
 

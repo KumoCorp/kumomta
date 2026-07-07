@@ -35,7 +35,7 @@ Follow the install instructions [here](https://docs.mautic.org/en/5.x/getting_st
 
 KumoMTA accepts messages for delivery with SMTP_Auth Plain authentication.
 This is the default for Mautic, but you may need to make specific edits based
-on their Symfony Mailer ingtegration so the DSN looks like
+on their Symfony Mailer integration so the DSN looks like
 `smtp://user:pass@smtp.example.com:port`. See
 [this](https://docs.mautic.org/en/5.x/configuration/settings.html#smtp-transport)
 for more detail.

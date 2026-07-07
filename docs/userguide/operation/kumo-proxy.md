@@ -10,7 +10,7 @@ Ensure that you have configured `sysctl` to allow for enough file handles, ip fo
 
 Usage documentation is at `/opt/kumomta/sbin/proxy-server --help`
 
-## Configuring KumpProxy to survive a restart
+## Configuring KumoProxy to survive a restart
 
 KumoProxy can be configured as a systemd service
 

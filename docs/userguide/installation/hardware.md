@@ -11,7 +11,7 @@ At an absolute minimum, you will need 4Gb RAM and 20Gb Storage.  KumoMTA makes h
 
 ## Network Interfaces
 
-KumoMTA is capable of processing many millions of message per hour, or more relevant to this conversation, many thousands of bytes per second.  Your network interface could be your biggest bottleneck.  Below is a quick calculation:
+KumoMTA is capable of processing many millions of messages per hour, or more relevant to this conversation, many thousands of bytes per second.  Your network interface could be your biggest bottleneck.  Below is a quick calculation:
 
 Assuming the average message is 50kB and you plan to send 1 Million of those per hour, your bandwidth requirement will be:
 
@@ -25,7 +25,7 @@ You can see that a 10Mbps Network interface would fail you quickly.  Any perform
 
 Note that in order for KumoMTA to bind to port 25 for inbound mail, it must be run as a privileged user.
 
-Note also that if you are deploying to any public cloud, outbound port 25 is probably blocked by default. If this node specificially needs to send mail directly on port 25 to the public internet, you should request access to the port from the cloud provider.  Some hints are below.
+Note also that if you are deploying to any public cloud, outbound port 25 is probably blocked by default. If this node specifically needs to send mail directly on port 25 to the public internet, you should request access to the port from the cloud provider.  Some hints are below.
 
 
 |Provider|Resource|
@@ -33,7 +33,4 @@ Note also that if you are deploying to any public cloud, outbound port 25 is pro
 |AWS     |[EC2 port 25 throttle](https://aws.amazon.com/premiumsupport/knowledge-center/ec2-port-25-throttle/)|
 |Azure   |[Troubleshoot Outbound SMTP Connectivity](https://learn.microsoft.com/en-us/azure/virtual-network/troubleshoot-outbound-smtp-connectivity)|
 |GCP     |[Sending Mail](https://cloud.google.com/compute/docs/tutorials/sending-mail)|
-
-
-~
 

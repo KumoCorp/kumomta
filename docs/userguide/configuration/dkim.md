@@ -70,7 +70,7 @@ for DKIM. The most recent rfc indicates that Ed25519 should be used, but be
 aware that Ed25519 DKIM support is currently very limited with most email
 services. RSA keys are also supported and are still more widely accepted.
 As an example, the following openssl commands are used to generate RSA
-public and private keys for the a domain you choose with a selector you
+public and private keys for the domain you choose with a selector you
 choose. The files can be stored in any directory such as `~/kumomta/keys/`,
 but the default is `/opt/kumomta/etc/dkim/`.
 
@@ -107,7 +107,7 @@ KPrbKH5ubT9V9pLKawIDAQAB
 
 Once the public and private keys have been generated, create a DNS text record
 for `<SELECTOR>._domainkey.<DOMAIN>` (IE: `dkim1024._domainkey.example.com`). The
-DNS record contains several DKIM "tag=value" pairs and should be similiar
+DNS record contains several DKIM "tag=value" pairs and should be similar
 to the record shown below:
 
 for RSA256:

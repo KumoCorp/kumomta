@@ -13,7 +13,7 @@ To help simplify configuration for those with typical use cases, we have provide
 
 The `queue.lua` policy helper simplifies configuration of queue management, including identifying and assigning tenant and campaign information as well as message scheduling.
 
-To use the `queue.lua` policy helper, adding the following to your `init.lua` policy:
+To use the `queue.lua` policy helper, add the following to your `init.lua` policy:
 
 ```lua
 local queue_module = require 'policy-extras.queue'
@@ -204,7 +204,7 @@ incorrect `X-Tenant` header.
 
 ## Throttling The Scheduled Queue
 
-By default KumoMTA moves messages from the Scheduled Queue to the Ready Queue as quickly there is room available in the Ready Queue, with the rate impacted only by how quickly the Ready queues have available space as limited by traffic shaping throttles or sending reputation.
+By default KumoMTA moves messages from the Scheduled Queue to the Ready Queue as quickly as there is room available in the Ready Queue, with the rate impacted only by how quickly the Ready queues have available space as limited by traffic shaping throttles or sending reputation.
 
 Under certain circumstances it can be beneficial to throttle the flow of messages from the Scheduled Queue to the Ready Queue. Some examples of such use cases include:
 

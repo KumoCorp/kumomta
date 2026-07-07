@@ -1,7 +1,7 @@
 
 # How to Report Bugs
 
-This section described the process for submitting a bug report and how to get assistance.
+This section describes the process for submitting a bug report and how to get assistance.
 
 ## Before Submitting a Bug Report
 

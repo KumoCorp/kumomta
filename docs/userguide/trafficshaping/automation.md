@@ -1,6 +1,6 @@
 # Traffic Shaping Automation
 
-Many of the largest MailBox Providers (MBPs) operate platforms that provide feedback to senders through their response codes during the SMTP conversation. This feedback will include information related to the traffic shaping patterns in use by the sending including bounces for too many connections, too many messages per connection, sending rate, and sender reputation.
+Many of the largest MailBox Providers (MBPs) operate platforms that provide feedback to senders through their response codes during the SMTP conversation. This feedback will include information related to the traffic shaping patterns in use by the sender, including bounces for too many connections, too many messages per connection, sending rate, and sender reputation.
 
 To ensure optimum throughput and deliverability, KumoMTA features Traffic Shaping Automation (TSA) that monitors responses from the MBPs and adjusts traffic shaping rules on a granular level to ensure compliance with the guidelines of the MBPs in realtime.
 
@@ -39,7 +39,7 @@ local shaper = shaping:setup_with_automation {
 }
 ```
 
-This section enabled communication with the TSA daemon. The publish and subscribe URLs correspond to the TSA daemon's HTTP listener endpoint defined in its tsa_init.lua.  For a single node deployment the values shown here are sufficient.  You may list multiple publish and/or subscribe endpoints to publish to multiple hosts and read shaping configuration from multiple hosts, respectively. In addition, while the `setup_with_automation` call is aware of the community shaping rules file, any custom file must be identified in the `extra_files` directive as seen in the example above.
+This section enables communication with the TSA daemon. The publish and subscribe URLs correspond to the TSA daemon's HTTP listener endpoint defined in its tsa_init.lua.  For a single node deployment the values shown here are sufficient.  You may list multiple publish and/or subscribe endpoints to publish to multiple hosts and read shaping configuration from multiple hosts, respectively. In addition, while the `setup_with_automation` call is aware of the community shaping rules file, any custom file must be identified in the `extra_files` directive as seen in the example above.
 
 !!! warning
     As mentioned previously, your rules merge with the other files listed unless a given block has `replace_base=true`. To fully remove the defaults provided by the KumoMTA team you need the following:
@@ -52,7 +52,7 @@ This section enabled communication with the TSA daemon. The publish and subscrib
       subscribe = { 'http://127.0.0.1:8008' },
       no_default_files=true,
       extra_files = { 
-            '/opt/kumomta/share/community/shaping.toml`, 
+            '/opt/kumomta/share/community/shaping.toml', 
             '/opt/kumomta/etc/policy/shaping_custom.toml',
             },
     }
@@ -155,7 +155,7 @@ This call returns the current set of shaping rules in the same format as shaping
 
 ## Debugging
 
-If the tsa-deamon does not appear to be working, you can check to see if it is running with `sudo systemctl status kumo-tsa-daemon` which should return a message that includes "active (running)".  If not you can stop and start it in a similar way.
+If the tsa-daemon does not appear to be working, you can check to see if it is running with `sudo systemctl status kumo-tsa-daemon` which should return a message that includes "active (running)".  If not you can stop and start it in a similar way.
 
 ```bash
 sudo systemctl stop kumo-tsa-daemon
@@ -170,7 +170,7 @@ curl -s 'http://localhost:8008/get_config_v1/shaping.toml' | head
 # Number of entries: 2576
 ```
 
-Data being sent to the TSA daemon is handled the same as any other message in KumoMTA and will follow the same retry rules. The default is to retry in 20 minutes with exponential fallback.  If desired, this (or any other) scheduled queue can be customized with the [get_queue_config](https://docs.kumomta.com/reference/events/get_queue_config/) hook or in your shaping.toml file.
+Data being sent to the TSA daemon is handled the same as any other message in KumoMTA and will follow the same retry rules. The default is to retry in 20 minutes with exponential backoff.  If desired, this (or any other) scheduled queue can be customized with the [get_queue_config](https://docs.kumomta.com/reference/events/get_queue_config/) hook or in your shaping.toml file.
 
 ## Clustering
 

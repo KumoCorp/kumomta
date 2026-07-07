@@ -13,13 +13,13 @@ So far we've run non-production tests on the following systems.
 * Azure Linux (CBL-Mariner2)
 * Amazon Linux 2
 * Amazon Linux 2023
-* Kali (2003.1)
+* Kali (2023.1)
 * CentOS 7 (obsolete and not recommended)
 * RHEL 7,8,9
 * Mariner
 * Linux Mint (Cinnamon)
 
-KumoMTA works with x86 and Arm processors
+KumoMTA works with x86 and Arm processors.
 
 Note that most "dnf" systems work fine with the Rocky install [instructions](../installation/linux.md).
 And that most "apt" systems work fine with the Ubuntu install [instructions](../installation/linux.md).

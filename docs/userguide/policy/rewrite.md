@@ -16,7 +16,7 @@ The following example is from the [smtp_client_rewrite_delivery_status](../../re
 ```
 
 ```lua
--- Compile a classifier from the json file; refresh it it every 5 minutes
+-- Compile a classifier from the json file; refresh it every 5 minutes
 local get_dsn_classifier = kumo.memoize(function()
   local data = kumo.json_load '/tmp/dsn_rewrite.json'
   return kumo.regex_set_map.new(data)
@@ -41,4 +41,4 @@ kumo.on(
 )
 ```
 
-Note that the message specified will have `(kumomta: status was rewritten from 400 -> 500)` appended to it when logged to make it clear that a rewrite has ocurred.
+Note that the message specified will have `(kumomta: status was rewritten from 400 -> 500)` appended to it when logged to make it clear that a rewrite has occurred.

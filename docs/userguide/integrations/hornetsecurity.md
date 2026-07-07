@@ -11,7 +11,7 @@ Only the "scan" function is implemented for in-line use with KumoMTA.
 ## Install
 
 If you have not already done so, contact
-[Hornetsecurity](https://www.hornetsecure.com/) for documentation, binary and
+[Hornetsecurity](https://www.hornetsecurity.com/) for documentation, binary and
 license.  Configure Hornetsecurity Email Protection as per their documentation.
 
 EG:

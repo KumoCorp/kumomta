@@ -1,7 +1,7 @@
 # Building From Source
 
-If pre-built binaries are not provided for your system of choice, of if you'd
-like try your hand at extending KumoMTA, you'll need to build it from source.
+If pre-built binaries are not provided for your system of choice, or if you'd
+like to try your hand at extending KumoMTA, you'll need to build it from source.
 
 If you are on Ubuntu or Rocky Linux and just want to try KumoMTA, rather than
 build from source we recommend that you follow the instructions in the [Installing on Linux](linux.md) section.
@@ -59,7 +59,7 @@ We strongly recommend using [rustup](https://rustup.rs/) to install and manage
 your Rust compiler. While some distributions offer a version of the Rust compiler,
 it is often outdated.
 
-If you are using a priviledged user, drop back to your non-priviledged user first:
+If you are using a privileged user, drop back to your non-privileged user first:
 
 ```console
 $ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -210,7 +210,7 @@ save it as `/opt/kumomta/etc/policy/init.lua`.
 
 If you are not using systemd to manage the service, then you will need to
 use some other way to launch kumod.  This section shows how you might launch
-it manually, so that you understand how to automatate/manage this for yourself
+it manually, so that you understand how to automate/manage this for yourself
 in your chosen environment:
 
 ```console

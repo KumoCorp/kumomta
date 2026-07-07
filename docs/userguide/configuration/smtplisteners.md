@@ -31,7 +31,7 @@ for more information.
 
 While the `relay_hosts` option is often sufficient when receiving mail from
 internal systems, those environments that receive messages from external hosts
-should considering implementing SMTP AUTH authentication using
+should consider implementing SMTP AUTH using
 username/password.
 
 For more information, see the [Checking Inbound SMTP

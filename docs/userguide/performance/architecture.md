@@ -16,7 +16,7 @@ While KumoMTA can be deployed on very large servers with excellent results (in e
 
 ## Dynamic Cluster Sizing
 
-In most sending environment there is a cyclical nature to sending volumes that can vary on the time of day, day of week, and even month of the year. In cyclical environment it can be very cost effective to scale the size of your cluster up and down based on these cycles, especially in public cloud environments.
+In most sending environments there is a cyclical nature to sending volumes that can vary on the time of day, day of week, and even month of the year. In cyclical environments it can be very cost effective to scale the size of your cluster up and down based on these cycles, especially in public cloud environments.
 
 KumoMTA does not automatically perform cluster scaling as our users deploy in a wide variety of ways, but we do provide tools to help users perform the scaling using their tool of choice. See the [Scaling page](../clustering/scaling.md) in the [Clustering chapter](../clustering/index.md) of the User Guide for more information.
 
@@ -36,7 +36,7 @@ When planning storage, especially on physical hardware, it is important to consi
 
 1) Spool - KumoMTA will be continuously reading and writing from/to the spool disk. By default KumoMTA will place its spool under `/var/spool/kumomta` and this location should be mounted to a separate disk (or at least a separate partition).
 
-2) Logs - KumoMTA will continuously write logs, and it should be noted that there is no log purging provided by KumoMTA. By default logs will be written under `/var/log/kumomta` which should be mounted on a separate disk (or a least a separate partition). To prevent running out of disk space you will need to implement log rotation and deletion based on your needs for data retention.
+2) Logs - KumoMTA will continuously write logs, and it should be noted that there is no log purging provided by KumoMTA. By default logs will be written under `/var/log/kumomta` which should be mounted on a separate disk (or at least a separate partition). To prevent running out of disk space you will need to implement log rotation and deletion based on your needs for data retention.
 
 3) Other IO - While KumoMTA will perform the majority of its I/O on the spool and log directories, a separate root partition is recommended to help isolate the general I/O from the spool and log I/O.
 

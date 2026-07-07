@@ -166,9 +166,6 @@ See the [Bounce Cancel
 API](../../reference/http/kumod/api_admin_bounce_v1_delete.md) page of the
 Reference Manual for more information.
 
-## Managing Suspensions
-
-
 ## Setting The Diagnostic Log Level
 
 While the log level is typically set in your configuration, it can also be set
@@ -200,7 +197,7 @@ reference manual.
 
 It is common to encounter issues when attempting to deliver to a given destination, while most destinations are delivered to without issues.
 
-In those situations it helps to be able to monitor the oubound connections in question to identify any issues during the communications:
+In those situations it helps to be able to monitor the outbound connections in question to identify any issues during the communications:
 
 ```console
 $ kcli trace-smtp-client

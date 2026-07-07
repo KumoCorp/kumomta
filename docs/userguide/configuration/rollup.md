@@ -84,7 +84,7 @@ and/or `kcli queue-summary` output; instead of the scheduled queue name being
 `hotmail.com` it will appear as `hotmail.com!outlook.com` to indicate that it
 will be routed via `outlook.com`.
 
-You can define multiple entries in your mapping table if you wish; they keys
+You can define multiple entries in your mapping table if you wish; the keys
 are the host name suffixes and the values are the `routing_domain`s that should
 be applied.
 

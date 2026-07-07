@@ -1,6 +1,6 @@
 # Routing Messages Via Proxy Servers
 
-KumoMTA support SOCK5 and HAProxy for use as forward proxies as part of message delivery.
+KumoMTA supports SOCKS5 and HAProxy for use as forward proxies as part of message delivery.
 
 The most common use cases for a forward proxy are:
 

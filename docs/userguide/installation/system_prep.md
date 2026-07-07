@@ -27,7 +27,7 @@ sudo dnf clean all
 sudo dnf update -y
 ```
 
-In apt managed systems (Debain, Ubuntu, etc) use
+In apt managed systems (Debian, Ubuntu, etc) use
 
 ```bash
 sudo apt-get -y update
