@@ -37,10 +37,10 @@ script:
 ```lua
 -- Configure source IPs.
 local sources = require 'policy-extras.sources'
-sources:setup { '/opt/kumomta/etc/sources.toml' }
+sources:setup { '/opt/kumomta/etc/policy/sources.toml' }
 ```
 
-In addition, create a file at `/opt/kumomta/etc/sources.toml` and populate it
+In addition, create a file at `/opt/kumomta/etc/policy/sources.toml` and populate it
 as follows:
 
 {% call toml_data() %}
@@ -122,7 +122,7 @@ Typically an Egress source is used to assign messages to a specific IP address
 for sending. It is a best practice for each source IP to have a unique hostname
 used during the EHLO command, that matches a PTR record that points to the
 external IP associated with the Egress Source. The IP address is set with
-the `source` address option and the hostname is set using the `ehlo_domain`
+the `source_address` option and the hostname is set using the `ehlo_domain`
 option. The IP address used is not required to be unique to a given Egress
 Source:
 
@@ -146,7 +146,7 @@ assigned to the Egress Source:
 ```lua
 kumo.on('get_egress_source', function(source_name)
   if source_name == 'ip-1' then
-    -- Make a source that will emit from 10.0.0.1
+    -- Make a source that will emit from an IPv6 address
     kumo.make_egress_source {
       name = 'ip-1',
       source_address = '2001:db8:3333:4444:5555:6666:7777:8888',

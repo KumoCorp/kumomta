@@ -56,15 +56,8 @@ If you want just the data in a nice JSON format, use:
 $ curl -i 'http://localhost:8000/metrics.json'
 ```
 
-Metrics available include the following at the time of writing, and will
-increase as we build out the product:
-
-  * `connection_count`: number of active connections
-  * `lua_count`: the number of lua contexts currently alive
-  * `lua_load_count`: how many times the policy lua script has been loaded into a new context
-  * `lua_spare_count`: the number of lua contexts available for reuse in the pool
-  * `memory_limit`: soft memory limit measured in bytes
-  * `memory_usage`: number of bytes of used memory
+See the [kumod metrics index](../../reference/metrics/kumod/index.md) in the
+Reference Manual for the full list of available metrics.
 
 ## Using kcli
 

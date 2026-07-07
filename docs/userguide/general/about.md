@@ -1,10 +1,10 @@
 # About This Manual
 
-This is the Reference Manual for the KumoMTA SMTP server, version 1.0, through release 1.0. For license information, see the Legal Notices.
+This is the User Guide for the KumoMTA SMTP server. For license information, see the Legal Notices.
 
-Because this manual serves as a reference, it does not provide general instruction on SMTP or email infrastructure concepts. It also does not teach you how to use your operating system or command-line interpreter.
+This guide assumes familiarity with SMTP and general email infrastructure concepts. It does not teach you how to use your operating system or command-line interpreter.
 
-The KumoMTA Software is under constant development, and this Manual is updated frequently as well.
+KumoMTA is under constant development, and this documentation is updated frequently.
 
 If you have questions about using KumoMTA, community support is available in the [Forum](https://forum.kumomta.com) and the [Community Discord](https://kumomta.com/discord).
 

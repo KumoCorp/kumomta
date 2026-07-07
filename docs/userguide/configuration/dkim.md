@@ -156,7 +156,7 @@ To use the policy helper, add the following to your default policy:
 
 ```lua
 local dkim_sign = require 'policy-extras.dkim_sign'
-local dkim_signer = dkim_sign:setup { '/opt/kumomta/etc/dkim_data.toml' }
+local dkim_signer = dkim_sign:setup { '/opt/kumomta/etc/policy/dkim_data.toml' }
 
 kumo.on('smtp_server_message_received', function(msg)
   -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
@@ -175,7 +175,7 @@ signing to the events that fire for message arrival. The call to the
 further manipulation of the messages occur after signing.
 
 In addition create and populate the configured `dkim_data.toml` file, located
-at `/opt/kumomta/etc/dkim_data.toml` in this example.
+at `/opt/kumomta/etc/policy/dkim_data.toml` in this example.
 
 {% call toml_data() %}
 [base]
@@ -238,9 +238,9 @@ domain = "myesp.com"
 ## Implementing DKIM Signing using Lua
 
 Configure KumoMTA to sign emails passing through the MTA with DKIM signatures.
-This is done with Lua in policy.  The sample `init.lua` policy provided with
-KumoMTA declares a basic working DKIM signer that you can copy and modify as
-needed.  This signs a message with `RSA256` using a selector named `default` on
+This is done with Lua in policy.  The example below declares a basic working
+DKIM signer that you can copy and modify as
+needed.  It signs a message with RSA-SHA256 using a selector named `default` on
 headers `From`, `To`, and `Subject` using the DKIM key located at
 example-private-dkim-key.pem. ([More
 documentation](../../reference/kumo.dkim/rsa_sha256_signer.md))

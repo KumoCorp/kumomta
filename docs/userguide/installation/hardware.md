@@ -6,7 +6,7 @@ KumoMTA is a performance MTA that will leverage every bit of power you provide. 
 
 ## RAM and Storage
 
-At an absolute minimum, you will need 4Gb RAM and 20Gb Storage.  KumoMTA makes heavy use of both resources and response time is going to be a factor.  For high performance systems you will want to select storage with the fastest IOPS and lowest latency, so local disk is going to be much better than NAS or SAN. Likewise, you can benefit from faster RAM if it is available. In AWS, a t2.medium is adequate for a minimal install.  If you are installing a Docker Image, the same guide applies. See the chart below for sample performance reports.
+At an absolute minimum, you will need 4 CPU cores, 4Gb RAM, and 20Gb Storage.  KumoMTA makes heavy use of both resources and response time is going to be a factor.  For high performance systems you will want to select storage with the fastest IOPS and lowest latency, so local disk is going to be much better than NAS or SAN. Likewise, you can benefit from faster RAM if it is available. In AWS, a t2.medium is adequate for a minimal install.  If you are installing a Docker Image, the same guidance applies. See the [Performance chapter](../performance/testing.md) for sample performance test results.
 
 
 ## Network Interfaces

@@ -1,8 +1,8 @@
 # Linux Tuning for Performance
 
-KumoMTA performance can be optimized by fine tuning system parameters. The settings below are examples only but have helped optimize test and development servers. This example represents a starting off point, you should research these and tune as needed for your own system.
+KumoMTA performance can be optimized by fine tuning system parameters. The parameters listed below are a starting point: research each one and tune it as needed for your own system.
 
-KumoMTA makes heavy use of files, RAM, CPU and network resources. Setting these can be helpful as a default Linux install assumes the need to share resources with many applications, but we need to allow KumoMTA to use as much of the resource pool as possible.
+KumoMTA makes heavy use of files, RAM, CPU and network resources. Tuning these parameters can help because a default Linux install assumes resources are shared with many applications, while KumoMTA benefits from using as much of the resource pool as possible.
 
 ## Tuning sysctl.conf
 

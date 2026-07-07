@@ -65,7 +65,7 @@ meta value is set to the corresponding domain.
 local rollup = require 'policy-extras.rollup'
 
 kumo.on('smtp_server_message_received', function(msg)
-  rollup.reroute_using_ip_rollup(msg, {
+  rollup.reroute_based_on_mx_host_suffix(msg, {
     ['.olc.protection.outlook.com.'] = 'outlook.com',
   })
 end)

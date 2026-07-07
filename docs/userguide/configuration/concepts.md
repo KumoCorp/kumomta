@@ -51,7 +51,7 @@ graph TD
 
   At this point, the behavior of the queue can be configured to control things such as the age of a message, the retry intervals, and the routing of a message. These options are described in the [Configuring Queue Management](./queuemanagement.md) chapter.
 
-3) The KumoMTA server moves the message from the Scheduled Queue into the Ready Queue based on retry intervals configured for the Standby Queue. If a message is on its first attempt, it will be moved to the Ready Queue immediately.
+3) The KumoMTA server moves the message from the Scheduled Queue into the Ready Queue based on the retry intervals configured for that Scheduled Queue. If a message is on its first attempt, it will be moved to the Ready Queue immediately.
 
 4) Messages move from the Ready Queue to their destination via an **egress path** that was configured for the Ready Queue. This egress path is defined as a combination of an **egress source** and a **site name**. Traffic shaping and other similar options are configured based on this combination, see the [Traffic Shaping](../trafficshaping/index.md) chapter for more information.
 

@@ -72,9 +72,9 @@ In addition, the KumoMTA Github repo includes a traffic shaping rules file maint
 
 Finally, users can opt to create their own shaping rules file that can augment or replace the rules defined in the previous two files.
 
-If you intend to manually maintain your own shaping rules, we recommend using TOML as your file format, whereas if you intend to automatically maintain your traffic shaping rules, we recommend using JSON as your file format. Both example formats are listed above.
+If you intend to manually maintain your own shaping rules, we recommend using TOML as your file format, whereas if you intend to automatically maintain your traffic shaping rules, we recommend using JSON as your file format. An example in TOML format is shown above.
 
-While you can place a custom shaping file at any readable location, it is common to place the file at `/opt/kumomta/etc/policy/shaping.[toml|json]` for consistency with examples used elsewhere in the documentation.
+While you can place a custom shaping file at any readable location, it is common to place the file at `/opt/kumomta/etc/policy/custom-shaping.[toml|json]` for consistency with examples used elsewhere in the documentation.
 
 ## Order of Definition and Configuration File Precedence
 
@@ -93,7 +93,7 @@ local shaper = shaping:setup_with_automation {
   extra_files = {
     '/opt/kumomta/share/policy-extras/shaping.toml',
     '/opt/kumomta/share/community/shaping.toml',
-    '/opt/kumomta/etc/policy/shaping_custom.toml',
+    '/opt/kumomta/etc/policy/custom-shaping.toml',
   },
 }
 ```

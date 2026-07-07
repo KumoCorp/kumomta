@@ -4,7 +4,7 @@ KumoMTA comes with a socks5 proxy of our own design to assist with deployment of
 
 The binary is located at `/opt/kumomta/sbin/proxy-server` and can be operated independently from KumoMTA.
 
-The fast path to success is to clone the KumoMTA repo to a new server that has network capabilities and public facing IPs.  You do not need to configure or start KumoMTA.  To execute the proxy, use the command `/opt/kumomta/sbin/proxy-server --listen <IP:Port>`
+To run the proxy on a dedicated server with public-facing IPs, install the KumoMTA package on that server; you do not need to configure or start KumoMTA itself.  To execute the proxy, use the command `/opt/kumomta/sbin/proxy-server --listen <IP:Port>`
 
 Ensure that you have configured `sysctl` to allow for enough file handles, ip forwarding and other important factors. 
 

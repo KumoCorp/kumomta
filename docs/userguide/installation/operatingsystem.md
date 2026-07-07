@@ -1,8 +1,8 @@
 # Operating System Selection and Configuration
 
-KumoMTA was built from the ground up to be extremely flexible infrastructure. We have built standard package builds (AKA repo install) for the most commonly used Linux Operating Systems, but if you build from source, a wide variety of Operating Systems are possible.
-  
-So far we've run non-production tests on the following systems.
+Pre-built packages are provided for the officially supported platforms listed on the [Installing on Linux](linux.md) page. If you build from source, a wide variety of operating systems are possible.
+
+In addition to the officially supported platforms, the following systems have been community-tested:
 
 
 * Rocky (8, 9)

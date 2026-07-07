@@ -41,7 +41,7 @@ kumo.on('http_message_generated', function(msg)
 end)
 ```
 
-In addition, create a file at `/opt/kumomta/etc/queues.toml` and populate it
+In addition, create a file at `/opt/kumomta/etc/policy/queues.toml` and populate it
 as follows:
 
 {% call toml_data() %}

@@ -44,7 +44,7 @@ graph TD
 
   * At this point there will potentially be thousands of scheduled queues depending on the number of tenants, campaigns, and destination domains involved. Note that egress_source, site_name, and provider are not factored into this queue architecture.
 
-3) The KumoMTA server moves the message from the Scheduled Queue into the Ready Queue based on retry intervals configured for the Standby Queue. The Ready Queue will be defined as a combination of the `egress_source` to be used for the message and the `site_name` the destination domain belongs to. If a message is on its first attempt, it will be moved to the Ready Queue immediately.
+3) The KumoMTA server moves the message from the Scheduled Queue into the Ready Queue based on the retry intervals configured for that Scheduled Queue. The Ready Queue will be defined as a combination of the `egress_source` to be used for the message and the `site_name` the destination domain belongs to. If a message is on its first attempt, it will be moved to the Ready Queue immediately.
 
   * As part of this process the appropriate ready queue will be compared to the corresponding [max_ready](../../reference/kumo/make_egress_path/max_ready.md) setting to ensure there is room for the message. If there is not the message will be delayed by a random amount, returned to the Scheduled queue, and a [`Delayed`](../../reference/log_record.md#record-types) log entry will be generated (potentially with a corresponding queued message to route the log entry over Webhook/AMQP/Kafka).
   

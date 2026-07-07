@@ -1,6 +1,8 @@
 # An Example Configuration
 
-KumoMTA does not ship with a default policy file, because bundled defaults
+KumoMTA ships with only a [minimal `init.lua`
+policy](https://github.com/KumoCorp/kumomta/blob/main/assets/init.lua); a
+fully featured default is deliberately not provided, because bundled defaults
 tend to end up in production configurations as commented-out boilerplate.
 
 The following serves as an example of a complete base policy for a functional

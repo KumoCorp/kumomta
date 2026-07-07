@@ -24,10 +24,12 @@ localhost).
 
 
 The simplest test of [HTTP injection](../../reference/http/kumod/api_inject_v1_post.md)
-can be done using cURL right from localhost console.
+can be done using curl right from the localhost console. Note the `-k`
+option: it lets curl accept the self-signed certificate that KumoMTA
+generates when no TLS certificate is configured for the listener.
 
 ```console
-$ curl -i 'http://localhost:8005/api/inject/v1' \
+$ curl -ik 'https://localhost:8005/api/inject/v1' \
  -H 'Content-Type: application/json' -d '
 {"envelope_sender": "noreply@example.com",
  "content": "Subject: hello\n\nHello there",

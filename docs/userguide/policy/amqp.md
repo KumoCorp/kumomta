@@ -13,12 +13,12 @@ When a message is ready to be queued, the `get_queue_config` event is fired, at 
 ```lua
 kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   if domain == 'amqp' then
-    -- Use the `make.webhook` event to handle delivery
-    -- of webhook log records
+    -- Use the `make.amqp` event to handle delivery
+    -- of AMQP log records
     return kumo.make_queue_config {
       protocol = {
         custom_lua = {
-          -- this will cause an event called `make.webhook` to trigger.
+          -- this will cause an event called `make.amqp` to trigger.
           -- You can pick any name for this event, so long as it doesn't
           -- collide with a pre-defined event, and so long as you bind
           -- to it with a kumo.on call
@@ -33,13 +33,13 @@ end)
 
 ## Sending Messages via AMQP
 
-With the custom_lua protocol defined and a custom event trigger declared, the next step is to catch the `make.amqp` event with code that sends the message contents over HTTP.
+With the custom_lua protocol defined and a custom event trigger declared, the next step is to catch the `make.amqp` event with code that sends the message contents via AMQP.
 
 The following example sends the content of the log message via AMQP:
 
 ```lua
 -- This is a user-defined event that matches up to the custom_lua
--- constructor used in `get_queue_config` below.
+-- constructor used in `get_queue_config` above.
 -- It returns a lua connection object that can be used to "send"
 -- messages to their destination.
 kumo.on('make.amqp', function(domain, tenant, campaign)

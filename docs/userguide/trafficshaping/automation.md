@@ -34,7 +34,7 @@ local shaper = shaping:setup_with_automation {
   extra_files = {
     '/opt/kumomta/share/policy-extras/shaping.toml',
     '/opt/kumomta/share/community/shaping.toml',
-    '/opt/kumomta/etc/policy/shaping_custom.toml',
+    '/opt/kumomta/etc/policy/custom-shaping.toml',
   },
 }
 ```
@@ -53,7 +53,7 @@ This section enables communication with the TSA daemon. The publish and subscrib
       no_default_files=true,
       extra_files = { 
             '/opt/kumomta/share/community/shaping.toml', 
-            '/opt/kumomta/etc/policy/shaping_custom.toml',
+            '/opt/kumomta/etc/policy/custom-shaping.toml',
             },
     }
     ```
