@@ -171,6 +171,19 @@
 
  * Community shaping.toml file had updates to domains qq.com, 163.com, and yahoo.co.jp and providers gmail, yahoo, outlook, apple, orange, and mimecast. New provider definitions were added for barracuda (barracudanetworks.com), netvigator (netvigator.com), and kpn (kpnmail.nl). Note that web.de moved from a domain to being a provider named gmx.net_web.de (which also matches .gmx.net), and qq.com and 163.com were moved from domain-level to provider-level automations. Thanks to @Solmea! #531
 
+ * When running under a cgroup memory limit, `memory_usage` is now the
+   cgroup *working set* (`memory.current - inactive_file`, floored by
+   anonymous memory) rather than the raw `memory.current`. This excludes
+   cold, kernel-reclaimable file-backed page cache, which the kernel drops
+   before it would OOM-kill the container, and matches what kubelet/cAdvisor
+   report as `container_memory_working_set_bytes`. It removes premature load
+   shedding caused by phantom cache pressure for workloads that write a lot of
+   logs or spool to disk. **This lowers the observed `memory_usage` for any
+   deployment under a cgroup limit; alerts keyed on `memory_usage` may need
+   re-baselining.** See
+   [Memory Management](../reference/memory.md#working-set-under-a-cgroup).
+   Thanks to @dschaaff! #549
+
 ## Fixes
 
  * An SMTP command line containing bytes that are not valid UTF-8 is now
