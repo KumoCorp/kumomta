@@ -19,9 +19,9 @@ For more information on Feedback Loops and how to apply for them, see
 
 By default, KumoMTA will include a supplemental tracking header that will be
 extracted as part of the ARF message processing. This setting is controlled by
-the *supplemental_header* option in the **kumo.start_esmtp_listener** function.
+the `supplemental_header` option in the `kumo.start_esmtp_listener` function.
 Additional metadata can be preserved by listing the metadata keys desired in
-the *include_meta_names* argument.
+the `include_meta_names` argument.
 
 ```lua
 kumo.start_esmtp_listener {

@@ -8,7 +8,7 @@ $ sudo systemctl status kumomta
 
 The result should look something like this:
 
-```
+```txt
  kumomta.service - KumoMTA SMTP service
      Loaded: loaded (/lib/systemd/system/kumomta.service; enabled; vendor preset: enabled)
      Active: active (running) since Thu 2023-04-27 22:59:06 MST; 10h ago

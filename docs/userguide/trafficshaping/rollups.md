@@ -2,9 +2,9 @@
 
 ## MX Rollups and Option Inheritance
 
-By default, shaping.lua treats each domain entry as applying to the site_name generated for that domain, and those settings apply to any destination domain that also maps to the site. If you need to explicitly override a setting for a destination domain without consideration for the site_name, you need to set the `mx_rollup` option to **false** when configuring the domain.
+By default, shaping.lua treats each domain entry as applying to the site_name generated for that domain, and those settings apply to any destination domain that also maps to the site. If you need to explicitly override a setting for a destination domain without consideration for the site_name, you need to set the `mx_rollup` option to `false` when configuring the domain.
 
-If you configure a domain that belongs to a configured site without setting the `mx_rollup` option to **false**, you will cause an error.
+If you configure a domain that belongs to a configured site without setting the `mx_rollup` option to `false`, you will cause an error.
 
 Consider the following example, with foo.com being a domain hosted by Yahoo!:
 
@@ -39,7 +39,7 @@ max_connection_rate = "100/min"
 max_message_rate = "100/s"
 {% endcall %}
 
-The *mx_rollup* option indicates whether or not the settings should apply to the domain or the site_name. In the example above, even though foo.com is hosted by Yahoo! we want to override the message throttle for the foo.com domain. The mx_rollup option is true by default and only needs to be specified for domains that override the main site name entry.
+The `mx_rollup` option indicates whether or not the settings should apply to the domain or the site_name. In the example above, even though foo.com is hosted by Yahoo! we want to override the message throttle for the foo.com domain. The `mx_rollup` option is true by default and only needs to be specified for domains that override the main site name entry.
 
 While the default max_deliveries_per_connection is 100, it is overridden for yahoo.com (and all domains that share the same site name as the yahoo.com domain) to 20. The foo.com domain is part of the same site name as yahoo.com, but because mx_rollup is set to false the foo.com domain is treated separately and instead is set to 50. Because there is a sources entry for IP-1, the max_deliveries_per_connection is further overridden to 5 for that source's traffic in particular.
 
@@ -57,9 +57,9 @@ You can configure this using a `provider` block in your shaping file(s).
 For an example, let's consider Microsoft. Microsoft hosts two different consumer email domains (Outlook and Hotmail) as well as Office 365. While the consumer domains are run on the same servers, they have two different MX patterns:
 
 ```console
-dig +short mx hotmail.com
+$ dig +short mx hotmail.com
 2 hotmail-com.olc.protection.outlook.com.
-dig +short mx outlook.com
+$ dig +short mx outlook.com
 5 outlook-com.olc.protection.outlook.com.
 ```
 
@@ -127,10 +127,10 @@ order to fully match a destination site against the provider.  The reason for
 this is to avoid pathologically weird situations when someone has a vanity
 domain that blends multiple different providers together.
 
-!!!note
+!!! note
     The suffix matching is *not* a regex operation, it is purely based on whether the string specified appears at the end of the MX or domain being tested. Do not use any wildcard characters.
 
-!!!warning
+!!! warning
     When a provider is defined, it does ***not*** merge the various `site_name` queues covered by the provider together, which means that the `connection_limit` and `max_message_rate` options will not be enforced across all matching queues, but will be applied separately to each ready queue covered by the provider block.
 
 The provider block introduces two new options: `provider_connection_limit` and `provider_max_message_rate`. When the `provider_connection_limit` and `provider_max_message_rate` options are set, the throttles defined will be enforced across all matching site_name ready queues for that provider. This is typically the desired behavior. One example of a scenario where the provider_ options would not be used is Mimecast: each regional MX pattern used by Mimecast is a separate set of servers in that region, but traffic shaping expectations are the same for all regions. To address this we use a provider block without the `provider_` throttles:
@@ -144,5 +144,5 @@ connection_limit = 10
 
 In this case we can define traffic shaping rules that apply to Mimecast globally, but which are still enforced by each region's ready queue without limiting worldwide traffic.
 
-!!!note
+!!! note
     Both the `provider_` and regular throttles can be set, where `connection_limit` would be for the individual site names, and `provider_connection_limit` would cap the overall connection count. The same would apply for `max_message_rate` and `provider_max_message_rate`. Combining the `provider_` and regular throttles should be done with care, as it easy to over-constrain the server if the settings are not aligned correctly.

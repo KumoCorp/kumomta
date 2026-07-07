@@ -1,6 +1,6 @@
 # Configuring Traffic Shaping
 
-!!!note
+!!! note
     This page has moved. Traffic Shaping is now its own chapter in the User Guide.
 
     * [Traffic Shaping Overview](../trafficshaping/index.md)

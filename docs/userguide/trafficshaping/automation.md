@@ -18,7 +18,7 @@ There are three configuration locations required to implement TSA:
 
 ## Configure Traffic Shaping In Your `init.lua` Server Policy
 
-!!!note
+!!! note
     It's easiest to reference the [Example Config](../configuration/example.md) to see how the complete configuration looks.
 
 The server's `init.lua` file will require modifications to enable it to be used with TSA.
@@ -41,7 +41,7 @@ local shaper = shaping:setup_with_automation {
 
 This section enabled communication with the TSA daemon. The publish and subscribe URLs correspond to the TSA daemon's HTTP listener endpoint defined in its tsa_init.lua.  For a single node deployment the values shown here are sufficient.  You may list multiple publish and/or subscribe endpoints to publish to multiple hosts and read shaping configuration from multiple hosts, respectively. In addition, while the `setup_with_automation` call is aware of the community shaping rules file, any custom file must be identified in the `extra_files` directive as seen in the example above.
 
-!!!warning
+!!! warning
     As mentioned previously, your rules merge with the other files listed unless a given block has `replace_base=true`. To fully remove the defaults provided by the KumoMTA team you need the following:
 
     ```lua
@@ -107,7 +107,7 @@ kumo.on('tsa_load_shaping_data', function()
 end)
 ```
 
-!!!note
+!!! note
     The `tsa_init.lua` has no implicit loading of the default `shaping.toml` file. To avoid loading the default file simply omit it.
 
 ## Writing Automation Rules to `shaping.toml`

@@ -85,7 +85,7 @@ for more information.
 
 ## Provisioning Egress Sources Using Lua
 
-!!!note
+!!! note
     Most users will be satisfied with using the policy helper shown above.
     This section and the remainder of this page is for more advanced users.
     **The examples show here are illustrative: if all you intend is to copy
@@ -98,7 +98,7 @@ particular protocol. While the most common use case is an IP address used for
 SMTP, it could also define a specific outbound port for sending through
 port-based NAT, or a specific configuration for sending over HTTP.
 
-An Egress Source is defined using the **`kumo.make_egress_source`** function,
+An Egress Source is defined using the `kumo.make_egress_source` function,
 called during the init event. For more information, see the
 [make_egress_source](../../reference/kumo/make_egress_source/index.md) chapter of the
 Reference Manual.
@@ -159,7 +159,7 @@ end)
 
 ## Provisioning Egress Pools Using Lua
 
-!!!note
+!!! note
     Most users will be satisfied with using the policy helper shown above.
     This section and the remainder of this page is for more advanced users.
     **The examples show here are illustrative: if all you intend is to copy
@@ -173,7 +173,7 @@ default, with weighted round-robin available as an option.
 
 A given Egress Source can be added to multiple Egress Pools.
 
-Egress Pools are defined using the **`kumo.make_egress_pool`** function, called
+Egress Pools are defined using the `kumo.make_egress_pool` function, called
 during the `get_egress_pool` event:
 
 ```lua

@@ -69,8 +69,8 @@ BadDomain = [
 {% endcall %}
 
 Users can create their own classification rules file by copying the default
-file, editing it, and adding the path to their custom rules file to the *files*
-option in the **kumo.configure_bounce_classifier** function call. Each defined
+file, editing it, and adding the path to their custom rules file to the `files`
+option in the `kumo.configure_bounce_classifier` function call. Each defined
 rules file will be merged into the full ruleset.
 
 For additional information, see the [reference manual page on bounce

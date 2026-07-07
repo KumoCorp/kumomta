@@ -4,7 +4,7 @@ Some sending environments use a mixture of different services to send messages, 
 
 The following example shows how to send a queued message via custom lua, in this case assembling an API call and sending it to a third-party SMTP API relay provider.
 
-!!!warning
+!!! warning
     Storing credentials as hardcoded values in a policy script such as this is not recommended, instead, use the built-in Secrets Load function. See [https://docs.kumomta.com/reference/kumo.secrets/load/](https://docs.kumomta.com/reference/kumo.secrets/load/).
 
 ```lua

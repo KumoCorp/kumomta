@@ -200,7 +200,7 @@ end)
 ```
 
 Note that the example above does not have any handling for an empty or
-incorrect **X-Tenant** header.
+incorrect `X-Tenant` header.
 
 ## Throttling The Scheduled Queue
 

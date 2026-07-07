@@ -98,7 +98,7 @@ page of the Reference Manual for more information.
 
 An example HAProxy server config is as follows:
 
-```
+```txt
 global
     log stdout  format raw  local0  debug
 

@@ -48,7 +48,7 @@ log_hooks:new_json {
 }
 ```
 
-!!!note
+!!! note
     In the preceding example we use the `meta` option instead of the `headers` option because logging headers requires the message body to be processed during logging. This can be combined with the [msg:import_x_headers](../../reference/message/import_x_headers.md) function to push the relevant headers into the message metadata for efficient logging.
 
 Given the log hook name of `webhook` the following should be added to the shaping helper TOML configuration file:

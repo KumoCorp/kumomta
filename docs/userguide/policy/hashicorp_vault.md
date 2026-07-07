@@ -36,14 +36,14 @@ sudo systemctl edit --full kumomta.service
 You should disregard everything except the `[Service]` section.
 At the bottom of that section, add 2 lines:
 
-```
+```txt
 Environment=VAULT_ADDR='http://<YOUR_SERVER_LOCATION>:8200'
 Environment=VAULT_TOKEN='<YOUR_ACCESS_TOKEN>'
 ```
 
 When done, it should look something like this:
 
-```
+```txt
 [Unit]
 Description=KumoMTA SMTP service
 After=syslog.target network.target
@@ -103,7 +103,7 @@ Vault has a number of advantages over statically storing secrets. Aside from the
 
 Another advantage is being able to dynamically load keys on demand. This can be very helpful with DKIM key rotation. With the keys stored within the vault, they can be loaded as-needed when messages pass through the server that need a particular key:
 
-```Lua
+```lua
 local vault_signer = kumo.dkim.rsa_sha256_signer {
   key = {
     vault_mount = 'secret',

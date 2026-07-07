@@ -58,7 +58,7 @@ trigger = {Threshold="2/hr"}
 duration = "2 hours"
 {% endcall %}
 
-As a special case, the domain can be named *default*, in which case those settings will apply globally. The global settings are superseded by the domain settings, which are superseded by the source settings.
+As a special case, the domain can be named `default`, in which case those settings will apply globally. The global settings are superseded by the domain settings, which are superseded by the source settings.
 
 The full set of available options is listed in the [kumo.make_egress_path](../../reference/kumo/make_egress_path/index.md) page of the Reference Manual.
 
@@ -98,7 +98,7 @@ local shaper = shaping:setup_with_automation {
 }
 ```
 
-!!!Note
+!!! note
     When a given scope is defined in multiple files, the more recently read file does not completely replace the configuration defined in the previous file, instead the options within that scope are merged.
 
 If you want to completely replace the information for a given block, you

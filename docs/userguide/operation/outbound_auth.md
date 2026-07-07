@@ -26,7 +26,7 @@ kumo.on(
 )
 ```
 
-!!!warning
+!!! warning
     The above example would add AUTH credentials to every outbound connection. In production, this should be selectively applied based on the destination host or domain.
 
 See the [make_egress_path](../../reference/kumo/make_egress_path/index.md) section of the Reference Manual for more information.

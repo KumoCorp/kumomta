@@ -18,7 +18,7 @@ will take precedence overall.
 You can specify `replace_base=true` in a block to have that block override the
 current set of accumulated values.
 
-!!!warning
+!!! warning
     There is currently no mechanism for unsetting an option previously merged in. If there is a throttle set earlier (for example in `[default]`) that you wish to unset rather than explicitly define a different throttle then you **must** use `replace_base=true` to replace all previously merged options.
 
 Most options merge directly over the top of earlier options, but the

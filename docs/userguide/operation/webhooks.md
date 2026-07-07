@@ -42,12 +42,12 @@ log_hooks:new_json {
 }
 ```
 
-!!!Warning
+!!! warning
     The call to `new_json` must appear before the queues helper for it to work
     properly. See the [Example Config](../configuration/example.md) to see a
     working layout for the `init.lua` file.
 
-!!!Warning
+!!! warning
     The default traffic shaping rules that are likely present in your [Shaping Helper](../trafficshaping/shapingfiles.md) configuration will also affect messages queued for delivery via webhooks. To avoid issues, add throttle configuration specific to your webhook queue (based on the name provided when creating a webhook):
 
 ```toml

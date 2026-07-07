@@ -37,7 +37,7 @@ graph TD
 
   * A log entry will be generated for the message reception event. 
 
-!!! Note 
+!!! note
     If you have configured [log hooks](../operation/webhooks.md) or routing logs via [AMQP](../policy/amqp.md) or [Kafka](../policy/kafka.md) then a message will be queued for each log entry that needs to be routed. This means that each message injected will result in multiple messages in the queues (at least one message for the Received log entry and one for the Delivered log entry).
 
 2) The message is assigned into a Scheduled Queue based on the combination of its **campaign,** **tenant,** and destination **domain**. If there is no defined campaign or tenant, the message is placed in a queue based on the elements that are present.

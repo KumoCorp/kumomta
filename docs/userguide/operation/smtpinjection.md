@@ -21,7 +21,7 @@ KumoMTA will accept any SMTP injection from the local host as well as any hosts
 in the 10.5.1.0/24 CIDR block on port 25.  The most basic form of "injection"
 is to test from localhost using nc or telnet.
 
-```
+```txt
 ehlo moto
 mail from:youremail@address.com
 rcpt to:youremail@address.com

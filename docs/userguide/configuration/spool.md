@@ -8,7 +8,7 @@ KumoMTA supports multiple message spooling options.
 
 There are two kinds of spool storage possible, detailed below.
 
-!!!note
+!!! note
     We recommend that most users deploy using **RocksDB**.
 
 ## LocalDisk
@@ -21,7 +21,7 @@ maximum performance. If SSD drives are not used, 15K RPM disks are
 recommended. When using disk spooling, we recommend using ext4 with the
 *noatime* flag.
 
-```text
+```txt
 LABEL=/var/spool/kumomta/data /var/spool/kumomta/data ext4 rw,noatime,barrier=0 0 2
 ```
 

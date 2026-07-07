@@ -6,7 +6,7 @@ segmented by a combination of size/time and stored in compressed files named
 after the time that the segment was started. To read these, you need to unpack
 them first. You have many options for configuring logging.
 
-```
+```txt
 /var/log/kumomta
 ├── 20230311-033705
 ├── 20230311-033844

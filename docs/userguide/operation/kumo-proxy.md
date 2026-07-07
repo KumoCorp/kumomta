@@ -21,7 +21,7 @@ You will need sudo access to perform these changes.  Start by creating a service
 `sudo vi /etc/systemd/system/kumoproxy.service`
 
 Populate it with:
-```console
+```txt
 [Unit]
 Description=KumoMTA SOCKS5 Proxy service
 After=syslog.target network.target
@@ -44,7 +44,7 @@ Next, create an environment file where you can add your system variables.
 Populate with your IP and Port
 
 IE:
-```console
+```txt
 PROXY_IP="172.31.37.164"
 PROXY_PORT="5000"
 ```

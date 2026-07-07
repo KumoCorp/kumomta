@@ -22,7 +22,7 @@ For multiple log files, the `configure_local_logs` function can be called
 multiple times with different parameters.
 
 <!-- prettier-ignore -->
-!!!note
+!!! note
     Logs can also be published as webhooks. See the [Publishing Log Events Via Webhooks](../operation/webhooks.md) chapter.
 
 ## OS Considerations
