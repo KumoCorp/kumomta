@@ -10,6 +10,7 @@ rocksdb = ["dep:rocksdb"]
 anyhow = {workspace=true}
 async-trait = {workspace=true}
 chrono = {workspace=true, default-features=false, features=["now"]}
+dir-probe = {path="../dir-probe"}
 duration-serde = {path="../duration-serde"}
 flume = {workspace=true}
 getrandom = {workspace=true}

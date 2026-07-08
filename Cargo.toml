@@ -2,6 +2,7 @@
 members = [
   "crates/bounce-classify",
   "crates/cidr-map",
+  "crates/dir-probe",
   "crates/domain-map",
   "crates/integration-tests",
   "crates/jsonschematodocs",

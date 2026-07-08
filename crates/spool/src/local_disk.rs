@@ -26,6 +26,11 @@ impl LocalDiskSpool {
 
         Self::create_dir_structure(path)?;
 
+        // Catch a split real/effective identity meeting an over-restrictive
+        // directory before it can manifest as confusing store failures.
+        dir_probe::probe_directory(path)
+            .with_context(|| format!("spool directory {} is not usable", path.display()))?;
+
         Ok(Self {
             path: path.to_path_buf(),
             flush,

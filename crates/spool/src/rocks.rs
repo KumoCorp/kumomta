@@ -2,6 +2,7 @@ use crate::{
     Spool, SpoolBackpressureTimeout, SpoolCallerDeadlineExceeded, SpoolEntry, SpoolId,
     SpoolUnhealthyError,
 };
+use anyhow::Context;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use flume::Sender;
@@ -465,6 +466,29 @@ impl RocksSpool {
         let limit_concurrent_removes = p
             .limit_concurrent_removes
             .map(|n| Arc::new(Semaphore::new(n)));
+
+        // Ensure the directory exists so we can probe it before opening.
+        // Create it the way RocksDB would (mkdir 0755, subject to umask)
+        // so our pre-creation is indistinguishable from letting RocksDB
+        // create it; RocksDB has no option that influences this mode.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o755)
+                .create(path)
+                .with_context(|| format!("creating spool directory {}", path.display()))?;
+        }
+        #[cfg(not(unix))]
+        std::fs::create_dir_all(path)
+            .with_context(|| format!("creating spool directory {}", path.display()))?;
+
+        // Catch a split real/effective identity meeting an over-restrictive
+        // directory before RocksDB silently corrupts itself and later fails
+        // with an opaque "wal_dir contains existing log file" error.
+        dir_probe::probe_directory(path)
+            .with_context(|| format!("spool directory {} is not usable", path.display()))?;
 
         let db = Arc::new(DB::open(&opts, path)?);
         let load_shed_active = Arc::new(AtomicBool::new(false));

@@ -184,6 +184,11 @@
    [Memory Management](../reference/memory.md#working-set-under-a-cgroup).
    Thanks to @dschaaff! #549
 
+ * We now perform extended permission related probing on the spool and maildir
+   directory locations to catch uncommon permission misconfigurations on
+   startup, that would otherwise lead to rocksdb corrupting itself on
+   the restart *after* the permissions were broken.
+
 ## Fixes
 
  * An SMTP command line containing bytes that are not valid UTF-8 is now

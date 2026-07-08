@@ -1953,6 +1953,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "dir-probe"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "caps",
+ "k9",
+ "nix 0.30.1",
+ "tempfile",
+]
+
+[[package]]
 name = "dirs"
 version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4584,6 +4595,7 @@ name = "maildir"
 version = "0.7.0"
 dependencies = [
  "chrono",
+ "dir-probe",
  "gethostname 1.1.0",
  "mailparsing",
  "percent-encoding",
@@ -7801,6 +7813,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "dir-probe",
  "duration-serde",
  "flume",
  "getrandom 0.3.4",
