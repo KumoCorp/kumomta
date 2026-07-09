@@ -670,6 +670,23 @@ mod test {
     use crate::ResolvedAddress;
     use rfc5321::{EnhancedStatusCode, Response};
 
+    #[test]
+    fn parse_ses_obsolete_arrival_date() {
+        // Amazon SES OOB bounces carry an Arrival-Date in an obsolete RFC 2822
+        // form ("Thu, 02 Jul 26 18:55:38 UTC"). This must not fail the report.
+        let report = Report::parse(include_bytes!("../data/rfc3464/obsolete_arrival_date.eml"))
+            .unwrap()
+            .expect("multipart/report DSN should parse as a report");
+        let arrival = report
+            .per_message
+            .arrival_date
+            .expect("obsolete Arrival-Date should be recovered, not dropped");
+        assert_eq!(arrival.to_rfc3339(), "2026-07-02T18:55:38+00:00");
+        assert_eq!(report.per_recipient.len(), 1);
+        assert_eq!(report.per_recipient[0].action, ReportAction::Failed);
+        assert_eq!(report.per_recipient[0].status.class, 5);
+    }
+
     fn make_message() -> MimePart<'static> {
         let mut part = MimePart::new_text_plain("hello there").unwrap();
         part.headers_mut().set_subject("Hello!").unwrap();
