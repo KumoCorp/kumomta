@@ -4,7 +4,7 @@ KumoMTA is designed around the concept of configuration as code, where all confi
 
 Configuration as code offers numerous advantages, including late loading of config for lower memory consumption and minimal reloads and direct data source connectivity to make your KumoMTA instances a well-integrated part of your DevOps environment rather than a black box that requires automated config file updates and reload commands to be issued.
 
-Configuration as code enables advanced use cases such as [storing your DKIM signing keys in HashiCorp Vault](../policy/hashicorp_vault.md) for realtime DKIM signing and checking SMTP Authentication credentials against a live data source.
+Configuration as code enables advanced use cases such as [storing your DKIM signing keys in HashiCorp Vault](../policy/hashicorp_vault.md) for real-time DKIM signing and checking SMTP Authentication credentials against a live data source.
 
 While configuration as code provides extreme flexibility and deep integration capabilities, that can come at the cost of complexity. In order to make KumoMTA more accessible for those who are accustomed to a static configuration file and don't need deeper integration, we have developed a set of policy helpers. These helpers are premade Lua policy scripts that implement common use cases by reading formatted TOML and JSON files to configure KumoMTA.
 

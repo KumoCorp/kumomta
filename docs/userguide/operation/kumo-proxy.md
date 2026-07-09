@@ -1,6 +1,6 @@
-# Using the KumoProxy Socks5 proxy utility
+# Using the KumoProxy SOCKS5 proxy utility
 
-KumoMTA comes with a socks5 proxy of our own design to assist with deployment of cluster environments.
+KumoMTA comes with its own SOCKS5 proxy server to assist with deployment of cluster environments.
 
 The binary is located at `/opt/kumomta/sbin/proxy-server` and can be operated independently from KumoMTA.
 
@@ -43,7 +43,7 @@ Next, create an environment file where you can add your system variables.
 
 Populate with your IP and Port
 
-IE:
+For example:
 ```txt
 PROXY_IP="172.31.37.164"
 PROXY_PORT="5000"

@@ -5,7 +5,7 @@ KumoMTA can be installed in a physical server, public cloud, or private cloud.  
 * AWS
 * Azure
 * GCP
-* VMWare
+* VMware
 * bare metal
 * IBM Cloud
 * Oracle Cloud

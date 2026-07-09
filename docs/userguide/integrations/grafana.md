@@ -45,7 +45,4 @@ Follow the setup [instructions
 here](../operation/status.md#setting-up-a-grafana-dashboard) to configure the
 prometheus feed, and get the sample Grafana dashboard.
 
-If you have done everything right, you should be able to see your data feed in Grafana within seconds.
-
-
-
+You should see your data feed in Grafana within seconds.

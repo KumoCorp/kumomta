@@ -22,9 +22,9 @@ Ensure that you can inject and deliver mail before proceeding.
 
 ### Get Prometheus
 
-First, **Install Node-Exporter** to collect typical system metrics to push to
-Prometheus. If you are configuring a cluster, node-exporter should be installed
-on each node.
+First, **Install Node Exporter** to expose typical system metrics for
+Prometheus to collect. If you are configuring a cluster, Node Exporter should
+be installed on each node.
 
 There is also a very handy step-by-step guide [here](https://prometheus.io/docs/guides/node-exporter/)
 
@@ -42,9 +42,9 @@ want to add that to your start up processes.
 You can test this with a simple curl : `curl http://localhost:9100/metrics`
 
 Now, **Install Prometheus** for system reporting. Get an appropriate version
-from [here](https://prometheus.io/download/). Theoretically this can be set up
-on a remote server to collect metrics from your whole cluster.  In this
-document we will install version 2.47.2 on localhost. 
+from [here](https://prometheus.io/download/). Prometheus can run on
+a remote server to collect metrics from your whole cluster; this example
+installs version 2.47.2 on localhost.
 
 ```console
 $ cd
@@ -88,7 +88,7 @@ Remember to update your firewall to securely access port 9090
 
 The UI is wide open by default so take measures to lock down access with usual network tools.
 
-If you have done this all correctly, you should be able to access the target
+You should now be able to access the target
 status with `http://<your_domain>:9090/targets` in the Prometheus webUI.  The
 result should look something like this:
 

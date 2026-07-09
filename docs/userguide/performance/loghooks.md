@@ -22,11 +22,11 @@ The **key concept** in this flow is that when you enable shipping logs via HTTP/
 
 This means that when planning server capacity you must take into account the events that will be associated with each message and count them toward the capacity goal.
 
-For example: if your target is to relay 1,000,000 messages per hour through a server, and you plan on delivering log data via HTTP as webhooks, and you estimate that on average each message will have three log events (reception, one transient failure (4xx), and one delivered or permanent failure (5XX)), then your required server throughput is actually 4,000,000 messages per hour. Inversely, if your server is designed to relay 1,000,000 messages per hour it will in fact only be able to relay 250,000 outbound messages and 750,000 log events.
+For example: if your target is to relay 1,000,000 messages per hour through a server, and you plan on delivering log data via HTTP as webhooks, and you estimate that on average each message will have three log events (reception, one transient failure (4xx), and one delivered or permanent failure (5xx)), then your required server throughput is actually 4,000,000 messages per hour. Inversely, if your server is designed to relay 1,000,000 messages per hour it will in fact only be able to relay 250,000 outbound messages and 750,000 log events.
 
 ## Traffic Shaping For Log Queues
 
-KumoMTA's default traffic shaping rules are configured to prevent reputation damage when sending by respecting the expectation of MailBox Providers(MBPs).
+KumoMTA's default traffic shaping rules are configured to prevent reputation damage when sending by respecting the expectations of mailbox providers (MBPs).
 
 While those defaults can help prevent throttling, they are overly restrictive when sending messages to internal HTTP/AMQP/Kafka endpoints, and can result in queue backpressure.
 
@@ -49,7 +49,7 @@ log_hooks:new_json {
 ```
 
 !!! note
-    In the preceding example we use the `meta` option instead of the `headers` option because logging headers requires the message body to be processed during logging. This can be combined with the [msg:import_x_headers](../../reference/message/import_x_headers.md) function to push the relevant headers into the message metadata for efficient logging.
+    The preceding example uses the `meta` option instead of the `headers` option because logging headers requires the message body to be processed during logging. This can be combined with the [msg:import_x_headers](../../reference/message/import_x_headers.md) function to push the relevant headers into the message metadata for efficient logging.
 
 Given the log hook name of `webhook` the following should be added to the shaping helper TOML configuration file:
 

@@ -34,7 +34,7 @@ log_hooks:new_json {
 
 5) If you need to, you can modify the `log_parameters` as per [https://docs.kumomta.com/reference/kumo/configure_log_hook/](https://docs.kumomta.com/reference/kumo/configure_log_hook/)
 
-If you have done everything right, you should see your data fill the Tatami Monitor feed almost immediately.
+You should see your data fill the Tatami Monitor feed almost immediately.
 
 
 

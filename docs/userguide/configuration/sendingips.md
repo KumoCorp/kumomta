@@ -6,16 +6,16 @@ this is acceptable, but best practices recommend separating mail streams into
 their own IP addresses in order to isolate reputation and enable larger
 sending volumes than would be possible on a single IP address.
 
-KumoMTA has the concept of pools of IPs. A given scheduled queue can be
+KumoMTA has the concept of pools of IPs. A given Scheduled Queue can be
 associated with a pool and it will then use *[Weighted Round
 Robin](http://kb.linuxvirtualserver.org/wiki/Weighted_Round-Robin_Scheduling)*
-(WRR) to distribute sends from that scheduled queue across the IPs contained
-within its associated pool.  When a scheduled queue is idle for approximately
+(WRR) to distribute sends from that Scheduled Queue across the IPs contained
+within its associated pool.  When a Scheduled Queue is idle for approximately
 10 minutes, it will idle out and the round robin state will be reset for the
 next send.
 
 !!! note
-    The _Weighted Round Robin_ implementation in kumomta is considered to be
+    The _Weighted Round Robin_ implementation in KumoMTA is considered to be
     **probabilistic**, achieving the configured distribution only when the rate
     of sending is sufficiently high (at least 1 message to a given site every
     few minutes), and is scoped per-_scheduled_-queue. There is no whole-machine

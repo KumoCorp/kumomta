@@ -38,7 +38,7 @@ nicely in this documentation. The actual log records are not output with wrappin
 
 ## Manually
 
-We can take a look at a specific log by decompressing it and since these are
+You can view a specific log by decompressing it: since these are
 [zstd compressed](https://github.com/facebook/zstd#readme), you can view all
 but the current one with zstdcat. ZSTD is a streaming compression utility so
 the current file cannot be accessed until it is flushed and closed. You can
@@ -51,8 +51,8 @@ you are regularly wanting to inspect the logs on a live system.
 [kumo.configure_local_logs](../../reference/kumo/configure_local_logs/index.md)
 has all of the available logging configuration options.
 
-Using the example above, we can see the content of the newest file after
-stopping KumoMTA with a `zstdcat /var/log/kumomta/20230314-181435`.
+Using the example above, you can see the content of the newest file after
+stopping KumoMTA with `zstdcat /var/log/kumomta/20230314-181435`.
 
 If you have not done so already, you will want to install `zstd` with a (`dnf`
 or) `apt install zstd`.  Below there is a sample of a decompressed received log:

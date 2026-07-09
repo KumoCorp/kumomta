@@ -4,7 +4,7 @@ This is the Documentation for the KumoMTA Message Transfer Agent.
 
 ## Legal Notices
 
-KumoMTA and this documentation are Copyright 2023 Kumo Corp.
+KumoMTA and this documentation are Copyright 2023-2026 Kumo Corp.
 Both are licensed under the Apache License, Version 2.0 (the "License");
 
 Full [Copyright](https://github.com/KumoCorp/kumomta/blob/main/COPYRIGHT) and

@@ -66,7 +66,7 @@ Oct 19 21:53:01 localhost.localdomain kumod[902]: 2023-10-20T01:53:01.221509Z  I
 
 In this example the `-f` option tells journalctl to follow the log, in other words to tail or continuously read the file, the `-n 50` option tells journalctl to start by reading the previous 50 lines, and the `-u` option tells journalctl to filter by a specific unit, in this case the `kumomta.service` unit.
 
-A common issue with new installs is ownership of the spool directory. When the spool is provisioned as a separate volume, it will not be owned by the `kumod` user. In this example we change ownership of the `/var/spool/kumomta` directory, then attempt to start the kumomta service, then read the system journal to identify the issue:
+A common issue with new installs is ownership of the spool directory. When the spool is provisioned as a separate volume, it will not be owned by the `kumod` user. The following example deliberately reproduces the problem by changing ownership of the `/var/spool/kumomta` directory to root, then attempts to start the kumomta service and reads the system journal to identify the issue:
 
 ```console
 $ sudo systemctl stop kumomta
@@ -168,4 +168,4 @@ The log levels available, in order from least to most verbose are:
 * Trace
 
 !!! warning
-    The lower, more verbose levels of log levels can be very verbose, especially the  `trace` level. These levels should not be enabled permanently as they can lead to a full disk in a short period of time.
+    The lower log levels can be very verbose, especially the `trace` level. These levels should not be enabled permanently as they can lead to a full disk in a short period of time.

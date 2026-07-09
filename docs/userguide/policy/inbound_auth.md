@@ -1,6 +1,6 @@
 # Checking Inbound SMTP Authentication
 
-When hosting relay users it is important to protect your infrastructure from malicious senders, often without the ability to whitelist the IP addresses of legitimate users. In such environments, it is critical to set up SMTP Authentication to validate injecting hosts before relaying their mail.
+When hosting relay users it is important to protect your infrastructure from malicious senders, often without the ability to allowlist the IP addresses of legitimate users. In such environments, it is critical to set up SMTP Authentication to validate injecting hosts before relaying their mail.
 
 !!! note
     Authentication in KumoMTA can only occur on a TLS protected connection after `STARTTLS` has successfully been processed. This is because AUTH PLAIN credentials can be decoded and should not be sent over an open connection.
@@ -56,7 +56,7 @@ end)
 
 ## Querying a Keystore for Authentication
 
-A more secure option for storing authentication credentials for checking is Hashicorp Vault. See the [Storing Secrets in Hashicorp Vault](./hashicorp_vault.md) page for more information on how to populate the credentials in the Vault as well as how to secure the connection credentials.
+A more secure option for storing authentication credentials for checking is HashiCorp Vault. See the [Storing Secrets in HashiCorp Vault](./hashicorp_vault.md) page for more information on how to populate the credentials in the Vault as well as how to secure the connection credentials.
 
 ```lua
 function vault_auth_check(user, password)

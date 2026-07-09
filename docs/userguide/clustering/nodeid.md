@@ -27,7 +27,7 @@ The following environment variables influence the Node ID:
   * `KUMO_NODE_ID_PATH` - this can be set to an alternative location into which
     the nodeid should be stored.  If this is not set, the path is assumed to be
     `/opt/kumomta/etc/.nodeid`.  If the path is not writable for some reason
-    (eg: permission denied), then a fallback nodeid will be computed.
+    (e.g., permission denied), then a fallback nodeid will be computed.
 
 ## Fallback Node ID
 

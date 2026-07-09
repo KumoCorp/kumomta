@@ -101,7 +101,7 @@ retry_interval = '17 mins'
 
 There is no throttling configured at the Scheduled Queue level, instead, the
 Scheduled Queue is where messages are evaluated when retries are needed,
-meaning that at the Scheduled Queue level we configure settings such as the
+meaning that at the Scheduled Queue level you configure settings such as the
 time between retries and the maximum age of a message.
 
 The settings for retry interval and message age are typically set globally and
@@ -204,7 +204,7 @@ incorrect `X-Tenant` header.
 
 ## Throttling The Scheduled Queue
 
-By default KumoMTA moves messages from the Scheduled Queue to the Ready Queue as quickly as there is room available in the Ready Queue, with the rate impacted only by how quickly the Ready queues have available space as limited by traffic shaping throttles or sending reputation.
+By default KumoMTA moves messages from the Scheduled Queue to the Ready Queue as quickly as there is room available in the Ready Queue, with the rate impacted only by how quickly the Ready Queues have available space as limited by traffic shaping throttles or sending reputation.
 
 Under certain circumstances it can be beneficial to throttle the flow of messages from the Scheduled Queue to the Ready Queue. Some examples of such use cases include:
 
@@ -220,9 +220,9 @@ max_age = '24 hours'
 max_message_rate = '100/s'
 {% endcall %}
 
-Note that the `max_message_rate` option applies on a per-queue basis even when configured for a less specific scope, where a queue is defined as campaign@tenant:domain. This means that if you set the `max_message_rate` option for a given tenant, it does **not** limit the tenant to a given rate, it limits _every created queue for that tenant_ to the specified rate.
+Note that the `max_message_rate` option applies on a per-queue basis even when configured for a less specific scope, where a queue is defined as campaign:tenant@domain. This means that if you set the `max_message_rate` option for a given tenant, it does **not** limit the tenant to a given rate, it limits _every created queue for that tenant_ to the specified rate.
 
-To limit the _collective_ set of queues for a given scope use the `overall_max_message_rate` option. This will enforce the limit across all Scheduled queues for the defined scope:
+To limit the _collective_ set of queues for a given scope use the `overall_max_message_rate` option. This will enforce the limit across all Scheduled Queues for the defined scope:
 
 {% call toml_data() %}
 [tenant.'mytenant']
@@ -230,4 +230,4 @@ max_age = '24 hours'
 overall_max_message_rate = '100/s'
 {% endcall %}
 
-In this example the listed `mytenant` tenant will be throttled to 100 messages per second across all Scheduled queues, or in other words regardless of campaign or destination domain.
+In this example the listed `mytenant` tenant will be throttled to 100 messages per second across all Scheduled Queues, or in other words regardless of campaign or destination domain.

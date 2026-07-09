@@ -106,7 +106,7 @@ KPrbKH5ubT9V9pLKawIDAQAB
 ```
 
 Once the public and private keys have been generated, create a DNS text record
-for `<SELECTOR>._domainkey.<DOMAIN>` (IE: `dkim1024._domainkey.example.com`). The
+for `<SELECTOR>._domainkey.<DOMAIN>` (e.g., `dkim1024._domainkey.example.com`). The
 DNS record contains several DKIM "tag=value" pairs and should be similar
 to the record shown below:
 
@@ -254,6 +254,6 @@ local signer = kumo.dkim.rsa_sha256_signer {
 }
 ```
 
-Where you want to enable dkim signing, simply call that signer in policy.
+Where you want to enable DKIM signing, call that signer in policy.
 
-IE:  `msg:dkim_sign(signer)`
+For example: `msg:dkim_sign(signer)`

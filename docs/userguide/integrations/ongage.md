@@ -2,7 +2,7 @@
 
 ## Introduction
 
-[Ongage](https://www.ongage.com/) is an email marketing platform that allows you to create and manage content and campaigns then deliver them through your favourite sending engine. This integration describes how to use KumoMTA as the delivery engine for Ongage.
+[Ongage](https://www.ongage.com/) is an email marketing platform that allows you to create and manage content and campaigns, then deliver them through your favorite sending engine. This integration describes how to use KumoMTA as the delivery engine for Ongage.
 
 ## Instructions
 
@@ -54,7 +54,7 @@ Now fill in all the required fields and test.
 * Select YES for “Use TLS”
 * The SMTP Port should match what your listener is listening on.  Remember to update your public firewall too.
 
-If you have done everything right, you will see a positive notification that credentials were verified.
+You should see a notification that credentials were verified.
 
-Pat yourself on the back then start using Ongage with KumoMTA.
+You can now start using Ongage with KumoMTA.
 

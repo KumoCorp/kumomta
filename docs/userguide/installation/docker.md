@@ -45,8 +45,8 @@ kumo.on('smtp_server_message_received', function(msg)
 end)
 ```
 
-When we launch the image, we want to mount our `init.lua` file into the image
-and tell it to use it.  The default location for this is `/opt/kumomta/etc/policy`:
+When you launch the container, mount your `init.lua` file into it so that
+kumod can use it.  The default location for this is `/opt/kumomta/etc/policy`:
 
 ```console
 $ sudo docker run --rm -p 2025:25 \

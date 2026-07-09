@@ -236,8 +236,8 @@ instead of running as root.
 ## Running from your source directory
 
 !!! note
-    This section is intended for people that are developing kumomta
-    itself, rather than people that just want to install and use kumomta
+    This section is intended for people who are developing KumoMTA
+    itself, rather than people who just want to install and use KumoMTA
 
 This command will bring `kumod` up to date (in case you made changes), and then try to launch it:
 

@@ -1,6 +1,6 @@
 # Credits
 
-While KumoMTA Corporation owns all copyrights in the KumoMTA software and the KumoMTA manual, we wish to thank the following developers, contributors, and supporters who have helped make KumoMTA what it is today.
+While Kumo Corp owns all copyrights in the KumoMTA software and the KumoMTA manual, we wish to thank the following developers, contributors, and supporters who have helped make KumoMTA what it is today.
 
 ## Developers
 

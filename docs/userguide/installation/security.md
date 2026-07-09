@@ -95,7 +95,7 @@ The default configuration in the shaping helper for outgoing SMTP is to enable
 advertises it, but only if the certificate is trusted.
 
 Unfortunately, there are a large number of destination sites with poorly
-maintained TLS, so many kumomta users choose to deploy with
+maintained TLS, so many KumoMTA users choose to deploy with
 `OpportunisticInsecure` TLS as a default, which will try to use TLS if
 available, but will allow communicating in clear text if there are any issues
 trying to establish the connection.  That rationale for this choice is that

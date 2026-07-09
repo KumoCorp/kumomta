@@ -2,7 +2,7 @@
 
 <iframe width="560" height="315" src="https://www.youtube.com/embed/Vxbe5ExMOXk?si=2SC7o8FObyvWqavl" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
 
-By default, the KumoMTA server will deliver messages as quickly as possible to each destination, with few restrictions regarding number of connections, number of messages per connection, or number of messages per second. Because unthrottled sending is unwelcome by most MailBox Providers (MBPs) it is highly recommended that KumoMTA users implement traffic shaping in order to limit sending speeds to something more aligned with the expectations of the individual MBPs.
+By default, the KumoMTA server will deliver messages as quickly as possible to each destination, with few restrictions regarding number of connections, number of messages per connection, or number of messages per second. Because unthrottled sending is unwelcome to most MailBox Providers (MBPs) it is highly recommended that KumoMTA users implement traffic shaping in order to limit sending speeds to something more aligned with the expectations of the individual MBPs.
 
 Common throttles include concurrent connection limits, messages per connection, rate of opening connections, and rate of sending messages. In addition, users can set options for various timeouts, queue sizes, and what encryption rules to use when communicating with remote hosts.
 
@@ -30,9 +30,9 @@ The remainder of this chapter is focused on the use of the `shaping.lua` helper.
 
 ## Traffic Shaping Automation
 
-Many of the largest MailBox Providers (MBPs) operate platforms that provide feedback to senders through their response codes during the SMTP conversation. This feedback will include information related to the traffic shaping patterns in use by the sender, including bounces for too many connections, too many messages per connection, sending rate, and sender reputation.
+Many of the largest MBPs operate platforms that provide feedback to senders through their response codes during the SMTP conversation. This feedback will include information related to the traffic shaping patterns in use by the sender, including bounces for too many connections, too many messages per connection, sending rate, and sender reputation.
 
-To ensure optimum throughput and deliverability, KumoMTA features Traffic Shaping Automation (TSA) that monitors responses from remote hosts and adjusts traffic shaping rules on a granular level in realtime.
+To ensure optimum throughput and deliverability, KumoMTA features Traffic Shaping Automation (TSA) that monitors responses from remote hosts and adjusts traffic shaping rules on a granular level in real time.
 
 ## In This Chapter
 

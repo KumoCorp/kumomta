@@ -1,4 +1,4 @@
-# Cancelling Queued Messages
+# Canceling Queued Messages
 
 Occasionally, you will have a bad send or for some reason need to cancel a send
 quickly. OOPS! It happens.  KumoMTA offers an API specifically for

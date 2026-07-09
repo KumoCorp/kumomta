@@ -14,9 +14,10 @@ User Guide.
 ## Configuring A Queue Handler for NATS
 
 When a message is ready to be queued, the `get_queue_config` event is fired, at
-which point we can specify the protocol of the queue, in this case,
-`custom_lua`. In the example below, we check whether the message is queued to
-the `nats` queue and act accordingly:
+which point you can specify the protocol of the queue, in this case,
+`custom_lua`. 
+
+The example below checks whether the message is queued to the `nats` queue and acts accordingly:
 
 ```lua
 kumo.on('init', function()

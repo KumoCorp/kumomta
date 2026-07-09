@@ -4,7 +4,7 @@
 
 This integration makes **Hornetsecurity Email Protection** and the
 **Hornetsecurity Filter Engine** available for KumoMTA to scan messages in
-real-time.
+real time.
 
 Only the "scan" function is implemented for in-line use with KumoMTA.
 
@@ -14,7 +14,7 @@ If you have not already done so, contact
 [Hornetsecurity](https://www.hornetsecurity.com/) for documentation, binary and
 license.  Configure Hornetsecurity Email Protection as per their documentation.
 
-EG:
+For example:
 
 ```console
 $ sudo dpkg -i hornetsecurity-emailprotection_5.0.0_amd64.deb
@@ -59,7 +59,7 @@ These API functions are not necessary and are not directly supported within Kumo
 
 ### hornet:scan
 
-To scan a message, use `result = hornet:scan(hornethost,extraparams,msg)` in any event that can access the full message content. EG: `smtp_server_message_received`
+To scan a message, use `result = hornet:scan(hornethost,extraparams,msg)` in any event that can access the full message content, e.g. `smtp_server_message_received`.
 
 Note that `hornet:connect` must be called prior to `hornet:scan`.
 ```txt
@@ -72,13 +72,14 @@ Inputs:
   msg: The KumoMTA message variable
 
 Returns: array containing the result of the scan
-IE: "200 OK: {"state":1,"score":250,"verdict":"spam:low","spamcause":"gggr...omh","elapsed":"14ms"}"
+e.g. "200 OK: {"state":1,"score":250,"verdict":"spam:low","spamcause":"gggr...omh","elapsed":"14ms"}"
 ```
 
 If the extra parameter `addheaders` = `true`, then the scan result headers will be added directly to the message before delivery.
 
+For example:
+
 ```txt
-IE:
 X-Hornet-spamcause: gggr...omh
 X-Hornet-verdict: malware
 X-Hornet-elapsed: 6ms

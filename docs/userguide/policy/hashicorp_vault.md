@@ -6,11 +6,11 @@
 
 Vault helps you keep passwords and other secrets separated from running code to help reduce the possibility of security leaks such as accidentally saving your API key in a GitHub repo.
 
-## Configuring KumoMTA to use Hashicorp Vault
+## Configuring KumoMTA to use HashiCorp Vault
 
 The documentation [in the reference manual](https://docs.kumomta.com/reference/keysource/?h=hashi#hashicorp-vault) is straightforward, but does have some nuance.
 
-In the example shown there and below, we are storing the DKIM signing key as a file in vault so it can be called dynamically, but including the vault token in the script is not a particularly secure way of doing things. It is recommended to place the vault address and token in environment variables that are accessible to KumoMTA. In most cases, that will mean modifying the systemd unit service file.
+In the example shown there and below, the DKIM signing key is stored as a file in Vault so it can be loaded dynamically. Including the Vault token in the script, however, is not particularly secure. It is recommended to place the vault address and token in environment variables that are accessible to KumoMTA. In most cases, that will mean modifying the systemd unit service file.
 
 ```lua
 local vault_signer = kumo.dkim.rsa_sha256_signer {
@@ -25,7 +25,7 @@ local vault_signer = kumo.dkim.rsa_sha256_signer {
 }
 ```
 
-To modify the systemd service file, use the built in edit command in systemctl. The [man page is here](https://man7.org/linux/man-pages/man1/systemctl.1.html), but Digital Ocean has an excellent [tutorial](https://www.digitalocean.com/community/tutorials/how-to-use-systemctl-to-manage-systemd-services-and-units) that explains it in plain English.
+To modify the systemd service file, use the built in edit command in systemctl. The [man page is here](https://man7.org/linux/man-pages/man1/systemctl.1.html), but DigitalOcean has an excellent [tutorial](https://www.digitalocean.com/community/tutorials/how-to-use-systemctl-to-manage-systemd-services-and-units) that explains it in plain English.
 
 The short version is that you can use `systemctl edit` to edit the file and add "Environment" values under the `[Service]` section so that those values will be available when the system service daemon starts KumoMTA. The example below modified the FULL service config. The `--full` option can be removed to modify a snippet instead of the full config.
 

@@ -8,6 +8,6 @@ DNS performance is critical, and if DNS performance is poor it can slow down the
 
 Due to the large volume of queries issued by KumoMTA it is strongly recommended that you use a local caching DNS resolver. Relying on external DNS providers introduces excess latency and potential service outages.
 
-On most Linux distributions the default resolver is [Bind](https://en.wikipedia.org/wiki/BIND). Not all distributions maintain a current version of Bind, updating to the latest stable release is strongly recommended.
+On most Linux distributions the default resolver is [BIND](https://en.wikipedia.org/wiki/BIND). Not all distributions maintain a current version of BIND; updating to the latest stable release is strongly recommended.
 
-Tuning Bind for performance is beyond the scope of this document but is recommended.
+Tuning BIND for performance is recommended, but is beyond the scope of this document.

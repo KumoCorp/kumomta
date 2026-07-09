@@ -39,7 +39,7 @@ max_connection_rate = "100/min"
 max_message_rate = "100/s"
 {% endcall %}
 
-The `mx_rollup` option indicates whether or not the settings should apply to the domain or the site_name. In the example above, even though foo.com is hosted by Yahoo! we want to override the message throttle for the foo.com domain. The `mx_rollup` option is true by default and only needs to be specified for domains that override the main site name entry.
+The `mx_rollup` option indicates whether or not the settings should apply to the domain or the site_name. In the example above, even though foo.com is hosted by Yahoo! the goal is to override the message throttle for the foo.com domain. The `mx_rollup` option is true by default and only needs to be specified for domains that override the main site name entry.
 
 While the default max_deliveries_per_connection is 100, it is overridden for yahoo.com (and all domains that share the same site name as the yahoo.com domain) to 20. The foo.com domain is part of the same site name as yahoo.com, but because mx_rollup is set to false the foo.com domain is treated separately and instead is set to 50. Because there is a sources entry for IP-1, the max_deliveries_per_connection is further overridden to 5 for that source's traffic in particular.
 
@@ -63,12 +63,12 @@ $ dig +short mx outlook.com
 5 outlook-com.olc.protection.outlook.com.
 ```
 
-We can see that the individual MX hostnames have the same
-`.olc.protection.outlook.com` suffix, so we can use that to identify the consumer MXes.
+You can see that the individual MX hostnames have the same
+`.olc.protection.outlook.com` suffix, so you can use that suffix to identify the consumer MXes.
 
 In addition, Microsoft has recently announced a change to the MX hostnames used by Office 365, where existing MX records will end in `.mail.protection.outlook.com` but any user who wishes to activate DANE to enhance security is to use an MX hostname that ends in `.mx.microsoft`.
 
-To address these three scenarios, we can use the following provider blocks:
+To address these three scenarios, you can use the following provider blocks:
 
 {% call toml_data() %}
 [provider."outlook"]
@@ -133,7 +133,7 @@ domain that blends multiple different providers together.
 !!! warning
     When a provider is defined, it does **_not_** merge the various `site_name` queues covered by the provider together, which means that the `connection_limit` and `max_message_rate` options will not be enforced across all matching queues, but will be applied separately to each ready queue covered by the provider block.
 
-The provider block introduces two new options: `provider_connection_limit` and `provider_max_message_rate`. When the `provider_connection_limit` and `provider_max_message_rate` options are set, the throttles defined will be enforced across all matching site_name ready queues for that provider. This is typically the desired behavior. One example of a scenario where the provider_ options would not be used is Mimecast: each regional MX pattern used by Mimecast is a separate set of servers in that region, but traffic shaping expectations are the same for all regions. To address this we use a provider block without the `provider_` throttles:
+The provider block introduces two new options: `provider_connection_limit` and `provider_max_message_rate`. When the `provider_connection_limit` and `provider_max_message_rate` options are set, the throttles defined will be enforced across all matching site_name ready queues for that provider. This is typically the desired behavior. One example of a scenario where the provider_ options would not be used is Mimecast: each regional MX pattern used by Mimecast is a separate set of servers in that region, but traffic shaping expectations are the same for all regions. To address this, use a provider block without the `provider_` throttles:
 
 {% call toml_data() %}
 [provider."mimecast"]
@@ -142,7 +142,7 @@ max_deliveries_per_connection = 100
 connection_limit = 10
 {% endcall %}
 
-In this case we can define traffic shaping rules that apply to Mimecast globally, but which are still enforced by each region's ready queue without limiting worldwide traffic.
+In this case you can define traffic shaping rules that apply to Mimecast globally, but which are still enforced by each region's ready queue without limiting worldwide traffic.
 
 !!! note
     Both the `provider_` and regular throttles can be set, where `connection_limit` would be for the individual site names, and `provider_connection_limit` would cap the overall connection count. The same would apply for `max_message_rate` and `provider_max_message_rate`. Combining the `provider_` and regular throttles should be done with care, as it is easy to over-constrain the server if the settings are not aligned correctly.
