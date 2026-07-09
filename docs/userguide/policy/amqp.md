@@ -1,3 +1,7 @@
+---
+description: Route KumoMTA log events and queued messages via AMQP, configuring a custom_lua queue handler to publish records to an AMQP broker.
+---
+
 # Routing Messages via AMQP
 
 In addition to local logging and Webhooks, KumoMTA can relay log events (or other queued messages) via AMQP.

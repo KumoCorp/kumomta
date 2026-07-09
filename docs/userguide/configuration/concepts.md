@@ -1,3 +1,7 @@
+---
+description: Understand KumoMTA configuration concepts, using Lua as config-as-code to define scopes, events, and message flow from injection through scheduled queues.
+---
+
 # Configuration Concepts
 
 <iframe width="560" height="315" src="https://www.youtube.com/embed/2jO2isq_YLg?si=6anX9R9RgH2aU2px" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>

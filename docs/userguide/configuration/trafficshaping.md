@@ -1,3 +1,7 @@
+---
+description: Traffic shaping is now its own chapter in the KumoMTA User Guide, with links to scoping, shaping files, rollups, resolution order, and automation.
+---
+
 # Configuring Traffic Shaping
 
 !!! note

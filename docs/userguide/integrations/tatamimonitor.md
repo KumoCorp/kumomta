@@ -1,3 +1,7 @@
+---
+description: Integrate Tatami Monitor with KumoMTA for real-time email infrastructure monitoring and alerting, using a webhook log hook to stream event data.
+---
+
 # Tatami Monitor integration
 
 ## Introduction

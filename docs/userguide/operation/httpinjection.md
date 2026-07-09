@@ -1,3 +1,7 @@
+---
+description: Inject messages into KumoMTA over HTTP using a configured HTTP listener, controlling the IPs and ports available for message submission via the API.
+---
+
 # Injecting Using HTTP
 
 KumoMTA will listen for message injection in any

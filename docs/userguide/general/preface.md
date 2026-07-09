@@ -1,3 +1,7 @@
+---
+description: Preface and legal notices for the KumoMTA documentation, including Apache License 2.0 terms and copyright for the KumoMTA Message Transfer Agent.
+---
+
 # Preface and Legal Notices
 
 This is the Documentation for the KumoMTA Message Transfer Agent.

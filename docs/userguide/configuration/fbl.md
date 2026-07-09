@@ -1,3 +1,7 @@
+---
+description: Configure feedback loop (FBL) processing in KumoMTA to receive and log ARF complaint reports, inject tracking headers, and suppress recipients who report spam.
+---
+
 # Configuring Feedback Loop Processing
 
 Feedback Loops are provided by several mailbox providers, including AOL,

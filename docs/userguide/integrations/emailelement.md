@@ -1,3 +1,7 @@
+---
+description: Integrate EmailElement with KumoMTA to power multi-brand email marketing campaigns, configuring KumoMTA as an SMTP send integration for the platform.
+---
+
 # EmailElement KumoMTA Integration
 
 ## Introduction

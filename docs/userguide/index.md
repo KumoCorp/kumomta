@@ -1,3 +1,7 @@
+---
+description: The KumoMTA User Guide covers installing, configuring, and administering the KumoMTA MTA, from core concepts through deployment for high-volume email sending.
+---
+
 # User Guide
 
 This is the KumoMTA User Guide.

@@ -1,3 +1,7 @@
+---
+description: Run the KumoProxy SOCKS5 proxy server to share sending IPs across a KumoMTA cluster, including installing it as a systemd service to survive restarts.
+---
+
 # Using the KumoProxy SOCKS5 proxy utility
 
 KumoMTA comes with its own SOCKS5 proxy server to assist with deployment of cluster environments.

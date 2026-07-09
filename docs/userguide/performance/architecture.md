@@ -1,3 +1,7 @@
+---
+description: Architect KumoMTA for performance and scalability, weighing CPU choice, horizontal scaling, dynamic cluster sizing, disk, network, and role separation.
+---
+
 # Architecting for Performance and Scalability
 
 For lower volume environments it may be practical to run your email infrastructure on a single KumoMTA instance, especially in a virtualized environment where single-node fault tolerance is relatively high.

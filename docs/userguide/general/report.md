@@ -1,3 +1,7 @@
+---
+description: Report bugs in KumoMTA by verifying the issue against the manual and changelog, searching existing GitHub issues, and submitting an effective bug report.
+---
+
 
 # How to Report Bugs
 

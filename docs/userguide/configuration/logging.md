@@ -1,3 +1,7 @@
+---
+description: Configure logging in KumoMTA, including compressed JSON logs, segment rotation, custom log formats, and per-record-type settings for message event data.
+---
+
 # Configuring Logging
 
 By default, KumoMTA writes to a ([zstd](https://en.wikipedia.org/wiki/Zstd)

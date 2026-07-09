@@ -1,3 +1,7 @@
+---
+description: Tune Linux for KumoMTA performance by adjusting sysctl.conf parameters for file handles, memory buffers, and networking to maximize resource utilization.
+---
+
 # Linux Tuning for Performance
 
 KumoMTA performance can be optimized by fine tuning system parameters. The parameters listed below are a starting point: research each one and tune it as needed for your own system.

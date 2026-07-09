@@ -1,3 +1,7 @@
+---
+description: Configure sending IPs in KumoMTA using egress source and pool definitions, distributing sends with weighted round robin to isolate reputation and warm IPs.
+---
+
 # Configuring Sending IPs
 
 By default, all traffic injected to the KumoMTA server will be delivered using

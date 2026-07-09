@@ -1,3 +1,7 @@
+---
+description: Check KumoMTA server status with systemctl and kcli, monitor the running service, and set up a Grafana dashboard to track health and activity.
+---
+
 # Getting Server Status
 
 Once KumoMTA is installed, you can check on the server status with systemctl.

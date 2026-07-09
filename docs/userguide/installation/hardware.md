@@ -1,3 +1,7 @@
+---
+description: Plan KumoMTA hardware, sizing CPU, RAM, fast local storage, and network interfaces to support high-volume sending of millions of messages per hour.
+---
+
 # Hardware Considerations
 
 ## Selecting a server or Instance

@@ -1,3 +1,7 @@
+---
+description: Configure message routing in KumoMTA to smarthost or relay mail, overriding routing domains per message or per queue and handling IPv4 and IPv6 literals.
+---
+
 # Configuring Message Routing
 
 If you need to "smarthost" or route messages through another server, you have

@@ -1,3 +1,7 @@
+---
+description: A quickstart tutorial for experienced MailOps admins to install and configure KumoMTA on Rocky Linux 9, covering prerequisites and a fast non-production setup.
+---
+
 # Quickstart Tutorial
 
 !!!warning

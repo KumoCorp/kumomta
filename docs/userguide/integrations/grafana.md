@@ -1,3 +1,7 @@
+---
+description: Integrate Grafana with KumoMTA to visualize metrics and generate alerts, consuming the KumoMTA data feed exposed through Prometheus for dashboards.
+---
+
 # Grafana integration
 
 ## Introduction

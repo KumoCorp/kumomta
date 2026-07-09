@@ -1,3 +1,7 @@
+---
+description: Scale KumoMTA clusters up and down in response to sending patterns, monitoring node liveness and draining the spool safely before taking a node offline.
+---
+
 # Scaling Up and Down
 
 One advantage of horizontal scaling in virtualized environments is that resources can be conserved by scaling the KumoMTA cluster up and down in response to sending patterns.

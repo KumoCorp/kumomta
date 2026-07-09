@@ -1,3 +1,7 @@
+---
+description: Select an operating system for KumoMTA, covering officially supported platforms and additional community-tested Linux distributions for building from source.
+---
+
 # Operating System Selection and Configuration
 
 Pre-built packages are provided for the officially supported platforms listed on the [Installing on Linux](linux.md) page. If you build from source, a wide variety of operating systems are possible.

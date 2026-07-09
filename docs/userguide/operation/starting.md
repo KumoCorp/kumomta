@@ -1,3 +1,7 @@
+---
+description: Start KumoMTA as a systemd service or manually with kumod, enabling it to run at boot and pointing it at your init.lua policy script.
+---
+
 # Starting KumoMTA
 
 Once KumoMTA has been installed and an initial policy script is in place, the

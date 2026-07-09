@@ -1,3 +1,7 @@
+---
+description: Configure HTTP listeners in KumoMTA with kumo.start_http_listener, setting IP, port, trusted hosts, and TLS to expose the injection and management HTTP API.
+---
+
 # Configuring HTTP Listeners
 
 An HTTP listener can be defined with a `kumo.start_http_listener` function.  In

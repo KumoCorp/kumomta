@@ -1,3 +1,7 @@
+---
+description: Automate KumoMTA traffic shaping with the tsa-daemon, monitoring mailbox provider responses to adjust connection, rate, and volume rules in real time.
+---
+
 # Traffic Shaping Automation
 
 Many of the largest MailBox Providers (MBPs) operate platforms that provide feedback to senders through their response codes during the SMTP conversation. This feedback will include information related to the traffic shaping patterns in use by the sender, including bounces for too many connections, too many messages per connection, sending rate, and sender reputation.

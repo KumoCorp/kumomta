@@ -1,3 +1,7 @@
+---
+description: Route KumoMTA log events and queued messages via NATS JetStream, configuring a custom_lua queue handler to publish records to NATS.
+---
+
 # Routing Messages via NATS
 {{since('2026.03.04-bb93ecb1')}}
 

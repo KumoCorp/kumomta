@@ -1,3 +1,7 @@
+---
+description: Understand the order and precedence KumoMTA uses to resolve traffic shaping options, merging default, provider, site name, domain, and source blocks.
+---
+
 # Shaping Option Resolution Order and Precedence
 
 When resolving the configuration for a site, the options are resolved in the

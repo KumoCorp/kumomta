@@ -1,3 +1,7 @@
+---
+description: Configure message spooling in KumoMTA, choosing between LocalDisk and the recommended RocksDB spool store for separate message data and metadata storage.
+---
+
 # Configuring Spooling
 
 KumoMTA uses separate storage areas for metadata and message contents, named

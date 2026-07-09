@@ -1,3 +1,7 @@
+---
+description: Use KumoMTA Lua policy helpers to configure common use cases from TOML and JSON files, simplifying config-as-code for DKIM, queues, domains, and sources.
+---
+
 # Lua Policy Helpers
 
 KumoMTA is designed around the concept of configuration as code, where all configuration of KumoMTA is implemented through Lua policy rather than static text files.

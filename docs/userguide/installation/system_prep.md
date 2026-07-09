@@ -1,3 +1,7 @@
+---
+description: Prepare your system before installing KumoMTA, configuring firewall security groups, the required SMTP and HTTP ports, and applying the latest OS patches.
+---
+
 # System Preparation
 
 Regardless of what OS and hardware you select, there are some basic things you should do to prepare your system before installing KumoMTA. While veteran system admins will probably have done much of this already as a standard course of building a server, it is worth noting these to save you some stress later.

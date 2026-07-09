@@ -1,3 +1,7 @@
+---
+description: Configure MX rollups and provider blocks in KumoMTA shaping, controlling option inheritance by site name and pattern-matching domains with mx_rollup settings.
+---
+
 # MX Rollups and Provider Blocks
 
 ## MX Rollups and Option Inheritance

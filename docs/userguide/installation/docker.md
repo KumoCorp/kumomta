@@ -1,3 +1,7 @@
+---
+description: Install KumoMTA in a Docker container using the official ghcr.io images, creating an init.lua policy script to start the MTA in stable or dev releases.
+---
+
 # Installing KumoMTA in a Docker container
 
 Our CI builds the latest version of our image and publishes it

@@ -1,3 +1,7 @@
+---
+description: Build KumoMTA from source when prebuilt packages are unavailable, covering prerequisites, Rust setup, compiling, packaging, and creating the initial config.
+---
+
 # Building From Source
 
 If pre-built binaries are not provided for your system of choice, or if you'd

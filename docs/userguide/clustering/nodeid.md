@@ -1,3 +1,7 @@
+---
+description: Configure the KumoMTA NodeId, a per-instance UUID that identifies nodes in a cluster, aids reporting, and persists or falls back to a generated ID.
+---
+
 # Node ID
 
 Each KumoMTA (`kumod`) instance can have its own `NodeId`, which is a UUID

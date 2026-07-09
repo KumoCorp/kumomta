@@ -1,3 +1,7 @@
+---
+description: Route KumoMTA log events and queued messages via Apache Kafka, configuring a custom_lua queue handler to publish records to Kafka topics.
+---
+
 # Routing Messages via Kafka
 
 {{since('2023.12.28-63cde9c7')}}

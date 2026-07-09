@@ -1,3 +1,7 @@
+---
+description: Explore the KumoMTA architecture, built in Rust on Tokio for modern multi-core systems, with a high-performance RocksDB spool and advanced message queueing.
+---
+
 # KumoMTA Architecture
 
 KumoMTA was built with large-scale sending in mind.  Here are a few key ideas

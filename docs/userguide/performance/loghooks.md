@@ -1,3 +1,7 @@
+---
+description: Understand the performance implications of KumoMTA log hooks, tuning traffic shaping and batching for webhook, AMQP, and Kafka log event delivery.
+---
+
 # The Performance Implications of Log Hooks
 
 KumoMTA supports the use of [webhooks](../operation/webhooks.md) for the delivery of log events, as well as routing events via [AMQP](../policy/amqp.md) and [Kafka](../policy/kafka.md).

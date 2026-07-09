@@ -1,3 +1,7 @@
+---
+description: Integrate the Ongage email marketing platform with KumoMTA as your delivery engine, configuring SMTP AUTH with TLS and the required sending DNS records.
+---
+
 # Ongage SMTP integration  
 
 ## Introduction

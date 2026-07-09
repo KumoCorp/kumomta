@@ -1,3 +1,7 @@
+---
+description: Configure queue management in KumoMTA with the queue.lua helper, assigning tenant and campaign, setting message age and retry timing, and egress pools.
+---
+
 # Configuring Queue Management
 
 After a message is injected, it is placed into a Scheduled Queue based on the

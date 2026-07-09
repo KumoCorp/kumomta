@@ -1,3 +1,7 @@
+---
+description: Explore KumoMTA integrations with partner and adjacent systems, from open source tools to paid services, for marketing, monitoring, and deliverability.
+---
+
 # Integrations
 
 This chapter is focused on partner and adjacent systems integrations.

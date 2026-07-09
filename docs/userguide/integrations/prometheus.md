@@ -1,3 +1,7 @@
+---
+description: Add observability to KumoMTA with Prometheus, collecting and storing time-series metrics and labels for monitoring and alerting on your email infrastructure.
+---
+
 # Observability with Prometheus 
 
 ## Introduction 

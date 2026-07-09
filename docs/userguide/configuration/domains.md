@@ -1,3 +1,7 @@
+---
+description: Configure inbound and relay domains in KumoMTA with the listener_domains.lua helper to control relaying, bounce processing, and feedback loop reception.
+---
+
 # Configuring Inbound and Relay Domains
 
 When listening via SMTP, it is common to simply define a list of `relay_hosts`

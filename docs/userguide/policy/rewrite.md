@@ -1,3 +1,7 @@
+---
+description: Rewrite remote server responses in KumoMTA with the smtp_client_rewrite_delivery_status event, transposing temporary failures to permanent bounces and back.
+---
+
 # Rewriting Remote Server Responses
 
 {{since('2023.11.28-b5252a41')}}

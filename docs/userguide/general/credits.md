@@ -1,3 +1,7 @@
+---
+description: Credits for KumoMTA, recognizing the developers, documenters, community contributors, supporters, and open source tools behind the MTA and its manual.
+---
+
 # Credits
 
 While Kumo Corp owns all copyrights in the KumoMTA software and the KumoMTA manual, we wish to thank the following developers, contributors, and supporters who have helped make KumoMTA what it is today.

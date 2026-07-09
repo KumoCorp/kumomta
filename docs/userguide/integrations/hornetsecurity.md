@@ -1,3 +1,7 @@
+---
+description: Integrate Hornetsecurity Email Protection with KumoMTA to scan messages for spam and malware in real time using the Hornetsecurity Filter Engine.
+---
+
 # Hornetsecurity Spam and Malware Protection integration
 
 ## Introduction

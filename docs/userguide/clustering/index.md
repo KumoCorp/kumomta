@@ -1,3 +1,7 @@
+---
+description: Cluster KumoMTA for high-volume sending, comparing vertical and horizontal scaling, shared configuration, egress proxies, and managing shared secrets.
+---
+
 # Clustering
 
 KumoMTA is designed to be used in high-volume sending environments where cluster capabilities are essential to effective and manageable scaling.

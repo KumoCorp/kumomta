@@ -1,3 +1,7 @@
+---
+description: Configure KumoMTA traffic shaping with TOML or JSON files, covering the default and community shaping.toml, custom files, and configuration precedence.
+---
+
 # Traffic Shaping Configuration Files
 
 The `shaping.lua` policy reads one or more configuration files in either TOML or JSON formats.

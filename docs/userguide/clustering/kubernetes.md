@@ -1,3 +1,7 @@
+---
+description: Deploy KumoMTA on Kubernetes with a community example, running horizontally scaled MTA clusters in orchestrated container environments.
+---
+
 # Deploying KumoMTA on Kubernetes
 
 <iframe width="560" height="315" src="https://www.youtube.com/embed/XYM810E3UDs?si=av_MfACui3w-wsOw" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>

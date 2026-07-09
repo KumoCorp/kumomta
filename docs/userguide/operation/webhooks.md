@@ -1,3 +1,7 @@
+---
+description: Publish KumoMTA log events via webhooks for near real-time integration, using the log_hooks.lua helper and durable queuing to deliver events to HTTP endpoints.
+---
+
 # Publishing Log Events Via Webhooks
 
 While logs are an invaluable resource for monitoring and troubleshooting mail

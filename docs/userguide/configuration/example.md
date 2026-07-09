@@ -1,3 +1,7 @@
+---
+description: Review a complete example KumoMTA init.lua policy covering common use cases, a reference for building your own functional server configuration.
+---
+
 # An Example Configuration
 
 KumoMTA ships with only a [minimal `init.lua`

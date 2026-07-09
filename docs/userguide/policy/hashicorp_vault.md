@@ -1,3 +1,7 @@
+---
+description: Use HashiCorp Vault with KumoMTA to securely store DKIM signing keys and secrets outside your policy code, loading them dynamically at runtime.
+---
+
 # Using HashiCorp Vault
 
 ## Introduction

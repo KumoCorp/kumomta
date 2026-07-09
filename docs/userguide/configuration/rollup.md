@@ -1,3 +1,7 @@
+---
+description: Configure queue rollup in KumoMTA to group Ready Queues by MX site name, with alternative suffix- and IP-based schemes for domains like Outlook and Hotmail.
+---
+
 # Configuring Queue Rollup
 
 By default, KumoMTA will perform automatic "rollup" of the Ready Queue based on

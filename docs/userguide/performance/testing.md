@@ -1,3 +1,7 @@
+---
+description: Performance test KumoMTA safely against a smart sink instead of the public internet, generating realistic traffic with traffic-gen to tune throughput.
+---
+
 # Performance Testing
 Performance testing **must not** be performed against the public internet, as large volumes of test messages can be catastrophic for sending reputation. This isn't to say that one-off test messages will be a problem, but that sending in bulk can cause serious issues.
 

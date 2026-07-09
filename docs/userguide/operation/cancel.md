@@ -1,3 +1,7 @@
+---
+description: Cancel queued messages in KumoMTA with the Admin Bounce API or kcli, targeting a specific campaign, queue, or tenant to stop a bad send with precision.
+---
+
 # Canceling Queued Messages
 
 Occasionally, you will have a bad send or for some reason need to cancel a send

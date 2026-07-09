@@ -1,3 +1,7 @@
+---
+description: Configure SMTP listeners in KumoMTA with kumo.start_esmtp_listener, defining IP, port, banner, relay hosts, and SMTP AUTH to secure inbound injection.
+---
+
 # Configuring SMTP Listeners
 
 An SMTP listener can be defined using the `kumo.start_esmtp_listener` function.

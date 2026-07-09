@@ -1,3 +1,7 @@
+---
+description: Reference the KumoMTA command-line utilities in /opt/kumomta/sbin, including validate-shaping, resolve-shaping-domain, traffic-gen, tailer, and more.
+---
+
 # Supporting utilities
 
 KumoMTA comes with several utilities that are useful for debugging or supporting KumoMTA.  These are located in `/opt/kumomta/sbin/`.

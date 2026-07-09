@@ -1,3 +1,7 @@
+---
+description: Troubleshoot common KumoMTA issues by validating your configuration, testing injection with Swaks, tracing SMTP conversations, and reviewing logs.
+---
+
 # Troubleshooting KumoMTA
 
 There are several things that can go wrong, especially when first installing KumoMTA. This page is intended to help with troubleshooting common issues.

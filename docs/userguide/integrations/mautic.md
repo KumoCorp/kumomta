@@ -1,3 +1,7 @@
+---
+description: Integrate the open source marketing automation platform Mautic with KumoMTA, using SMTP AUTH to inject and deliver email campaigns through KumoMTA.
+---
+
 # Mautic integration
 
 ## Introduction

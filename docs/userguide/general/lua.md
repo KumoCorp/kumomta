@@ -1,3 +1,7 @@
+---
+description: Learn Lua fundamentals for KumoMTA configuration, a quick primer on syntax, comments, and variables to help you read and write KumoMTA policy scripts.
+---
+
 # Lua Fundamentals
 
 Lua is Portuguese for moon.  It is also the name of the scripting language we use in KumoMTA. Because it is a name, Lua is always capitalized.

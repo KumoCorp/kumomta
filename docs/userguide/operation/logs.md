@@ -1,3 +1,7 @@
+---
+description: View KumoMTA logs stored as compressed, date-stamped segments in /var/log/kumomta, reading them with the tailer utility or by decompressing files manually.
+---
+
 # Viewing Logs
 
 An important part of routine operations is checking logs. KumoMTA compressed

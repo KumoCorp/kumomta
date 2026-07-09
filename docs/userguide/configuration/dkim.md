@@ -1,3 +1,7 @@
+---
+description: Configure DKIM signing in KumoMTA to authenticate outbound email, generating keys and signing messages with the dkim_sign.lua helper or custom Lua policy.
+---
+
 # Configuring DKIM Signing
 
 ## What it is

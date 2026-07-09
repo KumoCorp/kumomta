@@ -1,3 +1,7 @@
+---
+description: Route KumoMTA messages via HTTP requests with custom Lua, assembling API calls to relay mail through third-party HTTP email APIs such as Mailgun.
+---
+
 # Routing Messages via HTTP Request
 
 Some sending environments use a mixture of different services to send messages, and while it's possible to relay messages through many services using SMTP, some services are only/better served via an HTTP API.

@@ -1,3 +1,7 @@
+---
+description: Deliver messages from KumoMTA using SMTP AUTH, configuring an egress path with credentials or a keysource to authenticate when relaying through upstream hosts.
+---
+
 # Delivering Messages Using SMTP AUTH
 
 While not used when delivering messages to remote hosts under normal circumstances, there are scenarios where the KumoMTA server must authenticate when relaying mail. Some examples include:

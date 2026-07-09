@@ -1,3 +1,7 @@
+---
+description: Aggregate event data across a KumoMTA cluster using webhooks, AMQP, and Kafka instead of collecting and parsing local log files on every node.
+---
+
 # Aggregating Event Data
 
 Clustered environments typically don't aggregate log files in order to collect event data, instead either processing the log files locally and then pushing the event data out, or using webhooks.

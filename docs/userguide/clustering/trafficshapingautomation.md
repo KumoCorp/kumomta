@@ -1,3 +1,7 @@
+---
+description: Deploy KumoMTA Traffic Shaping Automation in a cluster, configuring the tsa-daemon and trusted hosts so every node processes tempfail and permfail events.
+---
+
 # Deploying Traffic Shaping Automation
 
 The `tsa-daemon` process communicates with KumoMTA nodes to process tempfail and permfail events and issue commands to the KumoMTA nodes based on those events.

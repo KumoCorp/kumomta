@@ -1,3 +1,7 @@
+---
+description: Integrate the open source Rspamd spam filter with KumoMTA, adding message scanning to your init.lua policy to filter outbound or relayed email.
+---
+
 # Rspamd Spam filter
 
 ## Introduction

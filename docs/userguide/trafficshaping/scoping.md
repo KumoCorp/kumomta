@@ -1,3 +1,7 @@
+---
+description: Scope KumoMTA traffic shaping rules using the get_egress_path_config event, keying configuration on routing domain, egress source, and site name.
+---
+
 # Scoping Traffic Shaping Rules
 
 When KumoMTA needs to connect to a remote host to deliver messages, the [get_egress_path_config](../../reference/events/get_egress_path_config.md) event is fired in order to determine what configuration to use for that specific pathway.

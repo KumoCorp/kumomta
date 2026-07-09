@@ -1,3 +1,7 @@
+---
+description: Use the kcli command-line client to administer KumoMTA over its HTTP API, monitoring queues, managing bounces, and tracing inbound and outbound SMTP.
+---
+
 # Using the kcli Command-Line Client
 
 KumoMTA comes with several API endpoints to make administration of the server

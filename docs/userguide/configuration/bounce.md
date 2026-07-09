@@ -1,3 +1,7 @@
+---
+description: Configure bounce classification and out-of-band (OOB) bounce processing in KumoMTA, capturing SMTP response and enhanced status codes in your logs.
+---
+
 # Configuring Bounce Classification
 
 By default, the logs will contain extensive information on the responses

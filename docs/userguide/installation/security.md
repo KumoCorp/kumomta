@@ -1,3 +1,7 @@
+---
+description: Secure your KumoMTA installation with guidance on service accounts, privilege dropping, directory permissions, SMTP relaying, authentication, and TLS.
+---
+
 # Security Considerations
 
 This page summarizes the key considerations for deploying a secure installation of KumoMTA.

@@ -1,3 +1,7 @@
+---
+description: Shape KumoMTA outbound traffic to match mailbox provider limits, configuring egress paths with connection, message rate, and concurrency controls.
+---
+
 # Traffic Shaping
 
 <iframe width="560" height="315" src="https://www.youtube.com/embed/Vxbe5ExMOXk?si=2SC7o8FObyvWqavl" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>

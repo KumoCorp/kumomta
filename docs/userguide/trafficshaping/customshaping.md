@@ -1,3 +1,7 @@
+---
+description: Write custom KumoMTA traffic shaping files in TOML or JSON to add your own domain rules alongside the team- and community-maintained shaping.toml files.
+---
+
 # Writing Custom Shaping Files
 
 ## Writing Your Own Traffic Shaping Rules

@@ -1,3 +1,7 @@
+---
+description: Understand how messages flow through KumoMTA queues and processing stages, the key to tuning throughput and resource usage in high-volume deployments.
+---
+
 # Understanding Message Flows
 Most KumoMTA performance tuning is going to involve tuning the flow of messages through KumoMTA and how each stage of the flow can affect performance. This involves understanding both how the queues work as well as the various processing that occurs.
 

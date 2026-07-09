@@ -1,3 +1,7 @@
+---
+description: Optimize DNS performance for KumoMTA with a local caching resolver, since DNS lookups are central to validating, queueing, and routing every message.
+---
+
 # DNS Performance
 
 DNS is at the core of KumoMTA's processing pathway, it's used to validate incoming messages and their destination and to define queueing, and it's needed to successfully route messages to their MXes.

@@ -1,3 +1,7 @@
+---
+description: Inject messages into KumoMTA over SMTP using a configured ESMTP listener, controlling the IP addresses and ports available for message submission.
+---
+
 # Injecting Using SMTP
 
 KumoMTA will listen for message injection in any

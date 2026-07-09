@@ -1,3 +1,7 @@
+---
+description: Explore KumoMTA deployment architectures for single-node, multi-node, and many-node clusters, including egress proxies for sharing IPs when sending at scale.
+---
+
 # Deployment Architecture
 
 ## Single Node

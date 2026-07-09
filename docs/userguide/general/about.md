@@ -1,3 +1,7 @@
+---
+description: About the KumoMTA User Guide, who it is for, the assumed SMTP and email infrastructure knowledge, and the typographical conventions used throughout.
+---
+
 # About This Manual
 
 This is the User Guide for the KumoMTA SMTP server. For license information, see the Legal Notices.
