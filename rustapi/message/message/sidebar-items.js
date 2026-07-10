@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MatchMode","NameTransform"],"struct":["ImportHeaderSpec","Message","MessageList","MessageListIter","WeakMessage"]};

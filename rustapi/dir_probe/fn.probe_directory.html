@@ -1,0 +1,35 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Verify that the calling process can perform the file operations that a RocksDB or maildir style store relies on within `dir`: create a file, write and fsync it, atomically rename it into place, and unlink it."><title>probe_directory in dir_probe - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-ca0dd0c4.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="dir_probe" data-themes="" data-resource-suffix="" data-rustdoc-version="1.92.0 (ded5c06cf 2025-12-08)" data-channel="1.92.0" data-search-js="search-d69d8955.js" data-stringdex-js="stringdex-c3e638e9.js" data-settings-js="settings-c38705f0.js" ><script src="../static.files/storage-e2aeef58.js"></script><script defer src="sidebar-items.js"></script><script defer src="../static.files/main-ce535bd0.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-263c88ec.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc fn"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">probe_directory</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../dir_probe/index.html">dir_<wbr>probe</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><div id="rustdoc-modnav"></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="index.html">dir_probe</a></div><h1>Function <span class="fn">probe_<wbr>directory</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/dir_probe/lib.rs.html#47-107">Source</a> </span></div><pre class="rust item-decl"><code>pub fn probe_directory(dir: &amp;<a class="struct" href="https://doc.rust-lang.org/1.92.0/std/path/struct.Path.html" title="struct std::path::Path">Path</a>) -&gt; <a class="type" href="https://docs.rs/anyhow/1.0.102/anyhow/type.Result.html" title="type anyhow::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.92.0/std/primitive.unit.html">()</a>&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Verify that the calling process can perform the file operations that
+a RocksDB or maildir style store relies on within <code>dir</code>: create a
+file, write and fsync it, atomically rename it into place, and
+unlink it.</p>
+<p>It also cross-checks the kernel’s <code>access(2)</code> view of the renamed
+file against the <code>open(2)</code> view.  That cross-check only bites when
+the real and effective uids differ; when they are the same (tests,
+non-root deploys, plain root) both syscalls consult one identity and
+can never disagree, so it is inert.  It exists for the specific
+failure mode of a privilege drop that keeps the real uid as root (to
+retain a capability) while lowering the effective uid to a service
+user:</p>
+<ul>
+<li><code>access(2)</code> answers using the real uid (root here).</li>
+<li><code>open(2)</code>, <code>rename(2)</code>, and <code>unlink(2)</code> act using the effective
+(filesystem) uid (the service user here).</li>
+<li>On a directory whose group and other permission bits have been
+stripped (for example a root-owned <code>mkdir</code> under a <code>077</code> umask,
+later <code>chown</code>ed to the service user), those two identities
+disagree about whether a file is reachable.</li>
+</ul>
+<p>RocksDB decides whether to open an existing database or create a
+fresh one via an <code>access(2)</code>-style existence check, then does its
+I/O via <code>open</code>/<code>rename</code>/<code>unlink</code>.  When the two disagree it silently
+creates a brand new database and aborts on the pre-existing
+write-ahead log, which the operator sees only as an opaque
+“wal_dir contains existing log file” failure on the second startup.
+Running this probe first turns that late, cryptic corruption into an
+early, actionable error.</p>
+<p>The check runs as whatever real/effective/filesystem identity the
+process currently has, so it needs no assumptions about which user
+or which permission bits are “correct”.  On failure the returned
+error names the directory owner, mode, and the process ids so the
+operator can see the mismatch.</p>
+</div></details></section></div></main></body></html>
