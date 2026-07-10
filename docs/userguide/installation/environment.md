@@ -1,7 +1,6 @@
 ---
-description: Choose a server environment for KumoMTA across AWS, Azure, GCP, VMware, bare metal, and other tested platforms, noting outbound port 25 restrictions in the cloud.
+description: "Choose a server environment for KumoMTA — AWS, Azure, GCP, VMware, bare metal, and more — noting outbound port 25 restrictions on cloud platforms."
 ---
-
 # Server Environment
 
 KumoMTA can be installed in a physical server, public cloud, or private cloud.  The following environments have all been tested.

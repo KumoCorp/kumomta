@@ -1,7 +1,6 @@
 ---
-description: Check inbound SMTP authentication in KumoMTA over TLS, validating relay users against a static table, a datasource, or a keystore to protect your infrastructure.
+description: "Check inbound SMTP AUTH in KumoMTA over TLS, validating relay users against a static table, a datasource, or a keystore to protect your infrastructure."
 ---
-
 # Checking Inbound SMTP Authentication
 
 When hosting relay users it is important to protect your infrastructure from malicious senders, often without the ability to allowlist the IP addresses of legitimate users. In such environments, it is critical to set up SMTP Authentication to validate injecting hosts before relaying their mail.
