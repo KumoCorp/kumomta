@@ -11,7 +11,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use chrono::{DateTime, Utc};
 use kumo_api_types::shaping::{
-    Action, EgressPathConfigValueUnchecked, Regex, Rule, Shaping, Trigger,
+    Action, EgressPathConfigValueUnchecked, MatchedRule, Rule, Shaping, Trigger,
 };
 use kumo_api_types::tsa::{
     ReadyQSuspension, SchedQBounce, SchedQSuspension, SubscriptionItem, SuspensionEntry,
@@ -61,22 +61,6 @@ pub enum PreferRollup {
     No,
 }
 
-pub fn regex_list_to_string(list: &[Regex]) -> String {
-    if list.len() == 1 {
-        list[0].to_string()
-    } else {
-        let mut result = "(".to_string();
-        for (n, r) in list.iter().enumerate() {
-            if n > 0 {
-                result.push(',');
-            }
-            result.push_str(&r.to_string());
-        }
-        result.push(')');
-        result
-    }
-}
-
 #[derive(PartialEq, Clone, Copy)]
 enum UseCampaign {
     Yes,
@@ -92,6 +76,7 @@ enum UseTenant {
 async fn create_bounce(
     action_hash: &ActionHash,
     rule: &Rule,
+    matched_regex: &str,
     record: &JsonLogRecord,
     use_tenant: UseTenant,
     use_campaign: UseCampaign,
@@ -119,8 +104,7 @@ async fn create_bounce(
     };
     let mut reason = format!(
         "automation rule: {} domain={}",
-        regex_list_to_string(&rule.regex),
-        components.domain
+        matched_regex, components.domain
     );
     if let Some(tenant) = &tenant {
         reason.push_str(&format!(" tenant={tenant}"));
@@ -162,6 +146,7 @@ async fn create_tenant_suspension(
     action_hash: &ActionHash,
     rule_hash: &str,
     rule: &Rule,
+    matched_regex: &str,
     record: &JsonLogRecord,
     use_campaign: UseCampaign,
     events: &mut Vec<SubscriptionItem>,
@@ -184,8 +169,7 @@ async fn create_tenant_suspension(
     let expires = record.timestamp + chrono::Duration::from_std(rule.duration)?;
     let mut reason = format!(
         "automation rule: {} tenant={tenant} domain={}",
-        regex_list_to_string(&rule.regex),
-        components.domain
+        matched_regex, components.domain
     );
     if let Some(campaign) = &campaign {
         reason.push_str(&format!(" campaign={campaign}"));
@@ -227,12 +211,13 @@ async fn create_ready_q_suspension(
     action_hash: &ActionHash,
     rule_hash: &str,
     rule: &Rule,
+    matched_regex: &str,
     record: &JsonLogRecord,
     source: &str,
     events: &mut Vec<SubscriptionItem>,
 ) -> anyhow::Result<()> {
     let expires = record.timestamp + chrono::Duration::from_std(rule.duration)?;
-    let reason = format!("automation rule: {}", regex_list_to_string(&rule.regex));
+    let reason = format!("automation rule: {matched_regex}");
 
     {
         let reason = reason.to_string();
@@ -313,21 +298,25 @@ async fn publish_log_v1_impl(
         let matches = shaping.match_rules(&record).await?;
 
         for m in &matches {
-            let expires = record.timestamp + chrono::Duration::from_std(m.duration)?;
+            let MatchedRule {
+                rule,
+                matched_regex,
+            } = m;
+            let expires = record.timestamp + chrono::Duration::from_std(rule.duration)?;
             if expires <= *now {
                 // Record was perhaps delayed and is already expired, no sense recording it now
                 continue;
             }
 
-            let matching_scope = MatchingScope::from_rule_and_record(m, &record);
+            let matching_scope = MatchingScope::from_rule_and_record(rule, &record);
 
-            let triggered = match m.trigger {
+            let triggered = match rule.trigger {
                 Trigger::Immediate => true,
                 Trigger::Threshold(spec) => {
                     let count = TSA_STATE
                         .get()
                         .expect("state not initialized")
-                        .record_event(&matching_scope, m, &record);
+                        .record_event(&matching_scope, rule, &record);
 
                     count >= spec.limit
                 }
@@ -338,14 +327,14 @@ async fn publish_log_v1_impl(
             // To enact the action, we need to generate (or update) a row
             // in the db with its effects and its expiry
             if triggered {
-                for action in &m.action {
+                for action in &rule.action {
                     // Since there can be multiple actions within a match,
                     // ensure that the rule_hash that we use to record
                     // the effects of an action varies by the current
                     // action that we are iterating
-                    let a_hash = action_hash(m, action);
+                    let a_hash = action_hash(rule, action);
                     let rule_hash = format!("{store_key}-{a_hash}");
-                    let action_hash = ActionHash::from_rule_and_record(m, action, &record);
+                    let action_hash = ActionHash::from_rule_and_record(rule, action, &record);
 
                     tracing::debug!("{action:?} for {record:?}");
                     match action {
@@ -353,7 +342,8 @@ async fn publish_log_v1_impl(
                             create_ready_q_suspension(
                                 &action_hash,
                                 &rule_hash,
-                                m,
+                                rule,
+                                matched_regex,
                                 &record,
                                 source,
                                 events,
@@ -364,7 +354,8 @@ async fn publish_log_v1_impl(
                             create_tenant_suspension(
                                 &action_hash,
                                 &rule_hash,
-                                m,
+                                rule,
+                                matched_regex,
                                 &record,
                                 UseCampaign::No,
                                 events,
@@ -375,7 +366,8 @@ async fn publish_log_v1_impl(
                             create_tenant_suspension(
                                 &action_hash,
                                 &rule_hash,
-                                m,
+                                rule,
+                                matched_regex,
                                 &record,
                                 UseCampaign::Yes,
                                 events,
@@ -388,7 +380,8 @@ async fn publish_log_v1_impl(
                                 .expect("tsa_state missing")
                                 .create_config_override(
                                     &action_hash,
-                                    m,
+                                    rule,
+                                    matched_regex,
                                     &record,
                                     config,
                                     &domain,
@@ -402,7 +395,8 @@ async fn publish_log_v1_impl(
                                 .expect("tsa_state missing")
                                 .create_config_override(
                                     &action_hash,
-                                    m,
+                                    rule,
+                                    matched_regex,
                                     &record,
                                     config,
                                     &domain,
@@ -413,7 +407,8 @@ async fn publish_log_v1_impl(
                         Action::Bounce => {
                             create_bounce(
                                 &action_hash,
-                                m,
+                                rule,
+                                matched_regex,
                                 &record,
                                 UseTenant::No,
                                 UseCampaign::No,
@@ -424,7 +419,8 @@ async fn publish_log_v1_impl(
                         Action::BounceTenant => {
                             create_bounce(
                                 &action_hash,
-                                m,
+                                rule,
+                                matched_regex,
                                 &record,
                                 UseTenant::Yes,
                                 UseCampaign::No,
@@ -435,7 +431,8 @@ async fn publish_log_v1_impl(
                         Action::BounceCampaign => {
                             create_bounce(
                                 &action_hash,
-                                m,
+                                rule,
+                                matched_regex,
                                 &record,
                                 UseTenant::Yes,
                                 UseCampaign::Yes,
