@@ -10,6 +10,7 @@ use rspamd_client::scan_async;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Zero-copy wrapper for Arc<Box<[u8]>> that implements AsRef<[u8]>
 /// This allows passing message data to rspamd-client without allocating or copying
@@ -22,7 +23,7 @@ impl AsRef<[u8]> for MessageDataWrapper {
 }
 
 /// Configuration for Rspamd client (Lua-friendly wrapper)
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 struct RspamdClientConfig {
     /// Base URL for Rspamd server (e.g., "http://localhost:11333")
     /// Must be a valid URL
@@ -92,7 +93,29 @@ fn default_true() -> bool {
     true
 }
 
+/// Bounds how long a change to a file-backed KeySource credential can
+/// go unnoticed while the built config is served from cache
+const CLIENT_CONFIG_TTL: Duration = Duration::from_secs(60);
+
+lruttl::declare_cache! {
+/// Caches built rspamd client configs (with resolved KeySource
+/// credentials) keyed by the Lua-level configuration, so that
+/// per-message scans don't re-read credential files
+static CLIENT_CONFIG_CACHE: LruCacheWithTtl<RspamdClientConfig, Arc<Config>>::new("mod_rspamd_client_config", 32);
+}
+
 impl RspamdClientConfig {
+    /// Resolve to a rspamd-client Config via the cache
+    async fn cached_client_config(&self) -> anyhow::Result<Arc<Config>> {
+        let lookup = CLIENT_CONFIG_CACHE
+            .get_or_try_insert(self, |_| CLIENT_CONFIG_TTL, async {
+                self.make_client_config().await.map(Arc::new)
+            })
+            .await
+            .map_err(|err| anyhow::anyhow!("{err:#}"))?;
+        Ok(lookup.item)
+    }
+
     /// Build rspamd-client Config from this configuration
     async fn make_client_config(&self) -> anyhow::Result<Config> {
         // Extract password if provided
@@ -165,10 +188,8 @@ struct RspamdClient {
 
 impl RspamdClient {
     async fn new(lua_config: RspamdClientConfig) -> anyhow::Result<Self> {
-        let config = lua_config.make_client_config().await?;
-        Ok(Self {
-            config: Arc::new(config),
-        })
+        let config = lua_config.cached_client_config().await?;
+        Ok(Self { config })
     }
 
     fn get_config(&self) -> mlua::Result<&Config> {
@@ -306,7 +327,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             // Build client config and scan
             // Wrap the Arc<Box<[u8]>> in MessageDataWrapper to implement AsRef<[u8]>
             // This enables true zero-copy operation (no allocation or copying of message data)
-            let client_config = config.make_client_config().await.map_err(any_err)?;
+            let client_config = config.cached_client_config().await.map_err(any_err)?;
             let data = MessageDataWrapper(msg.data().await.map_err(any_err)?);
             let mut reply = scan_async(&client_config, data, envelope_data)
                 .await

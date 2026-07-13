@@ -9,6 +9,8 @@ config = {path="../config"}
 data-loader = {path="../data-loader", features=["impl"]}
 duration-serde = {path="../duration-serde"}
 humantime.workspace=true
+linkme.workspace=true
+lruttl = {path="../lruttl"}
 message = {path="../message"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize", "macros"]}
 rspamd-client = {version = "0.6.0", features = ["async"]}

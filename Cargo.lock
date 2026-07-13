@@ -5337,6 +5337,8 @@ dependencies = [
  "data-loader",
  "duration-serde",
  "humantime",
+ "linkme",
+ "lruttl",
  "message",
  "mlua",
  "rspamd-client",
