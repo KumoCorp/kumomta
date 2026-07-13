@@ -31,13 +31,13 @@ jobs:
       contents: write
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7.0.0
     - name: "Install Rust"
       uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: stable
     - name: "Setup sccache"
-      uses: mozilla-actions/sccache-action@v0.0.9
+      uses: mozilla-actions/sccache-action@v0.0.10
     - name: Install stylua
       uses: baptiste0928/cargo-install@v3
       with:

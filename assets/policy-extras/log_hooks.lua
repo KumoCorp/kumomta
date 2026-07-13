@@ -51,6 +51,7 @@ local LogHookOptions = Record('LogHookOptions', {
   batch_size = Option(typing.number),
   min_batch_size = Option(typing.number),
   max_batch_latency = Option(String),
+  filter = Option(typing.Function),
 })
 
 --[[
@@ -72,6 +73,20 @@ log_hooks:new {
     retry_interval = "1m",
     max_retry_interval = "20m",
   },
+
+  -- Optional pre-filter function.
+  -- This is called as part of processing the should_enqueue_log_record
+  -- event callback after we have applied the default filter; the msg
+  -- is considered to be eligible to enqueue unless this function
+  -- returns true to indicate that "yes, it should be filtered out".
+  filter = function(msg, hook_name)
+     if should_filter_out(msg) then
+       -- We do not want this record
+       return true
+     end
+     return false
+  end),
+
   constructor = function(domain, tenant, campaign)
     local connection = {}
     local client = kumo.http.build_client {}
@@ -146,6 +161,12 @@ function mod:new(options)
     -- avoid an infinite loop caused by logging that we logged that we logged...
     if log_record.reception_protocol == 'LogRecord' then
       return false
+    end
+
+    if options.filter then
+      if options.filter(msg, hook_name) then
+        return false
+      end
     end
 
     -- was some other event that we want to log via the webhook

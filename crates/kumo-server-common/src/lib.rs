@@ -1,3 +1,4 @@
+use bstr::ByteSlice;
 use config::{
     any_err, decorate_callback_name, from_lua_value, get_or_create_module, load_config,
     serialize_options, CallbackSignature,
@@ -8,10 +9,14 @@ use mod_redis::RedisConnKey;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicUsize;
 
+pub mod acct;
+pub mod authn_authz;
 pub mod config_handle;
 pub mod diagnostic_logging;
 pub mod disk_space;
+pub mod hashable_weak;
 pub mod http_server;
+pub mod log;
 pub mod nodeid;
 pub mod panic;
 pub mod start;
@@ -23,6 +28,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         data_loader::register,
         mod_digest::register,
         mod_encode::register,
+        mod_aws_sigv4::register,
         cidr_map::register,
         domain_map::register,
         mod_amqp::register,
@@ -35,6 +41,8 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         mod_sqlite::register,
         mod_crypto::register,
         mod_smtp_response_normalize::register,
+        kumo_jsonl::lua::register,
+        mod_counter_series::register,
         mod_string::register,
         mod_time::register,
         mod_dns_resolver::register,
@@ -42,14 +50,17 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         mod_memoize::register,
         mod_mimepart::register,
         mod_mpsc::register,
+        mod_nats::register,
         mod_uuid::register,
         kumo_api_types::shaping::register,
         regex_set_map::register,
+        crate::authn_authz::register,
     ] {
         func(lua)?;
     }
 
     let kumo_mod = get_or_create_module(lua, "kumo")?;
+    kumo_mod.set("version", version_info::kumo_version())?;
 
     fn event_registrar_name(name: &str) -> String {
         format!("kumomta-event-registrars-{name}")
@@ -187,13 +198,19 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             }
 
             match item {
-                Value::String(s) => match s.to_str() {
-                    Ok(s) => output.push_str(&s),
-                    Err(_) => {
-                        let item = s.to_string_lossy();
-                        output.push_str(&item);
+                Value::String(s) => {
+                    let bytes = s.as_bytes();
+                    for (start, end, c) in bytes.char_indices() {
+                        if c == std::char::REPLACEMENT_CHARACTER {
+                            let c_slice = &bytes[start..end];
+                            for &b in c_slice.iter() {
+                                output.push_str(&format!("\\x{b:02X}"));
+                            }
+                        } else {
+                            output.push(c);
+                        }
                     }
-                },
+                }
                 item => match item.to_string() {
                     Ok(s) => output.push_str(&s),
                     Err(_) => output.push_str(&format!("{item:?}")),
@@ -360,6 +377,21 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             kumo_server_memory::set_soft_limit(limit);
             Ok(())
         })?,
+    )?;
+
+    kumo_mod.set(
+        "get_memory_hard_limit",
+        lua.create_function(move |_, _: ()| Ok(kumo_server_memory::get_hard_limit()))?,
+    )?;
+
+    kumo_mod.set(
+        "get_memory_soft_limit",
+        lua.create_function(move |_, _: ()| Ok(kumo_server_memory::get_soft_limit()))?,
+    )?;
+
+    kumo_mod.set(
+        "get_memory_low_thresh",
+        lua.create_function(move |_, _: ()| Ok(kumo_server_memory::get_low_memory_thresh()))?,
     )?;
 
     kumo_mod.set(

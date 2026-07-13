@@ -2,129 +2,206 @@
 
 ## Breaking Changes
 
- * Enabling
-   [`batch_handling="BatchByDomain"`](../reference/kumo/start_esmtp_listener/batch_handling.md)
-   will cause [message:recipient](../reference/message/recipient.md) and the
-   `recipient` field of [Log Record](../reference/log_record.md) to switch to
-   an array holding the list of recipients.  These are *NOT* active by default,
-   but if you wish to enable them you should audit your policy and consider
-   switching to using
-   [message:recipient_list](../reference/message/recipient_list.md) as well as
-   review your log processors to ensure that they are able to handle the
-   `recipient` field being either an array or a string, or otherwise adjusting
-   your log templates accordingly.
- * HTTP injections no longer consider the `Forwarded` header as a source of
-   information to populate the `received_from` metadata.  Instead, only the
-   directly connecting IP information will be used.  See the [upstream
-   issue](https://github.com/imbolc/axum-client-ip/issues/32) for more
-   information.
- * Our SMTP client now treats a 552 response during `RCPT TO` as a
-   `TransientFailure` instead of a `PermanentFailure` as described by [RFC 5321
-   Section
-   4.5.3.1.10](https://datatracker.ietf.org/doc/html/rfc5321#section-4.5.3.1.10).
-   If you are employing
-   [smtp_server_rewrite_response](../reference/events/smtp_server_rewrite_response.md)
-   and happen to rewrite transient codes to `552` then you will find that the
-   disposition remains as a `TransientFailure` even after the rewrite.  Our
-   recommendation is that you update such rewrite rules to use `550` or `555`
-   to avoid this classification.
+ * SMTP AUTH PLAIN is no longer sent over a TLS session whose peer
+   certificate was not validated (for example an
+   `OpportunisticInsecure`/`RequiredInsecure` session, or a DANE host with
+   unusable TLSA records). Set the new
+   [allow_smtp_auth_plain_without_valid_certificate](../reference/kumo/make_egress_path/allow_smtp_auth_plain_without_valid_certificate.md)
+   egress path option to `true` to restore the previous behavior.
+
+ * Rocksdb-backed spool `store()` and `remove()` calls now time out
+   after 30 seconds of backpressure rather than blocking
+   indefinitely. Tunable via the new
+   [store_deadline](../reference/kumo/define_spool/rocks_params.md#store_deadline)
+   rocks_params field.
+
+ * The `resolve-shaping-domain` script's default output has changed.
+   Pass `--json-config` to restore the previous byte-for-byte
+   pretty-JSON output of the path config. Run
+   `resolve-shaping-domain --help` for the full flag list.
+
+ * DNS resolver configuration is now defined by a kumomta-owned schema
+   rather than forwarding hickory option names. Existing valid configs
+   continue to parse, but unknown fields in `options` are now a
+   configure-time error rather than being silently ignored, and the
+   simple `'IP:PORT'` form of a name server entry now configures both
+   UDP and TCP for that server (previously UDP only). See
+   [configure_resolver](../reference/kumo.dns/configure_resolver.md) and
+   the [Resolver Options reference](../reference/kumo.dns/resolver_options/index.md)
+   for the supported fields.
 
 ## Other Changes and Enhancements
 
- * [msg:check_fix_conformance](../reference/message/check_fix_conformance.md#fixing-8-bit-content)
-   now supports optionally detecting and fixing 8-bit charsets.
- * [smtp_server_data](../reference/events/smtp_server_data.md) event enables
-   once-per-transaction processing of a message and recipient list modification
-   for alias expansion and legal capture.
- * Admin bounces and scheduled queue suspensions can now optionally target the
-   complete queue name instead of matching by domain/campaign/tenant.  This is
-   useful in certain automation scenarios where you wish to target a specific
-   queue precisely.  The kcli commands support a `--queue` option to select the
-   queue name, while the API expose that via a `queue_names` field.
- * New [kcli xfer](../reference/kcli/xfer.md) and [kcli
-   xfer-cancel](../reference/kcli/xfer-cancel.md) commands enable migration
-   of queues to alternative kumomta nodes as part of operational tasks such
-   draining a queue for decomissioning or scaling down infrastructure.  These
-   commands are building blocks for you to deploy auto-scaling or similar
-   functionality within your infrastructure orchestration. The new
-   [xfer_message_received](../reference/events/xfer_message_received.md) can be
-   used to fixup messages as they are arrive on the target node via xfer.
-   `XferOut` and `XferIn` are two new [log record](../reference/log_record.md)
-   types associated with message transfers. The kcli commands have
-   corresponding HTTP API endpoints:
-   [xfer](../reference/rapidoc.md/#post-/api/admin/xfer/v1) and
-   [xfer-cancel](../reference/rapidoc.md/#post-/api/admin/xfer/cancel/v1) #311
- * New [kumo.file_type](../reference/kumo.file_type/index.md) module provides
-   functions for reasoning about file types.
- * [kumo.amqp.build_client](../reference/kumo.amqp/build_client.md) is
-   deprecated in favor of
-   [kumo.amqp.basic_publish](../reference/kumo.amqp/basic_publish.md).
- * New [kumo.dns.ptr_host](../reference/kumo.dns/ptr_host.md),
-   [kumo.dns.reverse_ip](../reference/kumo.dns/reverse_ip.md),
-   [kumo.dns.define_resolver](../reference/kumo.dns/define_resolver.md) and
-   [kumo.dns.rbl_lookup](../reference/kumo.dns/rbl_lookup.md) functions. #269
- * new `smtp_server_rejections` counter to track the number of `Rejection` log
-   records produced by the smtp listener. The service key is the listener
-   address and port, and there is a `total` key that represents the total across
-   all listeners.
- * new [kumo.spf.check_msg](../reference/kumo.spf/check_msg.md) convenience
-   function for checking SPF and producing Authentication-Results once the
-   data has been received.
- * new [kumo.crypto](../reference/kumo.crypto/index.md) module. Thanks to
-   @dariomaiocchi! #395
- * new [Time](../reference/kumo.time/Time.md) and
-   [TimeDelta](../reference/kumo.time/TimeDelta.md) objects.
- * new
-   [smtp_server_rewrite_response](../reference/events/smtp_server_rewrite_response.md)
-   event.
- * [msg:append_header](../reference/message/append_header.md) and
-   [msg:prepend_header](../reference/message/prepend_header.md) both now accept
-   an optional `ENCODE` parameter that opts in to wrapping or quoted-printable
-   encoding the value as appropriate.
- * new [headermap:append](../reference/headermap/append.md) method for
-   appending a header. This supplements the already available `:prepend`
-   method.
- * new [kumo.string.wrap](../reference/string/wrap.md) function that
-   enables manual wrapping of strings for use in, for example, header values.
- * new [msg:arc_verify](../reference/message/arc_verify.md) and
-   [msg:arc_seal](../reference/message/arc_seal.md) functions. #16
- * Enable thundering herd protection for `dkim_key_cache` and
-   `dkim_signer_cache`
- * new [policy-extras.mail_auth](../reference/policy-extras.mail_auth/index.md)
-   module for performing mail authentication and producing an aggregate
-   `Authentication-Results` header.
- * new [normalize_smtp_response](../reference/string/normalize_smtp_response.md)
-   lua function and [jinja filter](../reference/template/normalize_smtp_response.md).
- * The default value for
-   [prohibited_hosts](../reference/kumo/make_egress_path/prohibited_hosts.md)
-   now also includes the IPv4 and IPv6 Any addresses.
+ * [enable_dane](../reference/kumo/make_egress_path/enable_dane.md) can now be
+   used with the Hickory resolver (with DNSSEC validation enabled); it no
+   longer requires the unbound resolver.
+
+ * New [treat_mx_list_as_secure](../reference/kumo/make_queue_config/protocol.md#treat_mx_list_as_secure)
+   SMTP protocol option. When set, the hosts in an `mx_list` are treated as a
+   trusted (DNSSEC-secure) MX selection, allowing DANE to apply to a statically
+   configured relay that does not go through `MX` resolution.
+
+ * DANE now engages for an MX host that is a securely published `CNAME` whose
+   target lands in an unsigned zone (RFC 7672 section 2.2.2): the `TLSA` records
+   are queried at the original MX name and authenticate the peer even though the
+   address records resolve insecurely. See
+   [CNAME MX hosts](../reference/kumo/make_egress_path/enable_dane.md#cname-mx-hosts).
+
+ * The [trust_anchor_file](../reference/kumo.dns/resolver_options/trust_anchor_file.md)
+   resolver option now also accepts a `{ managed = "<path>" }` form, naming an
+   RFC 5011 auto-maintained DNSSEC trust anchor file that stays current across
+   root KSK rollovers without operator intervention. Supported by the unbound
+   backend only.
+
+ * Upgraded the embedded hickory-resolver 0.26 and libunbound 1.25.1. New
+   [kumo.dns.load_resolv_conf](../reference/kumo.dns/load_resolv_conf.md)
+   reads a resolv.conf-format file into a mutable resolver config table,
+   so you can start from the system upstream list and layer your own
+   `options` on top before calling
+   [configure_resolver](../reference/kumo.dns/configure_resolver.md).
+
+ * Egress sources can now be configured to auto-suspend when their
+   local bind address appears unplumbed
+   ([suspend_when_unplumbed](../reference/kumo/make_egress_source/suspend_when_unplumbed.md))
+   or when their configured proxy server appears unreachable
+   ([suspend_when_proxy_unhealthy](../reference/kumo/make_egress_source/suspend_when_proxy_unhealthy.md)).
+   A suspended source is skipped during pool selection until the
+   configured duration elapses. The trigger uses the same
+   `Immediate` / `Threshold("N/period")` shape as TSA shaping rules.
+
+ * [ha_proxy_server](../reference/kumo/make_egress_source/ha_proxy_server.md)
+   and
+   [socks5_proxy_server](../reference/kumo/make_egress_source/socks5_proxy_server.md)
+   now accept a DNS host name in addition to an IP literal. The name is
+   resolved at connection time and each returned address is tried in
+   turn, sharing the `connect_timeout` budget.
+
+ * KumoMTA now proactively detects when the rocksdb-backed spool has
+   reached a state that requires operator intervention (a missing or
+   corrupt SST surfaced through a foreground read/write, or sustained
+   background-error accumulation from compactions or flushes) and
+   transitions into a load-shedding state. While the spool is
+   unhealthy, the SMTP banner returns 421, HTTP injection and
+   `/api/check-liveness/v1` return 503, and delivery is paused.
+   Pausing delivery limits the window in which a successful SMTP
+   transaction could be followed by a failed spool `remove()`, which
+   would otherwise cause that message to be redelivered. The
+   diagnostic log records each transition that drives this: when
+   the rocksdb `background-errors` counter grows, when a foreground
+   read or write returns a fatal `IOError` or `Corruption`, when the
+   load-shedding gate latches, and (where applicable) when the gate
+   later auto-clears after sustained recovery. Each record names
+   the spool path and points at the rocksdb LOG file in that
+   directory for the underlying cause. The delivery pause itself
+   can be toggled with the new
+   [kumo.suspend_delivery_when_spool_unhealthy](../reference/kumo/suspend_delivery_when_spool_unhealthy.md)
+   policy function (default: enabled). Several new metrics expose
+   the underlying state to monitoring:
+   [rocks_spool_load_shed_active](../reference/metrics/kumod/rocks_spool_load_shed_active.md),
+   [rocks_spool_background_errors](../reference/metrics/kumod/rocks_spool_background_errors.md),
+   [rocks_spool_write_stopped](../reference/metrics/kumod/rocks_spool_write_stopped.md),
+   [rocks_spool_compaction_pending](../reference/metrics/kumod/rocks_spool_compaction_pending.md),
+   [rocks_spool_num_running_compactions](../reference/metrics/kumod/rocks_spool_num_running_compactions.md),
+   [rocks_spool_estimate_pending_compaction_bytes](../reference/metrics/kumod/rocks_spool_estimate_pending_compaction_bytes.md),
+   and
+   [rocks_spool_actual_delayed_write_rate](../reference/metrics/kumod/rocks_spool_actual_delayed_write_rate.md).
+
+ * New [kcli spool-compact](../reference/kcli/spool-compact.md) command
+   (and matching `/api/admin/spool-compact/v1` endpoint) forces a flush
+   and full-keyspace compaction on a named rocksdb spool. Primarily a
+   diagnostic and operational helper; surfaces underlying storage
+   errors to the caller.
+
+ * Ready queues now run a per-dispatcher progress watchdog that aborts
+   dispatcher tasks that have stopped making forward progress, catching
+   wedges that escape the normal SMTP timeouts. The threshold is
+   configurable via
+   [dispatcher_progress_watchdog_timeout](../reference/kumo/make_egress_path/dispatcher_progress_watchdog_timeout.md)
+   and aborts are surfaced via the
+   [dispatcher_watchdog_aborted_total](../reference/metrics/kumod/dispatcher_watchdog_aborted_total.md)
+   metric.  #539
+
+ * Added the
+   [kcli inspect-ready-q](../reference/kcli/inspect-ready-q.md)
+   command and corresponding
+   [admin/inspect-ready-q/v1](../reference/http/kumod/api_admin_inspect_ready_q_v1_get.md)
+   HTTP endpoint, which return a snapshot of a ready queue's state,
+   effective configuration, the dispatcher tasks currently handling
+   its connections, and the steady-state throughput ceilings implied
+   by the egress path config.
+
+ * Added the
+   [kcli abort-ready-q-conn](../reference/kcli/abort-ready-q-conn.md)
+   command and corresponding
+   [admin/abort-ready-q-conn/v1](../reference/http/kumod/api_admin_abort_ready_q_conn_v1_post.md)
+   HTTP endpoint, which abort a specific dispatcher task by
+   `session_id`, as shown by the `inspect-ready-q` output.
+
+ * Added the
+   [kcli resolve-egress-path](../reference/kcli/resolve-egress-path.md)
+   command and corresponding
+   [admin/resolve-egress-path/v1](../reference/http/kumod/api_admin_resolve_egress_path_v1_get.md)
+   HTTP endpoint, which report the effective egress path config,
+   scheduled-queue config, MX resolution, ready-queue name and the
+   throughput ceilings derived from both configs for a destination
+   domain and egress source. Equivalent to running
+   `resolve-shaping-domain` against the live runtime instead of a
+   static policy file.
+
+ * Added new lua functions:
+   [kumo.compute_egress_path_config_constraints](../reference/kumo/compute_egress_path_config_constraints.md),
+   [kumo.compute_egress_path_config_constraints](../reference/kumo/compute_egress_path_config_constraints.md),
+   [kumo.compute_queue_config_constraints](../reference/kumo/compute_queue_config_constraints.md),
+   [kumo.format_egress_path_config_constraints](../reference/kumo/format_egress_path_config_constraints.md),
+   [kumo.format_egress_path_config_toml](../reference/kumo/format_egress_path_config_toml.md),
+   [kumo.serde.toml_encode_pretty_compact](../reference/kumo.serde/toml_encode_pretty_compact.md).
+
+ * `resolve-shaping-domain` now shows the resolved configuration in
+   a pretty toml output, including both the scheduled-queue config
+   and the egress path config, and shows the same throughput-ceiling
+   diagnostic as `kcli inspect-ready-q` with constraints from both
+   configs folded in. A new `--json-queue-config` flag emits the
+   queue config as pretty JSON.
+
+ * `kcli inspect-ready-q` gains an opt-in `--sched-q` flag, and the
+   corresponding HTTP endpoint accepts an `include_scheduled_queues`
+   query parameter, that returns the list of scheduled queue names
+   currently feeding the ready queue. Useful for tracing fan-in
+   when many domains or tenants converge on a single destination.
+
+ * Community shaping.toml file had updates to domains qq.com, 163.com, and yahoo.co.jp and providers gmail, yahoo, outlook, apple, orange, and mimecast. New provider definitions were added for barracuda (barracudanetworks.com), netvigator (netvigator.com), and kpn (kpnmail.nl). Note that web.de moved from a domain to being a provider named gmx.net_web.de (which also matches .gmx.net), and qq.com and 163.com were moved from domain-level to provider-level automations. Thanks to @Solmea! #531
+
+ * When running under a cgroup memory limit, `memory_usage` is now the
+   cgroup *working set* (`memory.current - inactive_file`, floored by
+   anonymous memory) rather than the raw `memory.current`. This excludes
+   cold, kernel-reclaimable file-backed page cache, which the kernel drops
+   before it would OOM-kill the container, and matches what kubelet/cAdvisor
+   report as `container_memory_working_set_bytes`. It removes premature load
+   shedding caused by phantom cache pressure for workloads that write a lot of
+   logs or spool to disk. **This lowers the observed `memory_usage` for any
+   deployment under a cgroup limit; alerts keyed on `memory_usage` may need
+   re-baselining.** See
+   [Memory Management](../reference/memory.md#working-set-under-a-cgroup).
+   Thanks to @dschaaff! #549
+
+ * We now perform extended permission related probing on the spool and maildir
+   directory locations to catch uncommon permission misconfigurations on
+   startup, that would otherwise lead to rocksdb corrupting itself on
+   the restart *after* the permissions were broken.
 
 ## Fixes
 
- * smtp server would incorrectly return a 451 instead of a 452 status when
-   `max_recipients_per_message` or `max_messages_per_connection` limits
-   were exceeded.
- * spf: a `NoRecordsFound` response from DNS during an `exists:` rule check
-   could cause the result to incorrectly be reported a `temperror`
- * spf: `%{h}` macro expansion could incorrectly enclose the domain in double quotes
- * spf: relax macro parsing to allow spaces in, for example, explanation txt records
- * kumo.spf.check_host: `%{h}` will be assumed to have the value of the
-   `domain` field when `sender` is not set, as `ehlo_domain` won't be set in
-   the connection context until after `smtp_server_ehlo` returns successfully.
- * [kumo.start_esmtp_listener.line_length_hard_limit](../reference/kumo/start_esmtp_listener/line_length_hard_limit.md)
-   could by off-by-two in certain cases when applied to DATA, and could
-   sometimes allow up to 1024 bytes for a single SMTP command outside of DATA,
-   even though the limit was set smaller.
- * Message builder API didn't quote every possible character that needed to be
-   quoted in the display name of a mailbox. #428
- * Incorrectly treated a 552 as a transient failure for non-RCPT-TO 552
-   responses. #431
- * spf: we now populate `smtp.mailfrom` in the Authentication-Results props map.
- * [keysource](../reference/keysource.md) now supports inline binary bytes
-   being passed via `key_data`.  Previously, only UTF-8 strings could be
-   passed that way.
- * [keysource](../reference/keysource.md) now supports callback/event based
-   data loading, which is similar to inline `key_data`, but allows for more
-   efficient cache keys that use less RAM.
- * dkim verification would incorrectly treat `i=@fexample.net` as a valid
-   subdomain of `d=example.net`.
+ * An SMTP command line containing bytes that are not valid UTF-8 is now
+   rejected with a `501` syntax error and the session continues, rather
+   than aborting the connection with a `421 technical difficulties`
+   response. #550
+
+ * [DANE](../reference/kumo/make_egress_path/enable_dane.md) (RFC 7672)
+   support was too permissive and is now downgrade resistant. #543
+
+ * `Message::save_to` was silently discarding errors returned from the
+   data and meta spool `store()` operations: the per-spool dirty flags
+   were cleared regardless of success, so a message that failed to
+   persist was still treated by the SMTP ingress path as accepted.
+   Errors now propagate so the ingress path can reject (and the client
+   retries) instead of producing a silent loss.

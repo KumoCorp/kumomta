@@ -25,6 +25,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "toml_encode_pretty",
         lua.create_function(toml_encode_pretty)?,
     )?;
+    serde_mod.set(
+        "toml_encode_pretty_compact",
+        lua.create_function(toml_encode_pretty_compact_lua)?,
+    )?;
 
     serde_mod.set("yaml_load", lua.create_async_function(yaml_load)?)?;
     serde_mod.set("yaml_parse", lua.create_function(yaml_parse)?)?;
@@ -81,6 +85,12 @@ fn json_encode(lua: &Lua, value: LuaValue) -> mlua::Result<String> {
 
 fn json_encode_pretty(lua: &Lua, value: LuaValue) -> mlua::Result<String> {
     let value = materialize_to_lua_value(lua, value)?;
+    // This additional conversion to a json value causes any object types
+    // to become backed by a BTreeMap rather than lua's randomly ordered
+    // table type, so that the pretty print will show the keys in sorted order.
+    // We only do that for pretty printing because we don't usually want
+    // to bother with that additional overhead
+    let value = serde_json::to_value(&value).map_err(any_err)?;
     serde_json::to_string_pretty(&value).map_err(any_err)
 }
 
@@ -111,6 +121,71 @@ fn toml_encode(lua: &Lua, value: LuaValue) -> mlua::Result<String> {
 fn toml_encode_pretty(lua: &Lua, value: LuaValue) -> mlua::Result<String> {
     let value = materialize_to_lua_value(lua, value)?;
     toml::to_string_pretty(&value).map_err(any_err)
+}
+
+/// Render a value as pretty TOML with:
+///
+/// - Keys sorted alphabetically at every nesting level.
+/// - Empty tables emitted inline as `{}` rather than as a `[name]`
+///   header. Empty arrays already render inline as `[]` via the
+///   default toml serializer, so no special handling is needed.
+///
+/// Useful for human-readable diagnostic output where stable
+/// scan-friendly ordering matters and empty-table headers would
+/// add visual noise.
+pub fn toml_encode_pretty_compact<T: serde::Serialize>(value: &T) -> anyhow::Result<String> {
+    let initial = toml::to_string(value).context("serializing value as TOML")?;
+    let mut doc: toml_edit::DocumentMut = initial
+        .parse()
+        .context("re-parsing TOML for format normalization")?;
+    fn normalize(table: &mut toml_edit::Table) {
+        // Collect keys of empty sub-tables and re-insert them as
+        // inline empty tables via `insert()`, which establishes the
+        // standard `key = {}` decor. Mutating the Item in place
+        // would leave the original table-header decor on the key
+        // (no `=` separator).
+        let empty_keys: Vec<String> = table
+            .iter()
+            .filter_map(|(k, v)| match v {
+                toml_edit::Item::Table(t) if t.is_empty() => Some(k.to_string()),
+                _ => None,
+            })
+            .collect();
+        for key in empty_keys {
+            table.insert(
+                &key,
+                toml_edit::Item::Value(
+                    toml_edit::Value::InlineTable(toml_edit::InlineTable::new()),
+                ),
+            );
+        }
+
+        // Recurse before sorting; sub-tables that remain (non-empty)
+        // get their own inner sort.
+        for (_, item) in table.iter_mut() {
+            match item {
+                toml_edit::Item::Table(t) => normalize(t),
+                toml_edit::Item::ArrayOfTables(arr) => {
+                    for t in arr.iter_mut() {
+                        normalize(t);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Sort the value entries alphabetically. TOML grammar
+        // requires sub-tables to follow value entries, so sub-tables
+        // naturally trail the sorted values at this level.
+        table.sort_values();
+    }
+    normalize(doc.as_table_mut());
+    Ok(doc.to_string())
+}
+
+fn toml_encode_pretty_compact_lua(lua: &Lua, value: LuaValue) -> mlua::Result<String> {
+    let value = materialize_to_lua_value(lua, value)?;
+    toml_encode_pretty_compact(&value).map_err(any_err)
 }
 
 async fn yaml_load(lua: Lua, file_name: String) -> mlua::Result<LuaValue> {

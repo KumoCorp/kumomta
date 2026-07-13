@@ -24,12 +24,15 @@ num-format = {workspace=true}
 nucleo-matcher.workspace = true
 ordermap = {workspace=true}
 kumo-api-types = {path="../kumo-api-types", default-features=false}
+kumo-api-client = {path="../kumo-api-client"}
+mod-serde = {path="../mod-serde"}
 kumo-prometheus = {path="../kumo-prometheus"}
 ratatui = {workspace=true}
 reqwest = {workspace=true, default-features=false, features=["json", "rustls-tls", "stream"]}
 serde = {workspace=true}
 serde_json = {workspace=true}
 tabout = {workspace=true}
+toml = {workspace=true}
 tokio = {workspace=true, features=["full", "tracing"]}
 tokio-tungstenite = {workspace=true}
 tui-prompts.workspace = true
@@ -37,4 +40,6 @@ uuid = {workspace=true}
 version-info = {path="../version-info"}
 
 [dev-dependencies]
+k9 = {workspace=true}
+throttle = {path="../throttle", default-features=false}
 indoc = {workspace=true}

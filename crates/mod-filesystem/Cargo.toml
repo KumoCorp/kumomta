@@ -3,6 +3,9 @@ name = "mod-filesystem"
 version = "0.1.0"
 edition = "2021"
 
+[dev-dependencies]
+tempfile = {workspace=true}
+
 [dependencies]
 filenamegen = {workspace=true}
 anyhow = {workspace=true}
@@ -11,3 +14,6 @@ mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "seriali
 tokio = {workspace=true}
 linkme.workspace = true
 lruttl = {path="../lruttl"}
+serde = {workspace=true}
+mod-time = {path="../mod-time"}
+chrono = {workspace=true}

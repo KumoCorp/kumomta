@@ -9,7 +9,6 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use config::get_or_create_sub_module;
 use kumo_api_types::{BounceV1CancelRequest, BounceV1ListEntry, BounceV1Request, BounceV1Response};
-use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
 use kumo_server_runtime::rt_spawn;
 use message::message::QueueNameComponents;
@@ -144,7 +143,10 @@ impl AdminBounceEntry {
         let queue_name = match queue_name {
             Some(n) => n,
             None => {
-                local_name = msg.get_queue_name().unwrap_or_else(|_| "?".to_string());
+                local_name = msg
+                    .get_queue_name()
+                    .await
+                    .unwrap_or_else(|_| "?".to_string());
                 &local_name
             }
         };
@@ -189,16 +191,19 @@ impl AdminBounceEntry {
 
 /// Allows the system operator to administratively bounce messages that match
 /// certain criteria, or if no criteria are provided, ALL messages.
+///
+/// !!! danger
+///     There is no way to undo the actions carried out by this request!
 #[utoipa::path(
     post,
-    tag="bounce",
+    tags=["bounce", "kcli:bounce"],
     path="/api/admin/bounce/v1",
+    request_body=BounceV1Request,
     responses(
         (status = 200, description = "Bounce added successfully", body=BounceV1Response)
     ),
 )]
 pub async fn bounce_v1(
-    _: TrustedIpRequired,
     // Note: Json<> must be last in the param list
     Json(request): Json<BounceV1Request>,
 ) -> Result<Json<BounceV1Response>, AppError> {
@@ -245,32 +250,28 @@ pub async fn bounce_v1(
 /// configured.
 #[utoipa::path(
     get,
-    tag="bounce",
+    tags=["bounce", "kcli:bounce-list"],
     path="/api/admin/bounce/v1",
     responses(
         (status = 200, description = "Returned information about current admin bounces", body=[BounceV1ListEntry])
     ),
 )]
-pub async fn bounce_v1_list(
-    _: TrustedIpRequired,
-) -> Result<Json<Vec<BounceV1ListEntry>>, AppError> {
+pub async fn bounce_v1_list() -> Result<Json<Vec<BounceV1ListEntry>>, AppError> {
     Ok(Json(AdminBounceEntry::get_all_v1()))
 }
 
 /// Allows the system operator to delete an administrative bounce entry by its id.
 #[utoipa::path(
     delete,
-    tag="bounce",
+    tags=["bounce", "kcli:bounce-cancel"],
     path="/api/admin/bounce/v1",
+    request_body=BounceV1CancelRequest,
     responses(
         (status = 200, description = "Removed the requested bounce id"),
         (status = 404, description = "The requested bounce id is no longer, or never was, valid"),
     ),
 )]
-pub async fn bounce_v1_delete(
-    _: TrustedIpRequired,
-    Json(request): Json<BounceV1CancelRequest>,
-) -> Response {
+pub async fn bounce_v1_delete(Json(request): Json<BounceV1CancelRequest>) -> Response {
     let removed = AdminBounceEntry::remove_by_id(&request.id);
     if removed {
         (StatusCode::OK, format!("removed {}", request.id))

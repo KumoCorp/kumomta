@@ -1,3 +1,4 @@
+use bstr::{BStr, BString, ByteSlice};
 use config::any_err;
 use mailparsing::{DecodedBody, MimePart, PartPointer};
 use mlua::{MetaMethod, UserData, UserDataFields, UserDataMethods, UserDataRef};
@@ -65,7 +66,7 @@ impl PartRef {
     pub fn replace_body(
         &self,
         body: mlua::String,
-        mut content_type: Option<String>,
+        mut content_type: Option<BString>,
     ) -> anyhow::Result<()> {
         self.mutate(|part| {
             if content_type.is_none() {
@@ -76,13 +77,20 @@ impl PartRef {
 
             match body.to_str() {
                 Ok(s) => {
-                    part.replace_text_body(content_type.as_deref().unwrap_or("text/plain"), &s)?;
+                    part.replace_text_body(
+                        content_type
+                            .as_ref()
+                            .map(|b| b.as_bstr())
+                            .unwrap_or_else(|| BStr::new("text/plain")),
+                        &*s,
+                    )?;
                 }
                 _ => {
                     part.replace_binary_body(
                         content_type
-                            .as_deref()
-                            .unwrap_or("application/octet-stream"),
+                            .as_ref()
+                            .map(|b| b.as_bstr())
+                            .unwrap_or_else(|| BStr::new("application/octet-stream")),
                         &body.as_bytes(),
                     )?;
                 }
@@ -161,21 +169,22 @@ impl UserData for PartRef {
             Ok(result)
         });
 
-        methods.add_meta_method(MetaMethod::ToString, move |_lua, this, ()| {
+        methods.add_meta_method(MetaMethod::ToString, move |lua, this, ()| {
             let root = this.root_part.lock();
-            Ok(root.to_message_string())
+            lua.create_string(root.to_message_bytes())
         });
 
         methods.add_method("rebuild", move |_lua, this, ()| {
             let root = this.root_part.lock();
-            let part = root.rebuild().map_err(any_err)?;
+            let part = root.rebuild(None).map_err(any_err)?;
             Ok(PartRef::new(part))
         });
 
         methods.add_method(
             "replace_body",
             move |_lua, this, (body, content_type): (mlua::String, Option<String>)| {
-                this.replace_body(body, content_type).map_err(any_err)
+                this.replace_body(body, content_type.map(Into::into))
+                    .map_err(any_err)
             },
         );
     }
@@ -185,7 +194,7 @@ impl UserData for PartRef {
             let part = this.resolve().map_err(any_err)?;
             let body = part.body().map_err(any_err)?;
             match body {
-                DecodedBody::Text(s) => lua.create_string(s.as_str()),
+                DecodedBody::Text(s) => lua.create_string(s.as_bytes()),
                 DecodedBody::Binary(b) => lua.create_string(b),
             }
         });

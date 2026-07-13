@@ -497,6 +497,32 @@ impl<'de> Deserialize<'de> for LimitSpec {
                     force_local: false,
                 })
             }
+
+            // Accept the struct form produced by the derived Serialize
+            // impl so JSON round-trips work.
+            fn visit_map<M>(self, mut map: M) -> Result<LimitSpec, M::Error>
+            where
+                M: serde::de::MapAccess<'de>,
+            {
+                let mut limit: Option<u64> = None;
+                let mut force_local: Option<bool> = None;
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "limit" => limit = Some(map.next_value()?),
+                        "force_local" => force_local = Some(map.next_value()?),
+                        other => {
+                            return Err(serde::de::Error::unknown_field(
+                                other,
+                                &["limit", "force_local"],
+                            ));
+                        }
+                    }
+                }
+                Ok(LimitSpec {
+                    limit: limit.ok_or_else(|| serde::de::Error::missing_field("limit"))?,
+                    force_local: force_local.unwrap_or(false),
+                })
+            }
         }
 
         deserializer.deserialize_any(Helper {})
@@ -621,6 +647,37 @@ mod test {
         assert_eq!(
             LimitSpec::try_from("three").unwrap_err(),
             "invalid limit 'three': invalid digit found in string".to_string()
+        );
+    }
+
+    #[test]
+    fn limit_spec_json_roundtrip() {
+        // Deserialize from string form (config-style).
+        let from_str: LimitSpec = serde_json::from_str("\"100\"").unwrap();
+        assert_eq!(from_str, LimitSpec::new(100));
+
+        // Deserialize from numeric form (config-style).
+        let from_num: LimitSpec = serde_json::from_str("42").unwrap();
+        assert_eq!(from_num, LimitSpec::new(42));
+
+        // Serialize emits the struct form; deserialize must accept
+        // it so that values round-trip through wire types.
+        let original = LimitSpec {
+            limit: 7,
+            force_local: true,
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        assert_eq!(json, r#"{"limit":7,"force_local":true}"#);
+        let restored: LimitSpec = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, original);
+
+        // Unknown fields are rejected.
+        let err = serde_json::from_str::<LimitSpec>(r#"{"limit":1,"force_local":false,"oops":1}"#)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            err,
+            "unknown field `oops`, expected `limit` or `force_local` at line 1 column 37"
         );
     }
 }

@@ -17,7 +17,7 @@ to enumerate or modify the set of headers in the mime part.
 The example below prints the `Subject` header of the mime part:
 
 ```lua
-local subject = mimepart.headers.subject()
+local subject = mimepart.headers:subject()
 print(subject)
 ```
 

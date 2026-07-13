@@ -34,3 +34,16 @@ utils.assert_eq(
   ),
   'Fred'
 )
+
+-- Verify that recursive evaluation is enabled and operating correctly
+utils.assert_eq(
+  kumo.string.eval_template(
+    'something.html',
+    [[{{#each children}}outer={{{outer}}} inner={{{inner}}}{{/each}}]],
+    { children = {
+      { inner = 'inner' },
+    }, outer = 'outer' },
+    'Handlebars'
+  ),
+  'outer=outer inner=inner'
+)

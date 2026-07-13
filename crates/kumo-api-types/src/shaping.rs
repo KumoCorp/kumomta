@@ -205,7 +205,7 @@ pub enum Action {
     BounceCampaign,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, Hash, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum Trigger {
     /// Trigger on the first match, immediately
     #[default]
@@ -342,7 +342,7 @@ impl ShapingInner {
     }
 
     pub async fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<Rule>> {
-        use rfc5321::ForwardPath;
+        use rfc5321::parser::ForwardPath;
         // Extract the domain from the recipient.
         let recipient = ForwardPath::try_from(
             record
@@ -577,7 +577,7 @@ impl Shaping {
 
                 async fn http_get(url: &str, timeout: Duration) -> anyhow::Result<String> {
                     tokio::time::timeout(timeout, async {
-                        reqwest::Client::builder()
+                        let response = reqwest::Client::builder()
                             .timeout(timeout)
                             .connect_timeout(timeout)
                             .read_timeout(timeout)
@@ -585,7 +585,22 @@ impl Shaping {
                             .get(url)
                             .send()
                             .await
-                            .with_context(|| format!("making HTTP request to {url}"))?
+                            .with_context(|| format!("making HTTP request to {url}"))?;
+                        let status = response.status();
+                        if !status.is_success() {
+                            let err_text = match response.text().await {
+                                Ok(text) => text,
+                                Err(err) => {
+                                    format!("Additional error {err:#} while reading response body")
+                                }
+                            };
+                            anyhow::bail!(
+                                "HTTP request to {url} failed: status {status} {reason} {err_text}",
+                                status = status.as_u16(),
+                                reason = status.canonical_reason().unwrap_or("")
+                            );
+                        }
+                        response
                             .text()
                             .await
                             .with_context(|| format!("reading text from {url}"))
@@ -1957,6 +1972,7 @@ MergedEntry {
         smtp_auth_plain_username: None,
         smtp_auth_plain_password: None,
         allow_smtp_auth_plain_without_tls: false,
+        allow_smtp_auth_plain_without_valid_certificate: false,
         max_message_rate: Some(
             100/s,
         ),
@@ -1974,6 +1990,7 @@ MergedEntry {
             "::/127",
         },
         skip_hosts: {},
+        ip_lookup_strategy: Ipv4AndIpv6,
         ehlo_domain: None,
         aggressive_connection_opening: false,
         refresh_interval: 60s,
@@ -1990,6 +2007,7 @@ MergedEntry {
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
         ignore_8bit_checks: false,
+        dispatcher_progress_watchdog_timeout: None,
     },
     sources: {},
     automation: [
@@ -2110,6 +2128,7 @@ MergedEntry {
         smtp_auth_plain_username: None,
         smtp_auth_plain_password: None,
         allow_smtp_auth_plain_without_tls: false,
+        allow_smtp_auth_plain_without_valid_certificate: false,
         max_message_rate: Some(
             100/s,
         ),
@@ -2127,6 +2146,7 @@ MergedEntry {
             "::/127",
         },
         skip_hosts: {},
+        ip_lookup_strategy: Ipv4AndIpv6,
         ehlo_domain: None,
         aggressive_connection_opening: false,
         refresh_interval: 60s,
@@ -2143,6 +2163,7 @@ MergedEntry {
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
         ignore_8bit_checks: false,
+        dispatcher_progress_watchdog_timeout: None,
     },
     sources: {
         "my source name": EgressPathConfig {
@@ -2180,6 +2201,7 @@ MergedEntry {
             smtp_auth_plain_username: None,
             smtp_auth_plain_password: None,
             allow_smtp_auth_plain_without_tls: false,
+            allow_smtp_auth_plain_without_valid_certificate: false,
             max_message_rate: None,
             additional_message_rate_throttles: {},
             source_selection_rate: None,
@@ -2193,6 +2215,7 @@ MergedEntry {
                 "::/127",
             },
             skip_hosts: {},
+            ip_lookup_strategy: Ipv4AndIpv6,
             ehlo_domain: None,
             aggressive_connection_opening: false,
             refresh_interval: 60s,
@@ -2209,6 +2232,7 @@ MergedEntry {
             no_memory_reduction_policy: ShrinkDataAndMeta,
             try_next_host_on_transport_error: false,
             ignore_8bit_checks: false,
+            dispatcher_progress_watchdog_timeout: None,
         },
     },
     automation: [
@@ -2335,6 +2359,7 @@ MergedEntry {
         smtp_auth_plain_username: None,
         smtp_auth_plain_password: None,
         allow_smtp_auth_plain_without_tls: false,
+        allow_smtp_auth_plain_without_valid_certificate: false,
         max_message_rate: Some(
             100/s,
         ),
@@ -2352,6 +2377,7 @@ MergedEntry {
             "::/127",
         },
         skip_hosts: {},
+        ip_lookup_strategy: Ipv4AndIpv6,
         ehlo_domain: None,
         aggressive_connection_opening: false,
         refresh_interval: 60s,
@@ -2368,6 +2394,7 @@ MergedEntry {
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
         ignore_8bit_checks: false,
+        dispatcher_progress_watchdog_timeout: None,
     },
     sources: {},
     automation: [

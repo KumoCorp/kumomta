@@ -1,10 +1,9 @@
 use crate::record::Record;
 use crate::spec::MacroSpec;
 use dns_resolver::{DnsError, Resolver};
-use hickory_resolver::proto::rr::RecordType;
-use hickory_resolver::Name;
+use hickory_resolver::proto::rr::{Name, RecordType};
 use instant_xml::{FromXml, ToXml};
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -17,8 +16,9 @@ use record::Qualifier;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Clone, Copy, Eq, FromXml, PartialEq, ToXml)]
+#[derive(Debug, Clone, Copy, Eq, FromXml, PartialEq, ToXml, Serialize, Deserialize)]
 #[xml(scalar, rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
 pub enum SpfDisposition {
     /// A result of "none" means either (a) no syntactically valid DNS domain
     /// name was extracted from the SMTP session that could be used as the
@@ -68,9 +68,18 @@ impl SpfDisposition {
     }
 }
 
-impl Serialize for SpfDisposition {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.as_str())
+impl From<String> for SpfDisposition {
+    fn from(value: String) -> Self {
+        match value.to_lowercase().as_str() {
+            "none" => Self::None,
+            "neutral" => Self::Neutral,
+            "pass" => Self::Pass,
+            "fail" => Self::Fail,
+            "softfail" => Self::SoftFail,
+            "temperror" => Self::TempError,
+            "permerror" => Self::PermError,
+            _ => Self::None,
+        }
     }
 }
 
@@ -129,12 +138,19 @@ pub struct CheckHostParams {
 impl CheckHostParams {
     pub async fn check(self, resolver: &dyn Resolver) -> SpfResult {
         let Self {
-            domain,
+            mut domain,
             sender,
             client_ip,
             ehlo_domain,
             relaying_host_name,
         } = self;
+
+        // When MAIL FROM is blank and domain is empty, fallback to EHLO domain
+        if domain.is_empty() {
+            if let Some(ehlo) = &ehlo_domain {
+                domain = ehlo.clone();
+            }
+        }
 
         let sender = match sender {
             Some(sender) => sender,
@@ -173,12 +189,9 @@ impl<'a> SpfContext<'a> {
     ///   initially, the domain portion of the "MAIL FROM" or "HELO" identity
     /// - `client_ip` is the IP address of the SMTP client that is emitting the mail
     fn new(sender: &'a str, domain: &'a str, client_ip: IpAddr) -> Result<Self, SpfResult> {
-        let Some((local_part, sender_domain)) = sender.split_once('@') else {
-            return Err(SpfResult {
-                disposition: SpfDisposition::PermError,
-                context:
-                    "input sender parameter '{sender}' is missing @ sign to delimit local part and domain".to_owned(),
-            });
+        let (local_part, sender_domain) = match sender.rsplit_once('@') {
+            Some((local_part, sender_domain)) => (local_part, sender_domain),
+            None => ("postmaster", sender),
         };
 
         Ok(Self {

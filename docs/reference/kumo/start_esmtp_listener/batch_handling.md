@@ -1,6 +1,6 @@
 # batch_handling
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 SMTP messages can have an envelope that includes multiple recipients.  Each
 recipient will receive a copy of the message.  If multiple recipients share the

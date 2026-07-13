@@ -4,7 +4,7 @@
 headers:append(NAME, VALUE)
 ```
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 Constructs a new header with `NAME` and `VALUE` and appends it to the header map.
 

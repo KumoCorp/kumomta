@@ -119,7 +119,7 @@ $ vault kv put -mount=secret dkim/example.org private_key=@example-private-dkim-
 
 ### Callback/Event based Data Source
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 You may define an event handling function to perform parameterized data
 fetching.  This is in some ways similar to using the `key_data` form described

@@ -1,5 +1,6 @@
 use crate::kumod::{DaemonWithMaildirOptions, MailGenParams};
 use anyhow::Context;
+use bstr::ByteSlice;
 use k9::assert_equal;
 use kumo_log_types::rfc3464::Report;
 use kumo_log_types::RecordType;
@@ -161,7 +162,7 @@ Report {
 "#
     );
 
-    assert!(original_message.contains("woot"));
+    assert!(original_message.contains_str("woot"));
 
     Ok(())
 }

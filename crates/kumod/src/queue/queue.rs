@@ -26,6 +26,8 @@ use config::{declare_event, load_config, LuaConfig};
 use humantime::format_duration;
 use kumo_api_types::egress_path::{ConfigRefreshStrategy, MemoryReductionPolicy};
 use kumo_api_types::xfer::XferProtocol;
+use kumo_chrono_helper::DateTime;
+use kumo_prometheus::declare_metric;
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on};
@@ -33,11 +35,10 @@ use kumo_template::TemplateEngine;
 use message::queue_name::QueueNameComponents;
 use message::Message;
 use parking_lot::FairMutex;
-use prometheus::IntGauge;
 use rfc5321::{EnhancedStatusCode, Response};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use throttle::ThrottleResult;
 use timeq::TimerEntryWithDelay;
@@ -390,9 +391,7 @@ impl Queue {
         context: InsertContext,
     ) {
         async fn try_apply(msg: &Message, rebind: &Arc<AdminRebindEntry>) -> anyhow::Result<()> {
-            if !msg.is_meta_loaded() {
-                msg.load_meta().await?;
-            }
+            msg.load_meta_if_needed().await?;
 
             if rebind.request.trigger_rebind_event {
                 let mut config = load_config().await?;
@@ -404,7 +403,7 @@ impl Queue {
                     .await
             } else {
                 for (k, v) in &rebind.request.data {
-                    msg.set_meta(k, v.clone())?;
+                    msg.set_meta(k, v.clone()).await?;
                 }
                 Ok(())
             }
@@ -422,7 +421,7 @@ impl Queue {
 
         let mut delay = None;
 
-        let queue_name = match msg.get_queue_name() {
+        let queue_name = match msg.get_queue_name().await {
             Err(err) => {
                 tracing::error!("failed to determine queue name for msg: {err:#}");
                 if let Err(err) = self
@@ -544,10 +543,7 @@ impl Queue {
             }
         };
 
-        if let Err(err) = msg.load_meta_if_needed().await {
-            tracing::error!("failed to load meta: {err:#}");
-        }
-        if let Err(err) = msg.set_meta("queue", queue.name.to_string()) {
+        if let Err(err) = msg.set_meta("queue", queue.name.to_string()).await {
             tracing::error!("failed to save queue meta: {err:#}");
         }
 
@@ -645,7 +641,7 @@ impl Queue {
         }
 
         // Put the message back into its originating queue
-        let queue_name = match msg.get_queue_name() {
+        let queue_name = match msg.get_queue_name().await {
             Ok(name) => name,
             Err(err) => {
                 tracing::error!(
@@ -747,6 +743,31 @@ impl Queue {
         }
     }
 
+    /// Utility method exposed for the benefit of xfer processing
+    /// in a requeue_message event handler
+    pub async fn increment_attempts_and_update_delay_without_expiry(
+        &self,
+        msg: &Message,
+    ) -> anyhow::Result<Option<DateTime<Utc>>> {
+        // Pre-calculate the delay, prior to incrementing the number of attempts,
+        // as the delay_for_attempt uses a zero-based attempt number to figure
+        // the interval
+        let num_attempts = msg.get_num_attempts();
+        let delay = self.queue_config.borrow().delay_for_attempt(num_attempts);
+        msg.increment_num_attempts();
+
+        // Compute some jitter. The default retry_interval is 20 minutes for
+        // which 1 minute is desired. To accomodate different intervals we translate
+        // that to allowing up to 1/20th of the retry_interval as jitter, but we
+        // cap it to 1 minute so that it doesn't result in excessive divergence
+        // for very large intervals.
+        let jitter_magnitude =
+            (self.queue_config.borrow().retry_interval.as_secs_f32() / 20.0).min(60.0);
+        let jitter = (rand::random::<f32>() * jitter_magnitude) - (jitter_magnitude / 2.0);
+        let delay = kumo_chrono_helper::seconds(delay.num_seconds() + jitter as i64)?;
+        msg.delay_by(delay).await
+    }
+
     async fn increment_attempts_and_update_delay(
         &self,
         msg: Message,
@@ -769,7 +790,7 @@ impl Queue {
         let jitter = (rand::random::<f32>() * jitter_magnitude) - (jitter_magnitude / 2.0);
         let delay = kumo_chrono_helper::seconds(delay.num_seconds() + jitter as i64)?;
 
-        match msg.get_scheduling().and_then(|sched| sched.expires) {
+        match msg.get_scheduling().await?.and_then(|sched| sched.expires) {
             Some(expires) => {
                 // Per-message expiry
                 match msg.delay_by(delay).await? {
@@ -1070,7 +1091,7 @@ impl Queue {
             && !context.contains(InsertReason::LoggedTransientFailure);
 
         if log_delay {
-            if context.only(InsertReason::Received) && msg.get_scheduling().is_some() {
+            if context.only(InsertReason::Received) && msg.get_scheduling().await?.is_some() {
                 context.note(InsertReason::ScheduledForLater);
             }
 
@@ -1137,6 +1158,18 @@ impl Queue {
         mut context: InsertContext,
         deadline: Option<Instant>,
     ) -> anyhow::Result<()> {
+        // Spool-health check goes before any other admin action.  A
+        // bounce or suspend cleanup would call into the spool's
+        // remove path that we cannot satisfy while unhealthy, so we
+        // hold the message until either the gate clears or the
+        // process is restarted.
+        if let Some(reason) = crate::spool::delivery_suspension_reason() {
+            return crate::spool::log_and_requeue_for_unhealthy_spool(
+                msg, &self.name, None, reason,
+            )
+            .await;
+        }
+
         if let Some(b) =
             AdminBounceEntry::cached_get_for_queue_name(&self.name, &self.active_bounce)
         {
@@ -1315,7 +1348,7 @@ impl Queue {
 
     #[instrument(skip(self, msg))]
     async fn insert_ready_impl(
-        &self,
+        self: &Arc<Self>,
         msg: Message,
         context: &mut InsertContext,
         deadline: Option<Instant>,
@@ -1332,6 +1365,7 @@ impl Queue {
                     .select_and_insert(
                         &self.name,
                         &self.queue_config,
+                        self,
                         msg.clone(),
                         self.get_config_epoch(),
                         deadline,
@@ -1523,17 +1557,17 @@ impl Queue {
                 let mut successes = vec![];
                 let mut failures = vec![];
 
-                let queue_name = msg.get_queue_name()?;
+                let queue_name = msg.get_queue_name().await?;
                 let components = QueueNameComponents::parse(&queue_name);
-                let sender = msg.sender()?;
+                let sender = msg.sender().await?;
 
-                for recipient in msg.recipient_list()? {
+                for recipient in msg.recipient_list().await? {
                     let engine = TemplateEngine::new();
                     let expanded_maildir_path = engine.render(
                         "maildir_path",
                         maildir_path,
                         serde_json::json! ({
-                            "meta": msg.get_meta_obj()?,
+                            "meta": msg.get_meta_obj().await?,
                             "queue": queue_name,
                             "campaign": components.campaign,
                             "tenant": components.tenant,
@@ -1664,7 +1698,7 @@ impl Queue {
                     .await;
                     context.note(InsertReason::LoggedTransientFailure);
                     // Adjust for remaining recipients
-                    msg.set_recipient_list(remaining_recipient_list)?;
+                    msg.set_recipient_list(remaining_recipient_list).await?;
                     anyhow::bail!("failed maildir store: {status}");
                 } else {
                     // Every recipient in the batch was successful; this
@@ -1746,13 +1780,10 @@ pub static GET_Q_CONFIG_SIG: Multiple(
     ) -> QueueConfig;
 }
 
-static QMAINT_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
-    prometheus::register_int_gauge!(
-        "scheduled_queue_maintainer_count",
-        "how many scheduled queues have active maintainer tasks"
-    )
-    .unwrap()
-});
+declare_metric! {
+/// How many scheduled queues have active maintainer tasks.
+static QMAINT_COUNT: IntGauge("scheduled_queue_maintainer_count");
+}
 
 declare_event! {
 pub static THROTTLE_INSERT_READY_SIG: Multiple(

@@ -12,7 +12,7 @@ The default value for this is:
  * `127.0.0.0/8`, the set of IPv4 loopback addresses
  * `::1`, the IPv6 loopback address
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 The default value is now:
 

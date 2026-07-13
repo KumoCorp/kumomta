@@ -1,3 +1,7 @@
+---
+description: "Flush a KumoMTA queue with kcli rebind and --always-flush, re-evaluating and releasing messages for a domain across all tenants and campaigns."
+---
+
 # How do I flush a queue?
 
 {{since('2024.09.02-c5476b89')}}
@@ -17,5 +21,5 @@ queue.
 
 If you want to do this via API, then 
 you should look at the
-[/api/admin/rebind/v1](../reference/rapidoc.md/#post-/api/admin/rebind/v1) HTTP endpoint
+[/api/admin/rebind/v1](../reference/http/kumod/api_admin_rebind_v1_post.md) HTTP endpoint
 documentation.

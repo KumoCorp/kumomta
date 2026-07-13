@@ -21,7 +21,7 @@ if ok then
 end
 ```
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 The `OPT_RESOLVER_NAME` is an optional string parameter that specifies the name
 of a alternate resolver defined via [define_resolver](define_resolver.md).  You

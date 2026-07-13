@@ -4,7 +4,7 @@
 message:arc_seal(signer, server_id, authentication_results, opt_resolver_name)
 ```
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 This method will sign and seal an ARC set to record the current hop as part of
 the [Authenticated Received Chain](https://datatracker.ietf.org/doc/html/rfc8617).

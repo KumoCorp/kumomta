@@ -7,7 +7,7 @@ kumo.on('rebind_message', function(message, data) end)
 {{since('2024.09.02-c5476b89')}}
 
 This event is triggered when processing a rebind request that was triggered by
-the [/api/admin/rebind/v1](../rapidoc.md/#post-/api/admin/rebind/v1) HTTP endpoint
+the [/api/admin/rebind/v1](../http/kumod/api_admin_rebind_v1_post.md) HTTP endpoint
 (which is is what is used by the `kcli rebind` command).
 
 This event is only triggered when `trigger_rebind_event` is set in the incoming

@@ -1,3 +1,7 @@
+---
+description: "KumoMTA is an open-source Message Transfer Agent (MTA) built for high-performance outbound email by industry veterans for the world's largest senders."
+---
+
 # What is KumoMTA?
 
 KumoMTA is an open-source Message Transfer Agent (MTA) designed for high-performance outbound email functionality.

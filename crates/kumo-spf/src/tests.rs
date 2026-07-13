@@ -521,6 +521,19 @@ async fn initial_processing() {
     assert_eq!(result.context, "no SPF records found for example.com");
 }
 
+#[test]
+fn helo_identity_without_at_is_accepted() {
+    let cx = SpfContext::new(
+        "mail.example.com",
+        "mail.example.com",
+        Ipv4Addr::LOCALHOST.into(),
+    )
+    .unwrap();
+
+    assert_eq!(cx.local_part, "postmaster");
+    assert_eq!(cx.sender_domain, "mail.example.com");
+}
+
 #[tokio::test]
 async fn test_exp() {
     let resolver = TestResolver::default()

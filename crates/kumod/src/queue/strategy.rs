@@ -348,7 +348,7 @@ impl Ord for DelayedEntry {
 mod test {
     use super::*;
     use kumo_server_lifecycle::LifeCycle;
-    use message::EnvelopeAddress;
+    use rfc5321::parser::EnvelopeAddress;
     use spool::SpoolId;
 
     async fn insert_past_due(qs: &mut QueueStructure) {

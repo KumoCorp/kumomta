@@ -259,9 +259,9 @@ function mod.record(name, fields)
     end
 
     for k, def in pairs(ty.fields) do
-      if not obj[k] then
+      if rawget(obj, k) == nil then
         if type(def) == 'table' then
-          if def.default_value then
+          if def.default_value ~= nil then
             obj[k] = def.default_value
           elseif not def.is_optional then
             TypeError
@@ -526,6 +526,52 @@ function mod.default(target_type, default_value)
   return make_simple_ctor(ty)
 end
 
+function mod.variant(...)
+  local variants = { ... }
+
+  if #variants < 2 then
+    error(
+      string.format(
+        'typing.variant: must have a list of 2 or more variants, %d were provided',
+        #variants
+      )
+    )
+  end
+
+  local names = {}
+  for _, variant in ipairs(variants) do
+    table.insert(names, variant.name)
+  end
+  name = string.format('variant<%s>', table.concat(names, ','))
+
+  local ty = {
+    name = name,
+    variants = variants,
+  }
+
+  function ty:validate_value(v)
+    local failures = {}
+    for _, variant in ipairs(variants) do
+      local status, error = variant:validate_value(v)
+      if status then
+        return status, error
+      end
+      table.insert(failures, tostring(error))
+    end
+    return false,
+      TypeError:new(
+        string.format(
+          "Unexpected '%s' value %s. Failed to match any allowed variant: %s",
+          ty.name,
+          value_dump(v),
+          table.concat(failures, '. ')
+        )
+      )
+  end
+
+  return make_simple_ctor(ty)
+end
+
 function mod.option(target_type)
   local ty = {
     name = string.format('option<%s>', target_type.name),
@@ -654,6 +700,28 @@ function mod:test()
   })
   local have_default_layer = WithDefaultLayer {}
   assert(have_default_layer.layer == 'Above')
+
+  -- Verify that explicit false value is retained
+  local WithDefaultBool = mod.record('WithDefaultBool', {
+    enabled = mod.default(mod.boolean, true),
+  })
+
+  local explicit_false = WithDefaultBool { enabled = false }
+  utils.assert_eq(explicit_false.enabled, false)
+
+  local have_default_bool = WithDefaultBool {}
+  utils.assert_eq(have_default_bool.enabled, true)
+
+  -- Verify that default false value inherited correctly
+  local WithDefaultBoolFalse = mod.record('WithDefaultBool', {
+    enabled = mod.default(mod.boolean, false),
+  })
+
+  local explicit_false_is_false = WithDefaultBoolFalse { enabled = false }
+  utils.assert_eq(explicit_false_is_false.enabled, false)
+
+  local have_default_false = WithDefaultBoolFalse {}
+  utils.assert_eq(have_default_false.enabled, false)
 
   local StringList = mod.list(mod.string)
   utils.assert_eq(StringList {}, {})

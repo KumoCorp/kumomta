@@ -13,8 +13,11 @@ use cgroups_rs::hierarchies::{V1, V2};
 use cgroups_rs::memory::MemController;
 #[cfg(target_os = "linux")]
 use cgroups_rs::{Hierarchy, MaxValue};
+use kumo_prometheus::declare_metric;
 use nix::sys::resource::{rlim_t, RLIM_INFINITY};
 use nix::unistd::{sysconf, SysconfVar};
+#[cfg(any(target_os = "linux", test))]
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
@@ -28,49 +31,48 @@ pub use tracking::{set_tracking_callstacks, tracking_stats};
 #[global_allocator]
 static GLOBAL: TrackingAllocator<Jemalloc> = TrackingAllocator::new(Jemalloc);
 
-static LOW_COUNT: LazyLock<metrics::Counter> = LazyLock::new(|| {
-    metrics::describe_counter!(
-        "memory_low_count",
-        "how many times the low memory threshold was exceeded"
-    );
-    metrics::counter!("memory_low_count")
-});
-static OVER_LIMIT_COUNT: LazyLock<metrics::Counter> = LazyLock::new(|| {
-    metrics::describe_counter!(
-        "memory_over_limit_count",
-        "how many times the soft memory limit was exceeded"
-    );
-    metrics::counter!("memory_over_limit_count")
-});
-static MEM_USAGE: LazyLock<metrics::Gauge> = LazyLock::new(|| {
-    metrics::describe_gauge!(
-        "memory_usage",
-        "number of bytes of used memory (Resident Set Size)"
-    );
-    metrics::gauge!("memory_usage")
-});
-static MEM_LIMIT: LazyLock<metrics::Gauge> = LazyLock::new(|| {
-    metrics::describe_gauge!("memory_limit", "soft memory limit measured in bytes");
-    metrics::gauge!("memory_limit")
-});
-static MEM_COUNTED: LazyLock<metrics::Gauge> = LazyLock::new(|| {
-    metrics::describe_gauge!(
-        "memory_usage_rust",
-        "number of bytes of used memory (allocated by Rust)"
-    );
-    metrics::gauge!("memory_usage_rust")
-});
-static LOW_MEM_THRESH: LazyLock<metrics::Gauge> = LazyLock::new(|| {
-    metrics::describe_gauge!(
-        "memory_low_thresh",
-        "low memory threshold measured in bytes"
-    );
-    metrics::gauge!("memory_low_thresh")
-});
+declare_metric! {
+/// How many times the low memory threshold was exceeded.
+static LOW_COUNT: IntCounter("memory_low_count");
+}
+
+declare_metric! {
+/// how many times the soft memory limit was exceeded
+static OVER_LIMIT_COUNT: IntCounter("memory_over_limit_count");
+}
+
+declare_metric! {
+/// number of bytes of used memory that drives memory limit decisions.
+/// When sourced from a cgroup this is the working set
+/// (memory.current - inactive_file, floored by anonymous memory);
+/// otherwise it is the Resident Set Size from /proc/self/statm.
+static MEM_USAGE: Gauge("memory_usage");
+}
+
+declare_metric! {
+/// soft memory limit measured in bytes
+static MEM_LIMIT: Gauge("memory_limit");
+}
+
+declare_metric! {
+/// number of bytes of used memory (allocated by Rust)
+static MEM_COUNTED: Gauge("memory_usage_rust");
+}
+
+declare_metric! {
+/// low memory threshold measured in bytes
+static LOW_MEM_THRESH: Gauge("memory_low_thresh");
+}
+
 static SUBSCRIBER: LazyLock<Mutex<Option<Receiver<()>>>> = LazyLock::new(|| Mutex::new(None));
 
 static OVER_LIMIT: AtomicBool = AtomicBool::new(false);
 static LOW_MEM: AtomicBool = AtomicBool::new(false);
+
+/// Set true once we have warned about an unreadable cgroup memory.stat,
+/// so the fail-safe path warns at most once.
+#[cfg(target_os = "linux")]
+static WARNED_EMPTY_MEMORY_STAT: AtomicBool = AtomicBool::new(false);
 
 // Default this to a reasonable non-zero value, as it is possible
 // in the test harness on the CI system to inject concurrent with
@@ -80,7 +82,11 @@ static LOW_MEM: AtomicBool = AtomicBool::new(false);
 // have to deal with this small window on startup.
 static HEAD_ROOM: AtomicUsize = AtomicUsize::new(u32::MAX as usize);
 
-/// Represents the current memory usage of this process
+/// Represents the current memory usage of this process.
+///
+/// `bytes` is the value used for all memory-limit decisions. When sourced from
+/// a cgroup it is the working set (`current - inactive_file`, floored by
+/// anonymous memory); otherwise it is the Resident Set Size.
 #[derive(Debug, Clone, Copy)]
 pub struct MemoryUsage {
     pub bytes: u64,
@@ -113,9 +119,25 @@ impl MemoryUsage {
             .controller_of()
             .ok_or_else(|| anyhow::anyhow!("no memory controller?"))?;
         let stat = mem.memory_stat();
-        Ok(Self {
-            bytes: stat.usage_in_bytes,
-        })
+        let current = stat.usage_in_bytes;
+
+        match parse_working_set_inputs(v2, &stat.stat.raw) {
+            Some((inactive_file, anon)) => Ok(Self {
+                bytes: working_set_usage(current, inactive_file, anon),
+            }),
+            None => {
+                // memory.stat was empty/unreadable: fall back to the raw
+                // usage rather than erroring, and warn at most once.
+                if !WARNED_EMPTY_MEMORY_STAT.swap(true, Ordering::Relaxed) {
+                    tracing::warn!(
+                        "cgroup memory.stat was empty or unreadable; \
+                         reporting raw memory.current ({}) as usage",
+                        human(current)
+                    );
+                }
+                Ok(Self { bytes: current })
+            }
+        }
     }
 
     pub fn get_linux_statm() -> anyhow::Result<Self> {
@@ -125,6 +147,40 @@ impl MemoryUsage {
         Ok(Self {
             bytes: rss * sysconf(SysconfVar::PAGE_SIZE)?.unwrap_or(4 * 1024) as u64,
         })
+    }
+}
+
+/// Computes the working set from cgroup memory statistics.
+///
+/// `current - inactive_file` removes cold, kernel-reclaimable page cache;
+/// the `max(anon)` floor ensures a fast anonymous burst between samples
+/// cannot hide behind a transiently low working set. Saturating subtraction
+/// guards against `inactive_file` exceeding `current`.
+#[cfg(any(target_os = "linux", test))]
+fn working_set_usage(current: u64, inactive_file: u64, anon: u64) -> u64 {
+    current.saturating_sub(inactive_file).max(anon)
+}
+
+/// Extracts `(inactive_file, anon)` from a parsed `memory.stat` for the
+/// working-set computation, or `None` when `memory.stat` could not be read
+/// (the crate returns an empty `raw` map on failure).
+///
+/// cgroup v2 uses the `inactive_file` / `anon` keys. cgroup v1 uses the
+/// hierarchical `total_inactive_file` key, and `anon` is
+/// `total_rss + total_rss_huge`; the hierarchical (`total_*`) values are used
+/// so the anon floor is consistent with the hierarchical `memory.usage_in_bytes`
+/// it is compared against.
+#[cfg(any(target_os = "linux", test))]
+fn parse_working_set_inputs(v2: bool, raw: &HashMap<String, u64>) -> Option<(u64, u64)> {
+    if raw.is_empty() {
+        return None;
+    }
+    let get = |key: &str| raw.get(key).copied().unwrap_or(0);
+    if v2 {
+        Some((get("inactive_file"), get("anon")))
+    } else {
+        let anon = get("total_rss").saturating_add(get("total_rss_huge"));
+        Some((get("total_inactive_file"), anon))
     }
 }
 
@@ -311,6 +367,41 @@ pub fn set_low_memory_thresh(limit: usize) {
     USER_LOW_THRESH.store(limit, Ordering::Relaxed);
 }
 
+pub fn get_hard_limit() -> Option<u64> {
+    let user_limit = USER_HARD_LIMIT.load(Ordering::Relaxed);
+    if user_limit > 0 {
+        return Some(user_limit as u64);
+    }
+
+    let result = get_usage_and_limit()
+        .ok()
+        .and_then(|(_, limits)| limits.hard_limit);
+    result
+}
+
+pub fn get_soft_limit() -> Option<u64> {
+    let user_limit = USER_SOFT_LIMIT.load(Ordering::Relaxed);
+    if user_limit > 0 {
+        return Some(user_limit as u64);
+    }
+
+    get_usage_and_limit()
+        .ok()
+        .and_then(|(_, limits)| limits.soft_limit)
+}
+
+pub fn get_low_memory_thresh() -> Option<u64> {
+    let user_thresh = USER_LOW_THRESH.load(Ordering::Relaxed);
+    if user_thresh > 0 {
+        return Some(user_thresh as u64);
+    }
+
+    get_usage_and_limit()
+        .ok()
+        .and_then(|(_, limits)| limits.soft_limit)
+        .map(|limit| limit * 8 / 10)
+}
+
 pub fn get_usage_and_limit() -> anyhow::Result<(MemoryUsage, MemoryLimits)> {
     let (usage, mut limit) = get_usage_and_limit_impl()?;
 
@@ -426,13 +517,13 @@ fn memory_thread() {
 
                 if !was_low && is_low {
                     // Transition to low memory
-                    LOW_COUNT.increment(1);
+                    LOW_COUNT.inc();
                 }
 
                 if !is_ok && was_ok {
                     // Transition from OK -> !OK
                     dump_heap_profile();
-                    OVER_LIMIT_COUNT.increment(1);
+                    OVER_LIMIT_COUNT.inc();
                     tracing::error!(
                         "memory usage {} exceeds limit {}",
                         human(usage),
@@ -650,5 +741,97 @@ impl JemallocStats {
             mapped: stats::mapped::read().unwrap_or(0).into(),
             retained: stats::retained::read().unwrap_or(0).into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GB: u64 = 1024 * 1024 * 1024;
+    const MB: u64 = 1024 * 1024;
+
+    fn raw(pairs: &[(&str, u64)]) -> HashMap<String, u64> {
+        pairs
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), *value))
+            .collect()
+    }
+
+    #[test]
+    fn working_set_normal() {
+        // The motivating pod: 51GB current, 46GB cold cache, 1.8GB real
+        // footprint. Working set should drop the cold cache.
+        let current = 51 * GB;
+        let inactive_file = 46 * GB;
+        let anon = 1_800 * MB;
+        assert_eq!(
+            working_set_usage(current, inactive_file, anon),
+            current - inactive_file
+        );
+    }
+
+    #[test]
+    fn anon_floor_wins() {
+        // A fast anon burst exceeds the working set; the floor must win so a
+        // transiently low working set can't hide it.
+        let current = 5 * GB;
+        let inactive_file = 4 * GB;
+        let anon = 4 * GB;
+        assert_eq!(working_set_usage(current, inactive_file, anon), 4 * GB);
+    }
+
+    #[test]
+    fn underflow_no_panic() {
+        // inactive_file >= current must saturate to the anon floor (0 here),
+        // never panic.
+        assert_eq!(working_set_usage(10 * GB, 10 * GB, 0), 0);
+        assert_eq!(working_set_usage(10 * GB, 12 * GB, 0), 0);
+    }
+
+    #[test]
+    fn parse_v2() {
+        // active_file / file are present but irrelevant; only inactive_file
+        // and anon feed the working set.
+        let raw = raw(&[
+            ("anon", 2 * GB),
+            ("inactive_file", 3 * GB),
+            ("active_file", GB),
+            ("file", 4 * GB),
+        ]);
+        assert_eq!(parse_working_set_inputs(true, &raw), Some((3 * GB, 2 * GB)));
+    }
+
+    #[test]
+    fn parse_v1_hierarchical() {
+        // v1 uses the hierarchical total_* keys, and anon is
+        // total_rss + total_rss_huge. The non-hierarchical rss must be ignored.
+        let raw = raw(&[
+            ("total_rss", 2 * GB),
+            ("total_rss_huge", 512 * MB),
+            ("total_inactive_file", 3 * GB),
+            ("rss", GB),
+        ]);
+        assert_eq!(
+            parse_working_set_inputs(false, &raw),
+            Some((3 * GB, 2 * GB + 512 * MB))
+        );
+    }
+
+    #[test]
+    fn empty_raw_is_none() {
+        // An empty raw map is how the crate signals an unreadable memory.stat;
+        // both versions must report None so the caller can fail safe.
+        let raw = HashMap::new();
+        assert_eq!(parse_working_set_inputs(true, &raw), None);
+        assert_eq!(parse_working_set_inputs(false, &raw), None);
+    }
+
+    #[test]
+    fn missing_keys_default_zero() {
+        // A non-empty map missing our keys yields zeros (still Some), so the
+        // working set degrades to current rather than failing safe.
+        let raw = raw(&[("cache", GB)]);
+        assert_eq!(parse_working_set_inputs(true, &raw), Some((0, 0)));
     }
 }

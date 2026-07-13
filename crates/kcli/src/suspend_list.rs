@@ -1,5 +1,5 @@
 use clap::Parser;
-use kumo_api_types::SuspendV1ListEntry;
+use kumo_api_client::KumoApiClient;
 use reqwest::Url;
 
 #[derive(Debug, Parser)]
@@ -11,12 +11,8 @@ pub struct SuspendListCommand {}
 
 impl SuspendListCommand {
     pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
-        let result: Vec<SuspendV1ListEntry> = crate::request_with_json_response(
-            reqwest::Method::GET,
-            endpoint.join("/api/admin/suspend/v1")?,
-            &(),
-        )
-        .await?;
+        let client = KumoApiClient::new(endpoint.clone());
+        let result = client.admin_suspend_list_v1().await?;
 
         println!("{}", serde_json::to_string_pretty(&result)?);
 

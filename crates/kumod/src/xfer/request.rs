@@ -1,7 +1,6 @@
 use crate::queue::QueueManager;
 use axum::extract::Json;
 use kumo_api_types::xfer::{XferV1Request, XferV1Response};
-use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
 use kumo_server_runtime::rt_spawn;
 use message::message::QueueNameComponents;
@@ -95,7 +94,6 @@ impl AdminXferEntry {
     ),
 )]
 pub async fn xfer_v1(
-    _: TrustedIpRequired,
     // Note: Json<> must be last in the param list
     Json(request): Json<XferV1Request>,
 ) -> Result<Json<XferV1Response>, AppError> {

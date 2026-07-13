@@ -1,4 +1,5 @@
 use crate::{get_current_epoch, LuaConfig, LuaConfigInner};
+use kumo_prometheus::declare_metric;
 use parking_lot::FairMutex as Mutex;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -6,13 +7,11 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 static POOL: LazyLock<Mutex<Pool>> = LazyLock::new(|| Mutex::new(Pool::new()));
-static LUA_SPARE_COUNT: LazyLock<metrics::Gauge> = LazyLock::new(|| {
-    metrics::describe_gauge!(
-        "lua_spare_count",
-        "the number of lua contexts available for reuse in the pool"
-    );
-    metrics::gauge!("lua_spare_count")
-});
+
+declare_metric! {
+/// the number of lua contexts available for reuse in the pool
+static LUA_SPARE_COUNT: IntGauge("lua_spare_count");
+}
 
 /// Maximum age of a lua context before we release it, in seconds
 static MAX_AGE: AtomicUsize = AtomicUsize::new(300);
@@ -65,7 +64,7 @@ impl Pool {
         let len_after = self.pool.len();
         let diff = len_before - len_after;
         if diff > 0 {
-            LUA_SPARE_COUNT.decrement(diff as f64);
+            LUA_SPARE_COUNT.sub(diff as i64);
         }
     }
 
@@ -73,7 +72,7 @@ impl Pool {
         let max_age = Duration::from_secs(MAX_AGE.load(Ordering::Relaxed) as u64);
         loop {
             let mut item = self.pool.pop_front()?;
-            LUA_SPARE_COUNT.decrement(1.);
+            LUA_SPARE_COUNT.dec();
             if item.created.elapsed() > max_age || item.epoch != get_current_epoch() {
                 continue;
             }
@@ -108,7 +107,7 @@ impl Pool {
         }
 
         self.pool.push_back(config);
-        LUA_SPARE_COUNT.increment(1.);
+        LUA_SPARE_COUNT.inc();
     }
 }
 

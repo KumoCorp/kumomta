@@ -1,3 +1,7 @@
+---
+description: Test your KumoMTA installation by sending mail from the host with telnet on port 25, the curl HTTP injection API, or Swaks to confirm end-to-end delivery.
+---
+
 # Testing KumoMTA
 
 Now that you have KumoMTA installed, you should test it from the command line of the installed host. This is easy if you installed the basic tools as described earlier.
@@ -38,7 +42,7 @@ $ curl -H 'Content-Type: application/json' 'http://127.0.0.1:8000/api/inject/v1'
 }'
 ```
 
-See the [HTTP injection API reference](../reference/http/api_inject_v1.md) for
+See the [HTTP injection API reference](../reference/http/kumod/api_inject_v1_post.md) for
 more information.
 
 ## Using Swaks for testing

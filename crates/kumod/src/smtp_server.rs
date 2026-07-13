@@ -6,33 +6,39 @@ use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::logging::rejection::{log_rejection, LogRejection};
 use crate::metrics_helper::smtp_rejected_for_service;
 use crate::queue::{DeliveryProto, IncrementAttempts, InsertReason, QueueConfig, QueueManager};
-use crate::ready_queue::{Dispatcher, QueueDispatcher};
+use crate::ready_queue::{AttemptConnectionDisposition, Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use chrono::Utc;
 use cidr_map::{CidrMap, CidrSet};
-use config::{any_err, declare_event, load_config, serialize_options, CallbackSignature};
+use config::{
+    any_err, declare_event, load_config, serialize_options, CallbackSignature, SerdeWrappedValue,
+};
 use data_encoding::BASE64;
 use data_loader::KeySource;
 use derive_where::derive_where;
 use kumo_log_types::ResolvedAddress;
-use kumo_prometheus::AtomicCounter;
-use kumo_server_lifecycle::{Activity, ShutdownSubcription};
+use kumo_prometheus::prometheus::HistogramTimer;
+use kumo_prometheus::{declare_metric, AtomicCounter};
+use kumo_server_common::acct::{log_authn, AuthnAuditRecord};
+use kumo_server_common::authn_authz::{AuthInfo, Identity, IdentityContext};
+use kumo_server_common::http_server::auth::AuthKindResult;
+use kumo_server_lifecycle::{Activity, ShutdownSubcription, ShuttingDownError};
 use kumo_server_runtime::{spawn, Runtime};
 use lruttl::declare_cache;
 use mailparsing::ConformanceDisposition;
 use memchr::memmem::Finder;
-use message::{EnvelopeAddress, Message};
+use message::Message;
 use mlua::prelude::LuaUserData;
 use mlua::{FromLuaMulti, IntoLuaMulti, LuaSerdeExt, UserData, UserDataMethods};
 use openssl::x509::X509;
 use parking_lot::FairMutex as Mutex;
-use prometheus::{Histogram, HistogramTimer};
-use rfc5321::{
-    subject_name, AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response, TlsInformation,
-    XClientParameter,
+use ppp::{HeaderResult, PartialResult};
+use rfc5321::parser::{
+    Command, EnvelopeAddress, MaybePartialCommand, PartialReason, XClientParameter,
 };
+use rfc5321::{subject_name, AsyncReadAndWrite, BoxedAsyncReadAndWrite, Response, TlsInformation};
 use rustls::ServerConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -101,28 +107,32 @@ static SMTP_SERVER_REWRITE_RESPONSE: Single(
 ) -> (Option<u16>, Option<String>);
 }
 
+declare_event! {
+static SMTP_SERVER_AUTH_PLAIN: Single(
+    "smtp_server_auth_plain",
+    authz: &str,
+    authc: &str,
+    password: &str,
+    connection_metadata: ConnectionMetaData
+) -> SerdeWrappedValue<AuthKindResult>;
+}
+
 static CRLF: LazyLock<Finder> = LazyLock::new(|| Finder::new("\r\n"));
-static TXN_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "smtpsrv_transaction_duration",
-        "how long an incoming SMTP transaction takes",
-    )
-    .unwrap()
-});
-static READ_DATA_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "smtpsrv_read_data_duration",
-        "how long it takes to receive the DATA portion",
-    )
-    .unwrap()
-});
-static PROCESS_DATA_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "smtpsrv_process_data_duration",
-        "how long it takes to process the DATA portion and enqueue",
-    )
-    .unwrap()
-});
+
+declare_metric! {
+/// how long an incoming SMTP transaction takes
+static TXN_LATENCY: Histogram("smtpsrv_transaction_duration");
+}
+
+declare_metric! {
+/// how long it takes to receive the DATA portion
+static READ_DATA_LATENCY: Histogram("smtpsrv_read_data_duration");
+}
+
+declare_metric! {
+/// how long it takes to process the DATA portion and enqueue
+static PROCESS_DATA_LATENCY: Histogram("smtpsrv_process_data_duration");
+}
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 struct DomainAndListener {
@@ -137,6 +147,14 @@ static SMTPSRV_THREADS: AtomicUsize = AtomicUsize::new(0);
 
 pub fn set_smtpsrv_threads(n: usize) {
     SMTPSRV_THREADS.store(n, Ordering::SeqCst);
+}
+
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum CommandDisposition {
+    /// Continue with the next command in the session
+    Continue,
+    /// Shut down the session; don't process any further commands
+    Terminate,
 }
 
 /// Indicates how we should handle an incoming report
@@ -331,7 +349,7 @@ impl TraceHeaders {
             "_@_": "\\_/",
         });
 
-        let recips = message.recipient_list_string()?;
+        let recips = message.recipient_list_string().await?;
         match recips.len() {
             1 => {
                 object.as_object_mut().unwrap().insert(
@@ -348,7 +366,7 @@ impl TraceHeaders {
         }
 
         for name in &self.include_meta_names {
-            if let Ok(value) = message.get_meta(name) {
+            if let Ok(value) = message.get_meta(name).await {
                 object
                     .as_object_mut()
                     .unwrap()
@@ -358,7 +376,7 @@ impl TraceHeaders {
 
         let value = BASE64.encode(serde_json::to_string(&object)?.as_bytes());
         message
-            .prepend_header(Some(&self.header_name), &value)
+            .prepend_header(Some(&self.header_name), value.as_bytes())
             .await?;
 
         Ok(())
@@ -391,6 +409,7 @@ pub struct ConcreteEsmtpListenerParams {
     pub deferred_spool: bool,
     pub deferred_queue: bool,
     pub allow_xclient: bool,
+    pub require_proxy_protocol: bool,
 
     pub trace_headers: TraceHeaders,
 
@@ -501,6 +520,9 @@ impl ConcreteEsmtpListenerParams {
         if let Some(allow_xclient) = base.allow_xclient {
             self.allow_xclient = allow_xclient;
         }
+        if let Some(require_proxy_protocol) = base.require_proxy_protocol {
+            self.require_proxy_protocol = require_proxy_protocol;
+        }
 
         if let Some(map) = base.meta {
             for (k, v) in map.into_iter() {
@@ -564,6 +586,7 @@ impl Default for ConcreteEsmtpListenerParams {
             invalid_line_endings: ConformanceDisposition::default(),
             line_length_hard_limit: MAX_LINE_LEN,
             allow_xclient: false,
+            require_proxy_protocol: false,
         }
     }
 }
@@ -642,6 +665,9 @@ pub struct GenericEsmtpListenerParams {
 
     #[serde(default)]
     allow_xclient: Option<bool>,
+
+    #[serde(default)]
+    require_proxy_protocol: Option<bool>,
 }
 
 impl mlua::FromLua for GenericEsmtpListenerParams {
@@ -753,23 +779,6 @@ impl EsmtpListenerParams {
             }
         })?;
         Ok(())
-    }
-}
-
-#[derive(Error, Debug, Clone)]
-#[error("shutting down")]
-pub struct ShuttingDownError;
-
-impl ShuttingDownError {
-    pub fn is_shutting_down(err: &anyhow::Error) -> bool {
-        if err
-            .root_cause()
-            .downcast_ref::<ShuttingDownError>()
-            .is_some()
-        {
-            return true;
-        }
-        format!("{err:#}").contains("shutting down")
     }
 }
 
@@ -944,6 +953,9 @@ impl SmtpServerSession {
         meta.set_meta("reception_protocol", "ESMTP");
         meta.set_meta("received_via", my_address.to_string());
         meta.set_meta("received_from", peer_address.to_string());
+        meta.auth_info
+            .lock()
+            .set_peer_address(Some(peer_address.ip()));
 
         let mut concrete_params = ConcreteEsmtpListenerParams::default();
         meta.set_meta("hostname", concrete_params.hostname.to_string());
@@ -988,13 +1000,29 @@ impl SmtpServerSession {
         if let Err(err) = server.process().await {
             if err.downcast_ref::<WriteError>().is_none() {
                 error!("Error in SmtpServerSession: {err:#}");
-                server
-                    .write_response(
-                        421,
+                // If the underlying cause is a spool-unhealthy error,
+                // surface that to the peer with the same wire shape
+                // we use at the banner-level load-shed check, so the
+                // remote operator gets an actionable response
+                // regardless of whether the gate was observed at
+                // connect time or during a mid-flight transaction.
+                let (response, log_context) = if err.root_cause().is::<spool::SpoolUnhealthyError>()
+                {
+                    (
+                        format!(
+                            "4.3.2 {} the spool is not accepting writes. Try later",
+                            server.params.hostname
+                        ),
+                        Some(format!("Error in SmtpServerSession: {err:#}")),
+                    )
+                } else {
+                    (
                         format!("4.3.0 {} technical difficulties", server.params.hostname),
                         Some(format!("Error in SmtpServerSession: {err:#}")),
-                        RejectDisconnect::If421,
                     )
+                };
+                server
+                    .write_response(421, response, log_context, RejectDisconnect::If421)
                     .await
                     .ok();
             }
@@ -1197,6 +1225,7 @@ impl SmtpServerSession {
                     peer_address: ResolvedAddress {
                         name: self.said_hello.as_deref().unwrap_or("").to_string(),
                         addr: self.peer_address.ip().into(),
+                        is_secure: false,
                     },
                     response,
                     sender,
@@ -1393,7 +1422,10 @@ impl SmtpServerSession {
 
                 self.read_buffer.drain(0..i + 2);
                 tracing::trace!("{line:?}");
-                return Ok(ReadLine::Line(line?));
+                return Ok(match line {
+                    Ok(line) => ReadLine::Line(line),
+                    Err(_) => ReadLine::InvalidUtf8,
+                });
             }
             tracing::trace!("read_buffer len is {}", self.read_buffer.len());
             if self.read_buffer.len() > override_limit.unwrap_or(self.params.line_length_hard_limit)
@@ -1584,6 +1616,28 @@ impl SmtpServerSession {
             return Ok(());
         }
 
+        if let Some(reason) = SpoolManager::get().spool_unhealthy_reason() {
+            // Bump connection_denied_counter because the operator may care to
+            // investigate this, and we don't otherwise log this class of rejection.
+            connection_denied_counter().inc();
+
+            self.write_response(
+                421,
+                format!("4.3.2 {} {reason}. Try later", self.params.hostname),
+                None,
+                RejectDisconnect::If421,
+            )
+            .await?;
+            return Ok(());
+        }
+
+        if self.params.require_proxy_protocol {
+            if let Err(err) = self.process_proxy_protocol().await {
+                tracing::error!("Error processing PROXY protocol: {err:#}");
+                return Ok(());
+            }
+        }
+
         match self
             .call_callback::<GenericEsmtpListenerParams, _, _>(
                 "smtp_server_get_dynamic_parameters",
@@ -1637,6 +1691,16 @@ impl SmtpServerSession {
             let line = match self.read_line(None).await? {
                 ReadLine::Disconnected => return Ok(()),
                 ReadLine::Line(line) => line,
+                ReadLine::InvalidUtf8 => {
+                    self.write_response(
+                        501,
+                        "5.5.2 Invalid UTF-8 in command",
+                        None,
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
+                    continue;
+                }
                 ReadLine::TimedOut => {
                     self.write_response(
                         421,
@@ -1674,7 +1738,20 @@ impl SmtpServerSession {
                     )
                     .await?;
                 }
-                Ok(Command::Quit) => {
+                Ok(MaybePartialCommand::Partial { reason, .. }) => {
+                    let msg = match reason {
+                        PartialReason::InvalidRecipientAddress => {
+                            "5.1.3 Invalid recipient address syntax"
+                        }
+                        PartialReason::InvalidSenderAddress => {
+                            "5.1.7 Bad sender's mailbox address syntax"
+                        }
+                        PartialReason::Syntax => "Syntax error in command or arguments",
+                    };
+                    self.write_response(501, msg, Some(line), RejectDisconnect::If421)
+                        .await?;
+                }
+                Ok(MaybePartialCommand::Full(Command::Quit)) => {
                     self.write_response(
                         221,
                         "So long, and thanks for all the fish!",
@@ -1684,7 +1761,7 @@ impl SmtpServerSession {
                     .await?;
                     return Ok(());
                 }
-                Ok(Command::StartTls) => {
+                Ok(MaybePartialCommand::Full(Command::StartTls)) => {
                     if self.tls_active.is_some() {
                         self.write_response(
                             501,
@@ -1753,199 +1830,17 @@ impl SmtpServerSession {
                     };
                     self.socket.replace(socket);
                 }
-                Ok(Command::Auth {
+                Ok(MaybePartialCommand::Full(Command::Auth {
                     sasl_mech,
                     initial_response,
-                }) => {
-                    if self.authentication_id.is_some() {
-                        self.write_response(
-                            503,
-                            "5.5.1 AUTH me once, can't get authed again!",
-                            Some(line),
-                            RejectDisconnect::If421,
-                        )
-                        .await?;
-                        continue;
-                    }
-                    if self.state.is_some() {
-                        self.write_response(
-                            503,
-                            "5.5.1 AUTH not permitted inside a transaction",
-                            Some(line),
-                            RejectDisconnect::If421,
-                        )
-                        .await?;
-                        continue;
-                    }
-                    if sasl_mech != "PLAIN" {
-                        self.write_response(
-                            504,
-                            format!("5.5.4 AUTH {sasl_mech} not supported"),
-                            Some(line),
-                            RejectDisconnect::If421,
-                        )
-                        .await?;
-                        continue;
-                    }
-                    if self.tls_active.is_none() {
-                        self.write_response(
-                            524,
-                            format!("5.7.11 AUTH {sasl_mech} requires an encrypted channel"),
-                            Some(line),
-                            RejectDisconnect::If421,
-                        )
-                        .await?;
-                        continue;
-                    }
-
-                    let response = if let Some(r) = initial_response {
-                        r
-                    } else {
-                        self.write_response(334, " ", None, RejectDisconnect::If421)
-                            .await?;
-                        match self.read_line(Some(16384)).await? {
-                            ReadLine::Disconnected => return Ok(()),
-                            ReadLine::Line(line) => line,
-                            ReadLine::TimedOut => {
-                                self.write_response(
-                                    421,
-                                    format!("4.3.2 {} idle too long", self.params.hostname),
-                                    Some(line),
-                                    RejectDisconnect::If421,
-                                )
-                                .await?;
-                                return Ok(());
-                            }
-                            ReadLine::ShuttingDown => {
-                                self.write_response(
-                                    421,
-                                    format!("4.3.2 {} shutting down", self.params.hostname),
-                                    Some(line),
-                                    RejectDisconnect::If421,
-                                )
-                                .await?;
-                                return Ok(());
-                            }
-                            ReadLine::TooLong => {
-                                self.write_response(
-                                    500,
-                                    "5.5.6 authentication exchange line too long",
-                                    Some(line),
-                                    RejectDisconnect::If421,
-                                )
-                                .await?;
-                                continue;
-                            }
-                        }
-                    };
-
-                    if response == "*" {
-                        self.write_response(
-                            501,
-                            "5.5.0 AUTH cancelled by client",
-                            Some(line),
-                            RejectDisconnect::If421,
-                        )
-                        .await?;
-                        continue;
-                    }
-
-                    match BASE64.decode(response.as_bytes()) {
-                        Ok(payload) => {
-                            // RFC 4616 says that the message is:
-                            // [authzid] NUL authcid NUL passwd
-                            let fields: Vec<_> = payload.split(|&b| b == 0).collect();
-                            let (authz, authc, pass) = match fields.len() {
-                                3 => (
-                                    std::str::from_utf8(&fields[0]),
-                                    std::str::from_utf8(&fields[1]),
-                                    std::str::from_utf8(&fields[2]),
-                                ),
-                                _ => {
-                                    self.write_response(
-                                        501,
-                                        "5.5.2 Invalid decoded PLAIN response",
-                                        Some(response),
-                                        RejectDisconnect::If421,
-                                    )
-                                    .await?;
-                                    continue;
-                                }
-                            };
-
-                            let (authz, authc, pass) = match (authz, authc, pass) {
-                                (Ok(a), Ok(b), Ok(c)) => (a, b, c),
-                                _ => {
-                                    self.write_response(
-                                        501,
-                                        "5.5.2 Invalid UTF8 in decoded PLAIN response",
-                                        Some(response),
-                                        RejectDisconnect::If421,
-                                    )
-                                    .await?;
-                                    continue;
-                                }
-                            };
-
-                            // If no authorization id was set, assume the same as
-                            // the authenticated id
-                            let authz = if authz.is_empty() { authc } else { authz };
-
-                            match self
-                                .call_callback(
-                                    "smtp_server_auth_plain",
-                                    (authz, authc, pass, self.meta.clone()),
-                                )
-                                .await?
-                            {
-                                Err(rej) => {
-                                    self.write_response(
-                                        rej.code,
-                                        rej.message,
-                                        Some(response),
-                                        rej.disconnect,
-                                    )
-                                    .await?;
-                                    continue;
-                                }
-                                Ok(false) => {
-                                    self.write_response(
-                                        535,
-                                        "5.7.8 AUTH invalid",
-                                        Some(response),
-                                        RejectDisconnect::If421,
-                                    )
-                                    .await?;
-                                }
-                                Ok(true) => {
-                                    self.authorization_id.replace(authz.to_string());
-                                    self.authentication_id.replace(authc.to_string());
-                                    self.meta.set_meta("authz_id", authz);
-                                    self.meta.set_meta("authn_id", authc);
-
-                                    self.write_response(
-                                        235,
-                                        "2.7.0 AUTH OK!",
-                                        None,
-                                        RejectDisconnect::If421,
-                                    )
-                                    .await?;
-                                }
-                            }
-                        }
-                        Err(_) => {
-                            self.write_response(
-                                501,
-                                "5.5.2 Invalid base64 response",
-                                Some(response),
-                                RejectDisconnect::If421,
-                            )
-                            .await?;
-                            continue;
-                        }
+                })) => {
+                    if self.process_auth(line, sasl_mech, initial_response).await?
+                        == CommandDisposition::Terminate
+                    {
+                        return Ok(());
                     }
                 }
-                Ok(Command::Ehlo(domain)) => {
+                Ok(MaybePartialCommand::Full(Command::Ehlo(domain))) => {
                     let domain = domain.to_string();
 
                     let mut extensions =
@@ -1986,7 +1881,7 @@ impl SmtpServerSession {
                     self.meta.set_meta("ehlo_domain", domain.clone());
                     self.said_hello.replace(domain);
                 }
-                Ok(Command::Helo(domain)) => {
+                Ok(MaybePartialCommand::Full(Command::Helo(domain))) => {
                     let domain = domain.to_string();
 
                     if let Err(rej) = self
@@ -2010,10 +1905,10 @@ impl SmtpServerSession {
                     self.meta.set_meta("ehlo_domain", domain.clone());
                     self.said_hello.replace(domain);
                 }
-                Ok(Command::MailFrom {
+                Ok(MaybePartialCommand::Full(Command::MailFrom {
                     address,
                     parameters: _,
-                }) => {
+                })) => {
                     if self.state.is_some() {
                         self.write_response(
                             503,
@@ -2024,7 +1919,19 @@ impl SmtpServerSession {
                         .await?;
                         continue;
                     }
-                    let address = EnvelopeAddress::parse(&address.to_string())?;
+                    let address = match EnvelopeAddress::try_from(address) {
+                        Ok(address) => address,
+                        Err(err) => {
+                            self.write_response(
+                                501,
+                                format!("5.1.7 Invalid sender address syntax: {err}"),
+                                Some(line),
+                                RejectDisconnect::If421,
+                            )
+                            .await?;
+                            continue;
+                        }
+                    };
                     if let Err(rej) = self
                         .call_callback::<(), _, _>(
                             "smtp_server_mail_from",
@@ -2050,10 +1957,10 @@ impl SmtpServerSession {
                     )
                     .await?;
                 }
-                Ok(Command::RcptTo {
+                Ok(MaybePartialCommand::Full(Command::RcptTo {
                     address,
                     parameters: _,
-                }) => {
+                })) => {
                     if self.state.is_none() {
                         self.write_response(
                             503,
@@ -2064,7 +1971,7 @@ impl SmtpServerSession {
                         .await?;
                         continue;
                     }
-                    let address = EnvelopeAddress::parse(&address.to_string())?;
+                    let address = EnvelopeAddress::from(address);
 
                     let sender = self.state.as_ref().unwrap().sender.clone();
                     let relay_disposition = self.check_relaying(&sender, &address).await?;
@@ -2151,7 +2058,7 @@ impl SmtpServerSession {
                         .recipients
                         .push(address);
                 }
-                Ok(Command::Data) => {
+                Ok(MaybePartialCommand::Full(Command::Data)) => {
                     if self.state.is_none() {
                         self.write_response(
                             503,
@@ -2236,12 +2143,12 @@ impl SmtpServerSession {
                     let _process_data_timer = PROCESS_DATA_LATENCY.start_timer();
                     Box::pin(self.process_data(data, &activity)).await?;
                 }
-                Ok(Command::Rset) => {
+                Ok(MaybePartialCommand::Full(Command::Rset)) => {
                     self.state.take();
                     self.write_response(250, "Reset state", None, RejectDisconnect::If421)
                         .await?;
                 }
-                Ok(Command::Noop(_)) => {
+                Ok(MaybePartialCommand::Full(Command::Noop(_))) => {
                     self.write_response(
                         250,
                         "the goggles do nothing",
@@ -2250,10 +2157,16 @@ impl SmtpServerSession {
                     )
                     .await?;
                 }
-                Ok(Command::XClient(params)) => {
+                Ok(MaybePartialCommand::Full(Command::XClient(params))) => {
                     self.process_xclient(&params).await?;
                 }
-                Ok(Command::Vrfy(_) | Command::Expn(_) | Command::Help(_) | Command::Lhlo(_)) => {
+                Ok(MaybePartialCommand::Full(
+                    Command::Vrfy(_)
+                    | Command::Expn(_)
+                    | Command::Help(_)
+                    | Command::Lhlo(_)
+                    | Command::Unknown(_),
+                )) => {
                     self.write_response(
                         502,
                         format!("5.5.1 Command unimplemented"),
@@ -2262,9 +2175,165 @@ impl SmtpServerSession {
                     )
                     .await?;
                 }
-                Ok(Command::DataDot) => unreachable!(),
+                Ok(MaybePartialCommand::Full(Command::DataDot)) => unreachable!(),
             }
         }
+    }
+
+    #[instrument(skip(self))]
+    async fn process_proxy_protocol(&mut self) -> anyhow::Result<()> {
+        if self.socket.is_none() {
+            anyhow::bail!("socket is none");
+        }
+        tracing::trace!("reading proxy protocol header");
+        let header = loop {
+            let mut data = [0u8; 108];
+            tokio::select! {
+                _ = tokio::time::sleep(self.params.client_timeout) => {
+                    anyhow::bail!("timeout reading proxy protocol header");
+                }
+                size = self.socket.as_mut().unwrap().read(&mut data) => {
+                    match size {
+                        Err(err) => {
+                            tracing::trace!("error reading: {err:#}");
+                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                                conn_meta: self.meta.clone_inner(),
+                                payload: SmtpServerTraceEventPayload::Diagnostic {
+                                    level: Level::ERROR,
+                                    message: format!("error reading: {err:#}"),
+                                },
+                                when: Utc::now(),
+                            });
+                            anyhow::bail!("error reading proxy protocol header: {err:#}");
+                        }
+                        Ok(size) if size == 0 => {
+                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                                conn_meta: self.meta.clone_inner(),
+                                payload: SmtpServerTraceEventPayload::Diagnostic {
+                                    level: Level::ERROR,
+                                    message: "Peer Disconnected".to_string(),
+                                },
+                                when: Utc::now(),
+                            });
+                            anyhow::bail!("peer disconnected while reading proxy protocol header");
+                        }
+                        Ok(size) => {
+                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                                conn_meta: self.meta.clone_inner(),
+                                payload: SmtpServerTraceEventPayload::Read(data[0..size].to_vec()),
+                                when: Utc::now(),
+                            });
+                            self.read_buffer.extend_from_slice(&data[0..size]);
+                        }
+                    }
+                }
+                _ = self.shutdown.shutting_down() => {
+                    anyhow::bail!("shutting down");
+                }
+            };
+            let header = HeaderResult::parse(&self.read_buffer);
+            if header.is_complete() {
+                break header;
+            }
+        };
+
+        let mut addr: Option<SocketAddr> = None;
+        let mut dest_addr: Option<SocketAddr> = None;
+        let consumed_bytes;
+        match header {
+            HeaderResult::V1(Ok(header)) => {
+                consumed_bytes = header.header.len();
+                let addresses = header.addresses;
+                match addresses {
+                    ppp::v1::Addresses::Tcp4(addresses) => {
+                        addr.replace((addresses.source_address, addresses.source_port).into());
+                        dest_addr.replace(
+                            (addresses.destination_address, addresses.destination_port).into(),
+                        );
+                    }
+                    ppp::v1::Addresses::Tcp6(addresses) => {
+                        addr.replace((addresses.source_address, addresses.source_port).into());
+                        dest_addr.replace(
+                            (addresses.destination_address, addresses.destination_port).into(),
+                        );
+                    }
+                    ppp::v1::Addresses::Unknown => {}
+                }
+            }
+            HeaderResult::V2(Ok(header)) => {
+                consumed_bytes = header.header.len();
+                let addresses = header.addresses;
+                match addresses {
+                    ppp::v2::Addresses::IPv4(addresses) => {
+                        addr.replace((addresses.source_address, addresses.source_port).into());
+                        dest_addr.replace(
+                            (addresses.destination_address, addresses.destination_port).into(),
+                        );
+                    }
+                    ppp::v2::Addresses::IPv6(addresses) => {
+                        addr.replace((addresses.source_address, addresses.source_port).into());
+                        dest_addr.replace(
+                            (addresses.destination_address, addresses.destination_port).into(),
+                        );
+                    }
+                    ppp::v2::Addresses::Unspecified | ppp::v2::Addresses::Unix(_) => {}
+                }
+            }
+            HeaderResult::V1(Err(error)) => {
+                anyhow::bail!("proxy protocol v1 parsing error: {error}")
+            }
+            HeaderResult::V2(Err(error)) => {
+                anyhow::bail!("proxy protocol v2 parsing error: {error}")
+            }
+        }
+        self.read_buffer.drain(0..consumed_bytes);
+
+        if addr.is_some() {
+            let old_peer = self.peer_address.clone();
+
+            self.peer_address = addr.unwrap();
+            self.meta
+                .set_meta("orig_received_from", self.orig_peer_address.to_string());
+            self.meta
+                .set_meta("received_from", self.peer_address.to_string());
+
+            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                conn_meta: self.meta.clone_inner(),
+                payload: SmtpServerTraceEventPayload::Diagnostic {
+                    level: Level::INFO,
+                    message: format!(
+                        "Proxy protocol changed received_from from {old_peer:?} -> {:?}",
+                        self.peer_address
+                    ),
+                },
+                when: Utc::now(),
+            });
+        }
+        if dest_addr.is_some() {
+            let old_via = self.my_address.clone();
+
+            self.my_address = dest_addr.unwrap();
+            self.meta
+                .set_meta("orig_received_via", self.orig_my_address.to_string());
+            self.meta
+                .set_meta("received_via", self.my_address.to_string());
+
+            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                conn_meta: self.meta.clone_inner(),
+                payload: SmtpServerTraceEventPayload::Diagnostic {
+                    level: Level::INFO,
+                    message: format!(
+                        "Proxy protocol changed received_via from {old_via:?} -> {:?}",
+                        self.my_address
+                    ),
+                },
+                when: Utc::now(),
+            });
+        }
+
+        self.re_evaluate_listener_parameters().await?;
+
+        Ok(())
     }
 
     async fn process_xclient(&mut self, params: &[XClientParameter]) -> anyhow::Result<()> {
@@ -2295,14 +2364,11 @@ impl SmtpServerSession {
         let mut dest_port: Option<u16> = None;
 
         for p in params {
-            let name = &p.name;
-            let value = &p.value;
-
-            if name.eq_ignore_ascii_case("ADDR") {
-                let Ok(ip) = value.parse::<IpAddr>() else {
+            if p.is_name("ADDR") {
+                let Ok(ip) = p.parse::<IpAddr>() else {
                     self.write_response(
                         501,
-                        format!("ADDR {value} is invalid"),
+                        format!("ADDR {} is invalid", p.value),
                         None,
                         RejectDisconnect::If421,
                     )
@@ -2310,11 +2376,11 @@ impl SmtpServerSession {
                     return Ok(());
                 };
                 addr.replace(ip);
-            } else if name.eq_ignore_ascii_case("PORT") {
-                let Ok(v) = value.parse::<u16>() else {
+            } else if p.is_name("PORT") {
+                let Ok(v) = p.parse::<u16>() else {
                     self.write_response(
                         501,
-                        format!("PORT {value} is invalid"),
+                        format!("PORT {} is invalid", p.value),
                         None,
                         RejectDisconnect::If421,
                     )
@@ -2322,11 +2388,11 @@ impl SmtpServerSession {
                     return Ok(());
                 };
                 port.replace(v);
-            } else if name.eq_ignore_ascii_case("DESTADDR") {
-                let Ok(ip) = value.parse::<IpAddr>() else {
+            } else if p.is_name("DESTADDR") {
+                let Ok(ip) = p.parse::<IpAddr>() else {
                     self.write_response(
                         501,
-                        format!("ADDR {value} is invalid"),
+                        format!("DESTADDR {} is invalid", p.value),
                         None,
                         RejectDisconnect::If421,
                     )
@@ -2334,11 +2400,11 @@ impl SmtpServerSession {
                     return Ok(());
                 };
                 dest_addr.replace(ip);
-            } else if name.eq_ignore_ascii_case("DESTPORT") {
-                let Ok(v) = value.parse::<u16>() else {
+            } else if p.is_name("DESTPORT") {
+                let Ok(v) = p.parse::<u16>() else {
                     self.write_response(
                         501,
-                        format!("PORT {value} is invalid"),
+                        format!("DESTPORT {} is invalid", p.value),
                         None,
                         RejectDisconnect::If421,
                     )
@@ -2349,7 +2415,7 @@ impl SmtpServerSession {
             } else {
                 self.write_response(
                     501,
-                    format!("parameter {name} is not supported"),
+                    format!("parameter {} is not supported", p.name),
                     None,
                     RejectDisconnect::If421,
                 )
@@ -2365,6 +2431,7 @@ impl SmtpServerSession {
             let new_port = port.unwrap_or(old_peer.port());
 
             self.peer_address = (new_addr, new_port).into();
+            self.meta.auth_info.lock().set_peer_address(Some(new_addr));
             self.meta
                 .set_meta("orig_received_from", self.orig_peer_address.to_string());
             self.meta
@@ -2408,6 +2475,21 @@ impl SmtpServerSession {
             });
         }
 
+        self.re_evaluate_listener_parameters().await?;
+
+        // and finally, re-emit the banner as the response to the successful XCLIENT command
+        self.write_response(
+            220,
+            format!("{} {}", self.params.hostname, self.params.banner),
+            None,
+            RejectDisconnect::If421,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    async fn re_evaluate_listener_parameters(&mut self) -> anyhow::Result<()> {
         // re-evaluate parameters based on new IP info
         self.params = Default::default();
         self.params.apply_generic(
@@ -2438,16 +2520,286 @@ impl SmtpServerSession {
             }
         }
 
-        // and finally, re-emit the banner as the response to the successful XCLIENT command
-        self.write_response(
-            220,
-            format!("{} {}", self.params.hostname, self.params.banner),
-            None,
-            RejectDisconnect::If421,
-        )
+        Ok(())
+    }
+
+    async fn process_auth(
+        &mut self,
+        line: String,
+        sasl_mech: String,
+        initial_response: Option<String>,
+    ) -> anyhow::Result<CommandDisposition> {
+        if self.authentication_id.is_some() {
+            self.write_response(
+                503,
+                "5.5.1 AUTH me once, can't get authed again!",
+                Some(line),
+                RejectDisconnect::If421,
+            )
+            .await?;
+            return Ok(CommandDisposition::Continue);
+        }
+        if self.state.is_some() {
+            self.write_response(
+                503,
+                "5.5.1 AUTH not permitted inside a transaction",
+                Some(line),
+                RejectDisconnect::If421,
+            )
+            .await?;
+            return Ok(CommandDisposition::Continue);
+        }
+        if sasl_mech != "PLAIN" {
+            self.write_response(
+                504,
+                format!("5.5.4 AUTH {sasl_mech} not supported"),
+                Some(line),
+                RejectDisconnect::If421,
+            )
+            .await?;
+            return Ok(CommandDisposition::Continue);
+        }
+        if self.tls_active.is_none() {
+            self.write_response(
+                524,
+                format!("5.7.11 AUTH {sasl_mech} requires an encrypted channel"),
+                Some(line),
+                RejectDisconnect::If421,
+            )
+            .await?;
+            return Ok(CommandDisposition::Continue);
+        }
+
+        let response = if let Some(r) = initial_response {
+            r
+        } else {
+            self.write_response(334, " ", None, RejectDisconnect::If421)
+                .await?;
+            match self.read_line(Some(16384)).await? {
+                ReadLine::Disconnected => return Ok(CommandDisposition::Terminate),
+                ReadLine::Line(line) => line,
+                ReadLine::InvalidUtf8 => {
+                    self.write_response(
+                        501,
+                        "5.5.2 Invalid UTF-8 in authentication exchange",
+                        Some(line),
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
+                    return Ok(CommandDisposition::Continue);
+                }
+                ReadLine::TimedOut => {
+                    self.write_response(
+                        421,
+                        format!("4.3.2 {} idle too long", self.params.hostname),
+                        Some(line),
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
+                    return Ok(CommandDisposition::Terminate);
+                }
+                ReadLine::ShuttingDown => {
+                    self.write_response(
+                        421,
+                        format!("4.3.2 {} shutting down", self.params.hostname),
+                        Some(line),
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
+                    return Ok(CommandDisposition::Terminate);
+                }
+                ReadLine::TooLong => {
+                    self.write_response(
+                        500,
+                        "5.5.6 authentication exchange line too long",
+                        Some(line),
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
+                    return Ok(CommandDisposition::Continue);
+                }
+            }
+        };
+
+        if response == "*" {
+            self.write_response(
+                501,
+                "5.5.0 AUTH cancelled by client",
+                Some(line),
+                RejectDisconnect::If421,
+            )
+            .await?;
+            return Ok(CommandDisposition::Continue);
+        }
+
+        let Ok(payload) = BASE64.decode(response.as_bytes()) else {
+            self.write_response(
+                501,
+                "5.5.2 Invalid base64 response",
+                Some(response),
+                RejectDisconnect::If421,
+            )
+            .await?;
+            return Ok(CommandDisposition::Continue);
+        };
+
+        // RFC 4616 says that the message is:
+        // [authzid] NUL authcid NUL passwd
+        let fields: Vec<_> = payload.split(|&b| b == 0).collect();
+        let (authz, authc, pass) = match fields.len() {
+            3 => (
+                std::str::from_utf8(&fields[0]),
+                std::str::from_utf8(&fields[1]),
+                std::str::from_utf8(&fields[2]),
+            ),
+            _ => {
+                self.write_response(
+                    501,
+                    "5.5.2 Invalid decoded PLAIN response",
+                    Some(response),
+                    RejectDisconnect::If421,
+                )
+                .await?;
+                return Ok(CommandDisposition::Continue);
+            }
+        };
+
+        let (authz, authc, pass) = match (authz, authc, pass) {
+            (Ok(a), Ok(b), Ok(c)) => (a, b, c),
+            _ => {
+                self.write_response(
+                    501,
+                    "5.5.2 Invalid UTF8 in decoded PLAIN response",
+                    Some(response),
+                    RejectDisconnect::If421,
+                )
+                .await?;
+                return Ok(CommandDisposition::Continue);
+            }
+        };
+
+        // If no authorization id was set, assume the same as
+        // the authenticated id
+        let authz = if authz.is_empty() { authc } else { authz };
+
+        let wrapped = match self
+            .call_callback_sig(
+                &SMTP_SERVER_AUTH_PLAIN,
+                (authz, authc, pass, self.meta.clone()),
+            )
+            .await?
+        {
+            Err(rej) => {
+                self.write_response(rej.code, rej.message, Some(response), rej.disconnect)
+                    .await?;
+                return Ok(CommandDisposition::Continue);
+            }
+            Ok(wrapped) => wrapped.0,
+        };
+
+        let attempted_identity = Identity {
+            identity: authc.to_string(),
+            context: IdentityContext::SmtpAuthPlainAuthentication,
+        };
+
+        let (success, auth_info) = match wrapped {
+            AuthKindResult::Bool(false) => {
+                let auth_info = self.meta.auth_info.lock().clone();
+                (false, auth_info)
+            }
+            AuthKindResult::Bool(true) => {
+                self.authorization_id.replace(authz.to_string());
+                self.authentication_id.replace(authc.to_string());
+                self.meta.set_meta("authz_id", authz);
+                self.meta.set_meta("authn_id", authc);
+
+                let mut auth_info = self.meta.auth_info.lock();
+                auth_info.add_identity(Identity {
+                    identity: authz.to_string(),
+                    context: IdentityContext::SmtpAuthPlainAuthorization,
+                });
+                auth_info.add_identity(Identity {
+                    identity: authc.to_string(),
+                    context: IdentityContext::SmtpAuthPlainAuthentication,
+                });
+
+                (true, auth_info.clone())
+            }
+            AuthKindResult::AuthInfo(info) => {
+                // Reconcile what they returned.
+                // In particular, they may not have explicitly
+                // populated identities with SmtpAuthPlainAuthentication or
+                // SmtpAuthPlainAuthorization contexts so we may
+                // need to infer something reasonable
+                let mut seen_authc = false;
+                let mut seen_authz = false;
+
+                if info.identities.is_empty() {
+                    anyhow::bail!(
+                        "smtp_server_auth_plain returned an AuthInfo \
+                                with an empty identities list, which is not supported"
+                    );
+                }
+
+                for ident in &info.identities {
+                    match ident.context {
+                        IdentityContext::SmtpAuthPlainAuthentication => {
+                            seen_authc = true;
+                            self.authentication_id.replace(ident.identity.to_string());
+                        }
+                        IdentityContext::SmtpAuthPlainAuthorization => {
+                            seen_authz = true;
+                            self.authorization_id.replace(ident.identity.to_string());
+                        }
+                        _ => {}
+                    }
+                }
+
+                if !seen_authc {
+                    self.authentication_id = info
+                        .identities
+                        .first()
+                        .map(|ident| ident.identity.to_string());
+                }
+
+                if !seen_authz {
+                    self.authorization_id = self.authentication_id.clone();
+                }
+
+                self.meta
+                    .set_meta("authz_id", self.authorization_id.clone());
+                self.meta
+                    .set_meta("authn_id", self.authentication_id.clone());
+
+                let mut auth_info = self.meta.auth_info.lock();
+                auth_info.merge_from(info);
+
+                (true, auth_info.clone())
+            }
+        };
+
+        if success {
+            self.write_response(235, "2.7.0 AUTH OK!", None, RejectDisconnect::If421)
+                .await?;
+        } else {
+            self.write_response(
+                535,
+                "5.7.8 AUTH invalid",
+                Some(response),
+                RejectDisconnect::If421,
+            )
+            .await?;
+        }
+
+        log_authn(AuthnAuditRecord {
+            attempted_identity,
+            success,
+            auth_info,
+            timestamp: Utc::now(),
+        })
         .await?;
 
-        Ok(())
+        Ok(CommandDisposition::Continue)
     }
 
     async fn process_data(&mut self, mut data: Vec<u8>, activity: &Activity) -> anyhow::Result<()> {
@@ -2591,13 +2943,13 @@ impl SmtpServerSession {
                 // of messages entering the system
                 match self.params.batch_handling {
                     BatchHandling::BifurcateAlways => {
-                        for recip in base_message.recipient_list()? {
+                        for recip in base_message.recipient_list().await? {
                             batches.push(vec![recip]);
                         }
                     }
                     BatchHandling::BatchByDomain => {
                         let mut by_domain: HashMap<String, Vec<EnvelopeAddress>> = HashMap::new();
-                        for recip in base_message.recipient_list()? {
+                        for recip in base_message.recipient_list().await? {
                             by_domain
                                 .entry(recip.domain().to_lowercase())
                                 .or_insert_with(Vec::new)
@@ -2679,12 +3031,12 @@ impl SmtpServerSession {
                 id,
                 state.sender.clone(),
                 recip_list,
-                base_message.get_meta_obj()?,
+                base_message.get_meta_obj().await?,
                 body,
             )?;
 
             if self.params.deferred_queue {
-                message.set_meta("queue", DEFERRED_QUEUE_NAME)?;
+                message.set_meta("queue", DEFERRED_QUEUE_NAME).await?;
             } else {
                 match timeout_at(
                     deadline.into(),
@@ -2741,7 +3093,7 @@ impl SmtpServerSession {
         // so let's get that out of the way before we start writing to spool,
         // to make it less complex to unwind if we exceed the allowed time.
         for message in &accepted_messages {
-            let queue_name = message.get_queue_name()?;
+            let queue_name = message.get_queue_name().await?;
             match timeout_at(deadline.into(), QueueManager::resolve(&queue_name)).await {
                 Err(_) => {
                     self.write_response(
@@ -2782,14 +3134,14 @@ impl SmtpServerSession {
 
             ids.push(message.id().to_string());
 
-            let queue_name = message.get_queue_name()?;
+            let queue_name = message.get_queue_name().await?;
 
             // Assumption: that the relayability of the recipient list in a
             // message is represented fully by the first recipient in that list.
             // If you have different relaying requirements per recipient, they
             // must not be in the same batch.
             let relay_disposition = self
-                .check_relaying(&message.sender()?, &message.first_recipient()?)
+                .check_relaying(&message.sender().await?, &message.first_recipient().await?)
                 .await?;
 
             let mut relay_this_one = relay_disposition.relay;
@@ -2806,6 +3158,20 @@ impl SmtpServerSession {
                 relay_this_one = relay_disposition.log_oob.should_relay();
             }
 
+            let sender = message
+                .sender()
+                .await
+                .map(|s| s.to_string())
+                .unwrap_or_else(|_| String::new());
+            let recipient = message
+                .recipient_list_string()
+                .await
+                .unwrap_or_else(|_| Vec::new());
+            let meta_obj = message
+                .get_meta_obj()
+                .await
+                .unwrap_or(serde_json::Value::Null);
+
             SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                 conn_meta: self.meta.clone_inner(),
                 payload: SmtpServerTraceEventPayload::MessageDisposition {
@@ -2815,12 +3181,9 @@ impl SmtpServerSession {
                     will_enqueue: relay_this_one,
                     was_arf_or_oob: was_arf_or_oob,
                     queue: queue_name.clone(),
-                    meta: message.get_meta_obj().unwrap_or(serde_json::Value::Null),
-                    sender: message
-                        .sender()
-                        .map(|s| s.to_string())
-                        .expect("have sender"),
-                    recipient: message.recipient_list_string().expect("have recipients"),
+                    meta: meta_obj,
+                    sender,
+                    recipient,
                     id: *message.id(),
                 },
                 when: Utc::now(),
@@ -2863,10 +3226,32 @@ impl SmtpServerSession {
                             .await;
                         }
 
-                        if err.root_cause().is::<tokio::time::error::Elapsed>() {
+                        // The rocksdb spool layer owns the timeout
+                        // for its own writes and produces a typed
+                        // error per source (caller vs spool's
+                        // internal backpressure deadline).  Other
+                        // Spool implementations (current or future)
+                        // may surface a raw `Elapsed` instead, which
+                        // we treat the same as the typed caller
+                        // deadline error: both mean the caller's
+                        // deadline elapsed during the save.
+                        let root = err.root_cause();
+                        if root.is::<spool::SpoolCallerDeadlineExceeded>()
+                            || root.is::<tokio::time::error::Elapsed>()
+                        {
                             self.write_response(
                                 451,
                                 "4.4.5 data_processing_timeout exceeded (spool)",
+                                Some("DATA".into()),
+                                RejectDisconnect::If421,
+                            )
+                            .await?;
+                            return Ok(());
+                        }
+                        if root.is::<spool::SpoolBackpressureTimeout>() {
+                            self.write_response(
+                                451,
+                                "4.4.5 spool write timed out",
                                 Some("DATA".into()),
                                 RejectDisconnect::If421,
                             )
@@ -2886,6 +3271,7 @@ impl SmtpServerSession {
                 peer_address: Some(&ResolvedAddress {
                     name: self.said_hello.as_deref().unwrap_or("").to_string(),
                     addr: self.peer_address.ip().into(),
+                    is_secure: false,
                 }),
                 response: Response {
                     code: 250,
@@ -2995,12 +3381,14 @@ impl SmtpServerSession {
 #[derive(Clone)]
 pub(crate) struct ConnectionMetaData {
     map: Arc<Mutex<serde_json::Value>>,
+    auth_info: Arc<Mutex<AuthInfo>>,
 }
 
 impl ConnectionMetaData {
     pub fn new() -> Self {
         Self {
             map: Arc::new(Mutex::new(json!({}))),
+            auth_info: Arc::new(Mutex::new(AuthInfo::default())),
         }
     }
 
@@ -3043,6 +3431,10 @@ impl UserData for ConnectionMetaData {
                 None => Ok(mlua::Value::Nil),
             }
         });
+
+        methods.add_method("auth_info", move |_lua, this, ()| {
+            Ok(SerdeWrappedValue(this.auth_info.lock().clone()))
+        });
     }
 }
 
@@ -3057,6 +3449,7 @@ const MAX_LINE_LEN: usize = 998;
 #[derive(PartialEq)]
 enum ReadLine {
     Line(String),
+    InvalidUtf8,
     TooLong,
     ShuttingDown,
     TimedOut,
@@ -3129,12 +3522,17 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
         }
     }
 
-    async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+    async fn attempt_connection(
+        &mut self,
+        dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<AttemptConnectionDisposition> {
         if self.connection.is_none() {
             self.connection
                 .replace(dispatcher.metrics.wrap_connection(()));
+            Ok(AttemptConnectionDisposition::ConnectedNew)
+        } else {
+            Ok(AttemptConnectionDisposition::ReusedExisting)
         }
-        Ok(())
     }
 
     async fn have_more_connection_candidates(&mut self, _dispatcher: &mut Dispatcher) -> bool {
@@ -3152,10 +3550,32 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
             "DeferredSmtpInjectionDispatcher only supports a batch size of 1"
         );
         let msg = msgs.pop().expect("just verified that there is one");
+        dispatcher.set_detail("deferred_smtp_inject");
 
-        msg.set_meta("queue", serde_json::Value::Null)?;
+        msg.set_meta("queue", serde_json::Value::Null).await?;
+
+        let mut auth_info = AuthInfo::default();
+        auth_info.set_peer_address(
+            msg.get_meta_string("received_from")
+                .await?
+                .and_then(|s| s.parse().ok()),
+        );
+        if let Some(identity) = msg.get_meta_string("authn_id").await? {
+            auth_info.add_identity(Identity {
+                identity,
+                context: IdentityContext::SmtpAuthPlainAuthentication,
+            });
+        }
+        if let Some(identity) = msg.get_meta_string("authz_id").await? {
+            auth_info.add_identity(Identity {
+                identity,
+                context: IdentityContext::SmtpAuthPlainAuthorization,
+            });
+        }
+
         let meta = ConnectionMetaData {
-            map: Arc::new(msg.get_meta_obj()?.into()),
+            map: Arc::new(msg.get_meta_obj().await?.into()),
+            auth_info: Arc::new(Mutex::new(auth_info)),
         };
 
         let mut config = load_config().await?;
@@ -3194,7 +3614,7 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
 
         if response.code == 250 {
             msg.set_due(None).await?;
-            let queue_name = msg.get_queue_name()?;
+            let queue_name = msg.get_queue_name().await?;
             if let Err(err) =
                 QueueManager::insert(&queue_name, msg.clone(), InsertReason::Received.into()).await
             {
@@ -3247,7 +3667,7 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
             dispatcher.metrics.inc_transfail();
 
             // Ensure that we get another crack at it later
-            msg.set_meta("queue", DEFERRED_QUEUE_NAME)?;
+            msg.set_meta("queue", DEFERRED_QUEUE_NAME).await?;
             let _ = dispatcher.msgs.pop();
             spawn(
                 "requeue message".to_string(),

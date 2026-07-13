@@ -7,7 +7,7 @@ kumo.api.inject.inject_v1(request)
 {{since('2024.06.10-84e84b89')}}
 
 This is a Lua entrypoint that calls into the [HTTP injection
-API](../http/api_inject_v1.md).  The parameter is a request object with
+API](../http/kumod/api_inject_v1_post.md).  The parameter is a request object with
 precisely the same semantics as described in the HTTP injection API
 documentation.
 

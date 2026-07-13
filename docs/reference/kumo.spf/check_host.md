@@ -17,7 +17,7 @@ It takes three arguments:
 It will return an object containing the SPF `disposition` string and a `result`
 of type `authenticationresult` for use with `msg:add_authentication_results()`.
 
-The `OPT_RESOLVER_NAME` parameter {{since('dev', inline=True)}} is an optional
+The `OPT_RESOLVER_NAME` parameter {{since('2025.12.02-67ee9e96', inline=True)}} is an optional
 string parameter that specifies the name of a alternate resolver defined via
 [kumo.dns.define_resolver](../kumo.dns/define_resolver.md).  You can omit this
 parameter and the default resolver will be used.

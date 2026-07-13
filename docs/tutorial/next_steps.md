@@ -1,3 +1,7 @@
+---
+description: You have finished the KumoMTA tutorial. See where to go next in the User Guide to learn more about installation, configuration, operation, and advanced policy.
+---
+
 # Next Steps
 
 With KumoMTA installed, configured, and tested, the tutorial is complete.

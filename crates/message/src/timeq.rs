@@ -435,7 +435,7 @@ impl<const SLOTS: usize> TimeQ<SLOTS> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::EnvelopeAddress;
+    use rfc5321::parser::EnvelopeAddress;
     use spool::SpoolId;
     use std::sync::Arc;
 

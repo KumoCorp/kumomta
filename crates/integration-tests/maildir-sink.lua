@@ -7,17 +7,32 @@ local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 
 kumo.on('init', function()
   kumo.configure_accounting_db_path ':memory:'
+  kumo.aaa.configure_acct_log {
+    log_dir = TEST_DIR .. '/acct',
+    max_segment_duration = '1s',
+  }
 
   local smtp_params = {
     listen = '127.0.0.1:0',
     relay_hosts = { '0.0.0.0/0' },
     batch_handling = 'BatchByDomain',
     max_recipients_per_message = 4,
+    -- This client_timeout value is coupled with assumptions
+    -- in disconnect_peer_idle_out!
+    client_timeout = '3s',
   }
   local client_ca = os.getenv 'KUMOD_CLIENT_REQUIRED_CA'
   if client_ca then
     smtp_params.tls_required_client_ca = {
       key_data = client_ca,
+    }
+  end
+  local require_proxy_protocol = os.getenv 'KUMOD_TEST_REQUIRE_PROXY_PROTOCOL'
+  if require_proxy_protocol then
+    smtp_params.peer = {
+      ['127.0.0.1'] = {
+        require_proxy_protocol = true,
+      },
     }
   end
 

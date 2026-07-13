@@ -1,11 +1,13 @@
-use config::{any_err, get_or_create_sub_module, serialize_options};
-use kumo_dmarc::{CheckHostParams, Disposition};
+use config::{any_err, get_or_create_sub_module, serialize_options, SerdeWrappedValue};
+use kumo_dmarc::{Disposition, DmarcPassContext, ReportingInfo};
 use mailparsing::AuthenticationResult;
 use message::Message;
 use mlua::{Lua, LuaSerdeExt, UserDataRef};
 use mod_dns_resolver::get_resolver_instance;
 use serde::Serialize;
 use std::collections::BTreeMap;
+
+use crate::smtp_server::{RejectDisconnect, RejectError};
 
 #[derive(Debug, Serialize)]
 struct CheckHostOutput {
@@ -20,17 +22,39 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
         "check_msg",
         lua.create_async_function(
             |lua,
-             (msg, dkim_results, opt_resolver_name): (
+             (
+                msg,
+                dkim_results,
+                opt_resolver_name,
+                spf_result,
+                use_reporting,
+                opt_reporting_info,
+            ): (
                 UserDataRef<Message>,
-                mlua::Value,
+                SerdeWrappedValue<Vec<AuthenticationResult>>,
                 Option<String>,
+                SerdeWrappedValue<AuthenticationResult>,
+                bool,
+                Option<SerdeWrappedValue<ReportingInfo>>,
             )| async move {
                 let resolver = get_resolver_instance(&opt_resolver_name).map_err(any_err)?;
 
                 // MAIL FROM
-                let msg_sender = msg.sender();
+                let msg_sender = msg.sender().await;
 
                 let mail_from_domain = msg_sender.ok().map(|x| x.domain().to_string());
+
+                let mut recipient_domain_list = msg
+                    .recipient_list()
+                    .await
+                    .map(|x| {
+                        x.into_iter()
+                            .map(|x| x.domain().to_string())
+                            .collect::<Vec<String>>()
+                    })
+                    .unwrap_or_default();
+
+                recipient_domain_list.dedup();
 
                 // From:
                 let from_domain = if let Ok(Some(from)) = msg.get_address_header("From").await {
@@ -42,10 +66,10 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                             &CheckHostOutput {
                                 disposition: Disposition::None,
                                 result: AuthenticationResult {
-                                    method: "dmarc".to_string(),
+                                    method: "dmarc".into(),
                                     method_version: None,
-                                    result: "None".to_string(),
-                                    reason: Some("'From:' header missing domain".to_string()),
+                                    result: "None".into(),
+                                    reason: Some("'From:' header missing domain".into()),
                                     props: BTreeMap::default(),
                                 },
                             },
@@ -58,10 +82,10 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                         &CheckHostOutput {
                             disposition: Disposition::None,
                             result: AuthenticationResult {
-                                method: "dmarc".to_string(),
+                                method: "dmarc".into(),
                                 method_version: None,
-                                result: "None".to_string(),
-                                reason: Some("Only single 'From:' header supported".to_string()),
+                                result: "None".into(),
+                                reason: Some("Only single 'From:' header supported".into()),
                                 props: BTreeMap::default(),
                             },
                         },
@@ -69,48 +93,76 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                     ));
                 };
 
-                let dkim_results: Vec<AuthenticationResult> =
-                    config::from_lua_value(&lua, dkim_results)?;
+                let dkim_results: Vec<AuthenticationResult> = dkim_results.0;
 
-                let result = CheckHostParams {
+                let spf_result: AuthenticationResult = spf_result.0;
+
+                let received_from = spf_result
+                    .props
+                    .get("received_from")
+                    .cloned()
+                    .unwrap_or_default();
+
+                let reporting_info = if use_reporting {
+                    if let Some(reporting_info) = opt_reporting_info {
+                        Some(reporting_info.0)
+                    } else {
+                        return Err(mlua::Error::external(RejectError {
+                            code: 400,
+                            message: "DMARC reporting missing required fields".into(),
+                            disconnect: RejectDisconnect::If421,
+                        }));
+                    }
+                } else {
+                    None
+                };
+
+                let result = DmarcPassContext {
                     from_domain,
                     mail_from_domain,
-                    dkim: dkim_results.clone().into_iter().map(|x| x.props).collect(),
+                    recipient_domain_list,
+                    received_from: received_from.to_string(),
+                    dkim_results,
+                    spf_result,
+                    reporting_info,
                 }
                 .check(&**resolver)
                 .await;
 
-                match result.result {
+                let disposition = result.result;
+                let reason = result.context;
+                let mut props = result.props;
+
+                match disposition {
                     Disposition::Pass
                     | Disposition::None
                     | Disposition::TempError
                     | Disposition::PermError => Ok(lua.to_value_with(
                         &CheckHostOutput {
-                            disposition: result.result.clone(),
+                            disposition,
                             result: AuthenticationResult {
-                                method: "dmarc".to_string(),
+                                method: "dmarc".into(),
                                 method_version: None,
-                                result: result.result.to_string().to_ascii_lowercase(),
-                                reason: Some(result.context),
-                                props: BTreeMap::default(),
+                                result: disposition.to_string().to_ascii_lowercase().into(),
+                                reason: Some(reason.into()),
+                                props,
                             },
                         },
                         serialize_options(),
                     )),
                     disp @ Disposition::Quarantine | disp @ Disposition::Reject => {
-                        let mut props = BTreeMap::default();
                         props.insert(
-                            "policy.published-domain-policy".to_string(),
-                            disp.to_string().to_ascii_lowercase(),
+                            "policy.published-domain-policy".into(),
+                            disp.to_string().to_ascii_lowercase().into(),
                         );
                         Ok(lua.to_value_with(
                             &CheckHostOutput {
-                                disposition: result.result.clone(),
+                                disposition,
                                 result: AuthenticationResult {
-                                    method: "dmarc".to_string(),
+                                    method: "dmarc".into(),
                                     method_version: None,
-                                    result: "fail".to_string(),
-                                    reason: Some(result.context),
+                                    result: "fail".into(),
+                                    reason: Some(reason.into()),
                                     props,
                                 },
                             },

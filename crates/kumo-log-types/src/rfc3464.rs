@@ -5,9 +5,12 @@ use crate::rfc5965::{
 };
 use crate::{JsonLogRecord, RecordType};
 use anyhow::{anyhow, Context};
+use bstr::{BStr, BString, ByteSlice};
 use chrono::{DateTime, Utc};
-use mailparsing::MimePart;
+use mailparsing::{BStringUtf8, MimePart};
+use rfc5321::parser::EnvelopeAddress;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
@@ -173,9 +176,20 @@ impl FromStr for Recipient {
         let (recipient_type, recipient) = input
             .split_once(";")
             .ok_or_else(|| anyhow!("expected 'recipient-type; recipient', got {input}"))?;
+
+        let recipient = if recipient_type == "rfc822" {
+            recipient
+                .trim()
+                .parse::<EnvelopeAddress>()
+                .map_err(|err| anyhow!("{err}"))?
+                .to_string()
+        } else {
+            recipient.trim().to_string()
+        };
+
         Ok(Self {
             recipient_type: recipient_type.trim().to_string(),
-            recipient: recipient.trim().to_string(),
+            recipient,
         })
     }
 }
@@ -205,6 +219,7 @@ impl FromStr for DiagnosticCode {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct PerRecipientReportEntry {
     pub final_recipient: Recipient,
@@ -216,7 +231,8 @@ pub struct PerRecipientReportEntry {
     pub last_attempt_date: Option<DateTime<Utc>>,
     pub final_log_id: Option<String>,
     pub will_retry_until: Option<DateTime<Utc>>,
-    pub extensions: BTreeMap<String, Vec<String>>,
+    #[serde_as(as = "BTreeMap<_, Vec<BStringUtf8>>")]
+    pub extensions: BTreeMap<String, Vec<BString>>,
 }
 
 impl std::fmt::Display for PerRecipientReportEntry {
@@ -288,6 +304,7 @@ impl PerRecipientReportEntry {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct PerMessageReportEntry {
     pub original_envelope_id: Option<String>,
@@ -295,7 +312,8 @@ pub struct PerMessageReportEntry {
     pub dsn_gateway: Option<RemoteMta>,
     pub received_from_mta: Option<RemoteMta>,
     pub arrival_date: Option<DateTime<Utc>>,
-    pub extensions: BTreeMap<String, Vec<String>>,
+    #[serde_as(as = "BTreeMap<_, Vec<BStringUtf8>>")]
+    pub extensions: BTreeMap<String, Vec<BString>>,
 }
 
 impl std::fmt::Display for PerMessageReportEntry {
@@ -346,14 +364,16 @@ impl PerMessageReportEntry {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct Report {
     pub per_message: PerMessageReportEntry,
     pub per_recipient: Vec<PerRecipientReportEntry>,
-    pub original_message: Option<String>,
+    #[serde_as(as = "Option<BStringUtf8>")]
+    pub original_message: Option<BString>,
 }
 
-pub(crate) fn content_type(part: &MimePart) -> Option<String> {
+pub(crate) fn content_type(part: &MimePart) -> Option<BString> {
     let ct = part.headers().content_type().ok()??;
     Some(ct.value)
 }
@@ -367,7 +387,8 @@ impl Report {
             )
         })?;
 
-        if content_type(&mail).as_deref() != Some("multipart/report") {
+        if content_type(&mail).as_ref().map(|b| b.as_bstr()) != Some(BStr::new("multipart/report"))
+        {
             return Ok(None);
         }
 
@@ -375,16 +396,21 @@ impl Report {
 
         for part in mail.child_parts() {
             let ct = content_type(part);
-            let ct = ct.as_deref();
-            if ct == Some("message/rfc822") || ct == Some("text/rfc822-headers") {
-                original_message = Some(part.raw_body().replace("\r\n", "\n"));
+            let ct = ct.as_ref().map(|b| b.as_bstr());
+            if ct == Some(BStr::new("message/rfc822"))
+                || ct == Some(BStr::new("text/rfc822-headers"))
+            {
+                original_message = Some(BString::new(
+                    part.raw_body().as_bytes().replace(b"\r\n", b"\n"),
+                ));
             }
         }
 
         for part in mail.child_parts() {
             let ct = content_type(part);
-            let ct = ct.as_deref();
-            if ct == Some("message/delivery-status") || ct == Some("message/global-delivery-status")
+            let ct = ct.as_ref().map(|b| b.as_bstr());
+            if ct == Some(BStr::new("message/delivery-status"))
+                || ct == Some(BStr::new("message/global-delivery-status"))
             {
                 return Ok(Some(Self::parse_inner(part, original_message)?));
             }
@@ -393,7 +419,7 @@ impl Report {
         anyhow::bail!("delivery-status part missing");
     }
 
-    fn parse_inner(part: &MimePart, original_message: Option<String>) -> anyhow::Result<Self> {
+    fn parse_inner(part: &MimePart, original_message: Option<BString>) -> anyhow::Result<Self> {
         let body = part.body()?.to_string_lossy().replace("\r\n", "\n");
         let mut parts = body.trim().split("\n\n");
 
@@ -520,14 +546,15 @@ impl Report {
             _ => unreachable!(),
         };
 
-        parts.push(MimePart::new_text_plain(&exposition).context("new_text_plain")?);
+        parts.push(MimePart::new_text_plain(&*exposition).context("new_text_plain")?);
 
         let mut status_text = format!("{per_message}\r\n");
         for per_recip in per_recipient {
             status_text.push_str(&format!("{per_recip}\r\n"));
         }
-        parts
-            .push(MimePart::new_text("message/delivery-status", &status_text).context("new_text")?);
+        parts.push(
+            MimePart::new_text("message/delivery-status", &*status_text).context("new_text")?,
+        );
 
         match (params.include_original_message, msg) {
             (IncludeOriginalMessage::No, _) | (_, None) => {}
@@ -555,7 +582,7 @@ impl Report {
             "multipart/report",
             parts,
             if params.stable_content {
-                Some("report-boundary")
+                Some(b"report-boundary")
             } else {
                 None
             },
@@ -671,6 +698,7 @@ mod test {
             peer_address: Some(ResolvedAddress {
                 name: "target.example.com".to_string(),
                 addr: "42.42.42.42".to_string().try_into().unwrap(),
+                is_secure: false,
             }),
             provider_name: None,
             queue: "target.example.com".to_string(),
@@ -763,7 +791,7 @@ mod test {
         let report_msg = Report::generate(&params, Some(&original_msg), &log)
             .unwrap()
             .unwrap();
-        let report_eml = report_msg.to_message_string();
+        let report_eml = BString::from(report_msg.to_message_bytes());
         k9::snapshot!(
             &report_eml,
             r#"
@@ -894,7 +922,7 @@ Subject: Hello!
         let report_msg = Report::generate(&params, Some(&original_msg), &log)
             .unwrap()
             .unwrap();
-        let report_eml = report_msg.to_message_string();
+        let report_eml = BString::from(report_msg.to_message_bytes());
         k9::snapshot!(
             &report_eml,
             r#"
@@ -1027,7 +1055,7 @@ Subject: Hello!
         let report_msg = Report::generate(&params, Some(&original_msg), &log)
             .unwrap()
             .unwrap();
-        let report_eml = report_msg.to_message_string();
+        let report_eml = BString::from(report_msg.to_message_bytes());
         k9::snapshot!(
             &report_eml,
             r#"
@@ -1165,7 +1193,7 @@ hello there
         let report_msg = Report::generate(&params, Some(&original_msg), &log)
             .unwrap()
             .unwrap();
-        let report_eml = report_msg.to_message_string();
+        let report_eml = BString::from(report_msg.to_message_bytes());
         k9::snapshot!(
             &report_eml,
             r#"
@@ -1653,5 +1681,119 @@ Some(
 )
 "#
         );
+    }
+
+    #[test]
+    fn rfc3464_6() {
+        let result = Report::parse(include_bytes!("../data/rfc3464/6.eml")).unwrap();
+        k9::snapshot!(
+            result,
+            r#"
+Some(
+    Report {
+        per_message: PerMessageReportEntry {
+            original_envelope_id: None,
+            reporting_mta: RemoteMta {
+                mta_type: "dns",
+                name: "tls02.example.com",
+            },
+            dsn_gateway: None,
+            received_from_mta: None,
+            arrival_date: None,
+            extensions: {},
+        },
+        per_recipient: [
+            PerRecipientReportEntry {
+                final_recipient: Recipient {
+                    recipient_type: "rfc822",
+                    recipient: "redacted@example.com",
+                },
+                action: Failed,
+                status: ReportStatus {
+                    class: 5,
+                    subject: 0,
+                    detail: 0,
+                    comment: None,
+                },
+                original_recipient: Some(
+                    Recipient {
+                        recipient_type: "rfc822",
+                        recipient: "redacted@example.com",
+                    },
+                ),
+                remote_mta: Some(
+                    RemoteMta {
+                        mta_type: "dns",
+                        name: "example-com.mail.eo.outlook.com:25",
+                    },
+                ),
+                diagnostic_code: Some(
+                    DiagnosticCode {
+                        diagnostic_type: "smtp",
+                        diagnostic: "host example-com.mail.eo.outlook.com:25 says: 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [XXX.namprd05.prod.outlook.com 2026-03-13T18:10:42.797Z XXX]",
+                    },
+                ),
+                last_attempt_date: None,
+                final_log_id: None,
+                will_retry_until: None,
+                extensions: {},
+            },
+        ],
+        original_message: Some(
+            "Subject: [Bulk Mail] the subject
+From: INFO <info@email.example.com>
+To: redacted@example.com
+
+",
+        ),
+    },
+)
+"#
+        );
+    }
+
+    #[test]
+    fn original_message_serializes_as_json_string() {
+        let report = Report {
+            per_message: PerMessageReportEntry {
+                original_envelope_id: None,
+                reporting_mta: RemoteMta {
+                    mta_type: "dns".to_string(),
+                    name: "mta.example.com".to_string(),
+                },
+                dsn_gateway: None,
+                received_from_mta: None,
+                arrival_date: None,
+                extensions: BTreeMap::new(),
+            },
+            per_recipient: vec![],
+            original_message: Some(BString::from("Subject: hi\n\nhello")),
+        };
+        let json = serde_json::to_value(&report).unwrap();
+        k9::assert_equal!(
+            json["original_message"],
+            serde_json::Value::String("Subject: hi\n\nhello".to_string())
+        );
+    }
+
+    #[test]
+    fn original_message_non_utf8_falls_back_to_bytes() {
+        let report = Report {
+            per_message: PerMessageReportEntry {
+                original_envelope_id: None,
+                reporting_mta: RemoteMta {
+                    mta_type: "dns".to_string(),
+                    name: "mta.example.com".to_string(),
+                },
+                dsn_gateway: None,
+                received_from_mta: None,
+                arrival_date: None,
+                extensions: BTreeMap::new(),
+            },
+            per_recipient: vec![],
+            original_message: Some(BString::from(&b"abc\x80\xffxyz"[..])),
+        };
+        let json = serde_json::to_value(&report).unwrap();
+        assert!(json["original_message"].is_array());
     }
 }

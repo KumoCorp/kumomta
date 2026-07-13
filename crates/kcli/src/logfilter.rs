@@ -1,4 +1,5 @@
 use clap::Parser;
+use kumo_api_client::KumoApiClient;
 use kumo_api_types::SetDiagnosticFilterRequest;
 use reqwest::Url;
 
@@ -13,14 +14,12 @@ pub struct SetLogFilterCommand {
 
 impl SetLogFilterCommand {
     pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
-        let response = crate::request_with_text_response(
-            reqwest::Method::POST,
-            endpoint.join("/api/admin/set_diagnostic_log_filter/v1")?,
-            &SetDiagnosticFilterRequest {
+        let client = KumoApiClient::new(endpoint.clone());
+        let response = client
+            .admin_set_diagnostic_log_filter_v1(&SetDiagnosticFilterRequest {
                 filter: self.filter.clone(),
-            },
-        )
-        .await?;
+            })
+            .await?;
 
         if !response.is_empty() {
             println!("{response}");

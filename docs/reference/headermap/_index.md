@@ -182,4 +182,19 @@ local mailboxes = {
 }
 ```
 
+### MimeParams
+
+Represents a structured RFC 2047 (MIME) header.  For example, a header like
+`Content-Type: text/plain; charset=utf-8` would be returned as:
+
+```lua
+local mime_params = {
+  value = 'text/plain',
+  parameters = {
+    charset = 'utf8',
+  },
+}
+```
+
+
 ## Available Fields and Methods { data-search-exclude }

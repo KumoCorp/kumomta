@@ -7,5 +7,4 @@ pub mod scheduling;
 pub mod timeq;
 pub mod xfer;
 
-pub use crate::address::EnvelopeAddress;
 pub use crate::message::Message;

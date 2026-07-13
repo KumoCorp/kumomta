@@ -13,10 +13,15 @@ use titlecase::Titlecase;
 //
 // Run this like this: `cd crates/mod-smtp-response-normalize/codegen ; cargo run --release`
 
-static EXTRA_WORDS: &[&str] = &["SpamCop"];
+static EXTRA_WORDS: &[&str] = &[
+    "SpamCop",
+    // SMTP protocol keywords — these are 4-letter alphanumeric strings that
+    // would otherwise be mis-identified as base64 by the normalizer.
+    "ehlo", "helo", "rcpt", "smtp", "vrfy",
+];
 
 static ACRONYMS: &[&str] = &[
-    "arc", "bimi", "dkim", "dmarc", "dns", "rbl", "spf", "surbl", "uuid",
+    "arc", "bimi", "dkim", "dmarc", "dns", "rbl", "spf", "surbl", "uuid", "esmtp", "lmtp",
 ];
 
 fn add_word(stage: &mut HashSet<String>, word: &str) {
@@ -58,8 +63,7 @@ fn main() {
     let mut file = BufWriter::new(File::create("../src/dict.rs").unwrap());
     write!(
         &mut file,
-        r#"
-//! This module was generated automatically by running
+        r#"//! This module was generated automatically by running
 //! `(cd crates/mod-smtp-response-normalize/codegen && cargo run --release)`
 //! Do not modify by hand!
 //! Its source can be found in crates/mod-smtp-response-normalize/codegen/src/main.rs

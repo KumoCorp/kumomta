@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 use utoipa::{ToResponse, ToSchema};
 
-#[derive(Deserialize, Serialize, Debug, Clone, ToSchema)]
+#[derive(Deserialize, Serialize, Debug, Clone, ToSchema, PartialEq)]
 pub struct XferProtocol {
     /// Expected to be an HTTP url prefix like:
     /// `https://host.name:8008`
@@ -10,6 +10,7 @@ pub struct XferProtocol {
     // TODO: support multiple, as well as resolving the hostname
     // to multiple candidates so that we can immediately retry
     // transient issues on subsequent candidates
+    #[schema(examples("http://127.0.0.1:8000", "https://host.name:8008"))]
     pub target: Url,
 }
 

@@ -1,6 +1,6 @@
 # kumo.time.parse_duration
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 ```lua
 local time = kumo.time.parse_duration(DURATION)

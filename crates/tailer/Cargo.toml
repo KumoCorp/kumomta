@@ -7,10 +7,7 @@ edition = "2021"
 anyhow = {workspace=true}
 camino = {workspace=true}
 clap = {workspace=true}
-filenamegen = {workspace=true}
-memchr = {workspace=true}
-notify = {workspace=true}
-serde = {workspace=true}
-serde_json = {workspace=true}
-thiserror = {workspace=true}
-zstd-safe = {workspace=true}
+futures = {workspace=true}
+humantime = {workspace=true}
+kumo-jsonl = {path="../kumo-jsonl"}
+tokio = {version="1.32", features=["rt-multi-thread", "macros"]}

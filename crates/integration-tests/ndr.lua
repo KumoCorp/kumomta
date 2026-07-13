@@ -9,7 +9,7 @@ local log_hooks = require 'policy-extras.log_hooks'
 
 local queue_helper = queue_module:setup {
   {
-    queue = {
+    queues = {
       default = {
         -- Redirect traffic to the sink
         protocol = {

@@ -2,6 +2,7 @@
 use crate::kumod::{generate_message_text, DaemonWithMaildir, MailGenParams};
 use anyhow::Context;
 use futures_lite::stream::StreamExt;
+use kumo_log_types::RecordType::Delivery;
 use lapin::options::{BasicAckOptions, BasicConsumeOptions, QueueDeclareOptions};
 use lapin::types::FieldTable;
 use lapin::{Connection, ConnectionProperties};
@@ -57,9 +58,31 @@ async fn test_lapin_rabbit() -> anyhow::Result<()> {
     eprintln!("{response:?}");
     anyhow::ensure!(response.code == 250);
 
+    // We get one reception which will be relayed to the sink.
+    // The reception and the delivery will generate 2 amqp log records
+    // which show as 2 additional deliveries, so 3 total deliveries
     daemon
-        .wait_for_maildir_count(1, Duration::from_secs(10))
+        .wait_for_source_summary(
+            |summary| summary.get(&Delivery).copied().unwrap_or(0) >= 3,
+            Duration::from_secs(10),
+        )
         .await;
+    let delivery_summary = daemon.dump_logs().await.context("dump_logs")?;
+    k9::snapshot!(
+        delivery_summary,
+        "
+DeliverySummary {
+    source_counts: {
+        Reception: 1,
+        Delivery: 3,
+    },
+    sink_counts: {
+        Reception: 1,
+        Delivery: 1,
+    },
+}
+"
+    );
 
     let mut consumer = channel
         .basic_consume(
@@ -148,9 +171,31 @@ async fn test_amqprs_rabbit() -> anyhow::Result<()> {
     eprintln!("{response:?}");
     anyhow::ensure!(response.code == 250);
 
+    // We get one reception which will be relayed to the sink.
+    // The reception and the delivery will generate 2 amqp log records
+    // which show as 2 additional deliveries, so 3 total deliveries
     daemon
-        .wait_for_maildir_count(1, Duration::from_secs(10))
+        .wait_for_source_summary(
+            |summary| summary.get(&Delivery).copied().unwrap_or(0) >= 3,
+            Duration::from_secs(10),
+        )
         .await;
+    let delivery_summary = daemon.dump_logs().await.context("dump_logs")?;
+    k9::snapshot!(
+        delivery_summary,
+        "
+DeliverySummary {
+    source_counts: {
+        Reception: 1,
+        Delivery: 3,
+    },
+    sink_counts: {
+        Reception: 1,
+        Delivery: 1,
+    },
+}
+"
+    );
 
     daemon.stop_both().await.context("stop_both")?;
     println!("Stopped!");

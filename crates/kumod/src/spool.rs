@@ -1,13 +1,12 @@
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
-use crate::queue::{InsertReason, Queue, QueueManager};
-use crate::smtp_server::ShuttingDownError;
+use crate::queue::{IncrementAttempts, InsertContext, InsertReason, Queue, QueueManager};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
 use humansize::{format_size, DECIMAL};
 use humantime::format_duration;
 use kumo_server_common::disk_space::{MinFree, MonitoredPath};
-use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription};
+use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription, ShuttingDownError};
 use kumo_server_memory::subscribe_to_memory_status_changes_async;
 use kumo_server_runtime::spawn;
 use message::Message;
@@ -24,6 +23,7 @@ use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
+use uuid::Uuid;
 
 static MANAGER: LazyLock<SpoolManager> = LazyLock::new(SpoolManager::new);
 static SPOOLIN_THREADS: AtomicUsize = AtomicUsize::new(0);
@@ -107,6 +107,67 @@ async fn define_spool(params: DefineSpoolParams) -> anyhow::Result<()> {
         .await
 }
 
+/// When true (the default), an unhealthy spool also pauses delivery,
+/// not just ingress, in order to limit the duplicate-delivery
+/// exposure window if rocksdb cannot satisfy `remove()` after a
+/// successful SMTP transaction.
+static SUSPEND_DELIVERY_WHEN_UNHEALTHY: AtomicBool = AtomicBool::new(true);
+
+/// Returns `Some(reason)` when the `suspend_delivery_when_spool_unhealthy`
+/// toggle is enabled AND the spool is currently unhealthy.
+/// Returns `None` when either condition is false.
+pub fn delivery_suspension_reason() -> Option<&'static str> {
+    if !SUSPEND_DELIVERY_WHEN_UNHEALTHY.load(Ordering::Relaxed) {
+        return None;
+    }
+    SpoolManager::get().spool_unhealthy_reason()
+}
+
+/// Helper for generating an appropriate log record for messages
+/// that we're delaying when the spool is unhealthy.
+pub async fn log_and_requeue_for_unhealthy_spool(
+    msg: Message,
+    site: &str,
+    session_id: Option<Uuid>,
+    reason: &str,
+) -> anyhow::Result<()> {
+    let response = Response {
+        code: 451,
+        enhanced_code: Some(EnhancedStatusCode {
+            class: 4,
+            subject: 4,
+            detail: 4,
+        }),
+        content: format!("KumoMTA internal: delivery suspended: spool unhealthy: {reason}"),
+        command: None,
+    };
+    log_disposition(LogDisposition {
+        kind: RecordType::Delayed,
+        msg: msg.clone(),
+        site,
+        peer_address: None,
+        response: response.clone(),
+        egress_pool: None,
+        egress_source: None,
+        relay_disposition: None,
+        delivery_protocol: None,
+        tls_info: None,
+        source_address: None,
+        provider: None,
+        session_id,
+        recipient_list: None,
+    })
+    .await;
+    Box::pin(QueueManager::requeue_message(
+        msg,
+        IncrementAttempts::Yes,
+        None,
+        response,
+        InsertContext::from(InsertReason::SpoolUnhealthy),
+    ))
+    .await
+}
+
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let kumo_mod = get_or_create_module(lua, "kumo")?;
     kumo_mod.set(
@@ -120,12 +181,19 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             spawn("define_spool", async move {
                 if let Err(err) = define_spool(params).await {
                     tracing::error!("Error in spool: {err:#}");
-                    LifeCycle::request_shutdown().await;
+                    LifeCycle::request_shutdown(Err(err)).await;
                 }
             })
             .map_err(any_err)?
             .await
             .map_err(any_err)
+        })?,
+    )?;
+    kumo_mod.set(
+        "suspend_delivery_when_spool_unhealthy",
+        lua.create_function(|_, enabled: bool| {
+            SUSPEND_DELIVERY_WHEN_UNHEALTHY.store(enabled, Ordering::Relaxed);
+            Ok(())
         })?,
     )?;
     Ok(())
@@ -248,6 +316,21 @@ impl SpoolManager {
         self.started.load(Ordering::SeqCst)
     }
 
+    /// Returns `None` when both the data and meta spools are healthy.
+    /// Returns `Some(reason)` when either is unhealthy, where `reason`
+    /// is the externally visible explanation suitable for inclusion in
+    /// an SMTP 421 or HTTP 503 response.
+    ///
+    /// Intended for hot-path load-shedding checks; the underlying Spool
+    /// implementations promise this is cheap (atomic load or similar).
+    pub fn spool_unhealthy_reason(&self) -> Option<&'static str> {
+        if !self.started.load(Ordering::SeqCst) {
+            return None;
+        }
+        let (data, meta) = Self::get_data_meta();
+        data.unhealthy_reason().or_else(|| meta.unhealthy_reason())
+    }
+
     pub async fn remove_from_spool(id: SpoolId) -> anyhow::Result<()> {
         let (data_spool, meta_spool) = Self::get_data_meta();
         let res_data = data_spool.remove(id).await;
@@ -296,7 +379,7 @@ impl SpoolManager {
         let num_attempts = queue_config.borrow().infer_num_attempts(age);
         msg.set_num_attempts(num_attempts);
 
-        match msg.get_scheduling().and_then(|sched| sched.expires) {
+        match msg.get_scheduling().await?.and_then(|sched| sched.expires) {
             Some(expires) => {
                 // Per-message expiry
                 let delay = queue_config
@@ -408,7 +491,7 @@ impl SpoolManager {
 
         loop {
             let entry = tokio::select! {
-                _ = shutdown.shutting_down() => return Err(ShuttingDownError.into()),
+                _ = shutdown.shutting_down() => return Err(ShuttingDownError::new("spool_in_thread").into()),
                 entry = rx.recv_async() => { entry },
             }?;
 
@@ -422,7 +505,7 @@ impl SpoolManager {
                             .async_call_callback(&spool_message_enumerated, msg.clone())
                             .await?;
 
-                        match msg.get_queue_name() {
+                        match msg.get_queue_name().await {
                             Ok(queue_name) => match QueueManager::resolve(&queue_name).await {
                                 Err(err) => {
                                     // We don't remove from the spool in this case, because
@@ -512,8 +595,6 @@ impl SpoolManager {
     }
 
     pub async fn start_spool(&self, start_time: DateTime<Utc>) -> anyhow::Result<()> {
-        self.started.store(true, Ordering::SeqCst);
-
         let (tx, rx) = flume::bounded(1024);
         {
             let mut named = self.named.lock().await;
@@ -563,6 +644,10 @@ impl SpoolManager {
 
             Self::spawn_memory_monitor();
         }
+
+        // It is now safe for the various injection methods to attempt to
+        // store to the spool; both meta and data spools are assigned
+        self.started.store(true, Ordering::SeqCst);
 
         // Ensure that there are no more senders outstanding,
         // otherwise we'll deadlock ourselves in the loop below

@@ -1,7 +1,7 @@
 use crate::kumod::{DaemonWithMaildirOptions, MailGenParams};
 use anyhow::Context;
 use k9::assert_equal;
-use kumo_log_types::RecordType::TransientFailure;
+use kumo_log_types::RecordType::{Delivery, TransientFailure};
 use std::time::Duration;
 
 #[tokio::test]
@@ -190,7 +190,13 @@ async fn maildir_batch_452_b() -> anyhow::Result<()> {
     anyhow::ensure!(status.response.code == 250);
 
     daemon
-        .wait_for_maildir_count(1, Duration::from_secs(10))
+        .wait_for_source_summary(
+            |summary| {
+                summary.get(&Delivery).copied().unwrap_or(0) == 1
+                    && summary.get(&TransientFailure).copied().unwrap_or(0) > 0
+            },
+            Duration::from_secs(10),
+        )
         .await;
 
     daemon.stop_both().await.context("stop_both")?;

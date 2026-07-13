@@ -1,3 +1,7 @@
+---
+description: Integrate the open source marketing automation platform Mautic with KumoMTA, using SMTP AUTH to inject and deliver email campaigns through KumoMTA.
+---
+
 # Mautic integration
 
 ## Introduction
@@ -35,7 +39,7 @@ Follow the install instructions [here](https://docs.mautic.org/en/5.x/getting_st
 
 KumoMTA accepts messages for delivery with SMTP_Auth Plain authentication.
 This is the default for Mautic, but you may need to make specific edits based
-on their Symfony Mailer ingtegration so the DSN looks like
+on their Symfony Mailer integration so the DSN looks like
 `smtp://user:pass@smtp.example.com:port`. See
 [this](https://docs.mautic.org/en/5.x/configuration/settings.html#smtp-transport)
 for more detail.
@@ -44,9 +48,8 @@ If you already have Mautic version 4 or earlier, the next step may be as easy
 as completing the configuration
 [here](https://docs.mautic.org/en/5.x/getting_started/how_to_install_mautic.html#configuring-email-settings)
 
-If you have Mautic version 5 or newer, then the above is *likely* still true,
+If you have Mautic version 5 or newer, then the above is _likely_ still true,
 but you may need to configure settings to specify the DSN as described
-[here](https://docs.mautic.org/en/5.x/configuration/settings.html#smtp-transport) 
+[here](https://docs.mautic.org/en/5.x/configuration/settings.html#smtp-transport) or use this [community contributed webhook callback](https://github.com/jos0405/mautickumomtacallback). 
 
-If you have done everything right, you should now be able to send messages from Mautic through KumoMTA with SMTP.
-
+You should now be able to send messages from Mautic through KumoMTA via SMTP.

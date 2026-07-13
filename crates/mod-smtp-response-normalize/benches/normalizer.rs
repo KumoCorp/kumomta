@@ -1,5 +1,5 @@
 use criterion::{Criterion, SamplingMode, Throughput, criterion_group, criterion_main};
-use mod_text_normalize::normalize;
+use mod_smtp_response_normalize::normalize;
 
 static GOOG: &str = "Your email has been rate limited because the From: header (RFC5322) in this message isn't aligned with either the authenticated SPF or DKIM organizational domain. To learn more about DMARC alignment, visit  https://support.google.com/a?p=dmarc-alignment  To learn more about Gmail requirements for bulk senders, visit  https://support.google.com/a?p=sender-guidelines. a640c23a62f3a-ab67626ed70si756442266b.465 - gsmtp";
 

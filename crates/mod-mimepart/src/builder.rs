@@ -59,6 +59,13 @@ impl UserData for Builder {
             })
             .map_err(any_err)
         });
+        methods.add_method("text_amp_html", |_lua, this, text: String| {
+            this.mutate(|builder| {
+                builder.text_amp_html(&text);
+                Ok(())
+            })
+            .map_err(any_err)
+        });
         methods.add_method(
             "attach",
             |_lua,

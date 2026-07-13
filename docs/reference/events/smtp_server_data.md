@@ -1,6 +1,6 @@
 # smtp_server_data
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 ```lua
 kumo.on('smtp_server_data', function(message, conn_meta) end)

@@ -4,7 +4,7 @@
 kumo.spf.check_msg(MESSAGE, OPT_RESOLVER_NAME)
 ```
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 This function will check SPF records from DNS for the provided message.
 It will extract the appropriate domain and sender information from the metadata and message.

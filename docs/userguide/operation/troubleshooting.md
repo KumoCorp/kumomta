@@ -1,8 +1,12 @@
+---
+description: Troubleshoot common KumoMTA issues by validating your configuration, testing injection with Swaks, tracing SMTP conversations, and reviewing logs.
+---
+
 # Troubleshooting KumoMTA
 
 There are several things that can go wrong, especially when first installing KumoMTA. This page is intended to help with troubleshooting common issues.
 
-!!!Note
+!!! note
     There are multiple ways to get help with KumoMTA, see the [How To Get Help](../general/get_help.md) page for more information.
 
 ## Validate Your Configuration
@@ -55,7 +59,7 @@ When providing a stack trace you should also provide the output of `kumod --vers
 KumoMTA logs to the system journal for all error and status messages during operation, to view the log entries use journalctl:
 
 ```console
-[root@localhost ~]# journalctl -f -n 50 -u kumomta.service
+$ sudo journalctl -f -n 50 -u kumomta.service
 Oct 19 21:52:59 localhost systemd[1]: Started KumoMTA SMTP service.
 Oct 19 21:53:00 localhost.localdomain kumod[902]: 2023-10-20T01:53:00.328546Z  INFO localset-0 kumod: NodeId is 2a32fb9b-7353-48bd-a06e-cc97e224c924
 Oct 19 21:53:00 localhost.localdomain kumod[902]: 2023-10-20T01:53:00.337267Z  INFO localset-0 kumo_server_common::http_server: http listener on 127.0.0.1:8000
@@ -64,15 +68,15 @@ Oct 19 21:53:01 localhost.localdomain kumod[902]: 2023-10-20T01:53:01.221127Z  I
 Oct 19 21:53:01 localhost.localdomain kumod[902]: 2023-10-20T01:53:01.221509Z  INFO localset-0 kumo_server_common::start: initialization complete
 ```
 
-In this example the **-f** option tells journalctl to follow the log, in other words to tail or continuously read the file, the **-n 50** option tells journalctl to start by reading the previous 50 lines, and the **-u** option tells journalctl to filter by a specific unit, in this case the *kumomta.service* unit.
+In this example the `-f` option tells journalctl to follow the log, in other words to tail or continuously read the file, the `-n 50` option tells journalctl to start by reading the previous 50 lines, and the `-u` option tells journalctl to filter by a specific unit, in this case the `kumomta.service` unit.
 
-A common issue with new installs is ownership of the spool directory. When the spool is provisioned as a separate volume, it will not be owned by the **kumod** user. In this example we change ownership of the */var/spool/kumomta* directory, then attempt to start the kumomta service, then read the system journal to identify the issue:
+A common issue with new installs is ownership of the spool directory. When the spool is provisioned as a separate volume, it will not be owned by the `kumod` user. The following example deliberately reproduces the problem by changing ownership of the `/var/spool/kumomta` directory to root, then attempts to start the kumomta service and reads the system journal to identify the issue:
 
 ```console
-[root@localhost spool]# systemctl stop kumomta
-[root@localhost spool]# chown -R root /var/spool/kumomta/
-[root@localhost spool]# systemctl start kumomta
-[root@localhost spool]# journalctl -f -n 50 -u kumomta.service
+$ sudo systemctl stop kumomta
+$ sudo chown -R root /var/spool/kumomta/
+$ sudo systemctl start kumomta
+$ sudo journalctl -f -n 50 -u kumomta.service
 Oct 19 22:09:06 localhost.localdomain systemd[1]: Started KumoMTA SMTP service.
 Oct 19 22:09:06 localhost.localdomain kumod[5356]: 2023-10-20T02:09:06.752782Z  INFO localset-0 kumod: NodeId is 2a32fb9b-7353-48bd-a06e-cc97e224c924
 Oct 19 22:09:06 localhost.localdomain kumod[5356]: 2023-10-20T02:09:06.755699Z  INFO localset-0 kumo_server_common::http_server: http listener on 127.0.0.1:8000
@@ -101,7 +105,9 @@ For information on how to read the logs, see the [Viewing Logs](./logs.md) page.
 
 Sometimes the default logging level will not expose sufficient information to troubleshoot certain issues.
 
-To increase the verbosity of the logs written to the system journal, use the [kumo.set_diagnostic_log_filter](../../reference/kumo/set_diagnostic_log_filter.md) function in your `init.lua`` policy's **init** event handler:
+To increase the verbosity of the logs written to the system journal, use the
+[kumo.set_diagnostic_log_filter](../../reference/kumo/set_diagnostic_log_filter.md)
+function in your `init.lua` policy's `init` event handler:
 
 ```lua
 kumo.on('init', function()
@@ -109,17 +115,26 @@ kumo.on('init', function()
 end)
 ```
 
-In addition, you can adjust the log filter level dynamically [using the HTTP API](../../reference/http/api_admin_set_diagnostic_log_filter_v1.md):
+You can adjust the log filter level dynamically using [kcli
+set-log-filter](../../reference/kcli/set-log-filter.md):
 
 ```console
-curl -i 'http://localhost:8000/api/admin/set_diagnostic_log_filter/v1' \
+$ kcli set-log-filter 'kumod=debug'
+OK
+```
+
+In addition, you can adjust the log filter level dynamically using [the HTTP
+API](../../reference/http/kumod/api_admin_set_diagnostic_log_filter_v1_post.md):
+
+```console
+$ curl -i 'http://localhost:8000/api/admin/set_diagnostic_log_filter/v1' \
     -H 'Content-Type: application/json' \
     -d '{"filter":"kumod=debug"}'
 ```
 
 This will produce output similar to the following:
 
-```console
+```txt
 Oct 20 09:26:43 localhost.localdomain systemd[1]: Started KumoMTA SMTP service.
 Oct 20 09:26:44 localhost.localdomain kumod[6061]: 2023-10-20T13:26:44.030934Z  INFO localset-2 kumod: NodeId is 2a32fb9b-7353-48bd-a06e-cc97e224c924
 Oct 20 09:26:44 localhost.localdomain kumod[6061]: 2023-10-20T13:26:44.032892Z  INFO localset-2 kumod::smtp_server: smtp listener on 0.0.0.0:25
@@ -156,5 +171,5 @@ The log levels available, in order from least to most verbose are:
 * Debug
 * Trace
 
-!!!warning
-    The lower, more verbose levels of log levels can be very verbose, especially the  **trace** level. These levels should not be enabled permanently as they can lead to a full disk in a short period of time.
+!!! warning
+    The lower log levels can be very verbose, especially the `trace` level. These levels should not be enabled permanently as they can lead to a full disk in a short period of time.

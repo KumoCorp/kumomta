@@ -1,7 +1,7 @@
 use crate::delivery_metrics::MetricsWrappedConnection;
 use crate::logging::disposition::{log_disposition, LogDisposition};
 use crate::queue::{IncrementAttempts, InsertReason, QueueManager};
-use crate::ready_queue::{Dispatcher, QueueDispatcher};
+use crate::ready_queue::{AttemptConnectionDisposition, Dispatcher, QueueDispatcher};
 use crate::smtp_server::RejectError;
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 use tokio::time::Duration;
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct LuaDeliveryProtocol {
     /// The name of an event to fire that will construct
@@ -75,6 +75,7 @@ impl LuaQueueDispatcher {
         let peer_address = ResolvedAddress {
             name: format!("Lua via {}", proto_config.constructor),
             addr: Ipv4Addr::UNSPECIFIED.into(),
+            is_secure: false,
         };
 
         Self {
@@ -133,21 +134,40 @@ impl QueueDispatcher for LuaQueueDispatcher {
         self.proto_config.max_batch_latency
     }
 
-    async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+    async fn attempt_connection(
+        &mut self,
+        dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<AttemptConnectionDisposition> {
         match &self.connection {
-            ConnectionState::Connected(_) => return Ok(()),
+            ConnectionState::Connected(_) => {
+                return Ok(AttemptConnectionDisposition::ReusedExisting)
+            }
             ConnectionState::Disconnected => {
                 anyhow::bail!("only one connection attempt per session");
             }
             ConnectionState::NotYet => {}
         };
         let connection_wrapper = dispatcher.metrics.wrap_connection(());
-        // Normally, a QueueDispatcher would use dispatcher.path_config rather
-        // than resolving through queue_name_for_config_change_purposes_only.
-        // In this case, since LuaQueueDispatcher doesn't have multiple egress
-        // sources, it is acceptable to use queue_name_for_config_change_purposes_only.
-        let components =
-            QueueNameComponents::parse(&dispatcher.queue_name_for_config_change_purposes_only);
+        // Seed the constructor with a representative scheduled queue's
+        // (domain, tenant, campaign). Many scheduled queues can fan into the
+        // same Lua ready queue when get_queue_config returns the same
+        // constructor for them, so this is one of several possible values
+        // and may not match every message that flows through the
+        // connection. The Lua policy is expected to handle per-message
+        // variation inside send/send_batch by consulting
+        // msg:get_queue_name() or message metadata. We look up the value
+        // freshly at each connection establishment so a reaped feeder
+        // doesn't leave us holding a stale name.
+        let Some(ready_queue) = dispatcher.ready_queue.upgrade() else {
+            anyhow::bail!(
+                "LuaQueueDispatcher::attempt_connection: parent ReadyQueue \
+                 is no longer alive"
+            );
+        };
+        let queue_name = ready_queue
+            .pick_unspecified_live_scheduled_queue_name()
+            .unwrap_or_else(|| dispatcher.name.clone());
+        let components = QueueNameComponents::parse(&queue_name);
         let sig = CallbackSignature::<(&str, Option<&str>, Option<&str>), Value>::new(
             self.proto_config.constructor.to_string(),
         );
@@ -162,7 +182,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
 
         self.connection = ConnectionState::Connected(connection_wrapper.map_connection(connection));
         dispatcher.delivered_this_connection = 0;
-        Ok(())
+        Ok(AttemptConnectionDisposition::ConnectedNew)
     }
 
     async fn have_more_connection_candidates(&mut self, _dispatcher: &mut Dispatcher) -> bool {
@@ -182,6 +202,11 @@ impl QueueDispatcher for LuaQueueDispatcher {
         };
 
         let batch_size = self.proto_config.batch_size;
+        dispatcher.set_detail(if batch_size == 1 {
+            "lua: send"
+        } else {
+            "lua: send_batch"
+        });
 
         let result: anyhow::Result<String> = self
             .lua_config

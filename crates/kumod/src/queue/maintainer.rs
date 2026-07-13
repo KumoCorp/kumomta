@@ -5,15 +5,14 @@ use crate::queue::queue::{Queue, QueueHandle};
 use crate::queue::strategy::{QueueStructure, WheelV1Entry, SINGLETON_WHEEL, SINGLETON_WHEEL_V2};
 use crate::queue::wait_for_message_batch;
 use crate::ready_queue::ReadyQueueManager;
-use crate::smtp_server::ShuttingDownError;
 use crate::Utc;
 use anyhow::Context;
-use kumo_server_lifecycle::{Activity, ShutdownSubcription};
+use kumo_prometheus::declare_metric;
+use kumo_server_lifecycle::{Activity, ShutdownSubcription, ShuttingDownError};
 use kumo_server_runtime::Runtime;
 use message::message::MessageList;
 use message::Message;
 use parking_lot::FairMutex;
-use prometheus::{Histogram, IntCounter};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Once};
@@ -33,13 +32,15 @@ pub fn set_qmaint_threads(n: usize) {
     QMAINT_THREADS.store(n, Ordering::SeqCst);
 }
 
-pub static TOTAL_QMAINT_RUNS: LazyLock<IntCounter> = LazyLock::new(|| {
-    prometheus::register_int_counter!(
-        "total_qmaint_runs",
-        "total number of times a scheduled queue maintainer was run"
-    )
-    .unwrap()
-});
+declare_metric! {
+/// Total number of times a scheduled queue maintainer was run.
+///
+/// This metric is not generally useful to chart.
+/// It gives an indication that schedule queue maintainers are
+/// ticking over, but it is difficult to reason much beyond that
+/// that is happening.
+pub static TOTAL_QMAINT_RUNS: IntCounter("total_qmaint_runs");
+}
 
 pub async fn queue_meta_maintainer() -> anyhow::Result<()> {
     let activity = Activity::get(format!("Queue Manager Meta Maintainer"))?;
@@ -262,7 +263,7 @@ async fn reinsert_ready_v2(
     // metadata at all.
     // Here, we don't and can't do that.
     msg.load_meta_if_needed().await?;
-    let queue_name = msg.get_queue_name().context("msg.get_queue_name")?;
+    let queue_name = msg.get_queue_name().await.context("msg.get_queue_name")?;
     // Use get_opt rather than resolve here. If the queue is not currently
     // tracked in the QueueManager then this message cannot possibly belong
     // to it. Using resolve would have the side effect of creating an empty
@@ -336,30 +337,42 @@ async fn process_batch_v2(messages: Vec<Message>, total_scheduled: usize) {
     }
 }
 
-static POP_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
-        "timeq_pop_latency",
-        "The amount of time that passes between calls to a singleon timerwheel pop",
-    )
-    .unwrap()
-});
-static POP_TARDY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
+declare_metric! {
+/// The number of seconds that passes between calls to a singleon timerwheel pop.
+///
+/// This gives an indication of how heavily loaded the timerwheel buckets might be, but is not
+/// generally useful to chart.
+static POP_LATENCY: Histogram("timeq_pop_latency");
+}
+
+declare_metric! {
+/// The time difference between the due and current time for a singleon timerwheel pop.
+///
+/// This gives an indication of whether the scheduled queue
+/// maintainer is keeping up with the load.  It is generally
+/// acceptable for this value to be a few seconds "late" due
+/// to a combination of time wheel bucket granularity and
+/// overall scheduling priority.
+static POP_TARDY: Histogram(
         "timeq_pop_tardiness",
-        "The time difference between the due and current time for a singleon timerwheel pop",
         vec![0.25, 0.5, 1.0, 2.5, 3.0, 5.0, 10.0, 15.0]
-    )
-    .unwrap()
-});
-static REINSERT_TARDY: LazyLock<Histogram> = LazyLock::new(|| {
-    prometheus::register_histogram!(
+);
+}
+
+declare_metric! {
+/// The time difference between the due and current time for a singleon timerwheel reinsertion.
+///
+/// This gives an indication of whether the scheduled queue
+/// maintainer is keeping up with the load.  It is generally
+/// acceptable for this value to be a few seconds "late" due
+/// to a combination of time wheel bucket granularity and
+/// overall scheduling priority.
+static REINSERT_TARDY: Histogram(
         "timeq_reinsert_tardiness",
-        "The time difference between the due and current time for a singleon timerwheel reinsertion",
         vec![0.25, 0.5, 1.0, 2.5, 3.0, 5.0, 10.0, 15.0, 30.0,
              45.0, 60.0, 90.0, 180.0, 360.0, 720.0]
-    )
-    .unwrap()
-});
+    );
+}
 
 async fn run_singleton_wheel_v1() -> anyhow::Result<()> {
     let mut shutdown = ShutdownSubcription::get();

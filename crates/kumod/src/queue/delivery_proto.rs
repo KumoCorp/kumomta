@@ -3,7 +3,7 @@ use crate::smtp_dispatcher::SmtpProtocol;
 use kumo_api_types::xfer::XferProtocol;
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(untagged)]
 pub enum DeliveryProto {
     Smtp {

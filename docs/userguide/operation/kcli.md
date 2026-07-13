@@ -1,3 +1,7 @@
+---
+description: Use the kcli command-line client to administer KumoMTA over its HTTP API, monitoring queues, managing bounces, and tracing inbound and outbound SMTP.
+---
+
 # Using the kcli Command-Line Client
 
 KumoMTA comes with several API endpoints to make administration of the server
@@ -49,26 +53,27 @@ SITE                                              SOURCE       PROTO       D T C
 
  The output is presented in two sections:
 
-1. The ready queues
-2. The scheduled queues
+1. The Ready Queues
+2. The Scheduled Queues
 
-The ready queue data is presented in columns that are mostly self explanatory, but the numeric counts are labelled with single character labels:
+The Ready Queue data is presented in columns that are mostly self-explanatory, but the numeric counts are labeled with single character labels:
 
 * D - the total number of delivered messages
 * T - the total number of transiently failed messages
 * C - the number of open connections
 * Q - the number of ready messages in the queue
 
-Note that the ready queue counter values reset whenever the ready queue is reaped, which occurs within a few minutes of the ready queue being idle, so those numbers are only useful to get a sense of recent/current activity. Accurate accounting must be performed using the delivery logs and not via this utility.
+Note that the Ready Queue counter values reset whenever the Ready Queue is reaped, which occurs within a few minutes of the Ready Queue being idle, so those numbers are only useful to get a sense of recent/current activity. Accurate accounting must be performed using the delivery logs and not via this utility.
 
-The scheduled queue data is presented in two columns; the queue name and the number of messages in that queue.
+The Scheduled Queue data is presented in two columns; the queue name and the number of messages in that queue.
 
 ## Managing Bounces
 
 ### Bouncing Messages
 
-The `kcli` client can be used to administratively bounce messages currently
-queued in the server with the following format:
+The [kcli bounce](../../reference/kcli/bounce.md) command can be used to
+administratively bounce messages currently queued in the server with the
+following format:
 
 ```console
 $ kcli --endpoint http://127.0.0.1:8000 bounce --everything --reason purge
@@ -98,7 +103,7 @@ If omitted, any tenant will match.
 
 !!! danger
     If you specify none of `domain`, `campaign` or `tenant`, then
-    *ALL* queues will be bounced.
+    _ALL_ queues will be bounced.
 
     With great power, comes great responsibility!
 
@@ -114,12 +119,13 @@ Specifies how long this bounce directive remains active.
 While active, newly injected messages that match the
 bounce criteria will also be bounced.
 
-See the [Bounce API](../../reference/http/api_admin_bounce_v1.md) page of the
-Reference Manual for more information.
+See the [Bounce API](../../reference/http/kumod/api_admin_bounce_v1_post.md)
+page of the Reference Manual for more information.
 
 ### Listing Current Bounces
 
-You can list the currently active bounce commands with the following command:
+You can list the currently active bounce commands with the [kcli
+bounce-list](../../reference/kcli/bounce-list.md) command:
 
 ```console
 $ kcli --endpoint http://127.0.0.1:8000 bounce-list
@@ -140,7 +146,7 @@ $ kcli --endpoint http://127.0.0.1:8000 bounce-list
 ```
 
 See the [Admin Bounce List
-API](../../reference/http/api_admin_bounce_list_v1.md) page of the Reference
+API](../../reference/http/kumod/api_admin_bounce_v1_get.md) page of the Reference
 Manual for more information.
 
 ### Removing a Bounce
@@ -153,22 +159,22 @@ have been injected at the time the command was issued.
 Sometimes after a bounce has been issued there is a need to cancel the bounce
 before the time window has expired. Once a bounce command's ID is determined
 with the `bounce-list` command, the bounce can be canceled with the
-`bounce-cancel` command:
+[kcli bounce-cancel](../../reference/kcli/bounce-cancel.md) command:
 
 ```console
 $ kcli --endpoint http://127.0.0.1:8000 bounce-cancel --id 169c3dc0-6518-41ef-bfbb-1f0ae426cb32
 removed 0234c7c9-afd3-49f9-9a4c-a1cc37fcc53b
 ```
 
-See the [Bounce Cancel API](../../reference/http/api_admin_bounce_cancel_v1.md) page of the Reference Manual for more information.
-
-## Managing Suspensions
-
+See the [Bounce Cancel
+API](../../reference/http/kumod/api_admin_bounce_v1_delete.md) page of the
+Reference Manual for more information.
 
 ## Setting The Diagnostic Log Level
 
 While the log level is typically set in your configuration, it can also be set
-on an ad-hoc basis using the set-log-filter command in `kcli`:
+on an ad-hoc basis using the [kcli
+set-log-filter](../../reference/kcli/set-log-filter.md) command:
 
 ```console
 $ kcli --endpoint http://127.0.0.1:8000 set-log-filter 'kumod=trace'
@@ -181,22 +187,26 @@ Reference Manual for more information.
 
 ## Monitoring Inbound SMTP handshaking
 
-When debugging, it is often helpful to monitor the full SMTP handshaking process in real-time.  The kcli client enables that for inbound connections with the `trace-smtp-server` function:
+When debugging, it is often helpful to monitor the full SMTP handshaking process in real time.  The kcli client enables that for inbound connections with the `trace-smtp-server` function:
 
 ```console
 $ kcli trace-smtp-server
 ```
 
-Additional information on monitoring inbound connections is available on the [trace-smtp-server](../../reference/kcli/trace-smtp-server.md) page of the reference manual.
+Additional information on monitoring inbound connections is available on the
+[kcli trace-smtp-server](../../reference/kcli/trace-smtp-server.md) page of the
+reference manual.
 
 ## Monitoring Outbound SMTP Connections
 
 It is common to encounter issues when attempting to deliver to a given destination, while most destinations are delivered to without issues.
 
-In those situations it helps to be able to monitor the oubound connections in question to identify any issues during the communications:
+In those situations it helps to be able to monitor the outbound connections in question to identify any issues during the communications:
 
 ```console
 $ kcli trace-smtp-client
 ```
 
-Additional information on monitoring outbound connections is available on the [trace-smtp-client](../../reference/kcli/trace-smtp-client.md) page of the reference manual.
+Additional information on monitoring outbound connections is available on the
+[kcli trace-smtp-client](../../reference/kcli/trace-smtp-client.md) page of the
+reference manual.

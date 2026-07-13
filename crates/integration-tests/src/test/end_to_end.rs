@@ -30,8 +30,16 @@ async fn end_to_end() -> anyhow::Result<()> {
         .wait_for_maildir_count(1, Duration::from_secs(10))
         .await;
 
+    // The summary, on its own, does nothing, but does implicitly exercise
+    // the http listener and metrics endpoints to ensure that something is
+    // at least tickling those during the test run.
+    let summary = daemon.source.kcli_text(["queue-summary"]).await?;
+    println!("summary is {summary}");
+
     daemon.stop_both().await.context("stop_both")?;
     println!("Stopped!");
+
+    daemon.assert_no_acct_deny().await?;
 
     daemon.source.check_for_x_and_y_headers_in_logs()?;
 

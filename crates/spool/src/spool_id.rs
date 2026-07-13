@@ -2,7 +2,7 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
-use uuid::{ClockSequence, Context, Timestamp, Uuid};
+use uuid::{ClockSequence, ContextV1, Timestamp, Uuid};
 
 /// Identifies a message within the spool of its host node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -132,7 +132,7 @@ impl SpoolId {
 
         // Note: Context is only suitable for V1 uuids,
         // which is what we're using here.
-        static CONTEXT: LazyLock<Context> = LazyLock::new(Context::new_random);
+        static CONTEXT: LazyLock<ContextV1> = LazyLock::new(ContextV1::new_random);
 
         let (mut seconds, mut subsec_nanos) = ts.to_gregorian();
         loop {

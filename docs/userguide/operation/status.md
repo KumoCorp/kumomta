@@ -1,3 +1,7 @@
+---
+description: Check KumoMTA server status with systemctl and kcli, monitor the running service, and set up a Grafana dashboard to track health and activity.
+---
+
 # Getting Server Status
 
 Once KumoMTA is installed, you can check on the server status with systemctl.
@@ -8,7 +12,7 @@ $ sudo systemctl status kumomta
 
 The result should look something like this:
 
-```
+```txt
  kumomta.service - KumoMTA SMTP service
      Loaded: loaded (/lib/systemd/system/kumomta.service; enabled; vendor preset: enabled)
      Active: active (running) since Thu 2023-04-27 22:59:06 MST; 10h ago
@@ -56,15 +60,8 @@ If you want just the data in a nice JSON format, use:
 $ curl -i 'http://localhost:8000/metrics.json'
 ```
 
-Metrics available include the following at the time of writing, and will
-increase as we build out the product:
-
-  * `connection_count`: number of active connections
-  * `lua_count`: the number of lua contexts currently alive
-  * `lua_load_count`: how many times the policy lua script has been loaded into a new context
-  * `lua_spare_count`: the number of lua contexts available for reuse in the pool
-  * `memory_limit`: soft memory limit measured in bytes
-  * `memory_usage`: number of bytes of used memory
+See the [kumod metrics index](../../reference/metrics/kumod/index.md) in the
+Reference Manual for the full list of available metrics.
 
 ## Using kcli
 

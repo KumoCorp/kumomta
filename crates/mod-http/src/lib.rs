@@ -1,4 +1,4 @@
-use config::{any_err, from_lua_value, get_or_create_sub_module};
+use config::{any_err, from_lua_value, get_or_create_sub_module, SerdeWrappedValue};
 use futures_util::StreamExt;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, LuaSerdeExt, MetaMethod, UserDataMethods, Value};
@@ -24,6 +24,8 @@ struct ClientOptions {
     pool_idle_timeout: Option<Duration>,
     #[serde(default, with = "duration_serde")]
     timeout: Option<Duration>,
+    #[serde(default)]
+    accept_invalid_certs: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -242,6 +244,56 @@ impl LuaUserData for RequestWrapper {
                 response: Arc::new(Mutex::new(Some(response))),
             })
         });
+
+        // Convenience helper to apply AWS SigV4 signing to this request
+        methods.add_async_method(
+            "aws_sign_v4",
+            |_lua, this, params: SerdeWrappedValue<mod_aws_sigv4::SigV4Request>| async move {
+                let mut signer_params = params.0;
+
+                // Clone the current RequestBuilder so we can inspect method, URI, and query params
+                let req_builder = this
+                    .builder
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .ok_or_else(|| mlua::Error::external("broken request builder"))?
+                    .try_clone()
+                    .ok_or_else(|| mlua::Error::external("failed to clone request builder"))?;
+
+                let req = req_builder.build().map_err(any_err)?;
+
+                // Populate method, uri and query parameters from the request
+                signer_params.method = req.method().as_str().to_string();
+                signer_params.uri = req.url().path().to_string();
+                signer_params.query_params = req
+                    .url()
+                    .query_pairs()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect();
+
+                // Ensure the Host header is present
+                if !signer_params.headers.contains_key("host") {
+                    if let Some(host) = req.url().host_str() {
+                        signer_params
+                            .headers
+                            .insert("host".to_string(), host.to_string());
+                    }
+                }
+
+                let sig = mod_aws_sigv4::sign_request(signer_params)
+                    .await
+                    .map_err(any_err)?;
+
+                // Apply the computed signature headers to the underlying request builder
+                this.apply(|b| {
+                    Ok(b.header("Authorization", sig.authorization)
+                        .header("X-Amz-Date", sig.timestamp))
+                })?;
+
+                Ok(this.clone())
+            },
+        );
     }
 }
 
@@ -489,6 +541,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             if let Some(user_agent) = options.user_agent {
                 builder = builder.user_agent(user_agent);
+            }
+
+            if let Some(accept_invalid_certs) = options.accept_invalid_certs {
+                builder = builder.danger_accept_invalid_certs(accept_invalid_certs)
             }
 
             let client = builder.build().map_err(any_err)?;

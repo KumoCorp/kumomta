@@ -1,4 +1,5 @@
 mod kumod;
+mod kumoproxy;
 mod rabbit;
 mod rspamd;
 mod test;

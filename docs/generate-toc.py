@@ -60,7 +60,14 @@ class Gen(object):
 
             if self.extract_title:
                 with open(filename, "r") as f:
-                    title = f.readline().strip("#").strip()
+                    # Find the title; it is usually the first line,
+                    # but we may have front-matter containing tags
+                    # that we need to skip, so we look for a line
+                    # starting with # to identify the title
+                    for line in f:
+                        if line.startswith("#"):
+                            title = line.strip("#").strip()
+                            break
 
             children.append(Page(title, filename))
 
@@ -231,11 +238,41 @@ TOC = [
                         "Configuring Queue Rollup",
                         "userguide/configuration/rollup.md",
                     ),
-                    Page(
-                        "Configuring Traffic Shaping",
-                        "userguide/configuration/trafficshaping.md",
-                    ),
                     Page("Configuring DKIM Signing", "userguide/configuration/dkim.md"),
+                ],
+            ),
+            Page(
+                "Traffic Shaping",
+                "userguide/trafficshaping/index.md",
+                children=[
+                    Page(
+                        "Scoping Traffic Shaping Rules",
+                        "userguide/trafficshaping/scoping.md",
+                    ),
+                    Page(
+                        "MX Rollups and Provider Blocks",
+                        "userguide/trafficshaping/rollups.md",
+                    ),
+                    Page(
+                        "Traffic Shaping Configuration Files",
+                        "userguide/trafficshaping/shapingfiles.md",
+                    ),
+                    Page(
+                        "Shaping Option Resolution Order and Precedence",
+                        "userguide/trafficshaping/resolution.md",
+                    ),
+                    Page(
+                        "Writing Custom Shaping Files",
+                        "userguide/trafficshaping/customshaping.md",
+                    ),
+                    Page(
+                        "Traffic Shaping Automation",
+                        "userguide/trafficshaping/automation.md",
+                    ),
+                    Page(
+                        "Testing Your Shaping Files",
+                        "userguide/trafficshaping/testing.md",
+                    ),
                 ],
             ),
             Page(
@@ -293,6 +330,7 @@ TOC = [
                     ),
                     Page("Routing Messages via AMQP", "userguide/policy/amqp.md"),
                     Page("Routing Messages via Kafka", "userguide/policy/kafka.md"),
+                    Page("Routing Messages via NATS", "userguide/policy/nats.md"),
                     Page(
                         "Storing Secrets in Hashicorp Vault",
                         "userguide/policy/hashicorp_vault.md",
@@ -330,6 +368,10 @@ TOC = [
                     Page(
                         "Deploying KumoMTA on Kubernetes",
                         "userguide/clustering/kubernetes.md",
+                    ),
+                    Page(
+                        "Node ID",
+                        "userguide/clustering/nodeid.md",
                     ),
                 ],
             ),
@@ -397,10 +439,15 @@ TOC = [
             Page("Memory Management", "reference/memory.md"),
             Gen("Template Syntax", "reference/template"),
             Page("Log Record", "reference/log_record.md"),
+            Page("Access Control", "reference/access_control.md"),
             Gen("kcli", "reference/kcli", extract_title=True),
             Gen(
                 "module: kumo",
                 "reference/kumo",
+            ),
+            Gen(
+                "module: kumo.aaa",
+                "reference/kumo.aaa",
             ),
             Gen(
                 "module: kumo.amqp",
@@ -435,6 +482,10 @@ TOC = [
                 "reference/kumo.cidr",
             ),
             Gen(
+                "module: kumo.counter_series",
+                "reference/kumo.counter_series",
+            ),
+            Gen(
                 "module: kumo.domain_map",
                 "reference/kumo.domain_map",
             ),
@@ -447,12 +498,20 @@ TOC = [
                 "reference/kumo.fs",
             ),
             Gen(
+                "module: kumo.jsonl",
+                "reference/kumo.jsonl",
+            ),
+            Gen(
                 "module: kumo.http",
                 "reference/kumo.http",
             ),
             Gen(
                 "module: kumo.kafka",
                 "reference/kumo.kafka",
+            ),
+            Gen(
+                "module: kumo.nats",
+                "reference/kumo.nats",
             ),
             Gen(
                 "module: kumo.mimepart",
@@ -507,8 +566,16 @@ TOC = [
                 "reference/kumo.time",
             ),
             Gen(
+                "module: kumo.xfer",
+                "reference/kumo.xfer",
+            ),
+            Gen(
                 "module: policy-extras.mail_auth",
                 "reference/policy-extras.mail_auth",
+            ),
+            Gen(
+                "module: proxy",
+                "reference/proxy",
             ),
             Gen(
                 "module: tsa",
@@ -554,8 +621,18 @@ TOC = [
                 "events",
                 "reference/events",
             ),
-            Page("HTTP API Explorer", "reference/rapidoc.md"),
-            Gen("HTTP API", "reference/http", extract_title=True),
+            Gen("kumod HTTP API", "reference/http/kumod", extract_title=True),
+            Gen("kumod Metrics", "reference/metrics/kumod", extract_title=True),
+            Gen(
+                "proxy-server HTTP API",
+                "reference/http/proxy-server",
+                extract_title=True,
+            ),
+            Gen(
+                "proxy-server Metrics",
+                "reference/metrics/proxy-server",
+                extract_title=True,
+            ),
             RustDoc(
                 "Internal Rust API",
                 "rustapi",

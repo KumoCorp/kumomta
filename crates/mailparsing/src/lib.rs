@@ -4,7 +4,6 @@ mod error;
 mod header;
 mod headermap;
 mod mimepart;
-mod nom_utils;
 mod normalize;
 mod rfc5322_parser;
 mod strings;

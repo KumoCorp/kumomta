@@ -1,6 +1,6 @@
 # check
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 ```lua
 local mail_auth = require 'policy-extras.mail_auth'
@@ -36,18 +36,18 @@ following fields; all fields are optional:
    authentication](https://datatracker.ietf.org/doc/html/rfc8601#autoid-24)
    status should be collected
  * `dmarc` - a boolean, which defaults to `true`, indicating whether DMARC
-   result should be collected. (not yet implemented!)
+   result should be collected.
  * `arc` - a boolean, which defaults to `true`, indicating whether
    [msg:arc_verify](../message/arc_verify.md) should be called and the result
    collected.
- * `add_authentication_results` - a boolean, which defaults to `true`, indicating
+ * `add_auth_results_header` - a boolean, which defaults to `true`, indicating
    whether the aggregated authentication results performed by `check` should be
    added to the message as an
    [Authentication-Results](https://datatracker.ietf.org/doc/html/rfc8601#autoid-1)
    header via [msg:add_authentication_results](../message/add_authentication_results.md).
  * `server_id` - a string which specifies the `server_id` parameter that should be
    passed to [msg:add_authentication_results](../message/add_authentication_results.md)
-   when `add_authentication_results` is enabled.  If you do not specify `server_id`
+   when `add_auth_results_header` is enabled.  If you do not specify `server_id`
    then the `hostname` metadata value will be extracted from the `MSG`.
  * `resolver` - a string corresponding to the name of a resolver defined via
    [kumo.dns.define_resolver](../kumo.dns/define_resolver.md) for more advanced

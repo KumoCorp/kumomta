@@ -43,5 +43,6 @@ DeliverySummary {
 }
 "
     );
+    daemon.assert_no_acct_deny().await?;
     Ok(())
 }

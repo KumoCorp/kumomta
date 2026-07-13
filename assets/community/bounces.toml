@@ -62,13 +62,14 @@ BadDomain = [
   "^556.+Recipient address has a null MX"
 ]
 InactiveMailbox = [
-   "This mailbox is disabled (554\\.30)", # Yahoo! Mail
-   "^550.+Account is not active",
-   "^550.+User account not activated",
-   "^550.+Account Closed, Please Remove", # comcast.net
-   "^505.+this account is suspended",
-   "^550.+Your message wasn't delivered due to an error; .+requires an upgrade to Enhanced Protection at .+forwardemail\\.net", # forwardemail.net
-   "^550.+DisabledUser",
+  "This mailbox is disabled (554\\.30)", # Yahoo! Mail
+  "^550.+Account is not active",
+  "^550.+User account not activated",
+  "^550.+Account Closed, Please Remove", # comcast.net
+  "^505.+this account is suspended",
+  "^550.+Your message wasn't delivered due to an error; .+requires an upgrade to Enhanced Protection at .+forwardemail\\.net", # forwardemail.net
+  "^550.+DisabledUser",
+  "^552.+OverQuotaPerm", #per google this is an inactive mailbox
 ]
 InvalidSender = [
 ]
@@ -89,6 +90,7 @@ NoAnswerFromHost = [
 BadConnection = [
 ]
 DNSFailure = [
+  "^498.+No MX for",
 ]
 RoutingErrors = [
   "^503.+This mail server requires authentication when attempting to send to a non-local e-mail address",
@@ -96,6 +98,7 @@ RoutingErrors = [
   "^550.+isn't allowed to relay",
   "^550.+Unrouteable address",
   "^554.+MailLoop",
+  "^553.+sorry, that domain isn't in my list of allowed rcpthosts",
 ]
 TransientFailure = [
   "^451.*Temporarily unable to process your email",
@@ -120,36 +123,43 @@ AuthenticationFailed = [
   "^550.+Sender .+ has no A, AAAA, or MX DNS records",
   "^550.+authentication required",
   "^550.+DmarcRejection",
+  "^550.+5\\.7\\.515 Access denied.+domain in the 5322\\.From", #microsoft dkim failures
 ]
 PolicyRelated = [
-  "^553 5\\.0\\.3.+DNSBL:RBL 521.+_is_blocked", # AT&T
-  "^550 5\\.7\\.1", # Microsoft: Network is on our block list (S3150)
   "^554.+Email not accepted for policy reasons", # Yahoo
   "^550.+Reject due to policy restrictions", # web.de, GMX
   "^550 5\\.1\\.4.+Recipient address rejected: Access denied.", # outlook / microsoft
+  "^554.+Email rejected due to security policies",
+  "^550.+Rejected - Content Policy",
+  "^552.+sender rejected AUP", # mms.att.net
+  "^452.+restricted by policy error",
+]
+SpamBlock = [
+  "^553 5\\.0\\.3.+DNSBL:RBL 521.+_is_blocked", # AT&T
+  "^550 5\\.7\\.1", # Microsoft: Network is on our block list (S3150)
   "^550 5\\.0\\.1.+Invalid Sender. Your domain has been blacklisted", #orange.fr
   "^554.+Your access to this mail system has been rejected due to poor reputation of a domain used in message transfer",
   "^550.+REJECT spam",
-  "^553.+Blocked Using Spam Pattern, Your Message May Contain The Spam Contents",
-  "^550.+A URL in this email.+is listed on.+Please resolve and retry",
-  "^550.+REJECTED - spamtext",
-  "^550.+Your access to submit messages to this e-mail system has been rejected",
   "^550.+The sending IP.+is listed on.+Please resolve this and retry",
   "^550.+Blocked by ivmSIP",
   "^553 5\\.0\\.3.+Blocked by ivmSIP",
   "^550.+Message rejected as spam",
   "^550.+Email blocked by cbl.abuseat.org",
-  "^554.+Email rejected due to security policies",
-  "^553.+sorry, that domain isn't in my list of allowed rcpthosts",
   "^550.+Your IP or Email address blocked by the FakeMail User",
   "^550.+spam message rejected", # mail.ru
   "^550.+Message denied", # duck.com
   "^550.+Recipient not on bypass list, your IP has been found on a block list",
   "^550.+JunkMail rejected",
-  "^501.+Mail From Domain does not include a usable MX or A entry", # free.fr
   "^554.+We can't accept this message because it is spam", # wp.pl
-  "^550.+Rejected - Content Policy",
   "^554.+Blocklisting in effect",
-  "^552.+sender rejected AUP", # mms.att.net
-  "^452.+restricted by policy error",
+]
+SpamContent = [
+  "^553.+Blocked Using Spam Pattern, Your Message May Contain The Spam Contents",
+  "^550.+A URL in this email.+is listed on.+Please resolve and retry",
+  "^550.+REJECTED - spamtext",
+  "^550.+Mail content denied", #qq
+  "^550.+message has been rejected due to spam or virus classification", #t-online.de
+  "^554.+Message contains Spam Content", #blueyonder.co.uk
+  "^550.+5\\.7\\.1 message content rejected due to spam", #icloud.com
+  "^554.+blocked due to spam content",
 ]

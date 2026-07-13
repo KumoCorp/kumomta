@@ -79,7 +79,7 @@ async fn arc() -> anyhow::Result<()> {
         yQIDAQAB",
     );
 
-    let email = ParsedEmail::parse(String::from_utf8(payload.to_vec()).unwrap()).unwrap();
+    let email = ParsedEmail::parse(payload).unwrap();
     let arc = ARC::verify(&email, &resolver).await;
     assert_eq!(arc.chain_validation_status(), ChainValidationStatus::Pass);
 

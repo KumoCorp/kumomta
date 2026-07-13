@@ -1,7 +1,6 @@
 use crate::queue::QueueManager;
 use axum::extract::Json;
 use kumo_api_types::xfer::{XferCancelV1Request, XferCancelV1Response, XferProtocol};
-use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
 use kumo_server_runtime::rt_spawn;
 use reqwest::StatusCode;
@@ -33,7 +32,6 @@ use reqwest::StatusCode;
     ),
 )]
 pub async fn xfer_cancel_v1(
-    _: TrustedIpRequired,
     // Note: Json<> must be last in the param list
     Json(request): Json<XferCancelV1Request>,
 ) -> Result<Json<XferCancelV1Response>, AppError> {

@@ -12,6 +12,9 @@ The timer object can be used to update a latency histogram that is reported in
 the prometheus metrics for the server to track how long it takes for a certain
 operation to complete.
 
+See [user_lua_latency](../metrics/kumod/user_lua_latency.md) for information
+about the exported histogram.
+
 The most basic usage looks like this:
 
 ```lua

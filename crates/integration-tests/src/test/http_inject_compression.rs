@@ -1,5 +1,6 @@
 use crate::kumod::DaemonWithMaildir;
 use anyhow::Context;
+use bstr::ByteSlice;
 use k9::assert_equal;
 use std::time::Duration;
 
@@ -85,6 +86,7 @@ DeliverySummary {
 "
     );
 
+    daemon.assert_no_acct_deny().await?;
     let mut messages = daemon.extract_maildir_messages()?;
     assert_equal!(messages.len(), 1);
     let parsed = messages[0].parsed()?;
@@ -93,8 +95,8 @@ DeliverySummary {
     let body = parsed.body().unwrap();
     match body {
         mailparsing::DecodedBody::Text(text) => {
-            assert!(text.contains("Hello Test User!"));
-            assert!(text.contains("This is a compressed message"));
+            assert!(text.as_bytes().contains_str("Hello Test User!"));
+            assert!(text.as_bytes().contains_str("This is a compressed message"));
         }
         _ => panic!("Expected text body"),
     }

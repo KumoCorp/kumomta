@@ -183,7 +183,7 @@ impl HeaderList {
                 .rev()
                 .skip(num_headers - index)
             {
-                if header.get_name().eq_ignore_ascii_case(name) {
+                if header.get_name().eq_ignore_ascii_case(name.as_bytes()) {
                     headers.push(header);
                     last_index.insert(name, header_index);
                     continue 'outer;
@@ -215,7 +215,7 @@ pub(crate) fn compute_headers_hash<'a>(
     for header in header_list {
         canonicalization_type.canon_header_into(
             header.get_name(),
-            header.get_raw_value().as_bytes(),
+            header.get_raw_value(),
             &mut input,
         );
     }
@@ -227,7 +227,7 @@ pub(crate) fn compute_headers_hash<'a>(
         let value = dkim_header.raw().replace(sign, "");
         let mut canonicalized_value = vec![];
         canonicalization_type.canon_header_into(
-            signature_header_name,
+            signature_header_name.as_bytes(),
             value.as_bytes(),
             &mut canonicalized_value,
         );
@@ -469,7 +469,12 @@ Hello Alice
         header_list
             .compute_concrete_header_list(email)
             .into_iter()
-            .map(|header| (header.get_name(), header.get_raw_value().as_bytes()))
+            .map(|header| {
+                (
+                    std::str::from_utf8(header.get_name()).unwrap(),
+                    header.get_raw_value().as_ref(),
+                )
+            })
             .collect()
     }
 

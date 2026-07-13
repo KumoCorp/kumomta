@@ -62,10 +62,13 @@ end
 -- or movement through internal queues, rather than interactions
 -- with a destination system
 local UNINTERESTING_LOG_RECORD_TYPES = {
-  Reception = true,
   AdminRebind = true,
   DeferredInjectionRebind = true,
   Delayed = true,
+  Reception = true,
+  Rejection = true,
+  XferIn = true,
+  XferOut = true,
 }
 
 local function should_enq(publish, msg, hook_name, options)
@@ -90,7 +93,7 @@ local function should_enq(publish, msg, hook_name, options)
     end
   end
 
-  if UNINTERESTING_LOG_RECORD_TYPES[log_record.type] then
+  if options.skip_log_record_types[log_record.type] then
     return false
   end
 
@@ -410,6 +413,29 @@ function mod:setup_with_automation(options)
     options.pre_filter = true
   end
 
+  if options.skip_log_record_types == nil then
+    options.skip_log_record_types = {}
+    for record_type, _true in pairs(UNINTERESTING_LOG_RECORD_TYPES) do
+      options.skip_log_record_types[record_type] = true
+    end
+  else
+    -- Translate the "set" into a map
+    local lookup = {}
+    for _, record_type in ipairs(options.skip_log_record_types) do
+      lookup[record_type] = true
+    end
+    options.skip_log_record_types = lookup
+  end
+
+  -- additional_skip_log_record_types augments whatever is already in
+  -- skip_log_record_types (whether that is the default set or a user
+  -- provided replacement) with extra record types to also skip.
+  if options.additional_skip_log_record_types then
+    for _, record_type in ipairs(options.additional_skip_log_record_types) do
+      options.skip_log_record_types[record_type] = true
+    end
+  end
+
   local cached_load_data = kumo.memoize(load_shaping_data, {
     name = 'shaping_data',
     ttl = options.cache_ttl or '1 minute',
@@ -462,21 +488,16 @@ function mod:setup_with_automation(options)
   end
 
   local function setup_publish()
+    local per_record = {}
+    for record_type, _true in pairs(options.skip_log_record_types) do
+      per_record[record_type] = {
+        enable = false,
+      }
+    end
     for _, params in pairs(publish) do
       kumo.configure_log_hook {
         name = params.hook_name,
-        per_record = {
-          -- Don't feed reception data to the daemon; we're
-          -- only interested in data that flows back to us
-          -- from after the point of reception
-          Reception = {
-            enable = false,
-          },
-          -- Likewise, rejections don't make sense to pass to TSA
-          Rejection = {
-            enable = false,
-          },
-        },
+        per_record = per_record,
         back_pressure = options.back_pressure,
       }
     end

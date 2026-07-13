@@ -1,18 +1,22 @@
 use anyhow::Context;
 use clap::{Parser, ValueEnum};
-use futures::Stream;
 use reqwest::Url;
+use std::collections::HashMap;
 use std::time::Duration;
 
+mod abort_ready_q_conn;
 mod bounce;
 mod bounce_cancel;
 mod bounce_list;
 mod inspect_message;
+mod inspect_ready_q;
 mod inspect_sched_q;
 mod logfilter;
 mod provider_summary;
 mod queue_summary;
 mod rebind;
+mod resolve_egress_path;
+mod spool_compact;
 mod suspend;
 mod suspend_cancel;
 mod suspend_list;
@@ -60,6 +64,7 @@ enum SubCommand {
     BounceList(bounce_list::BounceListCommand),
     BounceCancel(bounce_cancel::BounceCancelCommand),
     Rebind(rebind::RebindCommand),
+    SpoolCompact(spool_compact::SpoolCompactCommand),
     Suspend(suspend::SuspendCommand),
     SuspendList(suspend_list::SuspendListCommand),
     SuspendCancel(suspend_cancel::SuspendCancelCommand),
@@ -67,8 +72,11 @@ enum SubCommand {
     SuspendReadyQList(suspend_ready_q_list::SuspendReadyQListCommand),
     SuspendReadyQCancel(suspend_ready_q_cancel::SuspendReadyQCancelCommand),
     SetLogFilter(logfilter::SetLogFilterCommand),
+    AbortReadyQConn(abort_ready_q_conn::AbortReadyQConnCommand),
     InspectMessage(inspect_message::InspectMessageCommand),
+    InspectReadyQ(inspect_ready_q::InspectReadyQCommand),
     InspectSchedQ(inspect_sched_q::InspectQueueCommand),
+    ResolveEgressPath(resolve_egress_path::ResolveEgressPathCommand),
     ProviderSummary(provider_summary::ProviderSummaryCommand),
     QueueSummary(queue_summary::QueueSummaryCommand),
     TraceSmtpClient(trace_smtp_client::TraceSmtpClientCommand),
@@ -92,6 +100,33 @@ impl SubCommand {
                 let cmd = Opt::command();
                 let overall_help = help_markdown_command_custom(&cmd, &options);
 
+                let doc_tags: &[(&str, &[&str])] = &[
+                    ("bounce", &["bounce"]),
+                    ("bounce-list", &["bounce"]),
+                    ("bounce-cancel", &["bounce"]),
+                    ("suspend", &["suspend"]),
+                    ("suspend-list", &["suspend"]),
+                    ("suspend-cancel", &["suspend"]),
+                    ("suspend-ready-q", &["suspend"]),
+                    ("suspend-ready-q-list", &["suspend"]),
+                    ("suspend-ready-q-cancel", &["suspend"]),
+                    ("set-log-filter", &["logging", "debugging"]),
+                    ("abort-ready-q-conn", &["ops", "debugging"]),
+                    ("inspect-message", &["message", "debugging"]),
+                    ("inspect-ready-q", &["ops", "debugging"]),
+                    ("inspect-sched-q", &["debugging"]),
+                    ("provider-summary", &["ops"]),
+                    ("queue-summary", &["ops"]),
+                    ("trace-smtp-client", &["ops", "debugging"]),
+                    ("trace-smtp-server", &["ops", "debugging"]),
+                    ("top", &["ops", "debugging"]),
+                    ("spool-compact", &["ops", "debugging"]),
+                    ("xfer", &["ops", "xfer"]),
+                    ("xfer-cancel", &["ops", "xfer"]),
+                ];
+                let doc_tags: HashMap<&str, &[&str]> =
+                    doc_tags.into_iter().map(|(k, v)| (*k, &v[..])).collect();
+
                 // We want a separate markdown page per sub-command, so we're
                 // doing a bit of grubbing around to split that out here
 
@@ -114,7 +149,15 @@ impl SubCommand {
                     } else {
                         let (sub_command, remainder) = chunk.split_once('`').unwrap();
                         let filename = format!("docs/reference/kcli/{sub_command}.md");
-                        let help = format!("# kcli {sub_command}\n{remainder}");
+
+                        let tags = match doc_tags.get(sub_command) {
+                            Some(tags) => {
+                                format!("---\ntags:\n  - {}\n---\n", tags.join("\n  - "))
+                            }
+                            None => String::new(),
+                        };
+
+                        let help = format!("{tags}# kcli {sub_command}\n{remainder}");
                         std::fs::write(&filename, &help)?;
                     }
                 }
@@ -125,6 +168,7 @@ impl SubCommand {
             Self::BounceCancel(cmd) => cmd.run(endpoint).await,
             Self::BounceList(cmd) => cmd.run(endpoint).await,
             Self::Rebind(cmd) => cmd.run(endpoint).await,
+            Self::SpoolCompact(cmd) => cmd.run(endpoint).await,
             Self::Suspend(cmd) => cmd.run(endpoint).await,
             Self::SuspendCancel(cmd) => cmd.run(endpoint).await,
             Self::SuspendList(cmd) => cmd.run(endpoint).await,
@@ -132,8 +176,11 @@ impl SubCommand {
             Self::SuspendReadyQCancel(cmd) => cmd.run(endpoint).await,
             Self::SuspendReadyQList(cmd) => cmd.run(endpoint).await,
             Self::SetLogFilter(cmd) => cmd.run(endpoint).await,
+            Self::AbortReadyQConn(cmd) => cmd.run(endpoint).await,
             Self::InspectMessage(cmd) => cmd.run(endpoint).await,
+            Self::InspectReadyQ(cmd) => cmd.run(endpoint).await,
             Self::InspectSchedQ(cmd) => cmd.run(endpoint).await,
+            Self::ResolveEgressPath(cmd) => cmd.run(endpoint).await,
             Self::ProviderSummary(cmd) => cmd.run(endpoint).await,
             Self::QueueSummary(cmd) => cmd.run(endpoint).await,
             Self::TraceSmtpClient(cmd) => cmd.run(endpoint).await,
@@ -166,97 +213,6 @@ pub async fn json_body<T: serde::de::DeserializeOwned>(
         format!(
             "parsing response as json: {}",
             String::from_utf8_lossy(&data)
-        )
-    })
-}
-
-pub async fn request_with_text_response<T: reqwest::IntoUrl, B: serde::Serialize>(
-    method: reqwest::Method,
-    url: T,
-    body: &B,
-) -> anyhow::Result<String> {
-    let response = reqwest::Client::builder()
-        .timeout(TIMEOUT)
-        .build()?
-        .request(method, url)
-        .json(body)
-        .send()
-        .await?;
-
-    let status = response.status();
-    let body_bytes = response.bytes().await.with_context(|| {
-        format!(
-            "request status {}: {}, and failed to read response body",
-            status.as_u16(),
-            status.canonical_reason().unwrap_or("")
-        )
-    })?;
-    let body_text = String::from_utf8_lossy(&body_bytes);
-    if !status.is_success() {
-        anyhow::bail!(
-            "request status {}: {}. Response body: {body_text}",
-            status.as_u16(),
-            status.canonical_reason().unwrap_or(""),
-        );
-    }
-
-    Ok(body_text.to_string())
-}
-
-pub async fn request_with_streaming_text_response<T: reqwest::IntoUrl, B: serde::Serialize>(
-    method: reqwest::Method,
-    url: T,
-    body: &B,
-) -> anyhow::Result<impl Stream<Item = reqwest::Result<bytes::Bytes>>> {
-    let response = reqwest::Client::builder()
-        .timeout(TIMEOUT)
-        .build()?
-        .request(method, url)
-        .json(body)
-        .send()
-        .await?;
-
-    Ok(response.bytes_stream())
-}
-
-pub async fn request_with_json_response<
-    T: reqwest::IntoUrl,
-    B: serde::Serialize,
-    R: serde::de::DeserializeOwned,
->(
-    method: reqwest::Method,
-    url: T,
-    body: &B,
-) -> anyhow::Result<R> {
-    let response = reqwest::Client::builder()
-        .timeout(TIMEOUT)
-        .build()?
-        .request(method, url)
-        .json(body)
-        .send()
-        .await?;
-
-    let status = response.status();
-    if !status.is_success() {
-        let body_bytes = response.bytes().await.with_context(|| {
-            format!(
-                "request status {}: {}, and failed to read response body",
-                status.as_u16(),
-                status.canonical_reason().unwrap_or("")
-            )
-        })?;
-        anyhow::bail!(
-            "request status {}: {}. Response body: {}",
-            status.as_u16(),
-            status.canonical_reason().unwrap_or(""),
-            String::from_utf8_lossy(&body_bytes)
-        );
-    }
-    json_body(response).await.with_context(|| {
-        format!(
-            "request status {}: {}",
-            status.as_u16(),
-            status.canonical_reason().unwrap_or("")
         )
     })
 }

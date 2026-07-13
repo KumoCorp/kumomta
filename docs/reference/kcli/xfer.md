@@ -1,3 +1,8 @@
+---
+tags:
+  - ops
+  - xfer
+---
 # kcli xfer
 
 

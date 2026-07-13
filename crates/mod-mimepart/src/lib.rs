@@ -1,24 +1,28 @@
 pub use crate::mimepart::PartRef;
+use bstr::BString;
 use config::{SerdeWrappedValue, any_err, get_or_create_sub_module};
-use mailparsing::{AttachmentOptions, MimePart, SharedString};
+use mailparsing::{AttachmentOptions, MimePart};
 use mlua::{Lua, UserDataRef};
 
 pub mod builder;
 pub mod headers;
 pub mod mimepart;
 
-fn new_text_part(_: &Lua, (content_type, content): (String, String)) -> mlua::Result<PartRef> {
-    let part = MimePart::new_text(&content_type, &content).map_err(any_err)?;
+fn new_text_part(
+    _: &Lua,
+    (content_type, content): (String, mlua::String),
+) -> mlua::Result<PartRef> {
+    let part = MimePart::new_text(&content_type, content.as_bytes().as_ref()).map_err(any_err)?;
     Ok(PartRef::new(part))
 }
 
-fn new_text_plain(_: &Lua, content: String) -> mlua::Result<PartRef> {
-    let part = MimePart::new_text_plain(&content).map_err(any_err)?;
+fn new_text_plain(_: &Lua, content: mlua::String) -> mlua::Result<PartRef> {
+    let part = MimePart::new_text_plain(content.as_bytes().as_ref()).map_err(any_err)?;
     Ok(PartRef::new(part))
 }
 
-fn new_html(_: &Lua, content: String) -> mlua::Result<PartRef> {
-    let part = MimePart::new_html(&content).map_err(any_err)?;
+fn new_html(_: &Lua, content: mlua::String) -> mlua::Result<PartRef> {
+    let part = MimePart::new_html(content.as_bytes().as_ref()).map_err(any_err)?;
     Ok(PartRef::new(part))
 }
 
@@ -48,13 +52,17 @@ fn new_multipart(
         child_parts.push(p.resolve().map_err(any_err)?.to_owned());
     }
 
-    let part = MimePart::new_multipart(&content_type, child_parts, boundary.as_deref())
-        .map_err(any_err)?;
+    let part = MimePart::new_multipart(
+        &content_type,
+        child_parts,
+        boundary.as_ref().map(|s| s.as_bytes()),
+    )
+    .map_err(any_err)?;
     Ok(PartRef::new(part))
 }
 
-fn parse_eml(_: &Lua, eml_contents: String) -> mlua::Result<PartRef> {
-    let eml_contents: SharedString = eml_contents.into();
+fn parse_eml(_: &Lua, eml_contents: mlua::String) -> mlua::Result<PartRef> {
+    let eml_contents = BString::new(eml_contents.as_bytes().to_vec());
     let part = MimePart::parse(eml_contents).map_err(any_err)?;
     Ok(PartRef::new(part))
 }

@@ -1,6 +1,8 @@
 use crate::queue::delivery_proto::DeliveryProto;
 use crate::queue::strategy::QueueStrategy;
-use kumo_api_types::egress_path::{ConfigRefreshStrategy, MemoryReductionPolicy};
+use kumo_api_types::egress_path::{
+    ConfigRefreshStrategy, EffectiveCeiling, EffectiveConstraints, MemoryReductionPolicy,
+};
 use mlua::prelude::*;
 use mlua::UserDataMethods;
 use serde::{Deserialize, Serialize};
@@ -121,6 +123,42 @@ impl Default for QueueConfig {
 const MAX_CHRONO_SECONDS: i64 = i64::MAX / 1_000;
 
 impl QueueConfig {
+    /// Compute the throughput ceilings implied by the queue config.
+    /// Currently surfaces `max_message_rate`, which gates promotion
+    /// of messages from this scheduled queue into its ready queue.
+    /// Other axes are left empty since the queue config does not
+    /// directly constrain them; merging this into the egress path
+    /// constraints folds the scheduled-queue rate into the
+    /// message-rate minimum.
+    pub fn compute_constraints(&self) -> EffectiveConstraints {
+        let max_message_rate = self.max_message_rate.as_ref().map(|spec| EffectiveCeiling {
+            value: spec.limit as f64 / spec.period as f64,
+            source: kumo_api_types::egress_path::CeilingSource::Other {
+                name: "scheduled queue max_message_rate".to_string(),
+            },
+            display: spec.to_string(),
+        });
+
+        EffectiveConstraints {
+            // QueueConfig doesn't define concurrency; merge_axis on
+            // EffectiveConstraints expects a concrete value, so use
+            // an open ceiling (f64::INFINITY) that always loses the
+            // min comparison and is rendered as the path-derived
+            // value.
+            max_concurrent_dispatchers: EffectiveCeiling {
+                value: f64::INFINITY,
+                source: kumo_api_types::egress_path::CeilingSource::Other {
+                    name: "queue config".to_string(),
+                },
+                display: "∞".to_string(),
+            },
+            max_message_rate,
+            max_message_rate_declared: None,
+            max_connection_rate: None,
+            max_source_selection_rate: None,
+        }
+    }
+
     fn default_retry_interval() -> Duration {
         Duration::from_secs(60 * 20) // 20 minutes
     }
@@ -156,7 +194,10 @@ impl QueueConfig {
     }
 
     pub fn delay_for_attempt(&self, attempt: u16) -> chrono::Duration {
-        let delay = self.retry_interval.as_secs() * 2u64.saturating_pow(attempt as u32);
+        let delay = self
+            .retry_interval
+            .as_secs()
+            .saturating_mul(2u64.saturating_pow(attempt as u32));
 
         let delay = match self.max_retry_interval.map(|d| d.as_secs()) {
             None => delay,

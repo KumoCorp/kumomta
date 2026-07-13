@@ -4,7 +4,7 @@
 local ft_list = kumo.file_type.from_media_type(EXT)
 ```
 
-{{since('dev')}}
+{{since('2025.12.02-67ee9e96')}}
 
 Returns the list of file types that have the specified MIME media type.
 

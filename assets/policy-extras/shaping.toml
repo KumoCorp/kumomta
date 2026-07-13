@@ -200,6 +200,7 @@ max_deliveries_per_connection = 100
 match=[{MXSuffix=".orange.fr"}]
 provider_connection_limit = 2
 max_deliveries_per_connection = 100
+enable_tls = "Required"
 
 # PROVIDED DIRECTLY FROM MAILGUN FOR SENDERS WHO SMARTHOST VIA MAILGUN
 ["smtp.mailgun.com"]

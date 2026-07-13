@@ -79,21 +79,25 @@ impl ARC {
 
         if !self.sets.is_empty() {
             props.insert(
-                "header.oldest-pass".to_string(),
+                "header.oldest-pass".into(),
                 if status == ChainValidationStatus::Fail {
                     self.last_validated_instance
                 } else {
                     0
                 }
-                .to_string(),
+                .to_string()
+                .into(),
             );
         }
 
         AuthenticationResult {
-            method: "arc".to_string(),
+            method: "arc".into(),
             method_version: None,
-            result: status.to_string(),
-            reason: self.issues.first().map(|issue| issue.reason.to_string()),
+            result: status.to_string().into(),
+            reason: self
+                .issues
+                .first()
+                .map(|issue| issue.reason.to_string().into()),
             props,
         }
     }
@@ -161,7 +165,11 @@ impl ARC {
         let mut issues = vec![];
 
         for hdr in headers.iter_named(ARC_SEAL_HEADER_NAME) {
-            match ARCSealHeader::parse(hdr.get_raw_value()) {
+            match hdr
+                .get_raw_value_string()
+                .map_err(Into::into)
+                .and_then(ARCSealHeader::parse)
+            {
                 Ok(seal) => {
                     let instance = seal.arc_instance().expect("validated by parse");
                     seals
@@ -182,7 +190,11 @@ impl ARC {
         }
 
         for hdr in headers.iter_named(ARC_MESSAGE_SIGNATURE_HEADER_NAME) {
-            match ARCMessageSignatureHeader::parse(hdr.get_raw_value()) {
+            match hdr
+                .get_raw_value_string()
+                .map_err(Into::into)
+                .and_then(ARCMessageSignatureHeader::parse)
+            {
                 Ok(sig) => {
                     let instance = sig.arc_instance().expect("validated by parse");
                     sigs.entry(instance)
@@ -527,7 +539,7 @@ mod test {
             .unwrap();
 
         for instance in 1..=5 {
-            let email = ParsedEmail::parse(email_content.as_str()).unwrap();
+            let email = ParsedEmail::parse(&*email_content).unwrap();
             let arc = ARC::verify(&email, &resolver).await;
             assert_eq!(
                 arc.chain_validation_status(),
@@ -541,7 +553,7 @@ mod test {
                 .seal(
                     &email,
                     AuthenticationResults {
-                        serv_id: "localhost".to_string(),
+                        serv_id: "localhost".into(),
                         version: None,
                         results: vec![arc.authentication_result()],
                     },

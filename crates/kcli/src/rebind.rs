@@ -1,6 +1,7 @@
 use clap::builder::ValueParser;
 use clap::Parser;
-use kumo_api_types::rebind::{RebindV1Request, RebindV1Response};
+use kumo_api_client::KumoApiClient;
+use kumo_api_types::rebind::RebindV1Request;
 use reqwest::Url;
 use std::collections::HashMap;
 
@@ -165,10 +166,9 @@ impl RebindCommand {
             data.insert(k.to_string(), v.to_string());
         }
 
-        let _result: RebindV1Response = crate::request_with_json_response(
-            reqwest::Method::POST,
-            endpoint.join("/api/admin/rebind/v1")?,
-            &RebindV1Request {
+        let client = KumoApiClient::new(endpoint.clone());
+        let _result = client
+            .admin_rebind_v1(&RebindV1Request {
                 campaign: self.campaign.clone(),
                 domain: self.domain.clone(),
                 routing_domain: self.routing_domain.clone(),
@@ -178,9 +178,8 @@ impl RebindCommand {
                 data,
                 always_flush: self.always_flush,
                 trigger_rebind_event: self.trigger_rebind_event,
-            },
-        )
-        .await?;
+            })
+            .await?;
 
         eprintln!("NOTE: Rebind always runs asynchronously");
 

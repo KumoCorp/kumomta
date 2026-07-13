@@ -1,3 +1,7 @@
+---
+description: Inject messages into KumoMTA over HTTP using a configured HTTP listener, controlling the IPs and ports available for message submission via the API.
+---
+
 # Injecting Using HTTP
 
 KumoMTA will listen for message injection in any
@@ -19,15 +23,17 @@ kumo.start_http_listener {
 ```
 
 KumoMTA will accept any HTTPS injection on port 8005 from the local host ONLY.
-(This also enables the full [HTTP API](../../reference/http/index.md) from
+(This also enables the full [HTTP API](../../reference/http/kumod/index.md) from
 localhost).
 
 
-The simplest test of [HTTP injection](../../reference/http/api_inject_v1.md)
-can be done using cURL right from localhost console.
+The simplest test of [HTTP injection](../../reference/http/kumod/api_inject_v1_post.md)
+can be done using curl right from the localhost console. Note the `-k`
+option: it lets curl accept the self-signed certificate that KumoMTA
+generates when no TLS certificate is configured for the listener.
 
 ```console
-$ curl -i 'http://localhost:8005/api/inject/v1' \
+$ curl -ik 'https://localhost:8005/api/inject/v1' \
  -H 'Content-Type: application/json' -d '
 {"envelope_sender": "noreply@example.com",
  "content": "Subject: hello\n\nHello there",
@@ -43,5 +49,5 @@ That should return something like this:
 
 Any system that can use an HTTP API to pass JSON should work as an injection
 system if you follow the JSON payload formatting rules posted
-[here](../..//reference/http/api_inject_v1.md)
+[here](../..//reference/http/kumod/api_inject_v1_post.md)
 

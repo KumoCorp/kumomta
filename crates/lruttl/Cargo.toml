@@ -6,11 +6,11 @@ edition = "2021"
 [dependencies]
 anyhow.workspace = true
 dashmap.workspace = true
+kumo-prometheus = {path="../kumo-prometheus"}
 kumo-server-memory = {path="../kumo-server-memory"}
 linkme.workspace = true
 parking_lot = {workspace=true}
 pastey.workspace = true
-prometheus.workspace = true
 rand.workspace = true
 scopeguard.workspace = true
 serde = {workspace=true, features=["derive"]}
