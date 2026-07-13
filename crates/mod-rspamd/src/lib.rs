@@ -255,12 +255,12 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             // Extract envelope data from message
             let envelope_data = EnvelopeData {
-                from: msg.sender().map(|s| s.to_string()).ok(),
-                rcpt: msg.recipient_list_string().unwrap_or_default(),
-                ip: msg.get_meta_string("received_from").ok().flatten(),
-                user: msg.get_meta_string("authn_id").ok().flatten(),
-                helo: msg.get_meta_string("ehlo_domain").ok().flatten(),
-                hostname: msg.get_meta_string("hostname").ok().flatten(),
+                from: msg.sender().await.map(|s| s.to_string()).ok(),
+                rcpt: msg.recipient_list_string().await.unwrap_or_default(),
+                ip: msg.get_meta_string("received_from").await.ok().flatten(),
+                user: msg.get_meta_string("authn_id").await.ok().flatten(),
+                helo: msg.get_meta_string("ehlo_domain").await.ok().flatten(),
+                hostname: msg.get_meta_string("hostname").await.ok().flatten(),
                 // We don't have a reliable file path in most cases
                 file_path: None,
                 body_block: false,
@@ -282,20 +282,23 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             if config.add_headers {
                 // Add X-Spam-* headers
-                msg.prepend_header(Some("X-Spam-Flag"), if is_spam { "YES" } else { "NO" })
+                msg.prepend_header(
+                    Some("X-Spam-Flag"),
+                    if is_spam { b"YES".as_slice() } else { b"NO" },
+                )
+                .await
+                .map_err(any_err)?;
+                msg.prepend_header(Some("X-Spam-Score"), reply.score.to_string().as_bytes())
                     .await
                     .map_err(any_err)?;
-                msg.prepend_header(Some("X-Spam-Score"), &reply.score.to_string())
-                    .await
-                    .map_err(any_err)?;
-                msg.prepend_header(Some("X-Spam-Action"), &reply.action)
+                msg.prepend_header(Some("X-Spam-Action"), reply.action.as_bytes())
                     .await
                     .map_err(any_err)?;
 
                 // Add symbols if available
                 if !reply.symbols.is_empty() {
                     let symbols: Vec<&str> = reply.symbols.keys().map(|s| s.as_str()).collect();
-                    msg.prepend_header(Some("X-Spam-Symbols"), &symbols.join(", "))
+                    msg.prepend_header(Some("X-Spam-Symbols"), symbols.join(", ").as_bytes())
                         .await
                         .map_err(any_err)?;
                 }
@@ -330,9 +333,12 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                         msg.remove_all_named_headers("Subject")
                             .await
                             .map_err(any_err)?;
-                        msg.prepend_header(Some("Subject"), &format!("***SPAM*** {subject}"))
-                            .await
-                            .map_err(any_err)?;
+                        msg.prepend_header(
+                            Some("Subject"),
+                            format!("***SPAM*** {subject}").as_bytes(),
+                        )
+                        .await
+                        .map_err(any_err)?;
                     }
                 }
                 "reject" if config.reject_spam => {
