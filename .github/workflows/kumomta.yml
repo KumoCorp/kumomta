@@ -175,7 +175,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v6.1.0
+        uses: docker/metadata-action@v6.2.0
         with:
           images: name=ghcr.io/kumocorp/kumomta
           flavor: |
