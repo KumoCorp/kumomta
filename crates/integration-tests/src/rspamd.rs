@@ -81,6 +81,7 @@ struct RspamdHeaders {
     spam_flag: Option<String>,
     spam_score: Option<String>,
     spam_action: Option<String>,
+    spam_symbols: Option<String>,
 }
 
 impl RspamdHeaders {
@@ -99,6 +100,10 @@ impl RspamdHeaders {
                 .map(|v| v.to_string()),
             spam_action: headers
                 .get_first("X-Spam-Action")
+                .and_then(|h| h.as_unstructured().ok())
+                .map(|v| v.to_string()),
+            spam_symbols: headers
+                .get_first("X-Spam-Symbols")
                 .and_then(|h| h.as_unstructured().ok())
                 .map(|v| v.to_string()),
         })
@@ -359,6 +364,74 @@ async fn test_rspamd_headers() -> anyhow::Result<()> {
         score < 5.0,
         "Expected spam score < 5.0 for normal message, got {score}"
     );
+
+    daemon.stop_both().await.context("stop_both")?;
+    eprintln!("Test completed successfully");
+
+    Ok(())
+}
+
+/// Verify that all recipients of a multi-recipient transaction are
+/// presented to rspamd: its RCPT_COUNT_TWO symbol only fires when both
+/// Rcpt headers arrive (rspamd-client 0.6 sends one header per recipient)
+#[tokio::test]
+async fn test_rspamd_multi_recipient() -> anyhow::Result<()> {
+    if std::env::var("KUMOD_TESTCONTAINERS").unwrap_or_default() != "1" {
+        return Ok(());
+    }
+
+    let rspamd = RspamdContainer::new().await?;
+
+    let mut daemon = crate::kumod::DaemonWithMaildirOptions::new()
+        .policy_file("rspamd.lua")
+        .env("KUMOD_TEST_RSPAMD_URL", rspamd.url())
+        .start()
+        .await?;
+
+    eprintln!("Sending test message to two recipients");
+    let mut client = daemon.smtp_client().await.context("make smtp_client")?;
+
+    let body = generate_message_text(512, 78);
+    let batch = MailGenParams {
+        body: Some(&body),
+        recip_list: Some(vec!["first@test.example.com", "second@test.example.com"]),
+        ..Default::default()
+    }
+    .send_batch(&mut client)
+    .await
+    .context("send batch message")?;
+
+    eprintln!("SMTP response: {:?}", batch.response);
+    anyhow::ensure!(
+        batch.response.code == 250,
+        "Expected 250 response, got {}",
+        batch.response.code
+    );
+
+    // The batch is scanned once but split into one message per
+    // recipient after the smtp_server_data hook, so two arrive
+    anyhow::ensure!(
+        daemon
+            .wait_for_maildir_count(2, Duration::from_secs(10))
+            .await,
+        "Expected both messages to be delivered"
+    );
+
+    let mut messages = daemon.extract_maildir_messages()?;
+    for entry in &mut messages {
+        let rspamd_headers = RspamdHeaders::from_entry(entry)?;
+        eprintln!("Rspamd headers: {rspamd_headers:?}");
+
+        let symbols = rspamd_headers
+            .spam_symbols
+            .as_deref()
+            .context("expected X-Spam-Symbols header")?;
+        anyhow::ensure!(
+            symbols.contains("RCPT_COUNT_TWO"),
+            "Expected RCPT_COUNT_TWO in symbols (rspamd must see both \
+             recipients), got: {symbols}"
+        );
+    }
 
     daemon.stop_both().await.context("stop_both")?;
     eprintln!("Test completed successfully");

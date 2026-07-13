@@ -289,9 +289,6 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             // Extract envelope data from message
             let envelope_data = EnvelopeData {
                 from: msg.sender().await.map(|s| s.to_string()).ok(),
-                // NOTE: rspamd-client 0.5 collapses this list into a single
-                // Rcpt request header, so rspamd only sees one recipient of
-                // a multi-recipient batch; needs a fix in rspamd-client
                 rcpt: msg.recipient_list_string().await.unwrap_or_default(),
                 ip: msg.get_meta_string("received_from").await.ok().flatten(),
                 user: msg.get_meta_string("authn_id").await.ok().flatten(),
