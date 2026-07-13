@@ -4,7 +4,8 @@ use anyhow::Context;
 use rfc5321::{ClientError, Response};
 use std::time::Duration;
 use testcontainers_modules::testcontainers::core::{ContainerPort, WaitFor};
-use testcontainers_modules::testcontainers::{runners::AsyncRunner, ContainerAsync, GenericImage};
+use testcontainers_modules::testcontainers::runners::AsyncRunner;
+use testcontainers_modules::testcontainers::{ContainerAsync, GenericImage};
 
 /// A rejected message surfaces as ClientError::Rejected from send();
 /// unwrap that into the rejection Response so tests can assert on it

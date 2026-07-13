@@ -70,10 +70,18 @@ kumo.on('smtp_server_message_received', function(msg)
   -- Test scenario: reject-spam@* - reject if spam action
   if localpart == 'reject-spam' then
     local action = msg:get_meta 'rspamd_action'
-    if action == 'reject' or action == 'rewrite subject' or action == 'add header' then
+    if
+      action == 'reject'
+      or action == 'rewrite subject'
+      or action == 'add header'
+    then
       kumo.reject(
         550,
-        string.format('5.7.1 Message rejected as spam (score: %.2f, action: %s)', score, action)
+        string.format(
+          '5.7.1 Message rejected as spam (score: %.2f, action: %s)',
+          score,
+          action
+        )
       )
     end
   end

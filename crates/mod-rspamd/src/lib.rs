@@ -6,7 +6,7 @@ use mlua::prelude::LuaUserData;
 use mlua::{Lua, LuaSerdeExt, UserDataMethods, Value};
 use rspamd_client::config::{Config, EnvelopeData};
 use rspamd_client::protocol::RspamdScanReply;
-use rspamd_client::scan_async;
+use rspamd_client::RspamdAsyncClient;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -33,7 +33,7 @@ struct RspamdClientConfig {
     #[serde(default)]
     password: Option<KeySource>,
 
-    /// Optional timeout in seconds (default: 30.0)
+    /// Optional timeout (default: 30s)
     #[serde(default, with = "duration_serde")]
     timeout: Option<std::time::Duration>,
 
@@ -94,26 +94,41 @@ fn default_true() -> bool {
 }
 
 /// Bounds how long a change to a file-backed KeySource credential can
-/// go unnoticed while the built config is served from cache
-const CLIENT_CONFIG_TTL: Duration = Duration::from_secs(60);
+/// go unnoticed while the built client is served from cache
+const CLIENT_TTL: Duration = Duration::from_secs(60);
+
+/// Newtype so the cache's Debug bound can be satisfied;
+/// RspamdAsyncClient does not implement Debug
+#[derive(Clone)]
+struct CachedClient(RspamdAsyncClient);
+
+impl std::fmt::Debug for CachedClient {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fmt.write_str("RspamdAsyncClient")
+    }
+}
 
 lruttl::declare_cache! {
-/// Caches built rspamd client configs (with resolved KeySource
-/// credentials) keyed by the Lua-level configuration, so that
-/// per-message scans don't re-read credential files
-static CLIENT_CONFIG_CACHE: LruCacheWithTtl<RspamdClientConfig, Arc<Config>>::new("mod_rspamd_client_config", 32);
+/// Caches persistent rspamd clients (holding resolved KeySource
+/// credentials and a pooled HTTP connection) keyed by the Lua-level
+/// configuration, so that per-message scans reuse connections and
+/// don't re-read credential files
+static CLIENT_CACHE: LruCacheWithTtl<RspamdClientConfig, CachedClient>::new("mod_rspamd_clients", 32);
 }
 
 impl RspamdClientConfig {
-    /// Resolve to a rspamd-client Config via the cache
-    async fn cached_client_config(&self) -> anyhow::Result<Arc<Config>> {
-        let lookup = CLIENT_CONFIG_CACHE
-            .get_or_try_insert(self, |_| CLIENT_CONFIG_TTL, async {
-                self.make_client_config().await.map(Arc::new)
+    /// Resolve to a persistent rspamd client via the cache
+    async fn cached_client(&self) -> anyhow::Result<RspamdAsyncClient> {
+        let lookup = CLIENT_CACHE
+            .get_or_try_insert(self, |_| CLIENT_TTL, async {
+                let config = self.make_client_config().await?;
+                RspamdAsyncClient::new(config)
+                    .map(CachedClient)
+                    .map_err(|err| anyhow::anyhow!("failed to build rspamd client: {err}"))
             })
             .await
             .map_err(|err| anyhow::anyhow!("{err:#}"))?;
-        Ok(lookup.item)
+        Ok(lookup.item.0)
     }
 
     /// Build rspamd-client Config from this configuration
@@ -170,7 +185,7 @@ impl RspamdClientConfig {
         Ok(Config {
             base_url: self.base_url.to_string(),
             password,
-            timeout: self.timeout.map(|t| t.as_secs_f64()).unwrap_or(30.0),
+            timeout: self.timeout.unwrap_or(Duration::from_secs(30)),
             retries: self.retries.unwrap_or(1),
             tls_settings: None, // use httpcrypt instead of tls
             proxy_config,
@@ -180,20 +195,16 @@ impl RspamdClientConfig {
     }
 }
 
-/// Wrapper around rspamd-client Config for Lua
+/// Wrapper around a persistent rspamd client for Lua
 #[derive(Clone)]
 struct RspamdClient {
-    config: Arc<Config>,
+    client: RspamdAsyncClient,
 }
 
 impl RspamdClient {
     async fn new(lua_config: RspamdClientConfig) -> anyhow::Result<Self> {
-        let config = lua_config.cached_client_config().await?;
-        Ok(Self { config })
-    }
-
-    fn get_config(&self) -> mlua::Result<&Config> {
-        Ok(&self.config)
+        let client = lua_config.cached_client().await?;
+        Ok(Self { client })
     }
 
     async fn scan(
@@ -201,9 +212,8 @@ impl RspamdClient {
         message: String,
         envelope: EnvelopeDataLua,
     ) -> anyhow::Result<RspamdScanReply> {
-        let config = self.get_config().map_err(|e| anyhow::anyhow!("{e}"))?;
         let envelope_data = envelope.into_envelope_data();
-        let result = scan_async(config, message, envelope_data).await?;
+        let result = self.client.scan(message, envelope_data).await?;
         Ok(result)
     }
 }
@@ -327,11 +337,9 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             // Build client config and scan
             // Wrap the Arc<Box<[u8]>> in MessageDataWrapper to implement AsRef<[u8]>
             // This enables true zero-copy operation (no allocation or copying of message data)
-            let client_config = config.cached_client_config().await.map_err(any_err)?;
+            let client = config.cached_client().await.map_err(any_err)?;
             let data = MessageDataWrapper(msg.data().await.map_err(any_err)?);
-            let mut reply = scan_async(&client_config, data, envelope_data)
-                .await
-                .map_err(any_err)?;
+            let mut reply = client.scan(data, envelope_data).await.map_err(any_err)?;
 
             // Apply a rewritten message first: it replaces the entire
             // message content, so it must precede any header edits

@@ -59,10 +59,10 @@ kumo.on('smtp_server_data', function(msg)
   -- Simple config with default actions
   local config = {
     base_url = 'http://localhost:11333',
-    add_headers = true,     -- Add X-Spam-* headers (default: true)
-    reject_spam = true,     -- Reject spam messages (default: false)
+    add_headers = true, -- Add X-Spam-* headers (default: true)
+    reject_spam = true, -- Reject spam messages (default: false)
     prefix_subject = false, -- Prefix subject with ***SPAM*** (default: false)
-    rewrite_body = false,   -- Apply Rspamd body rewriting (default: false)
+    rewrite_body = false, -- Apply Rspamd body rewriting (default: false)
   }
 
   -- Scan and apply default actions (all done in Rust)
