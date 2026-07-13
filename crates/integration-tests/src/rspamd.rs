@@ -77,13 +77,16 @@ impl RspamdHeaders {
         Ok(Self {
             spam_flag: headers
                 .get_first("X-Spam-Flag")
-                .and_then(|h| h.as_unstructured().ok()),
+                .and_then(|h| h.as_unstructured().ok())
+                .map(|v| v.to_string()),
             spam_score: headers
                 .get_first("X-Spam-Score")
-                .and_then(|h| h.as_unstructured().ok()),
+                .and_then(|h| h.as_unstructured().ok())
+                .map(|v| v.to_string()),
             spam_action: headers
                 .get_first("X-Spam-Action")
-                .and_then(|h| h.as_unstructured().ok()),
+                .and_then(|h| h.as_unstructured().ok())
+                .map(|v| v.to_string()),
         })
     }
 
@@ -390,6 +393,28 @@ async fn test_rspamd_per_recipient_threshold() -> anyhow::Result<()> {
         .await;
 
     eprintln!("VIP message delivered successfully");
+
+    // The same spammy content must be rejected for a recipient whose
+    // domain has a strict threshold, proving the threshold logic runs
+    eprintln!("Sending GTUBE message to strict-threshold recipient");
+    let gtube_body = "This is a test message.\r\n\
+        \r\n\
+        XJS*C4JDBQADN1.NSBN3*2IDNEN*GTUBE-STANDARD-ANTI-UBE-TEST-EMAIL*C.34X\r\n";
+    let response = MailGenParams {
+        body: Some(gtube_body),
+        recip: Some("user@normal.example.com"),
+        ..Default::default()
+    }
+    .send(&mut client)
+    .await
+    .context("send message to strict-threshold recipient")?;
+
+    eprintln!("SMTP response for strict-threshold recipient: {response:?}");
+    anyhow::ensure!(
+        response.code >= 500 && response.code < 600,
+        "Expected 5xx rejection for strict-threshold recipient, got {}",
+        response.code
+    );
 
     daemon.stop_both().await.context("stop_both")?;
     eprintln!("Test completed successfully");

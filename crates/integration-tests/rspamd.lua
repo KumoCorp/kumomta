@@ -58,8 +58,8 @@ kumo.on('smtp_server_message_received', function(msg)
     return
   end
 
-  local recipient = tostring(msg:recipient())
-  local localpart = msg:recipient().user
+  local recipient = msg:recipient()
+  local localpart = recipient.user
 
   -- Test scenario: reject-spam@* - reject if spam action
   if localpart == 'reject-spam' then

@@ -122,9 +122,9 @@ local config = {
   -- Optional (all handled in Rust)
   add_headers = true,                    -- Add X-Spam-* headers (default: true)
   reject_spam = false,                   -- Reject spam messages (default: false)
-  reject_soft = false,                   -- Use 4xx instead of 5xx (default: false)
   prefix_subject = false,                -- Prefix subject with ***SPAM*** (default: false)
-  timeout = "10s",                       -- Request timeout (default: 10s)
+  rewrite_body = false,                  -- Apply Rspamd body rewriting (default: false)
+  timeout = "10s",                       -- Request timeout (default: 30s)
   password = "secret",                   -- Rspamd password for authentication
 }
 
@@ -172,15 +172,23 @@ When `add_headers = true`, the Rust implementation automatically adds these head
 | `X-Spam-Action` | Rspamd's recommended action |
 | `X-Spam-Symbols` | List of matched symbols |
 
-When `reject_spam = true`, the following Rspamd actions trigger rejection:
+The following Rspamd actions trigger rejection:
 
 | Action | Response Code | Behavior |
 |--------|--------------|----------|
-| `reject` | 550 (or 450 if `reject_soft`) | Permanent (or temporary) rejection |
-| `soft reject` | 450 | Temporary failure (greylist) |
-| `greylist` | 450 | Temporary failure |
+| `reject` | 550 | Permanent rejection (only when `reject_spam = true`) |
+| `soft reject` | 451 | Temporary failure |
+| `greylist` | 451 | Temporary failure |
 
 When `prefix_subject = true` and action is `rewrite subject`, the subject is prefixed with `***SPAM***`.
+
+Milter header directives returned by Rspamd (e.g. from its `milter_headers`
+module) are applied automatically: headers listed in `remove_headers` are
+removed, and headers in `add_headers` are added (a `Subject` entry replaces
+the existing subject).
+
+When `rewrite_body = true`, body rewriting is requested from Rspamd and any
+rewritten message it returns replaces the original message content.
 
 All of this header and action handling is performed in Rust for optimal performance.
 
@@ -188,7 +196,7 @@ All of this header and action handling is performed in Rust for optimal performa
 
 1. **Use smtp_server_data**: Scan once per batch instead of per recipient
 2. **Connection Pooling**: HTTP client automatically pools connections to Rspamd
-3. **Timeout**: Default 10s timeout works for most cases
+3. **Timeout**: Default 30s timeout works for most cases
 4. **Metadata Extraction**: All metadata (IP, HELO, sender, etc.) extracted automatically in Rust
 
 ## Integration with Rspamd

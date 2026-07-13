@@ -13,8 +13,8 @@ This example demonstrates how to integrate Rspamd spam scanning with KumoMTA.
 
 - Native async Rspamd client
 - **File header optimization** for local scanning (avoids sending message body)
-- **Body rewriting** for message modifications (rspamd-client 0.4+)
-- **Milter protocol support** for header modifications (add/remove headers, subject rewriting)
+- **Body rewriting** for message modifications (opt-in via `rewrite_body`)
+- **Milter header directives** applied automatically (add/remove headers, subject rewriting)
 - ZSTD compression for faster transmission (enabled by default)
 - HTTPCrypt encryption for secure communication
 - Automatic metadata extraction (IP, HELO, sender, recipient)
@@ -61,8 +61,8 @@ kumo.on('smtp_server_data', function(msg)
     base_url = 'http://localhost:11333',
     add_headers = true,     -- Add X-Spam-* headers (default: true)
     reject_spam = true,     -- Reject spam messages (default: false)
-    reject_soft = false,    -- Use 4xx instead of 5xx (default: false)
     prefix_subject = false, -- Prefix subject with ***SPAM*** (default: false)
+    rewrite_body = false,   -- Apply Rspamd body rewriting (default: false)
   }
 
   -- Scan and apply default actions (all done in Rust)

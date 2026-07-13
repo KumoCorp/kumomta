@@ -1,5 +1,5 @@
 use anyhow::Context;
-use config::{any_err, from_lua_value, get_or_create_sub_module};
+use config::{any_err, from_lua_value, get_or_create_module, get_or_create_sub_module};
 use data_loader::KeySource;
 use message::Message;
 use mlua::prelude::LuaUserData;
@@ -78,9 +78,14 @@ struct RspamdClientConfig {
 
     /// If true, reject messages when Rspamd action is "reject" (default: false)
     /// If false, messages with action "reject" will still be delivered with spam headers
-    /// Note: Action "soft reject" always results in 451 temporary failure (greylisting)
+    /// Note: Actions "soft reject" and "greylist" always result in 451 temporary failure
     #[serde(default)]
     reject_spam: bool,
+
+    /// If true, request body rewriting from Rspamd and apply the rewritten
+    /// message when one is returned (default: false)
+    #[serde(default)]
+    rewrite_body: bool,
 }
 
 fn default_true() -> bool {
@@ -199,7 +204,8 @@ impl LuaUserData for RspamdClient {
 }
 
 /// Lua-friendly envelope data structure
-#[derive(Debug, Default, Clone, mlua::FromLua)]
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default)]
 struct EnvelopeDataLua {
     from: Option<String>,
     rcpt: Vec<String>,
@@ -211,6 +217,12 @@ struct EnvelopeDataLua {
     file_path: Option<String>,
     body_block: bool,
     additional_headers: Option<HashMap<String, String>>,
+}
+
+impl mlua::FromLua for EnvelopeDataLua {
+    fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
+        from_lua_value(lua, value)
+    }
 }
 
 impl EnvelopeDataLua {
@@ -236,6 +248,27 @@ impl EnvelopeDataLua {
     }
 }
 
+/// Reject the current message via kumo.reject, preferring the smtp_message
+/// that Rspamd returned over the provided default.
+/// The kumo module lives in package.loaded, not in globals.
+fn reject_via_kumo(
+    lua: &Lua,
+    reply: &RspamdScanReply,
+    code: u16,
+    default_message: &str,
+) -> mlua::Result<()> {
+    let kumo_mod = get_or_create_module(lua, "kumo").map_err(any_err)?;
+    let reject: mlua::Function = kumo_mod.get("reject")?;
+
+    let message = reply
+        .messages
+        .get("smtp_message")
+        .map(|s| s.as_str())
+        .unwrap_or(default_message);
+
+    reject.call::<()>((code, message))
+}
+
 /// Register the rspamd module with Lua
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let rspamd_mod = get_or_create_sub_module(lua, "rspamd")?;
@@ -256,14 +289,20 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             // Extract envelope data from message
             let envelope_data = EnvelopeData {
                 from: msg.sender().await.map(|s| s.to_string()).ok(),
+                // NOTE: rspamd-client 0.5 collapses this list into a single
+                // Rcpt request header, so rspamd only sees one recipient of
+                // a multi-recipient batch; needs a fix in rspamd-client
                 rcpt: msg.recipient_list_string().await.unwrap_or_default(),
                 ip: msg.get_meta_string("received_from").await.ok().flatten(),
                 user: msg.get_meta_string("authn_id").await.ok().flatten(),
                 helo: msg.get_meta_string("ehlo_domain").await.ok().flatten(),
-                hostname: msg.get_meta_string("hostname").await.ok().flatten(),
+                // Rspamd interprets Hostname as the connecting client's rDNS
+                // hostname; kumod doesn't track that, and the "hostname" meta
+                // holds our own hostname, which would poison hostname rules
+                hostname: None,
                 // We don't have a reliable file path in most cases
                 file_path: None,
-                body_block: false,
+                body_block: config.rewrite_body,
                 additional_headers: HashMap::default(),
             };
 
@@ -272,13 +311,49 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             // This enables true zero-copy operation (no allocation or copying of message data)
             let client_config = config.make_client_config().await.map_err(any_err)?;
             let data = MessageDataWrapper(msg.data().await.map_err(any_err)?);
-            let reply = scan_async(&client_config, data, envelope_data)
+            let mut reply = scan_async(&client_config, data, envelope_data)
                 .await
                 .map_err(any_err)?;
 
-            // Apply default actions based on Rspamd's action field
-            // X-Spam-Flag: YES for everything except "no action"
-            let is_spam = reply.action != "no action";
+            // Apply a rewritten message first: it replaces the entire
+            // message content, so it must precede any header edits
+            if let Some(body) = reply.rewritten_body.take() {
+                msg.assign_data(body);
+            }
+
+            // Apply milter directives (e.g. from Rspamd's milter_headers module)
+            if let Some(milter) = &reply.milter {
+                for name in milter.remove_headers.keys() {
+                    // The milter protocol can address a single occurrence by
+                    // index; we remove all occurrences like the policy-extras
+                    // Lua implementation did
+                    msg.remove_all_named_headers(name).await.map_err(any_err)?;
+                }
+
+                let mut add_headers: Vec<_> = milter.add_headers.iter().collect();
+                add_headers.sort_by_key(|(_, header)| header.order);
+                for (name, header) in add_headers {
+                    if name == "Subject" {
+                        msg.remove_all_named_headers("Subject")
+                            .await
+                            .map_err(any_err)?;
+                        msg.prepend_header(Some("Subject"), header.value.as_bytes())
+                            .await
+                            .map_err(any_err)?;
+                    } else {
+                        msg.append_header(Some(name), header.value.as_bytes())
+                            .await
+                            .map_err(any_err)?;
+                    }
+                }
+            }
+
+            // X-Spam-Flag: YES only for actions that classify the message as
+            // spam; tempfail verdicts like greylist/soft reject are not spam
+            let is_spam = matches!(
+                reply.action.as_str(),
+                "add header" | "rewrite subject" | "reject"
+            );
 
             if config.add_headers {
                 // Add X-Spam-* headers
@@ -309,21 +384,15 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 "no action" => {
                     // Ham - deliver normally
                 }
-                "soft reject" => {
+                "soft reject" | "greylist" => {
                     // Temporary failure - greylisting
-                    // Always use 451 for greylisting (sender should retry later)
-                    let globals = lua.globals();
-                    let kumo: mlua::Table = globals.get("kumo")?;
-                    let reject: mlua::Function = kumo.get("reject")?;
-
-                    // Use Rspamd's smtp_message if provided, otherwise use default
-                    let message = reply
-                        .messages
-                        .get("smtp_message")
-                        .map(|s| s.as_str())
-                        .unwrap_or("4.7.1 Greylisted, please try again later");
-
-                    reject.call::<()>((451, message))?;
+                    // Always use 451 (sender should retry later)
+                    reject_via_kumo(
+                        &lua,
+                        &reply,
+                        451,
+                        "4.7.1 Greylisted, please try again later",
+                    )?;
                 }
                 "add header" => {
                     // Just add headers (already done above) and deliver
@@ -343,18 +412,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 }
                 "reject" if config.reject_spam => {
                     // Always use 550 (permanent failure) for spam
-                    let globals = lua.globals();
-                    let kumo: mlua::Table = globals.get("kumo")?;
-                    let reject: mlua::Function = kumo.get("reject")?;
-
-                    // Use Rspamd's smtp_message if provided, otherwise use default
-                    let message = reply
-                        .messages
-                        .get("smtp_message")
-                        .map(|s| s.as_str())
-                        .unwrap_or("5.7.1 Spam message rejected");
-
-                    reject.call::<()>((550, message))?;
+                    reject_via_kumo(&lua, &reply, 550, "5.7.1 Spam message rejected")?;
                 }
                 _ => {
                     // Unknown action - deliver with headers
