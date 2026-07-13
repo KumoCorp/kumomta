@@ -6,6 +6,12 @@ local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 local RSPAMD_URL = os.getenv 'KUMOD_TEST_RSPAMD_URL'
 
 kumo.on('init', function()
+  kumo.configure_local_logs {
+    log_dir = TEST_DIR .. '/logs',
+    max_segment_duration = '1s',
+    headers = { 'X-*', 'Subject' },
+  }
+
   kumo.start_esmtp_listener {
     listen = '0.0.0.0:0',
   }
@@ -96,12 +102,21 @@ end)
 kumo.on('get_queue_config', function(domain, _tenant, _campaign)
   -- Relay to the sink like other integration tests
   local SINK_PORT = tonumber(os.getenv 'KUMOD_SMTP_SINK_PORT')
-  
+
   return kumo.make_queue_config {
     protocol = {
       smtp = {
         mx_list = { 'localhost:' .. SINK_PORT },
       },
     },
+  }
+end)
+
+kumo.on('get_egress_path_config', function(_domain, _source_name, _site_name)
+  return kumo.make_egress_path {
+    -- The sink lives on loopback, which is prohibited by default,
+    -- and offers a self-signed certificate
+    prohibited_hosts = {},
+    enable_tls = 'OpportunisticInsecure',
   }
 end)

@@ -1,9 +1,23 @@
 #![cfg(test)]
 use crate::kumod::{generate_message_text, MailGenParams};
 use anyhow::Context;
+use rfc5321::{ClientError, Response};
 use std::time::Duration;
 use testcontainers_modules::testcontainers::core::{ContainerPort, WaitFor};
 use testcontainers_modules::testcontainers::{runners::AsyncRunner, ContainerAsync, GenericImage};
+
+/// A rejected message surfaces as ClientError::Rejected from send();
+/// unwrap that into the rejection Response so tests can assert on it
+fn expect_rejection(result: anyhow::Result<Response>) -> anyhow::Result<Response> {
+    match result {
+        Ok(response) => anyhow::bail!("expected rejection, but message was accepted: {response:?}"),
+        Err(err) => match err.downcast::<ClientError>() {
+            Ok(ClientError::Rejected(response)) => Ok(response),
+            Ok(other) => anyhow::bail!("expected rejection, got unrelated client error: {other:#}"),
+            Err(err) => Err(err.context("expected rejection, got unrelated error")),
+        },
+    }
+}
 
 /// Helper struct to manage Rspamd container lifecycle
 struct RspamdContainer {
@@ -255,16 +269,17 @@ async fn test_rspamd_reject_spam() -> anyhow::Result<()> {
         \r\n\
         If you received this message, your spam filter recognized the GTUBE pattern.\r\n";
 
-    let response = MailGenParams {
-        body: Some(gtube_body),
-        recip: Some("reject-spam@test.example.com"),
-        ..Default::default()
-    }
-    .send(&mut client)
-    .await
-    .context("send message")?;
+    let response = expect_rejection(
+        MailGenParams {
+            body: Some(gtube_body),
+            recip: Some("reject-spam@test.example.com"),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await,
+    )?;
 
-    eprintln!("SMTP response: {response:?}");
+    eprintln!("SMTP rejection: {response:?}");
 
     // Message should be rejected due to spam content
     anyhow::ensure!(
@@ -386,11 +401,13 @@ async fn test_rspamd_per_recipient_threshold() -> anyhow::Result<()> {
         response.code
     );
 
-    // Wait for message to be delivered to source daemon's local maildir
-    daemon
-        .source
-        .wait_for_maildir_count(1, Duration::from_secs(10))
-        .await;
+    // Wait for message to be relayed to the sink's maildir
+    anyhow::ensure!(
+        daemon
+            .wait_for_maildir_count(1, Duration::from_secs(10))
+            .await,
+        "Expected VIP message to be delivered"
+    );
 
     eprintln!("VIP message delivered successfully");
 
@@ -400,16 +417,17 @@ async fn test_rspamd_per_recipient_threshold() -> anyhow::Result<()> {
     let gtube_body = "This is a test message.\r\n\
         \r\n\
         XJS*C4JDBQADN1.NSBN3*2IDNEN*GTUBE-STANDARD-ANTI-UBE-TEST-EMAIL*C.34X\r\n";
-    let response = MailGenParams {
-        body: Some(gtube_body),
-        recip: Some("user@normal.example.com"),
-        ..Default::default()
-    }
-    .send(&mut client)
-    .await
-    .context("send message to strict-threshold recipient")?;
+    let response = expect_rejection(
+        MailGenParams {
+            body: Some(gtube_body),
+            recip: Some("user@normal.example.com"),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await,
+    )?;
 
-    eprintln!("SMTP response for strict-threshold recipient: {response:?}");
+    eprintln!("SMTP rejection for strict-threshold recipient: {response:?}");
     anyhow::ensure!(
         response.code >= 500 && response.code < 600,
         "Expected 5xx rejection for strict-threshold recipient, got {}",
