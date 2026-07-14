@@ -1,8 +1,13 @@
+---
+description: Review a complete example KumoMTA init.lua policy covering common use cases, a reference for building your own functional server configuration.
+---
+
 # An Example Configuration
 
-A default policy file is not published with KumoMTA to prevent the average
-installation from having an excess of commented-out boilerplate from filling
-production configurations.
+KumoMTA ships with only a [minimal `init.lua`
+policy](https://github.com/KumoCorp/kumomta/blob/main/assets/init.lua); a
+fully featured default is deliberately not provided, because bundled defaults
+tend to end up in production configurations as commented-out boilerplate.
 
 The following serves as an example of a complete base policy for a functional
 installation that addresses common use cases for a typical installation. This
@@ -71,7 +76,7 @@ log_hooks:new_json {
 
 -- Configure queue management settings. These are not throttles, but instead
 -- control how messages flow through the queues.
--- WARNING: ENSURE THAT WEBHOOKS AND SHAPING ARE SETUP BEFORE THE QUEUE HELPER FOR PROPER OPERATION
+-- WARNING: ENSURE THAT WEBHOOKS AND SHAPING ARE SET UP BEFORE THE QUEUE HELPER FOR PROPER OPERATION
 -- WARNING: THIS WILL NOT LOAD WITHOUT the queues.toml FILE IN PLACE
 -- See https://docs.kumomta.com/userguide/configuration/queuemanagement/
 local queue_helper =
@@ -170,7 +175,7 @@ kumo.on(
 -- Configure traffic shaping using the shaping.lua policy helper.
 -- Commented out by default since we recommend using the Traffic Shaping Automation helper loaded below.
 -- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
--- SEE https://docs.kumomta.com/userguide/configuration/trafficshaping/
+-- SEE https://docs.kumomta.com/userguide/trafficshaping/
 -- kumo.on('get_egress_path_config', shaping:setup { '/opt/kumomta/share/policy-extras/shaping.toml', '/opt/kumomta/etc/policy/shaping.toml', })
 
 -- Call the Traffic Shaping Automation Helper to configure shaping rules.

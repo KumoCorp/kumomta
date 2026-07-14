@@ -13,6 +13,7 @@ chrono = {workspace=true, default-features=false, features=["std", "clock"]}
 dns-resolver = {path="../dns-resolver"}
 futures.workspace = true
 futures-lite = {workspace=true}
+hex = {workspace=true}
 k9 = {workspace=true}
 kumo-dkim = {path="../dkim"}
 kumo-api-client = {path="../kumo-api-client"}
@@ -26,11 +27,15 @@ mailparsing = {path="../mailparsing"}
 message = {path="../message"}
 nix = {workspace=true, features=["signal", "user"]}
 parking_lot.workspace = true
+regex = {workspace=true}
+mod-smtp-response-normalize = {path="../mod-smtp-response-normalize"}
+uuid = {workspace=true}
 rcgen = "0.14" # NOT workspace at this time! need to upgade helpers before we can bump workspace to 0.14
 rustls-cert-gen.workspace = true
 rfc5321 = {path="../rfc5321"}
 serde = {workspace=true}
 serde_json = {workspace=true}
+sha2 = {workspace=true}
 sqlite = {workspace=true}
 tempfile = {workspace=true}
 testcontainers-modules = {workspace=true, default-features=false, features=["nats", "rabbitmq"]}

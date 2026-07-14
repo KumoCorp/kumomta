@@ -14,7 +14,7 @@ kumo.counter_series.define {
 }
 ```
 
-{{since('dev')}}
+{{since('2026.05.12-a6845223')}}
 
 Creates or returns a named rolling counter series and returns a handle to
 it. Takes a single table argument with the following fields:

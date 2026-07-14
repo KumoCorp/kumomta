@@ -1,7 +1,11 @@
+---
+description: Configure the KumoMTA NodeId, a per-instance UUID that identifies nodes in a cluster, aids reporting, and persists or falls back to a generated ID.
+---
+
 # Node ID
 
 Each KumoMTA (`kumod`) instance can have its own `NodeId`, which is a UUID
-intended identify that specific instance within your own local cluster, help
+intended to identify that specific instance within your own local cluster, help
 with disambiguation during reporting, and also for future configuration
 management/provisioning related functionality.
 
@@ -27,7 +31,7 @@ The following environment variables influence the Node ID:
   * `KUMO_NODE_ID_PATH` - this can be set to an alternative location into which
     the nodeid should be stored.  If this is not set, the path is assumed to be
     `/opt/kumomta/etc/.nodeid`.  If the path is not writable for some reason
-    (eg: permission denied), then a fallback nodeid will be computed.
+    (e.g., permission denied), then a fallback nodeid will be computed.
 
 ## Fallback Node ID
 

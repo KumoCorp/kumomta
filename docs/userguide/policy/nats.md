@@ -1,3 +1,7 @@
+---
+description: Route KumoMTA log events and queued messages via NATS JetStream, configuring a custom_lua queue handler to publish records to NATS.
+---
+
 # Routing Messages via NATS
 {{since('2026.03.04-bb93ecb1')}}
 
@@ -14,9 +18,10 @@ User Guide.
 ## Configuring A Queue Handler for NATS
 
 When a message is ready to be queued, the `get_queue_config` event is fired, at
-which point we can specify the protocol of the queue, in this case,
-`custom_lua`. In the example below, we check whether the message is queued to
-the `nats` queue and acts accordingly:
+which point you can specify the protocol of the queue, in this case,
+`custom_lua`. 
+
+The example below checks whether the message is queued to the `nats` queue and acts accordingly:
 
 ```lua
 kumo.on('init', function()
@@ -48,21 +53,32 @@ end)
 ## Sending Messages via NATS
 
 With the `custom_lua` protocol defined and a custom event trigger declared, the
-next step is to catch the `make.nats` event with code that sends the message
-contents over HTTP.
+next step is to catch the `make.nats` event with code that publishes the
+message contents via NATS.
 
 The following example publishes the content of the log message via NATS:
 
 ```lua
 -- This is a user-defined event that matches up to the custom_lua
--- constructor used in `get_queue_config` below.
--- The connection must be established before in order to "publish"
--- messages to their destination.
+-- constructor used in `get_queue_config` above.
+-- It returns a lua connection object that can be used to "send"
+-- messages to their destination. The NATS connection must already
+-- have been established in the `init` event.
 kumo.on('make.nats', function(domain, tenant, campaign)
-  nats:publish {
-    subject = 'subject',
-    payload = message:get_data(),
-  }
+  local sender = {}
+
+  -- The send method is called for each log event
+  function sender:send(message)
+    nats:publish {
+      subject = 'subject',
+      payload = message:get_data(),
+    }
+    return '250 ok'
+  end
+
+  function sender:close() end
+
+  return sender
 end)
 ```
 

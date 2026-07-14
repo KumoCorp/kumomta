@@ -74,6 +74,14 @@ pub static TOTAL_MSGS_FAIL: PruningCounterRegistry<ServiceKey>("total_messages_f
 }
 
 declare_metric! {
+/// total number of dispatcher tasks aborted by the progress watchdog
+///
+/// {{since('dev')}}
+pub static DISPATCHER_WATCHDOG_ABORTED: PruningCounterRegistry<ServiceKey>(
+        "dispatcher_watchdog_aborted_total");
+}
+
+declare_metric! {
 /// total number of messages ever delivered
 pub static TOTAL_MSGS_DELIVERED_BY_PROVIDER: PruningCounterRegistry<ProviderKey>(
         "total_messages_delivered_by_provider");
@@ -206,6 +214,11 @@ pub fn total_msgs_delivered_for_service(service: &str) -> AtomicCounter {
 pub fn total_msgs_transfail_for_service(service: &str) -> AtomicCounter {
     let service = BorrowedServiceKey { service };
     TOTAL_MSGS_TRANSFAIL.get_or_create(&service as &dyn ServiceKeyTrait)
+}
+
+pub fn dispatcher_watchdog_aborted_for_service(service: &str) -> AtomicCounter {
+    let service = BorrowedServiceKey { service };
+    DISPATCHER_WATCHDOG_ABORTED.get_or_create(&service as &dyn ServiceKeyTrait)
 }
 
 pub fn total_msgs_fail_for_service(service: &str) -> AtomicCounter {

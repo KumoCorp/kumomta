@@ -1,3 +1,7 @@
+---
+description: Integrate the open source Rspamd spam filter with KumoMTA, adding message scanning to your init.lua policy to filter outbound or relayed email.
+---
+
 # Rspamd Spam filter
 
 ## Introduction
@@ -7,7 +11,7 @@
 ## Instructions
 
 ### First things
-Spam filtering engines can be complex and require an understanding or patern matching and email handling rule sets. 
+Spam filtering engines can be complex and require an understanding of pattern matching and email handling rule sets. 
 Please read through the quickstart documentation FIRST before proceeding: [https://docs.rspamd.com/tutorials/quickstart/](https://docs.rspamd.com/tutorials/quickstart/)
 
 ### Get KumoMTA
@@ -57,5 +61,5 @@ Restart the rspamd process with `sudo systemctl restart rspamd`
 Continue the install and test process starting at step 5 (five) here:
 [https://docs.rspamd.com/tutorials/quickstart/](https://docs.rspamd.com/tutorials/quickstart/)
 
-Your rspamd configuration should now test every mesage injected to KumoMTA.
+Your rspamd configuration should now test every message injected into KumoMTA.
 

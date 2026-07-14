@@ -1,3 +1,7 @@
+---
+description: Test your KumoMTA installation by sending mail from the host with telnet on port 25, the curl HTTP injection API, or Swaks to confirm end-to-end delivery.
+---
+
 # Testing KumoMTA
 
 Now that you have KumoMTA installed, you should test it from the command line of the installed host. This is easy if you installed the basic tools as described earlier.

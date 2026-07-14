@@ -417,6 +417,9 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
     params.smtp_auth_plain_password = {
       key_data = password,
     }
+    -- The test sink presents a self-signed certificate, so the TLS session is
+    -- not validated; allow AUTH over it for these tests.
+    params.allow_smtp_auth_plain_without_valid_certificate = true
   end
 
   if domain == 'two-hosts.example.com' then

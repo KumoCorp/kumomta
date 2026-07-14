@@ -1,3 +1,7 @@
+---
+description: "Enforce low mailbox-provider connection limits across a KumoMTA cluster with shared throttles, so nodes on a shared IP honor limits like Orange's."
+---
+
 # How Do Shared Throttles Work for Small Connection Limits in a Cluster?
 
 One common challenge when sending to highly restrictive Mailbox Providers (MBPs) is that if the provider publishes a very low connection limit, you may have more nodes sharing an external IP than the provider allows for.

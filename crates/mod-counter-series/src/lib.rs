@@ -58,11 +58,7 @@ impl UserData for LuaCounterSeries {
 /// non-zero sub-second component is rounded up to the next full second.
 fn round_up_to_seconds(d: Duration) -> u64 {
     let secs = d.as_secs();
-    if d.subsec_nanos() > 0 {
-        secs + 1
-    } else {
-        secs
-    }
+    if d.subsec_nanos() > 0 { secs + 1 } else { secs }
 }
 
 fn make_config(num_buckets: u8, bucket_size_seconds: u64) -> mlua::Result<CounterSeriesConfig> {

@@ -141,6 +141,7 @@ Response {
         Some(ResolvedAddress {
             name: "localhost-1".to_string(),
             addr: daemon.sink.listener("smtp").into(),
+            is_secure: false,
         })
     );
     assert_eq!(
@@ -148,6 +149,7 @@ Response {
         Some(ResolvedAddress {
             name: "localhost-2".to_string(),
             addr: daemon.sink.listener("smtp").into(),
+            is_secure: false,
         })
     );
 

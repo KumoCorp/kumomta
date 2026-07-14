@@ -9,7 +9,7 @@ tags:
 series:increment(value)
 ```
 
-{{since('dev')}}
+{{since('2026.05.12-a6845223')}}
 
 Adds `value` to the current bucket of the series.
 

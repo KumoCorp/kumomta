@@ -1,3 +1,7 @@
+---
+description: Check the KumoMTA logs to confirm your test messages succeeded, using the built-in tailer utility to monitor reception and delivery events in real time.
+---
+
 # Check for success in the logs
 
 When diagnosing the failure (or monitoring the success) of your test messages,

@@ -1,3 +1,7 @@
+---
+description: Publish KumoMTA log events via webhooks for near real-time integration, using the log_hooks.lua helper and durable queuing to deliver events to HTTP endpoints.
+---
+
 # Publishing Log Events Via Webhooks
 
 While logs are an invaluable resource for monitoring and troubleshooting mail
@@ -42,13 +46,13 @@ log_hooks:new_json {
 }
 ```
 
-!!!Warning
+!!! warning
     The call to `new_json` must appear before the queues helper for it to work
     properly. See the [Example Config](../configuration/example.md) to see a
     working layout for the `init.lua` file.
 
-!!!Warning
-    The default traffic shaping rules that are likely present in your [Shaping Helper](../configuration/trafficshaping.md) configuration will also affect messages queued for delivery via webhooks. To avoid issues, add throttle configuration specific to your webhook queue (based on the name provided when creating a webhook):
+!!! warning
+    The default traffic shaping rules that are likely present in your [Shaping Helper](../trafficshaping/shapingfiles.md) configuration will also affect messages queued for delivery via webhooks. To avoid issues, add throttle configuration specific to your webhook queue (based on the name provided when creating a webhook):
 
 ```toml
 ['webhook.log_hook']
@@ -195,8 +199,8 @@ above.
 
 When in batch mode, the connection will receive a batch consisting of
 1 or more messages, up to the `batch_size` that you configured. The batch
-can be less than the `batch_size`; the connection will pop off up-to the
-configured number of messages from the *ready queue*. That queue holds
+can be less than the `batch_size`; the connection will pop off up to the
+configured number of messages from the _Ready Queue_. That queue holds
 only a finite number of messages that are immediately ready for delivery.
 The popping process does not artificially delay to encourage a larger
 batch size. It will grab whatever is immediately ready and send it

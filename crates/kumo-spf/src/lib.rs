@@ -1,8 +1,7 @@
 use crate::record::Record;
 use crate::spec::MacroSpec;
 use dns_resolver::{DnsError, Resolver};
-use hickory_resolver::proto::rr::RecordType;
-use hickory_resolver::Name;
+use hickory_resolver::proto::rr::{Name, RecordType};
 use instant_xml::{FromXml, ToXml};
 use serde::{Deserialize, Serialize};
 use std::fmt;

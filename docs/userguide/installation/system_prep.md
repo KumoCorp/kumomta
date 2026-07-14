@@ -1,3 +1,7 @@
+---
+description: Prepare your system before installing KumoMTA, configuring firewall security groups, the required SMTP and HTTP ports, and applying the latest OS patches.
+---
+
 # System Preparation
 
 Regardless of what OS and hardware you select, there are some basic things you should do to prepare your system before installing KumoMTA. While veteran system admins will probably have done much of this already as a standard course of building a server, it is worth noting these to save you some stress later.
@@ -27,7 +31,7 @@ sudo dnf clean all
 sudo dnf update -y
 ```
 
-In apt managed systems (Debain, Ubuntu, etc) use
+In apt managed systems (Debian, Ubuntu, etc) use
 
 ```bash
 sudo apt-get -y update
@@ -36,7 +40,8 @@ sudo apt-get -y upgrade
 
 * Install basic testing and support tools like firewalld tree telnet git bind (or bind9) bind-utils (or bind9-utils)
 
-Note that installing a caching name server is absolutely critical when you are using a high performance mail engine.  Please do yourself a favour and install bind (or some other caching name server) and test it now.
+!!! note
+    Installing a caching name server is absolutely critical when you are using a high performance mail engine.  Please do yourself a favor and install bind (or some other caching name server) and test it now.
 
 ```bash
 sudo apt install bind9 -y

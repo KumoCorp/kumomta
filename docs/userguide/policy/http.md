@@ -1,10 +1,14 @@
+---
+description: Route KumoMTA messages via HTTP requests with custom Lua, assembling API calls to relay mail through third-party HTTP email APIs such as Mailgun.
+---
+
 # Routing Messages via HTTP Request
 
 Some sending environments use a mixture of different services to send messages, and while it's possible to relay messages through many services using SMTP, some services are only/better served via an HTTP API.
 
 The following example shows how to send a queued message via custom lua, in this case assembling an API call and sending it to a third-party SMTP API relay provider.
 
-!!!warning
+!!! warning
     Storing credentials as hardcoded values in a policy script such as this is not recommended, instead, use the built-in Secrets Load function. See [https://docs.kumomta.com/reference/kumo.secrets/load/](https://docs.kumomta.com/reference/kumo.secrets/load/).
 
 ```lua

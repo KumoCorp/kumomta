@@ -256,6 +256,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                                 addr: peer_address
                                     .map(|a| a.addr.clone())
                                     .unwrap_or_else(|| Ipv4Addr::UNSPECIFIED.into()),
+                                is_secure: false,
                             }),
                             response: Response {
                                 code,
