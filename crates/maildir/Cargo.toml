@@ -16,6 +16,7 @@ maintenance = { status = "passively-maintained" }
 
 [dependencies]
 chrono = {workspace=true, default-features=false}
+dir-probe = {path="../dir-probe"}
 gethostname = {workspace=true}
 mailparsing = { path="../mailparsing" }
 

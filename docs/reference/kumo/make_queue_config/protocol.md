@@ -60,6 +60,54 @@ end)
     that you define here.  A port number defined here in `mx_list` overrides a
     port number defined by `make_egress_path` in your shaping configuration.
 
+#### treat_mx_list_as_secure
+
+{{since('dev')}}
+
+When [enable_dane](../make_egress_path/enable_dane.md) is set, DANE requires
+that the *selection* of the destination host be trusted: normally this is
+established by DNSSEC-validating the `MX` RRset. An `mx_list` bypasses `MX`
+resolution, so by default kumomta does **not** consider its hosts to be a
+secure selection, and DANE will not engage for them.
+
+Set `treat_mx_list_as_secure = true` to assert that the hosts in `mx_list`
+are a trusted selection (for example, a statically configured internal
+relay). When set, DANE may apply to those hosts, provided their address
+(`A`/`AAAA`) records are themselves DNSSEC-validated.
+
+```lua
+return kumo.make_queue_config {
+  protocol = {
+    smtp = {
+      mx_list = { 'relay.internal' },
+      treat_mx_list_as_secure = true,
+    },
+  },
+}
+```
+
+!!! danger
+    Do not set this when `mx_list` is derived from an untracked DNS lookup.
+    For example, populating `mx_list` from
+    [kumo.dns.lookup_mx](../../kumo.dns/lookup_mx.md) and unconditionally setting
+    `treat_mx_list_as_secure = true` would let a spoofed `MX` response steer
+    delivery to an attacker-chosen host that passes DANE, defeating the
+    downgrade resistance that DANE is meant to provide. If you must build
+    `mx_list` from a lookup, propagate the lookup's own secure status
+    instead:
+
+    ```lua
+    local mx = kumo.dns.lookup_mx 'example.com'
+    return kumo.make_queue_config {
+      protocol = {
+        smtp = {
+          mx_list = mx.hosts,
+          treat_mx_list_as_secure = mx.is_secure,
+        },
+      },
+    }
+    ```
+
 ### Example of using the Maildir protocol
 
 ```lua
@@ -211,6 +259,50 @@ end)
 
 See [should_enqueue_log_record](../../events/should_enqueue_log_record.md) for
 a more complete example.
+
+#### Where the constructor's `(domain, tenant, campaign)` come from
+
+The constructor event (e.g. `make.webhook` above) is fired once per
+connection session, before any message is delivered through it. The
+`(domain, tenant, campaign)` arguments come from one of the scheduled
+queues that feeds the dispatcher's ready queue, captured at session
+start.
+
+Multiple scheduled queues can share the same Lua ready queue.
+Scheduled queues converge on the same ready queue when they all
+resolve to the same egress source, routing domain, and Lua
+constructor name. That can happen for many reasons — different
+`(domain, tenant, campaign)` triples that map to a common
+`routing_domain`, explicit routing via the `domain!routing_domain`
+syntax, scheduled queue names that happen to share components, or
+any `get_queue_config` implementation that yields the same
+`custom_lua.constructor` value for distinct inputs.
+
+When any of those produces fan-in, the constructor's arguments are
+*representative*: they reflect one scheduled queue currently
+feeding the session, but other messages delivered through the same
+session may have originated from different scheduled queues with
+different `(tenant, campaign)` values.
+
+If the connection setup itself depends on per-message values, use
+the constructor arguments only for one-time setup that is invariant
+across the queues sharing this constructor, and resolve per-message
+values inside `send` (or `send_batch`) using `message:get_meta` or
+[message:queue_name](../../message/queue_name.md):
+
+```lua
+kumo.on('make.webhook', function(domain, tenant, campaign)
+  local connection = {}
+  function connection:send(message)
+    -- Source of truth for this specific message:
+    local msg_tenant = message:get_meta 'tenant'
+    local msg_campaign = message:get_meta 'campaign'
+    -- ... use msg_tenant / msg_campaign for per-message routing ...
+    return 'OK'
+  end
+  return connection
+end)
+```
 
 
 

@@ -1,5 +1,5 @@
 use bstr::{BStr, ByteSlice};
-use hickory_resolver::Name;
+use hickory_proto::rr::Name;
 use nom::branch::alt;
 use nom::bytes::complete::{take_while1, take_while_m_n};
 use nom::combinator::{map_res, opt, recognize};
@@ -396,7 +396,7 @@ impl DomainString {
 impl FromStr for DomainString {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let name = Name::from_str_relaxed(s)?;
+        let name = Name::from_str_relaxed(s).map_err(|e| e.to_string())?;
         Ok(Self(name.to_ascii()))
     }
 }

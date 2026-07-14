@@ -205,7 +205,7 @@ pub enum Action {
     BounceCampaign,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, Hash, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum Trigger {
     /// Trigger on the first match, immediately
     #[default]
@@ -1972,6 +1972,7 @@ MergedEntry {
         smtp_auth_plain_username: None,
         smtp_auth_plain_password: None,
         allow_smtp_auth_plain_without_tls: false,
+        allow_smtp_auth_plain_without_valid_certificate: false,
         max_message_rate: Some(
             100/s,
         ),
@@ -2006,6 +2007,7 @@ MergedEntry {
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
         ignore_8bit_checks: false,
+        dispatcher_progress_watchdog_timeout: None,
     },
     sources: {},
     automation: [
@@ -2126,6 +2128,7 @@ MergedEntry {
         smtp_auth_plain_username: None,
         smtp_auth_plain_password: None,
         allow_smtp_auth_plain_without_tls: false,
+        allow_smtp_auth_plain_without_valid_certificate: false,
         max_message_rate: Some(
             100/s,
         ),
@@ -2160,6 +2163,7 @@ MergedEntry {
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
         ignore_8bit_checks: false,
+        dispatcher_progress_watchdog_timeout: None,
     },
     sources: {
         "my source name": EgressPathConfig {
@@ -2197,6 +2201,7 @@ MergedEntry {
             smtp_auth_plain_username: None,
             smtp_auth_plain_password: None,
             allow_smtp_auth_plain_without_tls: false,
+            allow_smtp_auth_plain_without_valid_certificate: false,
             max_message_rate: None,
             additional_message_rate_throttles: {},
             source_selection_rate: None,
@@ -2227,6 +2232,7 @@ MergedEntry {
             no_memory_reduction_policy: ShrinkDataAndMeta,
             try_next_host_on_transport_error: false,
             ignore_8bit_checks: false,
+            dispatcher_progress_watchdog_timeout: None,
         },
     },
     automation: [
@@ -2353,6 +2359,7 @@ MergedEntry {
         smtp_auth_plain_username: None,
         smtp_auth_plain_password: None,
         allow_smtp_auth_plain_without_tls: false,
+        allow_smtp_auth_plain_without_valid_certificate: false,
         max_message_rate: Some(
             100/s,
         ),
@@ -2387,6 +2394,7 @@ MergedEntry {
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
         ignore_8bit_checks: false,
+        dispatcher_progress_watchdog_timeout: None,
     },
     sources: {},
     automation: [

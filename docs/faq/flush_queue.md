@@ -1,3 +1,7 @@
+---
+description: "Flush a KumoMTA queue with kcli rebind and --always-flush, re-evaluating and releasing messages for a domain across all tenants and campaigns."
+---
+
 # How do I flush a queue?
 
 {{since('2024.09.02-c5476b89')}}

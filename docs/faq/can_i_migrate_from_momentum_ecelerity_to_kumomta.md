@@ -1,3 +1,7 @@
+---
+description: "Yes — KumoMTA has helped many teams migrate from Momentum (Ecelerity). Read the migration primer or get help from KumoMTA's professional services team."
+---
+
 # Can I Migrate From Momentum (Ecelerity) to KumoMTA?
 
 Yes, we have helped several organizations with their Momentum (AKA Ecelerity) to KumoMTA migration.

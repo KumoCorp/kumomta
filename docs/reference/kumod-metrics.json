@@ -64,6 +64,17 @@
     "pruning": "Pruning"
   },
   {
+    "name": "dane_result_count",
+    "help": "Number of DANE policy decisions made on the SMTP delivery path, labelled by `result`.",
+    "doc": "{{since('dev')}}\n\nThe `result` label is one of:\n\n  * `ok`: usable DANE-TA(2)/DANE-EE(3) TLSA records were found; the peer\n    certificate is checked against them.\n  * `unusable`: TLSA records were published but none are usable; STARTTLS is\n    required but the peer certificate is not checked.\n  * `not_applicable`: the chain to the MX host was DNSSEC-validated but there\n    are no TLSA records (securely absent), so DANE does not apply.\n  * `insecure_chain`: DANE is enabled but the chain to the MX host was not\n    DNSSEC-validated, so DANE does not apply. A persistently high value here\n    with none of the other results can indicate that the resolver is not\n    performing DNSSEC validation.\n  * `tempfail`: the TLSA lookup could not be securely resolved (SERVFAIL,\n    timeout, or bogus); delivery is deferred.\n\nThese are counters; reason about them as rates.\n\n**Confirming DANE is working:** with `enable_dane = true`, a healthy\ndeployment shows a steady stream of `not_applicable` (most DNSSEC-signed\ndomains do not publish TLSA records) plus some `ok` for the destinations\nthat do. The single most useful health check is: if you only ever see\n`insecure_chain` and never `ok` or `not_applicable`, your\nresolver is almost certainly not performing DNSSEC validation, so DANE is\nsilently doing nothing — verify that you configured a validating resolver.\nFor an ad-hoc check that does not require standing up a sink or large-scale\ntest, <https://havedane.net> publishes known-good TLSA records: send a test\nmessage to an address there and confirm that `ok` increments.\n\n**What to alert on:**\n\n  * A sustained or rising rate of `tempfail` is the highest-signal problem:\n    each one is a *deferred delivery* because the TLSA lookup could not be\n    securely resolved. This usually points at resolver or upstream-DNS\n    trouble (SERVFAIL, timeouts, bogus answers), and only rarely at an\n    active downgrade attempt; either way, mail is being delayed, so it is\n    worth paging on.\n  * `ok` pinned at zero while `insecure_chain` is high (with\n    `enable_dane = true`) indicates a non-validating resolver, i.e. DANE is\n    not engaging at all.\n  * `unusable` is informational: a remote operator published TLSA records\n    that are not usable for SMTP DANE (for example, only PKIX usages). A low\n    background level is normal and reflects the remote side, not your\n    infrastructure.\n  * `not_applicable` and `insecure_chain` are expected in normal operation\n    for the large fraction of destinations that do not publish usable TLSA\n    records or are not DNSSEC-signed; do not alert on these in isolation.",
+    "metric_type": "Counter",
+    "label_names": [
+      "result"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
     "name": "delayed_due_to_message_rate_throttle",
     "help": "Number of times a message was delayed due to max_message_rate",
     "doc": "Delayed in this context means that we moved the message back to its corresponding\nscheduled queue with a short retry time, as well as logging a `Delayed` log\nrecord.\n\nSustained increases in this value may indicate that the configured\nthrottles are too severe for your workload, but it is difficult to make\na definitive and generalized statement in these docs without understanding your\nworkload, policy and the purpose of those throttles.\n\nThe metric is tracked per `queue` label.  The `queue` is the scheduled\nqueue name as described in [Queues](../../queues.md).",
@@ -162,6 +173,17 @@
     ],
     "buckets": [],
     "pruning": "NonPruning"
+  },
+  {
+    "name": "dispatcher_watchdog_aborted_total",
+    "help": "total number of dispatcher tasks aborted by the progress watchdog",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Counter",
+    "label_names": [
+      "service"
+    ],
+    "buckets": [],
+    "pruning": "Pruning"
   },
   {
     "name": "dkim_signer_cache_hit",
@@ -343,6 +365,42 @@
     "doc": null,
     "metric_type": "Counter",
     "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "egress_source_connection_failures_total",
+    "help": "Counts connection failures classified as belonging to one of the source-health failure classes. Increments regardless of whether `suspend_when_*` is configured on the source, so an operator can observe the underlying signal before opting in to auto-suspension.",
+    "doc": "{{since('dev')}}\n\nLabels:\n* `source` is the operator-defined egress source name (the\n  `name` field of `kumo.make_egress_source`).\n* `kind` is one of:\n    * `Unplumbed` — the source's local `source_address`\n      returned `EADDRNOTAVAIL` on `bind()`. The IP address\n      is not currently plumbed on this host.\n    * `ProxyUnhealthy` — the configured proxy server was\n      unreachable, timed out, or reported a bind failure\n      for the requested source address.",
+    "metric_type": "Counter",
+    "label_names": [
+      "source",
+      "kind"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "egress_source_health_suspended",
+    "help": "`1` while an egress source is currently auto-suspended, `0` otherwise. Pool selection skips a source whose gauge is `1`, rolling the remaining suspension duration into the per-pool `min_delay`.",
+    "doc": "{{since('dev')}}\n\nLabels:\n* `source` is the operator-defined egress source name (the\n  `name` field of `kumo.make_egress_source`).\n* `reason` indicates which rule's firing produced the\n  current suspension:\n    * `Unplumbed` — a `suspend_when_unplumbed` rule fired\n      because the source's local `source_address` was not\n      plumbed on this host. Plumb the address (or correct\n      the configured `source_address`) to resolve.\n    * `ProxyUnhealthy` — a `suspend_when_proxy_unhealthy`\n      rule fired because the configured proxy server was\n      unreachable or rejected the requested source address.\n      Investigate the proxy service.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "source",
+      "reason"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "egress_source_health_suspensions_total",
+    "help": "Increments each time a source transitions into the auto-suspended state due to one of its `suspend_when_*` rules firing. Re-triggering the same rule while the suspension is already active does not increment this counter; it only counts state transitions.",
+    "doc": "{{since('dev')}}\n\nLabels:\n* `source` is the operator-defined egress source name (the\n  `name` field of `kumo.make_egress_source`).\n* `reason` indicates which rule fired:\n    * `Unplumbed` — a `suspend_when_unplumbed` rule fired\n      because the source's local `source_address` was not\n      plumbed on this host. Plumb the address (or correct\n      the configured `source_address`) to resolve.\n    * `ProxyUnhealthy` — a `suspend_when_proxy_unhealthy`\n      rule fired because the configured proxy server was\n      unreachable or rejected the requested source address.\n      Investigate the proxy service.",
+    "metric_type": "Counter",
+    "label_names": [
+      "source",
+      "reason"
+    ],
     "buckets": [],
     "pruning": "NonPruning"
   },
@@ -922,9 +980,64 @@
     "pruning": "NonPruning"
   },
   {
+    "name": "rocks_spool_actual_delayed_write_rate",
+    "help": "Current delayed write rate (bytes/second) applied by rocksdb to throttle foreground writers.  0 means no slowdown is in effect.",
+    "doc": "{{since('dev')}}\n\nA non-zero value means rocksdb is intentionally slowing writers\ndown because compaction or flush is falling behind.  This is the\nearly-warning signal that precedes a full write stop: if this\nremains non-zero for an extended period, investigate the\ncompaction backlog\n(`rocks_spool_estimate_pending_compaction_bytes`) and underlying\ndisk throughput before the database transitions to\n`rocks_spool_write_stopped == 1`.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "path"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "rocks_spool_background_errors",
+    "help": "Accumulated count of background errors encountered by the rocksdb instance (failed flushes or compactions, typically caused by I/O errors such as missing or corrupt SST files, ENOSPC, or permission problems).",
+    "doc": "{{since('dev')}}\n\nThis counter is **monotonic** for the lifetime of the process: it\ndoes not decrease when rocksdb auto-resumes from transient errors\nsuch as a brief ENOSPC.  A non-zero value therefore does not\nnecessarily mean the database is currently wedged; it means at\nleast one background error has occurred since the process started.\n\nFor SRE monitoring, alert on the **rate of change** (e.g.\n`increase(rocks_spool_background_errors[5m]) > 0`) to catch new\noccurrences.  For the actionable \"the database is wedged right\nnow and we are shedding load\" signal, page on\n`rocks_spool_load_shed_active` instead, which combines this\ncounter, foreground read/write errors, and rocksdb error\nseverity into a single latched indicator.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "path"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
     "name": "rocks_spool_cache_total",
     "help": "Approximate memory (bytes) usage by cache.",
     "doc": "This may be useful when understanding the memory usage of\nthe system.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "path"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "rocks_spool_compaction_pending",
+    "help": "Set to 1 when at least one compaction is pending for this rocksdb instance, 0 otherwise.",
+    "doc": "{{since('dev')}}\n\nBrief flapping is normal under write load.  A value of 1 that\npersists alongside `rocks_spool_num_running_compactions == 0` is\nsuspicious and suggests the compaction worker is not making\nprogress.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "path"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "rocks_spool_estimate_pending_compaction_bytes",
+    "help": "Estimated total bytes that compaction needs to rewrite to bring all levels back under their target sizes.",
+    "doc": "{{since('dev')}}\n\nThis is a backlog indicator.  Steady-state values depend heavily\non write rate, compression, and the configured compaction style,\nso absolute thresholds should be derived from each deployment's\nbaseline.  Unbounded growth over a multi-hour window indicates\nthat compaction cannot keep up with the write rate, which\neventually leads to write slowdown\n(`rocks_spool_actual_delayed_write_rate` becomes non-zero) and\nthen to write stop (`rocks_spool_write_stopped` becomes 1).\n\nOnly meaningful for level-style compaction.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "path"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "rocks_spool_load_shed_active",
+    "help": "Set to 1 when this spool's load-shedding gate is latched, 0 otherwise.  When set, ingress paths (SMTP, HTTP inject) reject traffic and foreground store/remove operations fail fast rather than stall.",
+    "doc": "{{since('dev')}}\n\nThe gate latches in either of two ways:\n\n* **Immediate**: a foreground spool operation (load, store,\n  remove) returns a rocksdb error classified as definitively\n  bad (`Corruption` or `IOError` -- e.g. a missing or corrupt\n  SST file discovered during a read).  These conditions have\n  no transient interpretation, so the gate latches on the\n  first such observation.\n* **Debounced**: less specific failure signals --\n  `background-errors` has grown since this process started, or\n  foreground operations have returned non-fatal errors --\n  sustained continuously for the configured\n  `error_latch_duration` (default 15s).  This filters out\n  brief auto-resumed errors.\n\nIf `allow_error_unlatch` is enabled (the default), the gate\nauto-clears after `error_unlatch_duration` of observed recovery\n(default 5 minutes) with no new errors of either class.\nOtherwise it stays set until the process is restarted.\n\nSREs should treat any sustained non-zero value as an\noperator-actionable incident; pair this metric with\n`rocks_spool_background_errors` to understand why.",
     "metric_type": "Gauge",
     "label_names": [
       "path"
@@ -958,6 +1071,28 @@
     "name": "rocks_spool_mem_table_unflushed",
     "help": "Approximate memory usage (bytes) of un-flushed mem-tables.",
     "doc": "This may be useful when understanding the memory usage of\nthe system.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "path"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "rocks_spool_num_running_compactions",
+    "help": "Number of background compactions currently running for this rocksdb instance.",
+    "doc": "{{since('dev')}}\n\nIn a healthy, actively-written spool this is typically non-zero\nin bursts.  A value persistently stuck at 0 while\n`rocks_spool_compaction_pending` or\n`rocks_spool_estimate_pending_compaction_bytes` is growing is a\nstrong indicator that the background worker is wedged --\ncross-reference `rocks_spool_write_stopped` and\n`rocks_spool_background_errors`.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "path"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "rocks_spool_write_stopped",
+    "help": "Set to 1 when the rocksdb instance is currently refusing writes at the WriteController layer (memtable count or L0 file count reached the stop threshold), 0 otherwise.",
+    "doc": "{{since('dev')}}\n\nThis reflects rocksdb's own `is-write-stopped` property and\nindicates backpressure rather than a fatal background error.\nHealthy databases under bursty load may briefly report 1 here.\nFor the \"the database is wedged due to a background error\"\nsignal, see `rocks_spool_load_shed_active` instead.",
     "metric_type": "Gauge",
     "label_names": [
       "path"

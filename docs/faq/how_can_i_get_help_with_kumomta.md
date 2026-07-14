@@ -1,3 +1,7 @@
+---
+description: "Get help with KumoMTA through community support (forum and Discord) or paid Professional Services and Commercial Support from the KumoMTA team."
+---
+
 # How Can I Get Help With KumoMTA?
 
 If you would like help with KumoMTA, the KumoMTA team provides both [Professional Services](https://kumomta.com/services) and [Commercial Support](https://kumomta.com/support). For more information on paid support and services contact the KumoMTA team at [hello@kumomta.com](mailto:hello@kumomta.com).

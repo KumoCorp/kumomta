@@ -1,3 +1,7 @@
+---
+description: Size your KumoMTA server environment, calculating network, storage, CPU, and RAM needs from your message volume, size, and spool and log capacity requirements.
+---
+
 # Environmental Considerations
 
 When deciding on server hardware, senders must balance vertical and horizontal scaling based on their preferences. KumoMTA is built to support both vertical and horizontal scaling, with both single-node performance of several million messages per hour, as well as support for clustered installations.

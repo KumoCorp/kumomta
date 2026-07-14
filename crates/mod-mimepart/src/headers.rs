@@ -2,13 +2,14 @@ use crate::PartRef;
 use bstr::BString;
 use config::{SerdeWrappedValue, any_err};
 use mailparsing::{
-    AddressList, Header, HeaderMap, MailParsingError, Mailbox, MailboxList, MessageID,
+    AddressList, BStringUtf8, Header, HeaderMap, MailParsingError, Mailbox, MailboxList, MessageID,
     MimeParameters,
 };
 use mlua::{
     IntoLua, Lua, MetaMethod, MultiValue, UserData, UserDataFields, UserDataMethods, Value,
 };
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use std::collections::BTreeMap;
 
 #[derive(Clone)]
@@ -344,10 +345,13 @@ impl UserData for HeaderMapRef {
 
 /// A fully-decoded representation of the underlying MimeParameters value,
 /// to make it more convenient to inspect from lua
+#[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MimeParams {
+    #[serde_as(as = "BStringUtf8")]
     pub value: BString,
+    #[serde_as(as = "BTreeMap<BStringUtf8, BStringUtf8>")]
     pub parameters: BTreeMap<BString, BString>,
 }
 

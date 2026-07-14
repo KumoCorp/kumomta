@@ -1,3 +1,7 @@
+---
+description: "KumoMTA is a Message Transfer Agent (MTA), not a Message Delivery Agent — it has no POP3/IMAP mailbox access, so pair it with a separate MDA."
+---
+
 # How Do I Configure POP3/IMAP?
 
 KumoMTA is a [Message Transfer Agent](https://en.wikipedia.org/wiki/Message_transfer_agent), or MTA.

@@ -1,3 +1,7 @@
+---
+description: "Create an always-suspended catch-all queue in KumoMTA by defining an Egress Pool with no sources — the equivalent of a suspended Momentum binding."
+---
+
 # How do I create an always-suspended queue?
 
 Some sites employ a catch-all queue for messages that didn't get categorized

@@ -1,3 +1,7 @@
+---
+description: Configure feedback loop (FBL) processing in KumoMTA to receive and log ARF complaint reports, inject tracking headers, and suppress recipients who report spam.
+---
+
 # Configuring Feedback Loop Processing
 
 Feedback Loops are provided by several mailbox providers, including AOL,
@@ -19,9 +23,9 @@ For more information on Feedback Loops and how to apply for them, see
 
 By default, KumoMTA will include a supplemental tracking header that will be
 extracted as part of the ARF message processing. This setting is controlled by
-the *supplemental_header* option in the **kumo.start_esmtp_listener** function.
+the `supplemental_header` option in the `kumo.start_esmtp_listener` function.
 Additional metadata can be preserved by listing the metadata keys desired in
-the *include_meta_names* argument.
+the `include_meta_names` argument.
 
 ```lua
 kumo.start_esmtp_listener {
@@ -80,7 +84,7 @@ In addition, it should be noted that the MX record for your domain will still
 be pointed at the KumoMTA instance, which means that in order to avoid a mail
 loop you will need to configure routing for the domain to specify where the
 message should be relayed to from the KumoMTA instance, by overriding the
-destination queue for the message in the *smtp_server_message_received* event:
+destination queue for the message in the `smtp_server_message_received` event:
 
 ```lua
 kumo.on('smtp_server_message_received', function(msg)

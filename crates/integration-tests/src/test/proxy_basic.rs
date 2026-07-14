@@ -16,6 +16,14 @@ impl DaemonWithProxy {
         proxy_args: ProxyArgs,
         kumod_env: Vec<(String, String)>,
     ) -> anyhow::Result<Self> {
+        Self::spawn_with_policy("source_with_proxy.lua", proxy_args, kumod_env).await
+    }
+
+    async fn spawn_with_policy(
+        policy_file: &str,
+        proxy_args: ProxyArgs,
+        kumod_env: Vec<(String, String)>,
+    ) -> anyhow::Result<Self> {
         let proxy = ProxyDaemon::spawn(proxy_args)
             .await
             .context("ProxyDaemon::spawn")?;
@@ -23,7 +31,7 @@ impl DaemonWithProxy {
         let proxy_addr = proxy.listener("proxy");
 
         let mut options = DaemonWithMaildirOptions::new()
-            .policy_file("source_with_proxy.lua")
+            .policy_file(policy_file)
             .env("KUMO_PROXY_SERVER_ADDRESS", proxy_addr.to_string());
 
         // Add any additional environment variables
@@ -379,6 +387,65 @@ async fn proxy_optional_auth_client_offers_auth() -> anyhow::Result<()> {
         .await;
 
     daemon.stop().await?;
+    Ok(())
+}
+
+// =============================================================================
+// Test: SOCKS5 proxy identified by DNS host name (rather than IP literal).
+// Validates that EgressSource::connect_to resolves a hostname-form
+// socks5_proxy_server at connect time and uses the resolved address.
+// Asserts on the source-side Delivery log to confirm both that delivery
+// went via SOCKS5 and that the proxy server address recorded matches the
+// DNS-resolved IP (127.0.0.1) rather than the configured hostname.
+// =============================================================================
+
+#[tokio::test]
+async fn proxy_socks5_hostname() -> anyhow::Result<()> {
+    let mut daemon = DaemonWithProxy::spawn_with_policy(
+        "socks5_source_with_proxy_hostname.lua",
+        ProxyArgs {
+            proxy_config: Some("proxy_with_auth.lua".to_string()),
+            env: vec![],
+        },
+        vec![],
+    )
+    .await
+    .context("DaemonWithProxy::spawn_with_policy")?;
+
+    let proxy_port = daemon.proxy.listener("proxy").port();
+
+    let mut client = daemon
+        .kumod
+        .smtp_client()
+        .await
+        .context("make smtp_client")?;
+
+    let response = MailGenParams::default()
+        .send(&mut client)
+        .await
+        .context("send message")?;
+    anyhow::ensure!(response.code == 250, "expected 250, got {}", response.code);
+
+    daemon
+        .kumod
+        .wait_for_maildir_count(1, Duration::from_secs(50))
+        .await;
+
+    daemon.stop().await?;
+
+    let logs = daemon.kumod.source.collect_logs().await?;
+    let deliveries: Vec<_> = logs.iter().filter(|r| r.kind == Delivery).collect();
+    k9::assert_equal!(deliveries.len(), 1, "expected exactly one Delivery record");
+    let sa = deliveries[0]
+        .source_address
+        .as_ref()
+        .expect("Delivery record should carry a source_address");
+    k9::assert_equal!(sa.protocol.as_deref(), Some("socks5"));
+    let server = sa.server.expect("socks5 delivery should record server");
+    // The hostname `socks5.proxy.test` must have resolved to 127.0.0.1
+    // and the connection went via that resolved address on the proxy's port.
+    k9::assert_equal!(server.to_string(), format!("127.0.0.1:{proxy_port}"));
+
     Ok(())
 }
 

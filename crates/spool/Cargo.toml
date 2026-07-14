@@ -10,6 +10,7 @@ rocksdb = ["dep:rocksdb"]
 anyhow = {workspace=true}
 async-trait = {workspace=true}
 chrono = {workspace=true, default-features=false, features=["now"]}
+dir-probe = {path="../dir-probe"}
 duration-serde = {path="../duration-serde"}
 flume = {workspace=true}
 getrandom = {workspace=true}
@@ -21,6 +22,7 @@ rocksdb = {workspace=true, optional=true}
 serde = {workspace=true}
 serde_json = {workspace=true}
 tempfile = {workspace=true}
+thiserror = {workspace=true}
 tokio = {workspace=true, features=["sync", "rt", "fs", "macros", "tracing"]}
 tracing = {workspace=true}
 utoipa = {workspace=true}

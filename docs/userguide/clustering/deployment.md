@@ -1,3 +1,7 @@
+---
+description: Explore KumoMTA deployment architectures for single-node, multi-node, and many-node clusters, including egress proxies for sharing IPs when sending at scale.
+---
+
 # Deployment Architecture
 
 ## Single Node
@@ -97,8 +101,8 @@ an appropriate source IP address. This approach results in
 a simpler configuration overall and makes it easier to load
 balance and scale the deployment up or down.
 
-We support our own SOCKS-5 based proxy implementation as well
-as ha-proxy.
+KumoMTA provides its own SOCKS5-based proxy implementation, and
+also supports HAProxy.
 
 ```mermaid
 flowchart LR

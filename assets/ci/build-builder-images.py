@@ -13,6 +13,7 @@ import sys
 IMAGES = [
     "ubuntu:20.04",
     "ubuntu:22.04",
+    "ubuntu:24.04",
     "rockylinux:8",
     "rockylinux:9",
     "amazonlinux:2",

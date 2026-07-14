@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+hickory-proto = {workspace=true}
 serde.workspace = true
 thiserror.workspace = true
 tokio = {workspace = true, features=["net"]}
+
+[dev-dependencies]
+k9 = {workspace=true}

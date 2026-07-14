@@ -1,8 +1,11 @@
+---
+description: "Check inbound SMTP AUTH in KumoMTA over TLS, validating relay users against a static table, a datasource, or a keystore to protect your infrastructure."
+---
 # Checking Inbound SMTP Authentication
 
-When hosting relay users it is important to protect your infrastructure from malicious senders, often without the ability to whitelist the IP addresses of legitimate users. In such environments, it is critical to setup SMTP Authentication to validate injecting hosts before relaying their mail.
+When hosting relay users it is important to protect your infrastructure from malicious senders, often without the ability to allowlist the IP addresses of legitimate users. In such environments, it is critical to set up SMTP Authentication to validate injecting hosts before relaying their mail.
 
-!!!note
+!!! note
     Authentication in KumoMTA can only occur on a TLS protected connection after `STARTTLS` has successfully been processed. This is because AUTH PLAIN credentials can be decoded and should not be sent over an open connection.
 
 ## Checking Authentication Against a Static User Table
@@ -51,12 +54,12 @@ kumo.on('smtp_server_auth_plain', function(authz, authc, password)
 end)
 ```
 
-!!!warning
+!!! warning
     To prevent blocking when checking data like AUTH credentials we recommend using the [Memoize](../../reference/kumo/memoize.md) function to cache query results for future connections.
 
 ## Querying a Keystore for Authentication
 
-A more secure option for storing authentication credentials for checking is Hashicorp Vault. See the [Storing Secrets in Hashicorp Vault](./hashicorp_vault.md) page for more information on how to populate the credentials in the Vault as well as how to secure the connection credentials.
+A more secure option for storing authentication credentials for checking is HashiCorp Vault. See the [Storing Secrets in HashiCorp Vault](./hashicorp_vault.md) page for more information on how to populate the credentials in the Vault as well as how to secure the connection credentials.
 
 ```lua
 function vault_auth_check(user, password)
@@ -91,4 +94,4 @@ egress_pool = 'pool-1'
 require_authz = ["daniel"]
 {% endcall %}
 
-This prevents users other than **daniel** (multiple users can be specified) from using the tenant for sending.
+This prevents users other than `daniel` (multiple users can be specified) from using the tenant for sending.

@@ -1,3 +1,7 @@
+---
+description: "KumoMTA documentation — the Tutorial, User Guide, Reference Manual, and FAQ for installing, configuring, and operating the open-source high-performance MTA."
+---
+
 # KumoMTA Documentation
 
 This the is documentation site for the KumoMTA Message Transfer Agent.

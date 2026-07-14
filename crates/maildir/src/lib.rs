@@ -661,6 +661,11 @@ impl Maildir {
         for d in &["cur", "new", "tmp"] {
             path.push(d);
             self.create_dir_all(path.as_path())?;
+            // Verify that we can create, rename, and unlink files here as
+            // our current identity, so a latent permission problem
+            // surfaces now rather than as confusing delivery failures.
+            dir_probe::probe_directory(path.as_path())
+                .map_err(|err| std::io::Error::other(format!("{err:#}")))?;
             path.pop();
         }
         Ok(())

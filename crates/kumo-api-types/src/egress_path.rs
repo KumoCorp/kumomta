@@ -1,6 +1,6 @@
 use cidr_map::CidrSet;
 use data_loader::KeySource;
-use dns_resolver::IpLookupStrategy;
+use dns_resolver::{IpLookupStrategy, MailExchanger};
 #[cfg(feature = "lua")]
 use mlua::prelude::*;
 use openssl::ssl::SslOptions;
@@ -9,8 +9,11 @@ use rfc5321::SmtpClientTimeouts;
 use rustls::crypto::aws_lc_rs::ALL_CIPHER_SUITES;
 use rustls::SupportedCipherSuite;
 use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::time::Duration;
 use throttle::{LimitSpec, ThrottleSpec};
+use utoipa::ToSchema;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Copy)]
 pub enum Tls {
@@ -252,6 +255,15 @@ pub struct EgressPathConfig {
     #[serde(default)]
     pub allow_smtp_auth_plain_without_tls: bool,
 
+    /// {{since('dev')}}
+    /// When false (the default), SMTP AUTH PLAIN will not be attempted over a
+    /// TLS session whose peer certificate was not validated (for example, an
+    /// `OpportunisticInsecure`/`RequiredInsecure` session, or a DANE host whose
+    /// TLSA records are unusable). Set to true to restore the previous behavior
+    /// of sending credentials over any encrypted session.
+    #[serde(default)]
+    pub allow_smtp_auth_plain_without_valid_certificate: bool,
+
     #[serde(default)]
     pub max_message_rate: Option<ThrottleSpec>,
 
@@ -357,6 +369,18 @@ pub struct EgressPathConfig {
     /// an error.
     #[serde(default)]
     pub ignore_8bit_checks: bool,
+
+    /// When set, dispatcher tasks for this egress path that fail to
+    /// make any forward progress for this duration are aborted by the
+    /// maintainer. When omitted the effective value is derived at
+    /// runtime from the protocol:
+    ///   * SMTP / Xfer: max(2 * longest of mail_from, rcpt_to, data,
+    ///     data_dot timeouts, 60s)
+    ///   * Lua / HttpInjectionGenerator / DeferredSmtpInjection: 600s
+    /// Users with a large `max_batch_latency` should set this
+    /// explicitly so the watchdog does not flag batch accumulation.
+    #[serde(default, with = "duration_serde")]
+    pub dispatcher_progress_watchdog_timeout: Option<Duration>,
 }
 
 #[cfg(feature = "lua")]
@@ -390,6 +414,7 @@ impl Default for EgressPathConfig {
             skip_hosts: CidrSet::default(),
             ehlo_domain: None,
             allow_smtp_auth_plain_without_tls: false,
+            allow_smtp_auth_plain_without_valid_certificate: false,
             smtp_auth_plain_username: None,
             smtp_auth_plain_password: None,
             aggressive_connection_opening: false,
@@ -418,6 +443,7 @@ impl Default for EgressPathConfig {
             try_next_host_on_transport_error: false,
             ignore_8bit_checks: false,
             ip_lookup_strategy: IpLookupStrategy::default(),
+            dispatcher_progress_watchdog_timeout: None,
         }
     }
 }
@@ -465,5 +491,862 @@ impl EgressPathConfig {
 
     fn default_refresh_interval() -> Duration {
         Duration::from_secs(60)
+    }
+
+    /// Compute the steady-state ceilings implied by this
+    /// configuration. Per-axis, each ceiling carries a tag for which
+    /// configuration term produced it, so operators can see which
+    /// knob to turn.
+    ///
+    /// If `additional` is supplied, its ceilings are merged in via
+    /// `EffectiveConstraints::merge`. This is the entry point for
+    /// folding in constraints from other configuration layers, such
+    /// as the scheduled-queue rate from `QueueConfig`.
+    pub fn compute_constraints(
+        &self,
+        additional: Option<&EffectiveConstraints>,
+    ) -> EffectiveConstraints {
+        let mut constraints = self.compute_path_constraints();
+        if let Some(extra) = additional {
+            constraints.merge(extra);
+        }
+        constraints
+    }
+
+    fn compute_path_constraints(&self) -> EffectiveConstraints {
+        let max_concurrent_dispatchers = {
+            let mut best = EffectiveCeiling {
+                value: self.connection_limit.limit as f64,
+                source: CeilingSource::Primary,
+                display: self.connection_limit.limit.to_string(),
+            };
+            for (name, spec) in &self.additional_connection_limits {
+                let value = spec.limit as f64;
+                if value < best.value {
+                    best = EffectiveCeiling {
+                        value,
+                        source: CeilingSource::Additional { name: name.clone() },
+                        display: spec.limit.to_string(),
+                    };
+                }
+            }
+            best
+        };
+
+        // Compute the message-rate ceiling across the primary,
+        // additional throttles, and the synthetic K × C ceiling.
+        let mut msg_candidates: Vec<EffectiveCeiling> = vec![];
+        if let Some(spec) = &self.max_message_rate {
+            msg_candidates.push(throttle_ceiling(spec, CeilingSource::Primary));
+        }
+        for (name, spec) in &self.additional_message_rate_throttles {
+            msg_candidates.push(throttle_ceiling(
+                spec,
+                CeilingSource::Additional { name: name.clone() },
+            ));
+        }
+        if let Some(spec) = &self.max_connection_rate {
+            // K × C ceiling: every connection delivers at most
+            // max_deliveries_per_connection messages, so total msg
+            // rate cannot exceed (max_deliveries_per_connection) times
+            // the connection-establishment rate. The display shows
+            // both the factors and the computed total so operators
+            // don't have to do the arithmetic mentally for cases
+            // like 32 × 50/s.
+            let k = self.max_deliveries_per_connection as u64;
+            let total = ThrottleSpec {
+                limit: k.saturating_mul(spec.limit),
+                period: spec.period,
+                max_burst: None,
+                force_local: false,
+            };
+            msg_candidates.push(EffectiveCeiling {
+                value: throttle_rate_per_sec(spec) * k as f64,
+                source: CeilingSource::ReconnectCycling,
+                display: format!("{k} × {spec} = {total}"),
+            });
+        }
+        // total_cmp gives a total ordering even for NaN, so a malformed
+        // candidate cannot cause a panic here. NaN sorts greater than
+        // any finite value, so it naturally loses the min_by.
+        let max_message_rate = msg_candidates
+            .iter()
+            .min_by(|a, b| a.value.total_cmp(&b.value))
+            .cloned();
+
+        // If max_message_rate is explicitly configured but a
+        // different term (typically the synthetic reconnect-cycling
+        // ceiling) wins the minimum, record the declared rate so
+        // renderers can show an "effectively unreachable" annotation.
+        // Preserve the operator's original units via ThrottleSpec's
+        // Display impl.
+        let max_message_rate_declared = match (&max_message_rate, &self.max_message_rate) {
+            (Some(ceiling), Some(declared))
+                if !matches!(ceiling.source, CeilingSource::Primary) =>
+            {
+                Some(declared.to_string())
+            }
+            _ => None,
+        };
+
+        let max_connection_rate = self
+            .max_connection_rate
+            .as_ref()
+            .map(|spec| throttle_ceiling(spec, CeilingSource::Primary));
+
+        let max_source_selection_rate = {
+            let mut candidates: Vec<EffectiveCeiling> = vec![];
+            if let Some(spec) = &self.source_selection_rate {
+                candidates.push(throttle_ceiling(spec, CeilingSource::Primary));
+            }
+            for (name, spec) in &self.additional_source_selection_rates {
+                candidates.push(throttle_ceiling(
+                    spec,
+                    CeilingSource::Additional { name: name.clone() },
+                ));
+            }
+            candidates
+                .into_iter()
+                .min_by(|a, b| a.value.total_cmp(&b.value))
+        };
+
+        EffectiveConstraints {
+            max_concurrent_dispatchers,
+            max_message_rate,
+            max_message_rate_declared,
+            max_connection_rate,
+            max_source_selection_rate,
+        }
+    }
+}
+
+fn throttle_rate_per_sec(spec: &ThrottleSpec) -> f64 {
+    spec.limit as f64 / spec.period as f64
+}
+
+fn throttle_ceiling(spec: &ThrottleSpec, source: CeilingSource) -> EffectiveCeiling {
+    EffectiveCeiling {
+        value: throttle_rate_per_sec(spec),
+        source,
+        display: spec.to_string(),
+    }
+}
+
+/// Steady-state ceiling for a single throughput axis, with a tag
+/// for which configuration term produced it.
+///
+/// {{since('dev')}}
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema)]
+pub struct EffectiveCeiling {
+    /// Canonical value. For rate axes: events per second; useful
+    /// for numeric comparison. For concurrency: a count.
+    pub value: f64,
+    pub source: CeilingSource,
+    /// Pre-formatted human display preserving the operator's
+    /// original configuration units. A rate configured as
+    /// `10000/hr` renders here as `10000/h` rather than `2.78/s`.
+    /// For concurrency, the integer count. For the synthetic
+    /// reconnect-cycling ceiling, the formula
+    /// `max_deliveries_per_connection × <connection_rate>`.
+    pub display: String,
+}
+
+/// Which configuration term produced an `EffectiveCeiling`.
+///
+/// {{since('dev')}}
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CeilingSource {
+    /// The primary configured term for this axis:
+    /// `connection_limit`, `max_message_rate`,
+    /// `max_connection_rate`, or `source_selection_rate`.
+    Primary,
+    /// A named entry from the corresponding `additional_*` map.
+    Additional { name: String },
+    /// Synthetic ceiling formed from
+    /// `max_deliveries_per_connection × max_connection_rate`.
+    /// Applies only to the message-rate axis: each connection
+    /// delivers at most `max_deliveries_per_connection` messages
+    /// before reconnecting, and new connections are throttled by
+    /// `max_connection_rate`, so the product is a hard ceiling on
+    /// system-wide message rate independent of `max_message_rate`.
+    ReconnectCycling,
+    /// A constraint contributed from a configuration layer outside
+    /// the egress path config. `name` is a free-form, human-readable
+    /// description of where the constraint came from (for example,
+    /// `"scheduled queue max_message_rate"`).
+    Other { name: String },
+}
+
+/// Summary of an MX resolution attempt for a destination.
+///
+/// {{since('dev')}}
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema)]
+pub struct MxResolution {
+    /// Canonical site name; the value used as the queue grouping
+    /// key for this destination.
+    pub site_name: String,
+
+    /// MX hostnames grouped by preference. Lower preference is
+    /// preferred. Empty when DNS returned no MX records and the
+    /// resolver synthesised A/AAAA against `domain` directly.
+    pub by_preference: BTreeMap<u16, Vec<String>>,
+
+    /// True if real MX records were found in DNS. False when the
+    /// resolver synthesised an A/AAAA lookup against the domain.
+    pub is_mx: bool,
+
+    /// True if the destination was a domain literal like `[1.2.3.4]`.
+    pub is_domain_literal: bool,
+
+    /// True if the DNS result was DNSSEC validated.
+    pub is_secure: bool,
+}
+
+impl From<&MailExchanger> for MxResolution {
+    fn from(mx: &MailExchanger) -> Self {
+        Self {
+            site_name: mx.site_name.clone(),
+            by_preference: mx.by_pref.clone(),
+            is_mx: mx.is_mx,
+            is_domain_literal: mx.is_domain_literal,
+            is_secure: mx.is_secure,
+        }
+    }
+}
+
+impl MxResolution {
+    /// Render a one-line header summarising the MX result, plus an
+    /// indented preference→host listing beneath. Shared by
+    /// `kcli inspect-ready-q` and `kcli resolve-egress-path` so the
+    /// two surfaces produce identical output for the same input.
+    pub fn render(&self, out: &mut dyn Write) -> std::fmt::Result {
+        let mut flags: Vec<&str> = vec![];
+        if !self.is_mx {
+            flags.push("synthesised");
+        }
+        if self.is_domain_literal {
+            flags.push("domain literal");
+        }
+        if self.is_secure {
+            flags.push("dnssec verified");
+        }
+        write!(out, "mx (site: {}", self.site_name)?;
+        if !flags.is_empty() {
+            write!(out, ", {}", flags.join(", "))?;
+        }
+        writeln!(out, "):")?;
+        for (pref, hosts) in &self.by_preference {
+            for host in hosts {
+                writeln!(out, "  {pref:>4}  {host}")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn to_human_string(&self) -> String {
+        let mut s = String::new();
+        let _ = self.render(&mut s);
+        s
+    }
+}
+
+/// Steady-state ceilings implied by an `EgressPathConfig`. Each
+/// ceiling carries a tag for which configuration term produced it.
+///
+/// {{since('dev')}}
+///
+/// These are per-queue ceilings; shared limits in `additional_*`
+/// maps are reported at their full value and may be tighter in
+/// practice when the bucket is contended.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema)]
+pub struct EffectiveConstraints {
+    pub max_concurrent_dispatchers: EffectiveCeiling,
+    /// None when neither `max_message_rate` nor any
+    /// `additional_message_rate_throttles` entry nor
+    /// `max_connection_rate` is configured.
+    pub max_message_rate: Option<EffectiveCeiling>,
+    /// Pre-formatted display of the declared `max_message_rate` when
+    /// a different term (typically `ReconnectCycling`) wins the
+    /// minimum. Lets renderers show a "declared but unreachable"
+    /// annotation. Uses the operator's original units.
+    pub max_message_rate_declared: Option<String>,
+    pub max_connection_rate: Option<EffectiveCeiling>,
+    pub max_source_selection_rate: Option<EffectiveCeiling>,
+}
+
+impl EffectiveConstraints {
+    /// Render a human-readable multi-line block. The same formatting
+    /// is used by `kcli inspect-ready-q` and by the
+    /// `resolve-shaping-domain` script, so operators see the same
+    /// output regardless of where they retrieved the config.
+    pub fn render(&self, out: &mut dyn Write) -> std::fmt::Result {
+        let label_axis = |w: &mut dyn Write, label: &str, value: &str| -> std::fmt::Result {
+            writeln!(w, "  {label:<24}{value}")
+        };
+        let label_source =
+            |w: &mut dyn Write, src: &CeilingSource, primary: &str| -> std::fmt::Result {
+                let s = match src {
+                    CeilingSource::Primary => primary,
+                    CeilingSource::Additional { name } => name.as_str(),
+                    CeilingSource::ReconnectCycling => {
+                        "max_deliveries_per_connection × max_connection_rate"
+                    }
+                    CeilingSource::Other { name } => name.as_str(),
+                };
+                writeln!(w, "    source: {s}")
+            };
+
+        writeln!(out, "ceilings:")?;
+
+        label_axis(
+            out,
+            "concurrent dispatchers:",
+            &self.max_concurrent_dispatchers.display,
+        )?;
+        label_source(
+            out,
+            &self.max_concurrent_dispatchers.source,
+            "connection_limit",
+        )?;
+
+        if let Some(c) = &self.max_message_rate {
+            label_axis(out, "message rate:", &c.display)?;
+            label_source(out, &c.source, "max_message_rate")?;
+            if let Some(declared) = &self.max_message_rate_declared {
+                writeln!(
+                    out,
+                    "    declared: max_message_rate = {declared} ← effectively unreachable"
+                )?;
+            }
+        }
+
+        if let Some(c) = &self.max_connection_rate {
+            label_axis(out, "connection rate:", &c.display)?;
+            label_source(out, &c.source, "max_connection_rate")?;
+        }
+
+        if let Some(c) = &self.max_source_selection_rate {
+            label_axis(out, "source selection rate:", &c.display)?;
+            label_source(out, &c.source, "source_selection_rate")?;
+        }
+
+        Ok(())
+    }
+
+    pub fn to_human_string(&self) -> String {
+        let mut s = String::new();
+        // std::fmt::Write into a String cannot fail in practice;
+        // swallow the error to avoid a panic site here.
+        let _ = self.render(&mut s);
+        s
+    }
+
+    /// Fold another `EffectiveConstraints` into this one by taking
+    /// the per-axis minimum. The losing ceiling is shadowed; the
+    /// winner's `source` tag is preserved. The
+    /// `max_message_rate_declared` annotation is re-evaluated so a
+    /// rate that is now shadowed by an external source gets the
+    /// "declared but unreachable" treatment.
+    pub fn merge(&mut self, other: &EffectiveConstraints) {
+        // Remember the path's declared rate before merging; if a
+        // tighter external source wins, we need to surface the
+        // declared value as the unreachable annotation.
+        let path_declared = self
+            .max_message_rate
+            .as_ref()
+            .filter(|c| matches!(c.source, CeilingSource::Primary))
+            .map(|c| c.display.clone())
+            .or_else(|| self.max_message_rate_declared.clone());
+
+        merge_axis(
+            &mut self.max_concurrent_dispatchers,
+            &other.max_concurrent_dispatchers,
+        );
+        merge_optional(&mut self.max_message_rate, &other.max_message_rate);
+        merge_optional(&mut self.max_connection_rate, &other.max_connection_rate);
+        merge_optional(
+            &mut self.max_source_selection_rate,
+            &other.max_source_selection_rate,
+        );
+
+        if let Some(merged) = &self.max_message_rate {
+            if !matches!(merged.source, CeilingSource::Primary) {
+                if let Some(declared) = path_declared {
+                    self.max_message_rate_declared = Some(declared);
+                }
+            }
+        }
+    }
+}
+
+fn merge_axis(a: &mut EffectiveCeiling, b: &EffectiveCeiling) {
+    if b.value.total_cmp(&a.value).is_lt() {
+        *a = b.clone();
+    }
+}
+
+fn merge_optional(a: &mut Option<EffectiveCeiling>, b: &Option<EffectiveCeiling>) {
+    match (a.as_mut(), b) {
+        (Some(av), Some(bv)) if bv.value.total_cmp(&av.value).is_lt() => *av = bv.clone(),
+        (None, Some(bv)) => *a = Some(bv.clone()),
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod constraints_tests {
+    use super::*;
+
+    fn cfg() -> EgressPathConfig {
+        EgressPathConfig::default()
+    }
+
+    /// Derive the canonical numeric value from the same display
+    /// string the production code emits. A bare integer is a
+    /// concurrency count; a `<limit>/<period>` form is a rate (in
+    /// events per second after normalization); a `K × <rate> = <rate>`
+    /// form is the reconnect-cycling formula and uses the total on
+    /// the right side. Keeps tests as declarative `display`
+    /// strings.
+    fn value_from_display(display: &str) -> f64 {
+        if let Some((_, total)) = display.split_once(" = ") {
+            let spec = ThrottleSpec::try_from(total).unwrap();
+            return spec.limit as f64 / spec.period as f64;
+        }
+        if let Ok(spec) = ThrottleSpec::try_from(display) {
+            return spec.limit as f64 / spec.period as f64;
+        }
+        display.parse::<u64>().unwrap() as f64
+    }
+
+    fn primary(display: &str) -> EffectiveCeiling {
+        EffectiveCeiling {
+            value: value_from_display(display),
+            source: CeilingSource::Primary,
+            display: display.to_string(),
+        }
+    }
+
+    fn additional(name: &str, display: &str) -> EffectiveCeiling {
+        EffectiveCeiling {
+            value: value_from_display(display),
+            source: CeilingSource::Additional {
+                name: name.to_string(),
+            },
+            display: display.to_string(),
+        }
+    }
+
+    fn other(name: &str, display: &str) -> EffectiveCeiling {
+        EffectiveCeiling {
+            value: value_from_display(display),
+            source: CeilingSource::Other {
+                name: name.to_string(),
+            },
+            display: display.to_string(),
+        }
+    }
+
+    fn reconnect_cycling(display: &str) -> EffectiveCeiling {
+        EffectiveCeiling {
+            value: value_from_display(display),
+            source: CeilingSource::ReconnectCycling,
+            display: display.to_string(),
+        }
+    }
+
+    fn throttle(s: &str) -> ThrottleSpec {
+        ThrottleSpec::try_from(s).unwrap()
+    }
+
+    #[test]
+    fn rust_compact_round_trips() {
+        // Calling the compact TOML renderer directly on a typed
+        // EgressPathConfig preserves the array vs. map shape of
+        // each field, so the rendered text deserializes back into
+        // an equivalent EgressPathConfig.
+        let original = EgressPathConfig::default();
+        let s = mod_serde::toml_encode_pretty_compact(&original).unwrap();
+        let parsed: EgressPathConfig = toml::from_str(&s).unwrap();
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn defaults_only_concurrency() {
+        assert_eq!(
+            cfg().compute_constraints(None),
+            EffectiveConstraints {
+                max_concurrent_dispatchers: primary("32"),
+                max_message_rate: None,
+                max_message_rate_declared: None,
+                max_connection_rate: None,
+                max_source_selection_rate: None,
+            }
+        );
+    }
+
+    #[test]
+    fn additional_connection_limit_wins() {
+        let mut p = cfg();
+        p.additional_connection_limits
+            .insert("provider_shared".to_string(), LimitSpec::new(10));
+        assert_eq!(
+            p.compute_constraints(None),
+            EffectiveConstraints {
+                max_concurrent_dispatchers: additional("provider_shared", "10"),
+                max_message_rate: None,
+                max_message_rate_declared: None,
+                max_connection_rate: None,
+                max_source_selection_rate: None,
+            }
+        );
+    }
+
+    #[test]
+    fn primary_connection_limit_wins_when_smaller() {
+        let mut p = cfg();
+        p.connection_limit = LimitSpec::new(4);
+        p.additional_connection_limits
+            .insert("large_pool".to_string(), LimitSpec::new(100));
+        assert_eq!(
+            p.compute_constraints(None),
+            EffectiveConstraints {
+                max_concurrent_dispatchers: primary("4"),
+                max_message_rate: None,
+                max_message_rate_declared: None,
+                max_connection_rate: None,
+                max_source_selection_rate: None,
+            }
+        );
+    }
+
+    #[test]
+    fn primary_message_rate_only() {
+        let mut p = cfg();
+        p.max_message_rate = Some(throttle("1000/s"));
+        assert_eq!(
+            p.compute_constraints(None),
+            EffectiveConstraints {
+                max_concurrent_dispatchers: primary("32"),
+                max_message_rate: Some(primary("1000/s")),
+                max_message_rate_declared: None,
+                max_connection_rate: None,
+                max_source_selection_rate: None,
+            }
+        );
+    }
+
+    #[test]
+    fn additional_message_rate_wins() {
+        let mut p = cfg();
+        p.max_message_rate = Some(throttle("1000/s"));
+        p.additional_message_rate_throttles
+            .insert("provider_cap".to_string(), throttle("250/s"));
+        assert_eq!(
+            p.compute_constraints(None),
+            EffectiveConstraints {
+                max_concurrent_dispatchers: primary("32"),
+                max_message_rate: Some(additional("provider_cap", "250/s")),
+                max_message_rate_declared: Some("1000/s".to_string()),
+                max_connection_rate: None,
+                max_source_selection_rate: None,
+            }
+        );
+    }
+
+    #[test]
+    fn additional_message_rate_throttles_mixed_periods() {
+        // Three additional throttles with mixed periods: the smallest
+        // canonical rate (10/hr ≈ 0.0028 msg/s) must win the min,
+        // even though numerically 5/s has the smallest *literal*
+        // limit. This exercises the period-normalized comparison.
+        let mut p = cfg();
+        p.additional_message_rate_throttles
+            .insert("per_hour".to_string(), throttle("10/hr"));
+        p.additional_message_rate_throttles
+            .insert("per_minute".to_string(), throttle("8/min"));
+        p.additional_message_rate_throttles
+            .insert("per_second".to_string(), throttle("5/s"));
+        assert_eq!(
+            p.compute_constraints(None),
+            EffectiveConstraints {
+                max_concurrent_dispatchers: primary("32"),
+                max_message_rate: Some(additional("per_hour", "10/h")),
+                max_message_rate_declared: None,
+                max_connection_rate: None,
+                max_source_selection_rate: None,
+            }
+        );
+    }
+
+    #[test]
+    fn hourly_rate_preserves_units() {
+        // Operator-configured "10000/hr" should round-trip as
+        // "10000/h" via ThrottleSpec::Display, not collapse to a
+        // per-second decimal like "2.78/s". Canonical value is
+        // still events per second for numeric comparison.
+        let mut p = cfg();
+        p.max_message_rate = Some(throttle("10000/hr"));
+        assert_eq!(
+            p.compute_constraints(None),
+            EffectiveConstraints {
+                max_concurrent_dispatchers: primary("32"),
+                max_message_rate: Some(primary("10000/h")),
+                max_message_rate_declared: None,
+                max_connection_rate: None,
+                max_source_selection_rate: None,
+            }
+        );
+    }
+
+    #[test]
+    fn reconnect_cycling_wins() {
+        // K = 10, C = 10/s => 100 msg/s ceiling, smaller than the
+        // 1000/s max_message_rate.
+        let mut p = cfg();
+        p.max_message_rate = Some(throttle("1000/s"));
+        p.max_deliveries_per_connection = 10;
+        p.max_connection_rate = Some(throttle("10/s"));
+        assert_eq!(
+            p.compute_constraints(None),
+            EffectiveConstraints {
+                max_concurrent_dispatchers: primary("32"),
+                max_message_rate: Some(reconnect_cycling("10 × 10/s = 100/s")),
+                max_message_rate_declared: Some("1000/s".to_string()),
+                max_connection_rate: Some(primary("10/s")),
+                max_source_selection_rate: None,
+            }
+        );
+    }
+
+    #[test]
+    fn reconnect_cycling_does_not_bind_with_large_k() {
+        // K = 1024 (default), C = 10/s => 10240 msg/s synthetic,
+        // not binding when max_message_rate is 1000/s. Primary wins
+        // and no declared-but-unreachable annotation is needed.
+        let mut p = cfg();
+        p.max_message_rate = Some(throttle("1000/s"));
+        p.max_connection_rate = Some(throttle("10/s"));
+        assert_eq!(
+            p.compute_constraints(None),
+            EffectiveConstraints {
+                max_concurrent_dispatchers: primary("32"),
+                max_message_rate: Some(primary("1000/s")),
+                max_message_rate_declared: None,
+                max_connection_rate: Some(primary("10/s")),
+                max_source_selection_rate: None,
+            }
+        );
+    }
+
+    #[test]
+    fn reconnect_cycling_alone_sets_message_rate() {
+        // No explicit max_message_rate, but K × C is still a
+        // computable ceiling and should be reported. Nothing was
+        // declared, so no annotation.
+        let mut p = cfg();
+        p.max_deliveries_per_connection = 5;
+        p.max_connection_rate = Some(throttle("2/s"));
+        assert_eq!(
+            p.compute_constraints(None),
+            EffectiveConstraints {
+                max_concurrent_dispatchers: primary("32"),
+                max_message_rate: Some(reconnect_cycling("5 × 2/s = 10/s")),
+                max_message_rate_declared: None,
+                max_connection_rate: Some(primary("2/s")),
+                max_source_selection_rate: None,
+            }
+        );
+    }
+
+    #[test]
+    fn merge_external_message_rate_wins() {
+        // Path config declares max_message_rate = 1000/s, but an
+        // external source (e.g. a scheduled queue) declares 100/s.
+        // The merged result picks the external term and surfaces the
+        // path's declared rate as "effectively unreachable".
+        let mut p = cfg();
+        p.max_message_rate = Some(throttle("1000/s"));
+        let external = EffectiveConstraints {
+            max_concurrent_dispatchers: EffectiveCeiling {
+                value: f64::INFINITY,
+                source: CeilingSource::Other {
+                    name: "queue config".to_string(),
+                },
+                display: "∞".to_string(),
+            },
+            max_message_rate: Some(other("scheduled queue max_message_rate", "100/s")),
+            max_message_rate_declared: None,
+            max_connection_rate: None,
+            max_source_selection_rate: None,
+        };
+        assert_eq!(
+            p.compute_constraints(Some(&external)),
+            EffectiveConstraints {
+                max_concurrent_dispatchers: primary("32"),
+                max_message_rate: Some(other("scheduled queue max_message_rate", "100/s")),
+                max_message_rate_declared: Some("1000/s".to_string()),
+                max_connection_rate: None,
+                max_source_selection_rate: None,
+            }
+        );
+    }
+
+    #[test]
+    fn merge_external_does_not_bind() {
+        // Path config declares max_message_rate = 100/s; external
+        // declares 1000/s. Path's primary wins; no annotation.
+        let mut p = cfg();
+        p.max_message_rate = Some(throttle("100/s"));
+        let external = EffectiveConstraints {
+            max_concurrent_dispatchers: EffectiveCeiling {
+                value: f64::INFINITY,
+                source: CeilingSource::Other {
+                    name: "queue config".to_string(),
+                },
+                display: "∞".to_string(),
+            },
+            max_message_rate: Some(other("scheduled queue max_message_rate", "1000/s")),
+            max_message_rate_declared: None,
+            max_connection_rate: None,
+            max_source_selection_rate: None,
+        };
+        assert_eq!(
+            p.compute_constraints(Some(&external)),
+            EffectiveConstraints {
+                max_concurrent_dispatchers: primary("32"),
+                max_message_rate: Some(primary("100/s")),
+                max_message_rate_declared: None,
+                max_connection_rate: None,
+                max_source_selection_rate: None,
+            }
+        );
+    }
+
+    #[test]
+    fn render_external_wins_with_annotation() {
+        let mut p = cfg();
+        p.max_message_rate = Some(throttle("1000/s"));
+        let external = EffectiveConstraints {
+            max_concurrent_dispatchers: EffectiveCeiling {
+                value: f64::INFINITY,
+                source: CeilingSource::Other {
+                    name: "queue config".to_string(),
+                },
+                display: "∞".to_string(),
+            },
+            max_message_rate: Some(other("scheduled queue max_message_rate", "100/s")),
+            max_message_rate_declared: None,
+            max_connection_rate: None,
+            max_source_selection_rate: None,
+        };
+        let c = p.compute_constraints(Some(&external));
+        k9::snapshot!(
+            c.to_human_string(),
+            "
+ceilings:
+  concurrent dispatchers: 32
+    source: connection_limit
+  message rate:           100/s
+    source: scheduled queue max_message_rate
+    declared: max_message_rate = 1000/s ← effectively unreachable
+
+"
+        );
+    }
+
+    #[test]
+    fn source_selection_rate() {
+        let mut p = cfg();
+        p.source_selection_rate = Some(throttle("5/s"));
+        assert_eq!(
+            p.compute_constraints(None),
+            EffectiveConstraints {
+                max_concurrent_dispatchers: primary("32"),
+                max_message_rate: None,
+                max_message_rate_declared: None,
+                max_connection_rate: None,
+                max_source_selection_rate: Some(primary("5/s")),
+            }
+        );
+    }
+
+    #[test]
+    fn render_defaults() {
+        let c = cfg().compute_constraints(None);
+        k9::snapshot!(
+            c.to_human_string(),
+            "
+ceilings:
+  concurrent dispatchers: 32
+    source: connection_limit
+
+"
+        );
+    }
+
+    #[test]
+    fn render_primary_message_rate_no_annotation() {
+        // max_message_rate is the binding term; no declared-but-
+        // unreachable annotation should appear.
+        let mut p = cfg();
+        p.max_message_rate = Some(throttle("1000/s"));
+        let c = p.compute_constraints(None);
+        k9::snapshot!(
+            c.to_human_string(),
+            "
+ceilings:
+  concurrent dispatchers: 32
+    source: connection_limit
+  message rate:           1000/s
+    source: max_message_rate
+
+"
+        );
+    }
+
+    #[test]
+    fn render_reconnect_cycling_with_annotation() {
+        let mut p = cfg();
+        p.max_message_rate = Some(throttle("1000/s"));
+        p.max_deliveries_per_connection = 10;
+        p.max_connection_rate = Some(throttle("10/s"));
+        let c = p.compute_constraints(None);
+        k9::snapshot!(
+            c.to_human_string(),
+            "
+ceilings:
+  concurrent dispatchers: 32
+    source: connection_limit
+  message rate:           10 × 10/s = 100/s
+    source: max_deliveries_per_connection × max_connection_rate
+    declared: max_message_rate = 1000/s ← effectively unreachable
+  connection rate:        10/s
+    source: max_connection_rate
+
+"
+        );
+    }
+
+    #[test]
+    fn render_additional_throttle_winning() {
+        let mut p = cfg();
+        p.max_message_rate = Some(throttle("1000/s"));
+        p.additional_message_rate_throttles
+            .insert("provider_cap".to_string(), throttle("250/s"));
+        let c = p.compute_constraints(None);
+        k9::snapshot!(
+            c.to_human_string(),
+            "
+ceilings:
+  concurrent dispatchers: 32
+    source: connection_limit
+  message rate:           250/s
+    source: provider_cap
+    declared: max_message_rate = 1000/s ← effectively unreachable
+
+"
+        );
     }
 }

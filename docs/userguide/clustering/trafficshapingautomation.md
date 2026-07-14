@@ -1,3 +1,7 @@
+---
+description: Deploy KumoMTA Traffic Shaping Automation in a cluster, configuring the tsa-daemon and trusted hosts so every node processes tempfail and permfail events.
+---
+
 # Deploying Traffic Shaping Automation
 
 The `tsa-daemon` process communicates with KumoMTA nodes to process tempfail and permfail events and issue commands to the KumoMTA nodes based on those events.
@@ -6,7 +10,7 @@ When running in a clustered environment each node needs to talk to each `tsa-dae
 
 This can either be architected as one daemon per node or one or more daemons common to the cluster (see the [Deployment Architecture](./deployment.md) page).
 
-When configuring clustered Traffic Shaping Automation, the steps are similar to what is covered in the [Configuring Traffic Shaping Automation](../configuration/trafficshaping.md) page, but with some minor modifications.
+When configuring clustered Traffic Shaping Automation, the steps are similar to what is covered in the [Traffic Shaping Automation](../trafficshaping/automation.md) page, but with some minor modifications.
 
 1. In the `tsa_init.lua` file, the `tsa_init` handler must use a `trusted_hosts` list that includes all nodes in the cluster:
 

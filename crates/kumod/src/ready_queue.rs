@@ -1,4 +1,4 @@
-use crate::delivery_metrics::{DeliveryMetrics, ReadyCountBundle};
+use crate::delivery_metrics::{DeliveryMetrics, DispatcherDispositionCounters, ReadyCountBundle};
 use crate::egress_source::{
     err_match_anyhow, BindError, ConnectError, EgressSource, ProxyBindError,
 };
@@ -32,6 +32,7 @@ use kumo_api_types::egress_path::{
 };
 use kumo_prometheus::declare_metric;
 use kumo_server_common::config_handle::ConfigHandle;
+use kumo_server_common::hashable_weak::HashableWeak;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription, ShuttingDownError};
 use kumo_server_memory::{
     get_headroom, memory_status, subscribe_to_memory_status_changes_async, MemoryStatus,
@@ -42,10 +43,11 @@ use message::Message;
 use parking_lot::FairMutex;
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::Serialize;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::future::Future;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, LazyLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, LazyLock, Weak};
 use std::time::{Duration, Instant};
 use throttle::limit::{LimitLease, LimitSpecWithDuration};
 use throttle::ThrottleSpec;
@@ -457,7 +459,6 @@ impl ReadyQueueManager {
 
             Arc::new(ReadyQueue {
                 name: name.clone(),
-                queue_name_for_config_change_purposes_only: queue_name.to_string(),
                 ready,
                 mx,
                 notify_dispatcher,
@@ -475,6 +476,7 @@ impl ReadyQueueManager {
                 next_config_refresh: FairMutex::new(next_config_refresh),
                 config_epoch: FairMutex::new(config_epoch),
                 states: Arc::new(FairMutex::new(ReadyQueueStates::default())),
+                scheduled_queues: FairMutex::new(HashSet::new()),
             })
         });
         Ok(handle.clone())
@@ -569,6 +571,33 @@ impl ReadyQueueManager {
                 }
             }
 
+            // Project the soonest time any active dispatcher could cross
+            // the watchdog threshold, plus a small positive jitter to
+            // desynchronize wakeups across queues that started together.
+            // A healthy dispatcher that keeps bumping its last_activity
+            // pushes its projected crossing time forward each tick, so
+            // this naturally backs off to roughly one wakeup per
+            // threshold interval per queue under normal load.
+            if !shutting_down {
+                let threshold = queue.calculate_dispatcher_progress_watchdog_timeout();
+                let earliest_remaining = queue
+                    .connections
+                    .lock()
+                    .iter()
+                    .filter(|slot| !slot.handle.is_finished())
+                    .map(|slot| threshold.saturating_sub(slot.state.last_activity.elapsed()))
+                    .min();
+                if let Some(remaining) = earliest_remaining {
+                    let jitter_range = (remaining.as_secs_f32() * 0.1).max(0.5);
+                    let jitter = rand::random::<f32>() * jitter_range;
+                    let wake_in = remaining + Duration::from_secs_f32(jitter);
+                    let watchdog_wake = Instant::now() + wake_in;
+                    if watchdog_wake < age_out_time {
+                        age_out_time = watchdog_wake;
+                    }
+                }
+            }
+
             tokio::select! {
                 _ = wait_for_shutdown => {
                     shutting_down = true;
@@ -642,6 +671,8 @@ impl ReadyQueueManager {
                     }
                 },
             };
+
+            queue.check_dispatcher_progress();
 
             if queue.reapable(&last_notify, &suspend) {
                 if MANAGER
@@ -723,14 +754,105 @@ pub struct ReadyQueueStates {
     pub connection_limited: Option<QueueState>,
 }
 
+pub use kumo_api_types::DispatcherPhase;
+
+/// Monotonic timestamp suitable for lock-free liveness tracking,
+/// stored as nanoseconds since process start.
+#[derive(Debug)]
+pub struct AtomicInstant(AtomicU64);
+
+impl AtomicInstant {
+    pub fn now() -> Self {
+        Self(AtomicU64::new(elapsed_nanos()))
+    }
+
+    pub fn touch(&self) {
+        self.0.store(elapsed_nanos(), Ordering::Relaxed);
+    }
+
+    pub fn elapsed(&self) -> Duration {
+        let now = elapsed_nanos();
+        let stored = self.0.load(Ordering::Relaxed);
+        Duration::from_nanos(now.saturating_sub(stored))
+    }
+}
+
+fn elapsed_nanos() -> u64 {
+    static PROCESS_START: LazyLock<Instant> = LazyLock::new(Instant::now);
+    PROCESS_START.elapsed().as_nanos() as u64
+}
+
+#[derive(Debug)]
+pub struct DispatcherState {
+    pub last_activity: AtomicInstant,
+    pub phase: ArcSwap<DispatcherPhase>,
+    pub detail: ArcSwap<Option<String>>,
+    pub session_id: Uuid,
+    pub started_at: Instant,
+    pub aborted_by_watchdog: AtomicBool,
+    pub disposition_counters: DispatcherDispositionCounters,
+}
+
+impl DispatcherState {
+    pub fn new(session_id: Uuid, counters: DispatcherDispositionCounters) -> Arc<Self> {
+        Arc::new(Self {
+            last_activity: AtomicInstant::now(),
+            phase: ArcSwap::from_pointee(DispatcherPhase::Starting),
+            detail: ArcSwap::from_pointee(None),
+            session_id,
+            started_at: Instant::now(),
+            aborted_by_watchdog: AtomicBool::new(false),
+            disposition_counters: counters,
+        })
+    }
+
+    /// Bump last_activity without changing phase.
+    pub fn touch(&self) {
+        self.last_activity.touch();
+    }
+
+    pub fn enter_phase(&self, phase: DispatcherPhase) {
+        self.phase.store(Arc::new(phase));
+        self.detail.store(Arc::new(None));
+        self.touch();
+    }
+
+    pub fn set_detail(&self, detail: impl Into<String>) {
+        self.detail.store(Arc::new(Some(detail.into())));
+        self.touch();
+    }
+
+    /// Render a single-line plain-text representation of this state,
+    /// suitable for embedding in log content or other text contexts.
+    pub fn summary_line(&self) -> String {
+        let phase = self.phase.load_full();
+        let detail = self.detail.load_full();
+        let detail_str = match detail.as_deref() {
+            Some(d) => format!("{d:?}"),
+            None => "None".to_string(),
+        };
+        format!(
+            "phase={:?} detail={} session={} age={}",
+            *phase,
+            detail_str,
+            self.session_id,
+            humantime::format_duration(self.started_at.elapsed()),
+        )
+    }
+}
+
+pub struct DispatcherSlot {
+    pub handle: JoinHandle<()>,
+    pub state: Arc<DispatcherState>,
+}
+
 pub struct ReadyQueue {
     name: String,
-    queue_name_for_config_change_purposes_only: String,
     ready: Arc<Fifo>,
     mx: Option<Arc<MailExchanger>>,
     notify_maintainer: Arc<Notify>,
     notify_dispatcher: Arc<Notify>,
-    connections: FairMutex<Vec<JoinHandle<()>>>,
+    connections: FairMutex<Vec<DispatcherSlot>>,
     num_connections: Arc<AtomicUsize>,
     metrics: DeliveryMetrics,
     activity: Activity,
@@ -743,11 +865,213 @@ pub struct ReadyQueue {
     next_config_refresh: FairMutex<Instant>,
     config_epoch: FairMutex<ConfigEpoch>,
     pub states: Arc<FairMutex<ReadyQueueStates>>,
+    /// Scheduled queues that have promoted messages into this ready
+    /// queue. Used to find a live `Queue` for config refresh
+    /// purposes and (optionally) to surface the fan-in for
+    /// diagnostic tooling. Pruned by the maintainer when entries
+    /// no longer upgrade.
+    scheduled_queues: FairMutex<HashSet<HashableWeak<Queue>>>,
 }
 
 impl ReadyQueue {
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Record that the given scheduled queue has promoted a message
+    /// into this ready queue. Idempotent at pointer identity; the
+    /// set deduplicates calls for the same `Arc<Queue>`.
+    pub fn note_scheduled_queue(&self, queue: &Arc<Queue>) {
+        let mut scheduled_queues = self.scheduled_queues.lock();
+        scheduled_queues.insert(HashableWeak::new(queue));
+    }
+
+    /// Drop scheduled queue entries whose underlying `Arc<Queue>`
+    /// has been dropped. Called periodically by the maintainer.
+    pub fn sweep_dead_scheduled_queues(&self) {
+        let mut scheduled_queues = self.scheduled_queues.lock();
+        scheduled_queues.retain(|hw| hw.0.upgrade().is_some());
+    }
+
+    /// Snapshot of currently-live scheduled queue names. Filters
+    /// dead entries on the fly; does not mutate. Sorted so the
+    /// output is human-friendly regardless of the underlying set's
+    /// iteration order.
+    pub fn scheduled_queue_names(&self) -> Vec<String> {
+        let scheduled_queues = self.scheduled_queues.lock();
+        let mut names: Vec<String> = scheduled_queues
+            .iter()
+            .filter_map(|hw| hw.0.upgrade().map(|q| q.name.to_string()))
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// Returns the name of any currently-live scheduled queue, or
+    /// None when none are registered. Which entry is returned is
+    /// unspecified — callers must consider whether this is acceptable
+    /// for their use case. For example, the Lua dispatcher uses
+    /// this to obtain a representative `(domain, tenant, campaign)`
+    /// decomposition for its constructor hook on Lua-protocol
+    /// queues, where the operator has implicitly accepted that
+    /// fan-in into the same constructor is one-size-fits-all.
+    pub fn pick_unspecified_live_scheduled_queue_name(&self) -> Option<String> {
+        let scheduled_queues = self.scheduled_queues.lock();
+        scheduled_queues
+            .iter()
+            .find_map(|hw| hw.0.upgrade().map(|q| q.name.to_string()))
+    }
+
+    /// Build the response payload for the inspect-ready-q endpoint.
+    pub fn build_inspect_response(
+        &self,
+        include_scheduled_queues: bool,
+    ) -> kumo_api_types::InspectReadyQV1Response {
+        use chrono::Utc;
+        let now = Utc::now();
+        let watchdog_threshold = self.calculate_dispatcher_progress_watchdog_timeout();
+
+        let (connection_rate_throttled, connection_limited) = {
+            let s = self.states.lock();
+            (
+                s.connection_rate_throttled
+                    .as_ref()
+                    .map(|st| kumo_api_types::QueueState {
+                        context: st.context.clone(),
+                        since: st.since,
+                    }),
+                s.connection_limited
+                    .as_ref()
+                    .map(|st| kumo_api_types::QueueState {
+                        context: st.context.clone(),
+                        since: st.since,
+                    }),
+            )
+        };
+
+        let suspended =
+            crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry::get_all_v1()
+                .into_iter()
+                .find(|entry| entry.name == self.name);
+
+        let state = kumo_api_types::ReadyQueueStateSnapshot {
+            ready_count: self.ready_count(),
+            connection_count: self.num_connections.load(Ordering::Relaxed),
+            connection_rate_throttled,
+            connection_limited,
+            suspended,
+            watchdog_threshold,
+        };
+
+        let dispatchers = {
+            let connections = self.connections.lock();
+            connections
+                .iter()
+                .filter(|slot| !slot.handle.is_finished())
+                .map(|slot| {
+                    let age = slot.state.started_at.elapsed();
+                    let time_in_current_phase = slot.state.last_activity.elapsed();
+                    let phase = (**slot.state.phase.load()).clone();
+                    let detail = slot
+                        .state
+                        .detail
+                        .load_full()
+                        .as_deref()
+                        .map(|s| s.to_string());
+                    let messages_delivered = slot.state.disposition_counters.delivered.get() as u64;
+                    let messages_transfailed =
+                        slot.state.disposition_counters.transfail.get() as u64;
+                    let messages_failed = slot.state.disposition_counters.fail.get() as u64;
+                    let total_actions = messages_delivered + messages_transfailed + messages_failed;
+                    let age_secs = age.as_secs_f64();
+                    let overall_rate_per_sec = if age_secs > 0.0 {
+                        total_actions as f64 / age_secs
+                    } else {
+                        0.0
+                    };
+                    kumo_api_types::DispatcherSummary {
+                        session_id: slot.state.session_id,
+                        started_at: now
+                            - chrono::Duration::from_std(age).unwrap_or(chrono::Duration::zero()),
+                        age,
+                        phase,
+                        detail,
+                        time_in_current_phase,
+                        messages_delivered,
+                        messages_transfailed,
+                        messages_failed,
+                        delivered_this_connection: 0,
+                        overall_rate_per_sec,
+                    }
+                })
+                .collect()
+        };
+
+        let mx = self
+            .mx
+            .as_ref()
+            .map(|m| kumo_api_types::egress_path::MxResolution::from(&**m));
+        let protocol = self.protocol.metrics_protocol_name().to_string();
+        let path_config = (**self.path_config.borrow()).clone();
+        let constraints = path_config.compute_constraints(None);
+
+        let scheduled_queue_names = if include_scheduled_queues {
+            Some(self.scheduled_queue_names())
+        } else {
+            None
+        };
+
+        kumo_api_types::InspectReadyQV1Response {
+            queue_name: self.name.clone(),
+            mx,
+            egress_source: self.egress_source.name.clone(),
+            egress_pool: self.egress_pool.clone(),
+            protocol,
+            state,
+            path_config,
+            constraints,
+            scheduled_queue_names,
+            dispatchers,
+            now,
+        }
+    }
+
+    /// Abort the dispatcher slot whose state has the given session_id.
+    /// Returns true if a matching slot was found.
+    pub fn abort_dispatcher_by_session(&self, session_id: uuid::Uuid) -> bool {
+        let connections = self.connections.lock();
+        for slot in connections.iter() {
+            if slot.state.session_id == session_id && !slot.handle.is_finished() {
+                slot.handle.abort();
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Effective progress watchdog timeout, honoring the per-egress
+    /// config or deriving a per-protocol default.
+    pub fn calculate_dispatcher_progress_watchdog_timeout(&self) -> Duration {
+        let path = self.path_config.borrow();
+        if let Some(configured) = path.dispatcher_progress_watchdog_timeout {
+            return configured;
+        }
+        let timeouts = &path.client_timeouts;
+        let floor = Duration::from_secs(60);
+        match &self.protocol {
+            DeliveryProto::Smtp { .. } | DeliveryProto::Xfer { .. } => {
+                let longest = timeouts
+                    .mail_from_timeout
+                    .max(timeouts.rcpt_to_timeout)
+                    .max(timeouts.data_timeout)
+                    .max(timeouts.data_dot_timeout);
+                longest.saturating_mul(2).max(floor)
+            }
+            DeliveryProto::Lua { .. }
+            | DeliveryProto::HttpInjectionGenerator
+            | DeliveryProto::DeferredSmtpInjection => Duration::from_secs(600),
+            DeliveryProto::Maildir { .. } | DeliveryProto::Null => floor,
+        }
     }
 
     pub fn make_reservation(&self) -> Option<FifoReservation> {
@@ -804,7 +1128,13 @@ impl ReadyQueue {
         &self.path_config
     }
 
-    pub async fn redeem_reservation(&self, msg: Message, reservation: FifoReservation) {
+    pub async fn redeem_reservation(
+        &self,
+        msg: Message,
+        reservation: FifoReservation,
+        scheduled_queue: &Arc<Queue>,
+    ) {
+        self.note_scheduled_queue(scheduled_queue);
         let action = match memory_status() {
             MemoryStatus::LowMemory => self.path_config.borrow().low_memory_reduction_policy,
             MemoryStatus::NoMemory => self.path_config.borrow().no_memory_reduction_policy,
@@ -953,10 +1283,42 @@ impl ReadyQueue {
         }
     }
 
+    /// Abort dispatcher slots that have not advanced within the
+    /// configured threshold for this queue.
+    fn check_dispatcher_progress(&self) {
+        let threshold = self.calculate_dispatcher_progress_watchdog_timeout();
+        let connections = self.connections.lock();
+        for slot in connections.iter() {
+            if slot.handle.is_finished() {
+                continue;
+            }
+            let elapsed = slot.state.last_activity.elapsed();
+            if elapsed < threshold {
+                continue;
+            }
+            let phase = slot.state.phase.load_full();
+            let detail = slot.state.detail.load_full();
+            tracing::error!(
+                queue = %self.name,
+                session_id = %slot.state.session_id,
+                phase = ?*phase,
+                detail = ?detail.as_deref(),
+                time_in_phase = ?elapsed,
+                age = ?slot.state.started_at.elapsed(),
+                "dispatcher progress watchdog: aborting task that has not advanced for {elapsed:?} (threshold {threshold:?})"
+            );
+            slot.state
+                .aborted_by_watchdog
+                .store(true, Ordering::Relaxed);
+            slot.handle.abort();
+            self.metrics.watchdog_aborted.inc();
+        }
+    }
+
     fn abort_all_connections(&self) -> usize {
         let connections = self.connections.lock();
-        for handle in connections.iter() {
-            handle.abort();
+        for slot in connections.iter() {
+            slot.handle.abort();
         }
         connections.len()
     }
@@ -978,9 +1340,12 @@ impl ReadyQueue {
         // Prune completed connection tasks and obtain the number of connections
         let current_connection_count = {
             let mut connections = self.connections.lock();
-            connections.retain(|handle| !handle.is_finished());
+            connections.retain(|slot| !slot.handle.is_finished());
             connections.len()
         };
+
+        // Drop entries whose scheduled queue has been reaped.
+        self.sweep_dead_scheduled_queues();
 
         let path_config = self.path_config.borrow();
 
@@ -1018,6 +1383,22 @@ impl ReadyQueue {
             return;
         }
 
+        // Spool-health check goes before the admin-suspend check.
+        // The ready->scheduled drain reuses the same machinery; each
+        // re-inserted message is funneled back through insert_ready,
+        // which itself short-circuits on unhealthy and produces a
+        // per-message TransientFailure record there.
+        if crate::spool::delivery_suspension_reason().is_some() {
+            tracing::trace!("{} draining ready queue: spool unhealthy", self.name,);
+            self.reinsert_ready_queue(
+                "spool unhealthy",
+                InsertReason::ReadyQueueWasSuspended.into(),
+            )
+            .await;
+            self.wakeup_all_dispatchers();
+            return;
+        }
+
         if let Some(suspend) = suspend {
             let duration = suspend.get_duration();
             tracing::trace!(
@@ -1026,6 +1407,24 @@ impl ReadyQueue {
             );
             self.reinsert_ready_queue("suspend", InsertReason::ReadyQueueWasSuspended.into())
                 .await;
+            self.wakeup_all_dispatchers();
+            return;
+        }
+
+        // Re-route already-queued messages around the unhealthy source.
+        if let Some(remaining) =
+            crate::egress_source::source_health::suspension(&self.egress_source.name)
+        {
+            tracing::trace!(
+                "{} draining ready queue: source {} is unhealthy and suspended for {remaining:?}",
+                self.name,
+                self.egress_source.name,
+            );
+            self.reinsert_ready_queue(
+                "source is unhealthy and suspended",
+                InsertReason::SourceIsUnhealthyAndSuspended.into(),
+            )
+            .await;
             self.wakeup_all_dispatchers();
             return;
         }
@@ -1116,25 +1515,26 @@ impl ReadyQueue {
 
             // Open a new connection
             let name = self.name.clone();
-            let queue_name_for_config_change_purposes_only =
-                self.queue_name_for_config_change_purposes_only.clone();
+            let ready_queue_weak = Arc::downgrade(self);
             let mx = self.mx.clone();
             let ready = Arc::clone(&self.ready);
             let notify_dispatcher = self.notify_dispatcher.clone();
             let path_config = self.path_config.clone();
             let queue_config = self.queue_config.clone();
-            let metrics = self.metrics.clone();
+            let (metrics, disposition_counters) = self.metrics.for_dispatcher();
             let egress_source = self.egress_source.clone();
             let egress_pool = self.egress_pool.clone();
             let consecutive_connection_failures = self.consecutive_connection_failures.clone();
             let states = self.states.clone();
             let num_connections = self.num_connections.clone();
+            let state = DispatcherState::new(Uuid::new_v4(), disposition_counters);
+            let state_for_task = state.clone();
 
             tracing::trace!("spawning client for {name}");
             if let Ok(handle) = self.readyq_spawn(format!("smtp client {name}"), async move {
                 if let Err(err) = Dispatcher::run(
                     &name,
-                    queue_name_for_config_change_purposes_only,
+                    ready_queue_weak,
                     mx,
                     ready,
                     notify_dispatcher,
@@ -1147,6 +1547,7 @@ impl ReadyQueue {
                     leases,
                     states,
                     num_connections,
+                    state_for_task,
                 )
                 .await
                 {
@@ -1156,7 +1557,9 @@ impl ReadyQueue {
                     );
                 }
             }) {
-                self.connections.lock().push(handle);
+                self.connections
+                    .lock()
+                    .push(DispatcherSlot { handle, state });
             }
         }
     }
@@ -1205,25 +1608,41 @@ impl ReadyQueue {
         *self.config_epoch.lock() = *epoch;
         tracing::trace!("perform_config_refresh for {}", self.name);
 
+        // Pick any live scheduled queue to drive the refresh. Its
+        // queue_config is the source of truth; the ready queue's
+        // own cached queue_config is just a derivative.
+        let live = {
+            let scheduled_queues = self.scheduled_queues.lock();
+            scheduled_queues.iter().find_map(|hw| hw.0.upgrade())
+        };
+        let Some(scheduled_queue) = live else {
+            tracing::trace!(
+                "perform_config_refresh: no live scheduled queues for {}, skipping",
+                self.name
+            );
+            return;
+        };
+
         match ReadyQueueManager::compute_config(
-            &self.queue_name_for_config_change_purposes_only,
-            &self.queue_config,
+            &scheduled_queue.name,
+            &scheduled_queue.queue_config,
             &self.egress_source.name,
         )
         .await
         {
             Ok(ReadyQueueConfig { path_config, .. }) => {
                 if self.protocol != self.queue_config.borrow().protocol {
-                    // This can happen if eg: the smtp protocol has its mx_list changed.
-                    // In this situation it is very important that we stop trying to
-                    // service the ready queue with an existing maintainer, as the
-                    // ready queue has what amounts to cached copies of data in its
-                    // `queue_name_for_config_change_purposes_only` and `queue_config`
-                    // fields: the former name may no longer be the correct canonical
-                    // name for the current protocol settings, and the latter is a
-                    // derivative of the former.
-                    // We remove this ready queue instance from the manager and wake it
-                    // up so that it can manage winding down any current connections.
+                    // The cached `protocol` no longer matches what the
+                    // current queue config produces (e.g. the smtp protocol
+                    // had its mx_list changed, or a custom_lua constructor
+                    // was reassigned). Downstream behaviours — queue name
+                    // formula, MX vs lua resolution, mx caching — all
+                    // depend on the protocol shape, so the cached state is
+                    // inconsistent. Remove this ready queue from the
+                    // manager and wake it up so it can wind down its
+                    // current connections; a fresh instance with the
+                    // correct protocol will be created on the next
+                    // promotion.
                     tracing::trace!("{}: protocol changed, will replace ready queue", self.name);
                     if let Some((_name, removed)) = MANAGER
                         .queues
@@ -1319,13 +1738,9 @@ pub trait QueueDispatcher: Debug + Send {
 
 pub struct Dispatcher {
     pub name: String,
-    /// You probably do not want to use queue_name_for_config_change_purposes_only
-    /// in an SMTP Dispatcher, because it is a snapshot of the queue name of
-    /// the very first scheduled queue to feed into the associated ReadyQueue.
-    /// There may be many different scheduled queues feeding in, so if you
-    /// want to resolve to the appropriate scheduled queue, you must do so
-    /// via msg.get_queue_name() instead of using this stashed value.
-    pub queue_name_for_config_change_purposes_only: String,
+    /// Weak back-reference to the parent ReadyQueue, available for
+    /// dispatcher impls that need to query its state.
+    pub ready_queue: Weak<ReadyQueue>,
     pub ready: Arc<Fifo>,
     pub notify_dispatcher: Arc<Notify>,
     pub path_config: ConfigHandle<EgressPathConfig>,
@@ -1344,6 +1759,7 @@ pub struct Dispatcher {
     pub states: Arc<FairMutex<ReadyQueueStates>>,
     active_bounce: ArcSwap<Option<CachedEntry<AdminBounceEntry>>>,
     num_connections: Arc<AtomicUsize>,
+    pub state: Arc<DispatcherState>,
 }
 
 impl Drop for Dispatcher {
@@ -1352,15 +1768,41 @@ impl Drop for Dispatcher {
         let msgs = std::mem::take(&mut self.msgs);
         let activity = self.activity.clone();
         let name = self.name.to_string();
+        let site = self.name.clone();
+        let state = self.state.clone();
+        let session_id = self.state.session_id;
+        let watchdog = self.state.aborted_by_watchdog.load(Ordering::Relaxed);
+        let provider_name = self.path_config.borrow().provider_name.clone();
+        let egress_pool = self.egress_pool.clone();
+        let egress_source = self.egress_source.name.clone();
+        let delivery_protocol = self.delivery_protocol.clone();
         self.num_connections.fetch_sub(1, Ordering::SeqCst);
         self.readyq_spawn("Dispatcher::drop".to_string(), async move {
             let had_msgs = !msgs.is_empty();
 
-            for msg in msgs {
-                if activity.is_shutting_down() {
-                    Queue::save_if_needed_and_log(&msg, None).await;
-                } else {
-                    let response = Response {
+            let (response, context) = if watchdog {
+                let elapsed = humantime::format_duration(state.last_activity.elapsed());
+                let content = format!(
+                    "dispatcher watchdog aborted task; {} time_in_phase={elapsed}",
+                    state.summary_line()
+                );
+                (
+                    Response {
+                        code: 451,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 4,
+                            subject: 4,
+                            detail: 1,
+                        }),
+                        content,
+                        command: None,
+                    },
+                    InsertContext::from(InsertReason::DispatcherDrop)
+                        .add(InsertReason::LoggedTransientFailure),
+                )
+            } else {
+                (
+                    Response {
                         code: 451,
                         enhanced_code: Some(EnhancedStatusCode {
                             class: 4,
@@ -1370,14 +1812,40 @@ impl Drop for Dispatcher {
                         content: "KumoMTA internal: returning message to scheduled queue"
                             .to_string(),
                         command: None,
-                    };
+                    },
+                    InsertReason::DispatcherDrop.into(),
+                )
+            };
 
+            for msg in msgs {
+                if activity.is_shutting_down() {
+                    Queue::save_if_needed_and_log(&msg, None).await;
+                } else {
+                    if watchdog {
+                        log_disposition(LogDisposition {
+                            kind: RecordType::Delayed,
+                            msg: msg.clone(),
+                            site: &site,
+                            peer_address: None,
+                            response: response.clone(),
+                            egress_pool: Some(&egress_pool),
+                            egress_source: Some(&egress_source),
+                            relay_disposition: None,
+                            delivery_protocol: Some(&delivery_protocol),
+                            tls_info: None,
+                            source_address: None,
+                            provider: provider_name.as_deref(),
+                            session_id: Some(session_id),
+                            recipient_list: None,
+                        })
+                        .await;
+                    }
                     if let Err(err) = QueueManager::requeue_message(
                         msg,
                         IncrementAttempts::No,
                         None,
-                        response,
-                        InsertReason::DispatcherDrop.into(),
+                        response.clone(),
+                        context.clone(),
                     )
                     .await
                     {
@@ -1399,10 +1867,18 @@ impl Drop for Dispatcher {
 }
 
 impl Dispatcher {
+    pub fn enter_phase(&self, phase: DispatcherPhase) {
+        self.state.enter_phase(phase);
+    }
+
+    pub fn set_detail(&self, detail: impl Into<String>) {
+        self.state.set_detail(detail);
+    }
+
     #[instrument(skip(ready, metrics, notify_dispatcher))]
     async fn run(
         name: &str,
-        queue_name_for_config_change_purposes_only: String,
+        ready_queue: Weak<ReadyQueue>,
         mx: Option<Arc<MailExchanger>>,
         ready: Arc<Fifo>,
         notify_dispatcher: Arc<Notify>,
@@ -1415,6 +1891,7 @@ impl Dispatcher {
         leases: Vec<LimitLease>,
         states: Arc<FairMutex<ReadyQueueStates>>,
         num_connections: Arc<AtomicUsize>,
+        state: Arc<DispatcherState>,
     ) -> anyhow::Result<()> {
         let activity = Activity::get(format!("ready_queue Dispatcher {name}"))?;
 
@@ -1430,9 +1907,10 @@ impl Dispatcher {
             }
         };
 
+        let session_id = state.session_id;
         let mut dispatcher = Self {
             name: name.to_string(),
-            queue_name_for_config_change_purposes_only,
+            ready_queue,
             ready,
             notify_dispatcher,
             mx,
@@ -1447,10 +1925,11 @@ impl Dispatcher {
             leases,
             suspended: None,
             batch_started: None,
-            session_id: Uuid::new_v4(),
+            session_id,
             states,
             active_bounce: Arc::new(None).into(),
             num_connections: num_connections.clone(),
+            state,
         };
         dispatcher.num_connections.fetch_add(1, Ordering::SeqCst);
 
@@ -1558,6 +2037,7 @@ impl Dispatcher {
         loop {
             if queue_dispatcher.has_terminated_ok(&mut dispatcher).await {
                 tracing::debug!("{} connection session has terminated", dispatcher.name);
+                dispatcher.enter_phase(DispatcherPhase::Closing);
                 dispatcher.release_leases().await;
                 queue_dispatcher.close_connection(&mut dispatcher).await?;
                 return Ok(());
@@ -1570,14 +2050,17 @@ impl Dispatcher {
                 // No more messages within our idle time; we can close
                 // the connection
                 tracing::debug!("{} Idling out connection", dispatcher.name);
+                dispatcher.enter_phase(DispatcherPhase::Closing);
                 dispatcher.release_leases().await;
                 queue_dispatcher.close_connection(&mut dispatcher).await?;
                 return Ok(());
             }
 
+            dispatcher.enter_phase(DispatcherPhase::AttemptingConnection);
             let result = tokio::select! {
                 _ = shutting_down.shutting_down() => {
                     tracing::debug!("{} shutting down", dispatcher.name);
+                    dispatcher.enter_phase(DispatcherPhase::Closing);
                     dispatcher.release_leases().await;
                     queue_dispatcher.close_connection(&mut dispatcher).await?;
                     return Ok(());
@@ -1685,6 +2168,7 @@ impl Dispatcher {
                         "{} Peer closed the connection, will make new session",
                         dispatcher.name
                     );
+                    dispatcher.enter_phase(DispatcherPhase::Closing);
                     dispatcher.release_leases().await;
                     queue_dispatcher.close_connection(&mut dispatcher).await?;
                     // Push the message(s) batch into the ready queue so that they
@@ -1709,6 +2193,7 @@ impl Dispatcher {
             consecutive_connection_failures.store(0, Ordering::SeqCst);
 
             let _timer_rollup = dispatcher.metrics.deliver_message_rollup.start_timer();
+            dispatcher.enter_phase(DispatcherPhase::DeliveringMessage);
             if let Err(err) = dispatcher.deliver_message(&mut *queue_dispatcher).await {
                 tracing::debug!("deliver_message: {err:#}");
                 for msg in dispatcher.msgs.drain(..) {
@@ -1771,6 +2256,7 @@ impl Dispatcher {
                     return Ok(true);
                 }
                 tracing::trace!("{} throttled message rate, sleep for {delay:?}", self.name);
+                self.enter_phase(DispatcherPhase::MessageRateThrottled);
                 let mut shutdown = ShutdownSubcription::get();
                 tokio::select! {
                     _ = tokio::time::sleep(delay) => {},
@@ -1778,6 +2264,7 @@ impl Dispatcher {
                         return Ok(true);
                     }
                 };
+                self.enter_phase(DispatcherPhase::DeliveringMessage);
             } else {
                 return Ok(false);
             }
@@ -2049,6 +2536,13 @@ impl Dispatcher {
     /// The batch latency is NOT considered by this function.
     #[instrument(skip(self))]
     async fn obtain_message(&mut self, queue_dispatcher: &mut dyn QueueDispatcher) -> bool {
+        // Spool-health check goes before we look at the ready queue
+        // at all.  Bulk drain is the maintainer's job; here we just
+        // refuse to take new work so the dispatcher's normal "no
+        // batch ready" path closes the session.
+        if crate::spool::delivery_suspension_reason().is_some() {
+            return false;
+        }
         if self.msgs.len() >= queue_dispatcher.min_batch_size() {
             tracing::trace!(
                 "already have {} messages which is >= min batch {}",
@@ -2192,7 +2686,24 @@ impl Dispatcher {
             return Ok(false);
         }
 
+        // Mirror the admin-suspend handling for source-health suspension.
+        if let Some(remaining) =
+            crate::egress_source::source_health::suspension(&self.egress_source.name)
+        {
+            tracing::trace!(
+                "{} draining ready queue: source {} is unhealthy and suspended for {remaining:?}",
+                self.name,
+                self.egress_source.name,
+            );
+            self.reinsert_ready_queue(InsertReason::SourceIsUnhealthyAndSuspended.into())
+                .await;
+            return Ok(false);
+        }
+
         for lease in &self.leases {
+            self.enter_phase(DispatcherPhase::AcquiringLease {
+                label: lease.name().to_string(),
+            });
             if lease
                 .extend(
                     self.path_config
@@ -2224,6 +2735,15 @@ impl Dispatcher {
             queue_dispatcher.max_batch_size(),
             queue_dispatcher.max_batch_latency()
         );
+
+        if self.msgs.is_empty() {
+            self.enter_phase(DispatcherPhase::Idle);
+        } else {
+            self.enter_phase(DispatcherPhase::AccumulatingBatch {
+                have: self.msgs.len() as u32,
+                want: queue_dispatcher.min_batch_size() as u32,
+            });
+        }
 
         if !self.msgs.is_empty() {
             // If we have some messages and didn't return true from obtain_message

@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use flume::Sender;
 use std::sync::{Arc, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub mod local_disk;
 #[cfg(feature = "rocksdb")]
@@ -10,6 +10,39 @@ pub mod rocks;
 pub mod spool_id;
 
 pub use spool_id::SpoolId;
+
+/// The spool's load-shedding gate is currently latched.  Callers can
+/// recognize this via `anyhow::Error::root_cause` (e.g. in the SMTP
+/// server) to produce a peer-safe, actionable response instead of a
+/// generic internal-error message.  The `Display` impl intentionally
+/// matches the bland summary returned by `Spool::unhealthy_reason()`
+/// so that the wire-facing text is identical regardless of which
+/// layer observes the condition.
+#[derive(thiserror::Error, Debug)]
+#[error("the spool is not accepting writes")]
+pub struct SpoolUnhealthyError;
+
+/// The deadline supplied by the caller (e.g. an SMTP
+/// `data_processing_timeout`) elapsed before the spool accepted the
+/// write.  Distinguished from [`SpoolBackpressureTimeout`] so that
+/// the SMTP server can surface a peer response that accurately
+/// blames the caller-side deadline.
+#[derive(thiserror::Error, Debug)]
+#[error("the caller-provided deadline was reached before the spool accepted the write")]
+pub struct SpoolCallerDeadlineExceeded;
+
+/// The spool's own internal backpressure deadline (see
+/// `RocksSpoolParams::store_deadline`) elapsed before the write was
+/// accepted.  Indicates that the spool itself is the slow component,
+/// independently of any caller-supplied deadline; distinguished from
+/// [`SpoolCallerDeadlineExceeded`] so the SMTP server can produce a
+/// peer response that points the operator at spool health rather
+/// than at their own timeout configuration.
+#[derive(thiserror::Error, Debug)]
+#[error("the spool did not accept the write within {deadline:?}")]
+pub struct SpoolBackpressureTimeout {
+    pub deadline: Duration,
+}
 
 #[derive(Debug)]
 pub enum SpoolEntry {
@@ -59,6 +92,33 @@ pub trait Spool: Send + Sync {
     /// which might be negative if the flush actually
     /// increased the total.
     async fn advise_low_memory(&self) -> anyhow::Result<isize>;
+
+    /// Synchronously flush in-memory buffers and run a full compaction
+    /// of the underlying storage.
+    ///
+    /// Intended for operational diagnostics and for tests that need to
+    /// drive the storage into a deterministic state.  Storage backends
+    /// that do not have any concept of compaction may leave the default
+    /// no-op implementation in place.
+    ///
+    /// Errors are propagated to the caller.  In particular, for rocksdb,
+    /// a missing or corrupt SST file encountered during the operation
+    /// surfaces as an `Err`.
+    async fn compact(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Returns `None` when the spool is healthy.
+    /// Returns `Some(reason)` when the spool is in a state that should
+    /// cause ingress paths to shed load.
+    ///
+    /// This is called from hot load-shedding paths and must be cheap:
+    /// no I/O, no awaits, no allocation.  The returned reason is the
+    /// externally visible explanation and should be intentionally
+    /// bland; it must not leak implementation details.
+    fn unhealthy_reason(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 static DATA: OnceLock<Arc<dyn Spool + Send + Sync>> = OnceLock::new();

@@ -1,12 +1,16 @@
+---
+description: View KumoMTA logs stored as compressed, date-stamped segments in /var/log/kumomta, reading them with the tailer utility or by decompressing files manually.
+---
+
 # Viewing Logs
 
-An important part of routine opperations is checking logs. KumoMTA compressed
+An important part of routine operations is checking logs. KumoMTA compressed
 logs are found in `/var/log/kumomta/` and are named by date stamp. Logs are
 segmented by a combination of size/time and stored in compressed files named
 after the time that the segment was started. To read these, you need to unpack
 them first. You have many options for configuring logging.
 
-```
+```txt
 /var/log/kumomta
 ├── 20230311-033705
 ├── 20230311-033844
@@ -38,7 +42,7 @@ nicely in this documentation. The actual log records are not output with wrappin
 
 ## Manually
 
-We can take a look at a specific log by decompressing it and since these are
+You can view a specific log by decompressing it: since these are
 [zstd compressed](https://github.com/facebook/zstd#readme), you can view all
 but the current one with zstdcat. ZSTD is a streaming compression utility so
 the current file cannot be accessed until it is flushed and closed. You can
@@ -51,8 +55,8 @@ you are regularly wanting to inspect the logs on a live system.
 [kumo.configure_local_logs](../../reference/kumo/configure_local_logs/index.md)
 has all of the available logging configuration options.
 
-Using the example above, we can see the content of the newest file after
-stopping KumoMTA with a `zstdcat /var/log/kumomta/20230314-181435`.
+Using the example above, you can see the content of the newest file after
+stopping KumoMTA with `zstdcat /var/log/kumomta/20230314-181435`.
 
 If you have not done so already, you will want to install `zstd` with a (`dnf`
 or) `apt install zstd`.  Below there is a sample of a decompressed received log:
@@ -67,7 +71,7 @@ $ zstdcat /var/log/kumomta/20230428-201424_recv
 "feedback_report":null,"meta":{},"headers":{"Subject":"hello"}}
 ```
 
-These JSON formatted logs can be programatically consumed or read manually as
+These JSON formatted logs can be programmatically consumed or read manually as
 shown above for debugging and maintenance.
 
 [Formatting](../configuration/logging.md#customizing-the-log-format)
