@@ -38,7 +38,7 @@ There is no separate "unschedule" command. To cancel messages scheduled with `ms
 
 ## Making it permanent
 
-Because the admin bounce evaporates on restart, encode any lasting "never send this" rule in your Lua policy — reject at reception, or reject inside a `rebind_message` handler — rather than relying on a standing bounce.
+Because the admin bounce evaporates on restart, encode any lasting "never send this" rule in your Lua policy (reject at reception, or inside a `rebind_message` handler) rather than relying on a standing bounce.
 
 ## See also
 

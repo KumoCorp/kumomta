@@ -4,7 +4,9 @@ description: "Why KumoMTA restart or shutdown takes several minutes — connecti
 
 # Why Does Restart or Shutdown Take Several Minutes (or Hang)?
 
-When KumoMTA shuts down it tries to finish in-flight delivery attempts and flush state to spool before exiting. Open SMTP connections are not killed instantly — each in-flight attempt is allowed to run out its per-phase connection timeouts ([`connect_timeout`](../reference/kumo/make_egress_path/connect_timeout.md), [`mail_from_timeout`](../reference/kumo/make_egress_path/mail_from_timeout.md), [`data_timeout`](../reference/kumo/make_egress_path/data_timeout.md), and so on) before it is aborted. A session stalled against a slow or unresponsive remote is the single biggest reason a clean shutdown takes time. Idle connections held open for reuse ([`idle_timeout`](../reference/kumo/make_egress_path/idle_timeout.md), default `60s`) also have to close during shutdown, though those drain quickly. Anything unfinished is recovered from the spool on the next start, and no messages are lost.
+When KumoMTA shuts down it tries to finish in-flight delivery attempts and flush state to spool before exiting. Open SMTP connections are not killed instantly — each in-flight attempt is allowed to run out its per-phase connection timeouts ([`connect_timeout`](../reference/kumo/make_egress_path/connect_timeout.md), [`mail_from_timeout`](../reference/kumo/make_egress_path/mail_from_timeout.md), [`data_timeout`](../reference/kumo/make_egress_path/data_timeout.md), etc.) before it is aborted. 
+
+A session stalled against a slow or unresponsive remote is a common cause for delayed shutdown. Idle connections held open for reuse ([`idle_timeout`](../reference/kumo/make_egress_path/idle_timeout.md), default `60s`) also have to close during shutdown. Incomplete sends are recovered from the spool on the next start, and no messages are lost.
 
 A shutdown that takes around 5 minutes usually means the systemd stop timeout (`TimeoutStopSec`) was reached and the process was force-killed. On a correctly configured server you should rarely hit that limit.
 

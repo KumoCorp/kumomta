@@ -12,7 +12,7 @@ The dominant contributor is resident messages in the Ready Queues: a message's b
 RAM per ready queue ≈ max_ready × average message size
 ```
 
-A queue with `max_ready = 1000` and an average message size of 100 KB budgets roughly 100 MB in the worst case, for that single queue. Set `max_ready` very high, let egress to a destination stall (a throttling provider, or every source suspended), and that queue fills to its limit and sits on the memory.
+A queue with `max_ready = 1000` and an average message size of 100 KB budgets roughly 100 MB in the worst case, for that single queue. Set `max_ready` very high, let egress to a destination stall (a throttling provider, or every source suspended), and that queue fills to its limit and occupies that memory.
 
 ## How to control it
 

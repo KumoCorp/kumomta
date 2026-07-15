@@ -4,7 +4,7 @@ description: "Ship KumoMTA logs to Splunk, Kafka, or another system using webhoo
 
 # How Do I Ship Logs to Splunk, Kafka, or Another System?
 
-KumoMTA's local logs are written as zstd-compressed JSON segment files in `/var/log/kumomta`. There is no uncompressed-file or log-to-stdout option, and that is by design: the local logs are optimized for efficient on-disk storage, with the `tailer` utility available for ad hoc inspection.
+KumoMTA's local logs are written as zstd-compressed JSON segment files in `/var/log/kumomta`. There is no uncompressed-file or log-to-stdout option, and that is by design: the local logs are built for compact on-disk storage, and the `tailer` utility handles ad hoc inspection.
 
 To get log records into an external system (Splunk, ELK, Graylog, CloudWatch, Loki, a data warehouse), use one of KumoMTA's streaming integrations rather than trying to tail or copy the files:
 

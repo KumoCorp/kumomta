@@ -4,9 +4,11 @@ description: "Set per-tenant or per-queue send rate limits — max_message_rate,
 
 # How Do I Set Per-Tenant or Per-IP Send Rate Limits (Hourly and Daily)?
 
+Rate limits live at two scopes in KumoMTA: the queue (per tenant, campaign, or domain, in `queues.toml`) and the egress path (in shaping). Which one you use depends on what you want to cap.
+
 ## Per-hour / per-second rate
 
-Use `max_message_rate` on the queue. Note that this applies per queue even when set at a less specific scope, where a queue is `campaign@tenant:domain`:
+Use `max_message_rate` on the queue. This applies per queue even when set at a less specific scope, where a queue is `campaign:tenant@domain`:
 
 ```toml
 [queue.'gmail.com'.'mytenant']

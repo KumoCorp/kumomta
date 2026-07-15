@@ -9,7 +9,7 @@ A log message such as `no sources for pool='...' are eligible for selection`, or
 While this can be caused by not having any properly configured and connected egress sources (a configuration or networking issue), the most common cause is Traffic Shaping Automation (TSA): a rule reacted to a block or complaint response from the mailbox provider (a Yahoo `[TS04]` deferral, for example) and suspended the source for a defined duration.
 
 !!! note
-    Suspensions are scoped to the (egress source × destination site) combination. A source suspended for Gmail still sends to Yahoo, so you do not need separate pools per provider. KumoMTA uses a non-suspended source wherever one is available.
+    Suspensions are scoped to the (egress source × destination site) combination. A source suspended for Gmail still sends to Yahoo, so you do not need separate pools per provider. See the [Queues](../reference/queues.md) page of the [Reference Manual](../reference/index.md) for more information.
 
 ## How to inspect suspensions
 

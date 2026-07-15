@@ -31,7 +31,7 @@ end)
 
 ## Arbitrary custom metadata
 
-Capture any header into metadata and log it. Capturing into metadata is more efficient than logging the header directly:
+Capture any header into metadata and log it. This is cheaper than logging the header directly:
 
 ```lua
 kumo.on('smtp_server_message_received', function(msg)

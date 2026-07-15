@@ -17,7 +17,7 @@ Because of this caching there is no truly instantaneous reload. Expect up to a f
 
 ## What requires an explicit reload or restart
 
-Anything configured inside the **`init` event** is only read at startup, so changing it requires a reload. Listener settings applied at init — notably `start_esmtp_listener`, including its `trace_headers` — require a full restart to take effect.
+Anything configured inside the **`init` event** is only read at startup, so changing it requires a reload. Listener settings applied at init (notably `start_esmtp_listener`, including its `trace_headers`) require a full restart to take effect.
 
 ## Forcing a refresh
 

@@ -7,16 +7,23 @@ description: "Set up SMTP AUTH for injection with smtp_server_auth_plain — AUT
 To accept authenticated injection, implement the `smtp_server_auth_plain` event:
 
 ```lua
+-- Use this to lookup and confirm a user/password credential
 kumo.on('smtp_server_auth_plain', function(authz, authc, password, conn_meta)
+  -- This is just an example of how to populate the return value,
+  -- not a recommended way to handle passwords in production!
+  -- In particular, it is an absolutely terrible idea to hard code
+  -- a password here in plain text!
+  local password_database = {
+    ['daniel'] = 'tiger',
+  }
   if password == '' then
     return false
   end
-  -- look the credential up in a table, database, or Vault
-  return password == lookup_password_for(authc)
+  return password_database[authc] == password
 end)
 ```
 
-Three things trip people up.
+Three things to watch for:
 
 ## AUTH PLAIN only
 
@@ -28,7 +35,7 @@ Authentication is only offered and accepted over a TLS-protected connection (aft
 
 ## Trusted hosts skip authentication
 
-The auth handler is not called for peers already permitted by `trusted_hosts` / `relay_hosts`. Do not add the IP of an authenticating client to `relay_hosts` — if you do, it is treated as trusted and never prompted to authenticate.
+The auth handler is not called for peers already permitted by `trusted_hosts` and `relay_hosts`. Do not add the IP of an authenticating client to `relay_hosts` — if you do, it is treated as trusted and never prompted to authenticate.
 
 !!! note
     `require_authz` binds a user to a **tenant name**, not to a sending domain. If you need to enforce that an authenticated user may only send from a particular domain, add that check in Lua at reception.

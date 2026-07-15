@@ -4,7 +4,7 @@ description: "Relay mail through a smarthost or another SMTP server by setting a
 
 # How Do I Relay Mail Through a Smarthost or Another SMTP Server?
 
-To "smarthost" — route messages through another server instead of doing direct-to-MX delivery — set a routing domain for the message. KumoMTA still performs MX resolution, just against the routing domain instead of the recipient's domain.
+To "smarthost" (route messages through another server instead of doing direct-to-MX delivery), set a routing domain for the message. KumoMTA still performs MX resolution, just against the routing domain instead of the recipient's domain.
 
 ## Per-message, at reception
 
