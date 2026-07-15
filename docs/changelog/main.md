@@ -32,6 +32,12 @@
 
 ## Other Changes and Enhancements
 
+ * The ESMTP command parser now tolerates a stray space between the colon and
+   the address in `MAIL FROM:` and `RCPT TO:` commands (e.g. `MAIL FROM: <a@b>`).
+   RFC 5321 does not permit this space, but a number of legacy clients emit it;
+   previously such commands were rejected with `501 5.1.7`. The space is
+   discarded and the address parsed as normal.
+
  * [enable_dane](../reference/kumo/make_egress_path/enable_dane.md) can now be
    used with the Hickory resolver (with DNSSEC validation enabled); it no
    longer requires the unbound resolver.
