@@ -12,8 +12,7 @@ use bounce_classify::{BounceClass, PreDefinedBounceClass};
 use config::{load_config, CallbackSignature};
 use data_loader::KeySource;
 use dns_resolver::{
-    has_colon_port, resolve_a_or_aaaa, DaneStatus, IpLookupStrategy, ResolvedMxAddresses,
-    SecureCnameStatus,
+    has_colon_port, resolve_a_or_aaaa, DaneStatus, IpLookupStrategy, SecureCnameStatus,
 };
 use kumo_address::socket::SocketAddress;
 use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls};
@@ -21,9 +20,9 @@ use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
 use kumo_prometheus::declare_metric;
 use kumo_server_lifecycle::{ShutdownSubcription, ShuttingDownError};
 use kumo_server_runtime::spawn;
+use mailexchanger::{PolicyMode, ResolvedMxAddresses};
 use message::message::QueueNameComponents;
 use message::Message;
-use mta_sts::policy::PolicyMode;
 use rfc5321::parser::{EnvelopeAddress, ForwardPath, ReversePath};
 use rfc5321::{
     ClientError, EnhancedStatusCode, IsTooManyRecipients, Response, SmtpClient, TlsInformation,
@@ -228,7 +227,7 @@ impl SmtpDispatcher {
                 .mx
                 .as_ref()
                 .expect("to have mx when doing smtp")
-                .resolve_addresses(path_config.ip_lookup_strategy)
+                .resolve_addresses(None, path_config.ip_lookup_strategy)
                 .await
         } else {
             let mut addresses = vec![];
@@ -779,56 +778,33 @@ impl SmtpDispatcher {
                 .diagnostic(Level::INFO, || format!("DANE is not enabled for this path"));
         }
 
-        // Figure out MTA-STS policy.
+        // Apply the TLS posture from any MTA-STS policy that was resolved
+        // during MX resolution. Host gating is already structural: resolution
+        // pruned disallowed hosts and isolated impossible domains, so the
+        // pinned mx's policy is always satisfiable by the candidate hosts.
+        // We consult it here only for TLS posture, and only when this egress
+        // path opts in via enable_mta_sts. The `mta_sts_eligible` guard
+        // preserves DANE precedence (DANE clears it when TLSA is present).
         if mta_sts_eligible && path_config.enable_mta_sts {
-            if let Some(mx) = &dispatcher.mx {
-                match mta_sts::get_policy_for_domain(&mx.domain_name).await {
-                    Ok(policy) => {
-                        self.tracer.diagnostic(Level::INFO, || {
-                            format!("MTA-STS policy for {} is {:?}", mx.domain_name, policy.mode)
-                        });
-
-                        match policy.mode {
-                            PolicyMode::Enforce => {
-                                enable_tls = Tls::Required;
-                                if !policy.mx_name_matches(&address.name) {
-                                    anyhow::bail!(
-                                        "MTA-STS policy for {domain} is set to \
-                                     enforce but the current MX candidate \
-                                     {mx_host} does not match the list of allowed \
-                                     hosts. {policy:?}",
-                                        domain = mx.domain_name,
-                                        mx_host = address.name
-                                    );
-                                }
-                            }
-                            PolicyMode::Testing => {
-                                // Don't relax a mandatory STARTTLS established by
-                                // unusable DANE TLSA records.
-                                if !dane_requires_starttls {
-                                    enable_tls = Tls::OpportunisticInsecure;
-                                }
-                            }
-                            PolicyMode::None => {}
-                        }
-                    }
-                    Err(err) => {
-                        self.tracer.diagnostic(Level::INFO, || {
-                            format!("MTA-STS resolve error for {}: {err:#}", mx.domain_name)
-                        });
-                    }
+            match dispatcher.mx.as_ref().map(|mx| mx.mta_sts) {
+                Some(PolicyMode::Enforce) => {
+                    enable_tls = Tls::Required;
+                    self.tracer.diagnostic(Level::INFO, || {
+                        "MTA-STS enforce policy in effect; requiring TLS".to_string()
+                    });
                 }
-            } else {
-                self.tracer.diagnostic(Level::INFO, || {
-                    format!(
-                        "MTA-STS is enabled for this path, but it is not using MX records from DNS"
-                    )
-                });
+                Some(PolicyMode::Testing) => {
+                    // Don't relax a mandatory STARTTLS established by
+                    // unusable DANE TLSA records.
+                    if !dane_requires_starttls {
+                        enable_tls = Tls::OpportunisticInsecure;
+                    }
+                    self.tracer.diagnostic(Level::INFO, || {
+                        "MTA-STS testing policy in effect".to_string()
+                    });
+                }
+                None | Some(PolicyMode::None) => {}
             }
-        } else {
-            self.tracer.diagnostic(Level::INFO, || {
-                format!("MTA-STS is not enabled for this path")
-            });
         }
 
         let prefer_openssl = path_config.tls_prefer_openssl;

@@ -21,6 +21,7 @@ members = [
   "crates/kumo-tls-helper",
   "crates/kumo-wrap",
   "crates/kumod",
+  "crates/mailexchanger",
   "crates/mailparsing",
   "crates/nom-utils",
   "crates/mod-aws-sigv4",

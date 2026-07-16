@@ -26,7 +26,6 @@ use async_trait::async_trait;
 use config::epoch::ConfigEpoch;
 use config::{declare_event, load_config};
 use dashmap::DashMap;
-use dns_resolver::MailExchanger;
 use kumo_api_types::egress_path::{
     ConfigRefreshStrategy, EgressPathConfig, MemoryReductionPolicy, WakeupStrategy,
 };
@@ -38,6 +37,7 @@ use kumo_server_memory::{
     get_headroom, memory_status, subscribe_to_memory_status_changes_async, MemoryStatus,
 };
 use kumo_server_runtime::{get_named_runtime, spawn, Runtime};
+use mailexchanger::MailExchanger;
 use message::message::{MessageList, QueueNameComponents};
 use message::Message;
 use parking_lot::FairMutex;

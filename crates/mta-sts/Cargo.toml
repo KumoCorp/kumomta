@@ -10,6 +10,7 @@ futures = {workspace=true}
 linkme.workspace = true
 lruttl = {path="../lruttl"}
 reqwest = {workspace=true, default-features=false, features=["json", "rustls-tls"]}
+serde = {workspace=true}
 hickory-resolver = {workspace=true}
 
 [dev-dependencies]

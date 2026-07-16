@@ -1,10 +1,12 @@
 use ::config::{any_err, get_or_create_sub_module, serialize_options, SerdeWrappedValue};
 use dns_resolver::{
-    get_resolver, ptr_host, resolve_a_or_aaaa, reverse_ip, set_mx_concurrency_limit,
-    set_mx_negative_cache_ttl, set_mx_timeout, AggregateResolver, HickoryResolver,
-    IpLookupStrategy, MailExchanger, Resolver, TestResolver,
+    get_resolver, ptr_host, resolve_a_or_aaaa, reverse_ip, AggregateResolver, HickoryResolver,
+    IpLookupStrategy, Resolver, TestResolver,
 };
 use kumo_address::host_or_socket::HostOrSocketAddress;
+use mailexchanger::{
+    set_mx_concurrency_limit, set_mx_negative_cache_ttl, set_mx_timeout, MailExchanger,
+};
 use mlua::{Lua, LuaSerdeExt, Value};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -57,10 +59,15 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     dns_mod.set(
         "lookup_mx",
-        lua.create_async_function(|lua, domain: String| async move {
-            let mx = MailExchanger::resolve(&domain).await.map_err(any_err)?;
-            Ok(lua.to_value_with(&*mx, serialize_options()))
-        })?,
+        lua.create_async_function(
+            |lua, (domain, opt_resolver_name): (String, Option<String>)| async move {
+                let opt_resolver = get_opt_resolver(&opt_resolver_name).map_err(any_err)?;
+                let mx = MailExchanger::resolve_via(&domain, opt_resolver.as_ref().map(|r| &***r))
+                    .await
+                    .map_err(any_err)?;
+                Ok(lua.to_value_with(&*mx, serialize_options()))
+            },
+        )?,
     )?;
 
     dns_mod.set(
@@ -84,6 +91,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(move |lua, duration: Value| {
             let duration: duration_serde::Wrap<Duration> = lua.from_value(duration)?;
             set_mx_negative_cache_ttl(duration.into_inner()).map_err(any_err)
+        })?,
+    )?;
+
+    dns_mod.set(
+        "set_mta_sts_enabled",
+        lua.create_function(move |_lua, enabled: bool| {
+            mailexchanger::set_mta_sts_enabled(enabled);
+            Ok(())
         })?,
     )?;
 
@@ -327,6 +342,24 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             dns_resolver::reconfigure_resolver(resolver);
             Ok(())
         })?,
+    )?;
+
+    dns_mod.set(
+        "configure_test_mta_sts",
+        lua.create_function(
+            move |_lua, policies: std::collections::BTreeMap<String, String>| {
+                let parsed = policies
+                    .into_iter()
+                    .map(|(domain, text)| {
+                        let policy =
+                            mta_sts::policy::MtaStsPolicy::parse(&text).map_err(any_err)?;
+                        Ok((domain, policy))
+                    })
+                    .collect::<mlua::Result<std::collections::BTreeMap<_, _>>>()?;
+                mta_sts::set_test_policies(parsed);
+                Ok(())
+            },
+        )?,
     )?;
 
     dns_mod.set(

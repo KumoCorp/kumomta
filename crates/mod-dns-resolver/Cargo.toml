@@ -8,6 +8,8 @@ anyhow = {workspace=true}
 async-trait.workspace = true
 config = {path="../config"}
 dns-resolver = {path="../dns-resolver", features=["unbound"]}
+mailexchanger = {path="../mailexchanger"}
+mta-sts = {path="../mta-sts"}
 duration-serde = {path="../duration-serde"}
 kumo-address = {path="../kumo-address"}
 libunbound = {workspace=true}

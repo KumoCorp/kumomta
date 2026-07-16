@@ -22,6 +22,7 @@ data-encoding = {workspace=true}
 data-loader = {path="../data-loader"}
 derive-where.workspace = true
 dns-resolver = {path="../dns-resolver", features=["unbound"]}
+mailexchanger = {path="../mailexchanger"}
 duration-serde = {path="../duration-serde"}
 flate2 = {workspace=true}
 flume = {workspace=true}
@@ -53,7 +54,6 @@ mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "seriali
 mod-dns-resolver = {path="../mod-dns-resolver"}
 mod-serde = {path="../mod-serde"}
 mod-time = {path="../mod-time"}
-mta-sts = {path="../mta-sts"}
 nix = {workspace=true, features=["resource", "user"]}
 num-format.workspace = true
 openssl.workspace = true

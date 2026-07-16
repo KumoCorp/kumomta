@@ -1,8 +1,8 @@
 use clap::Parser;
-use dns_resolver::MailExchanger;
 use kumo_api_client::KumoApiClient;
 use kumo_api_types::ReadyQueueStateRequest;
 use lexicmp::natural_lexical_cmp;
+use mailexchanger::MailExchanger;
 use message::message::QueueNameComponents;
 use num_format::{Locale, ToFormattedString};
 use reqwest::Url;

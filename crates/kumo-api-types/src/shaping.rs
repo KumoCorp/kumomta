@@ -6,9 +6,11 @@ use config::any_err;
 #[cfg(feature = "lua")]
 use config::serialize_options;
 #[cfg(feature = "lua")]
-use dns_resolver::{fully_qualify, MailExchanger};
+use dns_resolver::fully_qualify;
 #[cfg(feature = "lua")]
 use kumo_log_types::JsonLogRecord;
+#[cfg(feature = "lua")]
+use mailexchanger::MailExchanger;
 #[cfg(feature = "lua")]
 use mlua::prelude::LuaUserData;
 #[cfg(feature = "lua")]
