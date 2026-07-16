@@ -1,0 +1,454 @@
+use anyhow::Context;
+use config::{any_err, from_lua_value, get_or_create_module, get_or_create_sub_module};
+use data_loader::KeySource;
+use message::Message;
+use mlua::prelude::LuaUserData;
+use mlua::{Lua, LuaSerdeExt, UserDataMethods, Value};
+use rspamd_client::config::{Config, EnvelopeData};
+use rspamd_client::protocol::RspamdScanReply;
+use rspamd_client::RspamdAsyncClient;
+use serde::Deserialize;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+
+/// Zero-copy wrapper for Arc<Box<[u8]>> that implements AsRef<[u8]>
+/// This allows passing message data to rspamd-client without allocating or copying
+struct MessageDataWrapper(Arc<Box<[u8]>>);
+
+impl AsRef<[u8]> for MessageDataWrapper {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+/// Configuration for Rspamd client (Lua-friendly wrapper)
+#[derive(Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+struct RspamdClientConfig {
+    /// Base URL for Rspamd server (e.g., "http://localhost:11333")
+    /// Must be a valid URL
+    base_url: url::Url,
+
+    /// Optional password for Rspamd authentication
+    #[serde(default)]
+    password: Option<KeySource>,
+
+    /// Optional timeout (default: 30s)
+    #[serde(default, with = "duration_serde")]
+    timeout: Option<std::time::Duration>,
+
+    /// Number of retries for requests (default: 1)
+    #[serde(default)]
+    retries: Option<u32>,
+
+    /// Enable ZSTD compression (default: true)
+    /// Automatically compresses message bodies for faster transmission
+    #[serde(default = "default_true")]
+    zstd: bool,
+
+    /// Optional HTTPCrypt encryption key (base32 format)
+    /// When set, enables encrypted communication with Rspamd
+    /// Generate with: rspamadm keypair
+    /// Supports KeySource for secure storage
+    #[serde(default)]
+    encryption_key: Option<KeySource>,
+
+    /// Optional proxy URL (e.g., "http://proxy.example.com:8080")
+    #[serde(default)]
+    proxy_url: Option<String>,
+
+    /// Optional proxy username
+    /// Supports KeySource for secure storage
+    #[serde(default)]
+    proxy_username: Option<KeySource>,
+
+    /// Optional proxy password
+    /// Supports KeySource for secure storage
+    #[serde(default)]
+    proxy_password: Option<KeySource>,
+
+    /// If true, add X-Spam-* headers to the message (default: true)
+    /// Headers added: X-Spam-Flag, X-Spam-Score, X-Spam-Action, X-Spam-Symbols
+    #[serde(default = "default_true")]
+    add_headers: bool,
+
+    /// If true, prefix the Subject header with "***SPAM*** " when action is "rewrite subject" (default: false)
+    /// Note: This only applies when Rspamd returns action "rewrite subject"
+    #[serde(default)]
+    prefix_subject: bool,
+
+    /// If true, reject messages when Rspamd action is "reject" (default: false)
+    /// If false, messages with action "reject" will still be delivered with spam headers
+    /// Note: Actions "soft reject" and "greylist" always result in 451 temporary failure
+    #[serde(default)]
+    reject_spam: bool,
+
+    /// If true, request body rewriting from Rspamd and apply the rewritten
+    /// message when one is returned (default: false)
+    #[serde(default)]
+    rewrite_body: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Bounds how long a change to a file-backed KeySource credential can
+/// go unnoticed while the built client is served from cache
+const CLIENT_TTL: Duration = Duration::from_secs(60);
+
+/// Newtype so the cache's Debug bound can be satisfied;
+/// RspamdAsyncClient does not implement Debug
+#[derive(Clone)]
+struct CachedClient(RspamdAsyncClient);
+
+impl std::fmt::Debug for CachedClient {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fmt.write_str("RspamdAsyncClient")
+    }
+}
+
+lruttl::declare_cache! {
+/// Caches persistent rspamd clients (holding resolved KeySource
+/// credentials and a pooled HTTP connection) keyed by the Lua-level
+/// configuration, so that per-message scans reuse connections and
+/// don't re-read credential files
+static CLIENT_CACHE: LruCacheWithTtl<RspamdClientConfig, CachedClient>::new("mod_rspamd_clients", 32);
+}
+
+impl RspamdClientConfig {
+    /// Resolve to a persistent rspamd client via the cache
+    async fn cached_client(&self) -> anyhow::Result<RspamdAsyncClient> {
+        let lookup = CLIENT_CACHE
+            .get_or_try_insert(self, |_| CLIENT_TTL, async {
+                let config = self.make_client_config().await?;
+                RspamdAsyncClient::new(config)
+                    .map(CachedClient)
+                    .map_err(|err| anyhow::anyhow!("failed to build rspamd client: {err}"))
+            })
+            .await
+            .map_err(|err| anyhow::anyhow!("{err:#}"))?;
+        Ok(lookup.item.0)
+    }
+
+    /// Build rspamd-client Config from this configuration
+    async fn make_client_config(&self) -> anyhow::Result<Config> {
+        // Extract password if provided
+        let password = if let Some(p) = &self.password {
+            let bytes = p.get().await?;
+            Some(String::from_utf8(bytes.to_vec()).context("password is not valid UTF-8")?)
+        } else {
+            None
+        };
+
+        // Extract encryption key if provided
+        let encryption_key = if let Some(k) = &self.encryption_key {
+            let bytes = k.get().await?;
+            Some(String::from_utf8(bytes.to_vec()).context("encryption_key is not valid UTF-8")?)
+        } else {
+            None
+        };
+
+        // Prepare optional proxy config
+        let proxy_config = if let Some(proxy_url) = &self.proxy_url {
+            let username = if let Some(u) = &self.proxy_username {
+                let bytes = u.get().await?;
+                Some(
+                    String::from_utf8(bytes.to_vec())
+                        .context("proxy_username is not valid UTF-8")?,
+                )
+            } else {
+                None
+            };
+
+            let proxy_password = if let Some(p) = &self.proxy_password {
+                let bytes = p.get().await?;
+                Some(
+                    String::from_utf8(bytes.to_vec())
+                        .context("proxy_password is not valid UTF-8")?,
+                )
+            } else {
+                None
+            };
+
+            Some(rspamd_client::config::ProxyConfig {
+                proxy_url: proxy_url.clone(),
+                username,
+                password: proxy_password,
+            })
+        } else {
+            None
+        };
+
+        // Construct Config directly since all fields are public
+        // Note: use HTTPCrypt encryption_key for secure communication
+        Ok(Config {
+            base_url: self.base_url.to_string(),
+            password,
+            timeout: self.timeout.unwrap_or(Duration::from_secs(30)),
+            retries: self.retries.unwrap_or(1),
+            tls_settings: None, // use httpcrypt instead of tls
+            proxy_config,
+            zstd: self.zstd,
+            encryption_key,
+        })
+    }
+}
+
+/// Wrapper around a persistent rspamd client for Lua
+#[derive(Clone)]
+struct RspamdClient {
+    client: RspamdAsyncClient,
+}
+
+impl RspamdClient {
+    async fn new(lua_config: RspamdClientConfig) -> anyhow::Result<Self> {
+        let client = lua_config.cached_client().await?;
+        Ok(Self { client })
+    }
+
+    async fn scan(
+        &self,
+        message: String,
+        envelope: EnvelopeDataLua,
+    ) -> anyhow::Result<RspamdScanReply> {
+        let envelope_data = envelope.into_envelope_data();
+        let result = self.client.scan(message, envelope_data).await?;
+        Ok(result)
+    }
+}
+
+impl LuaUserData for RspamdClient {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // Main scan method
+        methods.add_async_method(
+            "scan",
+            |lua, this, (message, metadata): (String, Option<EnvelopeDataLua>)| async move {
+                let envelope = metadata.unwrap_or_default();
+
+                let result = this.scan(message, envelope).await.map_err(any_err)?;
+
+                lua.to_value(&result)
+            },
+        );
+    }
+}
+
+/// Lua-friendly envelope data structure
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default)]
+struct EnvelopeDataLua {
+    from: Option<String>,
+    rcpt: Vec<String>,
+    ip: Option<String>,
+    user: Option<String>,
+    helo: Option<String>,
+    hostname: Option<String>,
+    queue_id: Option<String>,
+    file_path: Option<String>,
+    body_block: bool,
+    additional_headers: Option<HashMap<String, String>>,
+}
+
+impl mlua::FromLua for EnvelopeDataLua {
+    fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
+        from_lua_value(lua, value)
+    }
+}
+
+impl EnvelopeDataLua {
+    fn into_envelope_data(self) -> EnvelopeData {
+        // Build additional headers, adding queue_id if present
+        let mut additional_headers = self.additional_headers.unwrap_or_default();
+        if let Some(queue_id) = self.queue_id {
+            additional_headers.insert("Queue-Id".to_string(), queue_id);
+        }
+
+        // Construct EnvelopeData directly since all fields are public
+        EnvelopeData {
+            from: self.from,
+            rcpt: self.rcpt,
+            ip: self.ip,
+            user: self.user,
+            helo: self.helo,
+            hostname: self.hostname,
+            file_path: self.file_path,
+            body_block: self.body_block,
+            additional_headers,
+        }
+    }
+}
+
+/// Reject the current message via kumo.reject, preferring the smtp_message
+/// that Rspamd returned over the provided default.
+/// The kumo module lives in package.loaded, not in globals.
+fn reject_via_kumo(
+    lua: &Lua,
+    reply: &RspamdScanReply,
+    code: u16,
+    default_message: &str,
+) -> mlua::Result<()> {
+    let kumo_mod = get_or_create_module(lua, "kumo").map_err(any_err)?;
+    let reject: mlua::Function = kumo_mod.get("reject")?;
+
+    let message = reply
+        .messages
+        .get("smtp_message")
+        .map(|s| s.as_str())
+        .unwrap_or(default_message);
+
+    reject.call::<()>((code, message))
+}
+
+/// Register the rspamd module with Lua
+pub fn register(lua: &Lua) -> anyhow::Result<()> {
+    let rspamd_mod = get_or_create_sub_module(lua, "rspamd")?;
+
+    rspamd_mod.set(
+        "build_client",
+        lua.create_async_function(|lua, options: Value| async move {
+            let config: RspamdClientConfig = from_lua_value(&lua, options)?;
+            RspamdClient::new(config).await.map_err(any_err)
+        })?,
+    )?;
+
+    rspamd_mod.set(
+        "scan_message",
+        lua.create_async_function(|lua, (config_value, msg): (Value, Message)| async move {
+            let config: RspamdClientConfig = from_lua_value(&lua, config_value)?;
+
+            // Extract envelope data from message
+            let envelope_data = EnvelopeData {
+                from: msg.sender().await.map(|s| s.to_string()).ok(),
+                rcpt: msg.recipient_list_string().await.unwrap_or_default(),
+                ip: msg.get_meta_string("received_from").await.ok().flatten(),
+                user: msg.get_meta_string("authn_id").await.ok().flatten(),
+                helo: msg.get_meta_string("ehlo_domain").await.ok().flatten(),
+                // Rspamd interprets Hostname as the connecting client's rDNS
+                // hostname; kumod doesn't track that, and the "hostname" meta
+                // holds our own hostname, which would poison hostname rules
+                hostname: None,
+                // We don't have a reliable file path in most cases
+                file_path: None,
+                body_block: config.rewrite_body,
+                additional_headers: HashMap::default(),
+            };
+
+            // Build client config and scan
+            // Wrap the Arc<Box<[u8]>> in MessageDataWrapper to implement AsRef<[u8]>
+            // This enables true zero-copy operation (no allocation or copying of message data)
+            let client = config.cached_client().await.map_err(any_err)?;
+            let data = MessageDataWrapper(msg.data().await.map_err(any_err)?);
+            let mut reply = client.scan(data, envelope_data).await.map_err(any_err)?;
+
+            // Apply a rewritten message first: it replaces the entire
+            // message content, so it must precede any header edits
+            if let Some(body) = reply.rewritten_body.take() {
+                msg.assign_data(body);
+            }
+
+            // Apply milter directives (e.g. from Rspamd's milter_headers module)
+            if let Some(milter) = &reply.milter {
+                for name in milter.remove_headers.keys() {
+                    // The milter protocol can address a single occurrence by
+                    // index; we remove all occurrences like the policy-extras
+                    // Lua implementation did
+                    msg.remove_all_named_headers(name).await.map_err(any_err)?;
+                }
+
+                let mut add_headers: Vec<_> = milter.add_headers.iter().collect();
+                add_headers.sort_by_key(|(_, header)| header.order);
+                for (name, header) in add_headers {
+                    if name == "Subject" {
+                        msg.remove_all_named_headers("Subject")
+                            .await
+                            .map_err(any_err)?;
+                        msg.prepend_header(Some("Subject"), header.value.as_bytes())
+                            .await
+                            .map_err(any_err)?;
+                    } else {
+                        msg.append_header(Some(name), header.value.as_bytes())
+                            .await
+                            .map_err(any_err)?;
+                    }
+                }
+            }
+
+            // X-Spam-Flag: YES only for actions that classify the message as
+            // spam; tempfail verdicts like greylist/soft reject are not spam
+            let is_spam = matches!(
+                reply.action.as_str(),
+                "add header" | "rewrite subject" | "reject"
+            );
+
+            if config.add_headers {
+                // Add X-Spam-* headers
+                msg.prepend_header(
+                    Some("X-Spam-Flag"),
+                    if is_spam { b"YES".as_slice() } else { b"NO" },
+                )
+                .await
+                .map_err(any_err)?;
+                msg.prepend_header(Some("X-Spam-Score"), reply.score.to_string().as_bytes())
+                    .await
+                    .map_err(any_err)?;
+                msg.prepend_header(Some("X-Spam-Action"), reply.action.as_bytes())
+                    .await
+                    .map_err(any_err)?;
+
+                // Add symbols if available
+                if !reply.symbols.is_empty() {
+                    let symbols: Vec<&str> = reply.symbols.keys().map(|s| s.as_str()).collect();
+                    msg.prepend_header(Some("X-Spam-Symbols"), symbols.join(", ").as_bytes())
+                        .await
+                        .map_err(any_err)?;
+                }
+            }
+
+            // Handle Rspamd actions
+            match reply.action.as_str() {
+                "no action" => {
+                    // Ham - deliver normally
+                }
+                "soft reject" | "greylist" => {
+                    // Temporary failure - greylisting
+                    // Always use 451 (sender should retry later)
+                    reject_via_kumo(
+                        &lua,
+                        &reply,
+                        451,
+                        "4.7.1 Greylisted, please try again later",
+                    )?;
+                }
+                "add header" => {
+                    // Just add headers (already done above) and deliver
+                }
+                "rewrite subject" if config.prefix_subject => {
+                    if let Ok(Some(subject)) = msg.get_first_named_header_value("Subject").await {
+                        msg.remove_all_named_headers("Subject")
+                            .await
+                            .map_err(any_err)?;
+                        msg.prepend_header(
+                            Some("Subject"),
+                            format!("***SPAM*** {subject}").as_bytes(),
+                        )
+                        .await
+                        .map_err(any_err)?;
+                    }
+                }
+                "reject" if config.reject_spam => {
+                    // Always use 550 (permanent failure) for spam
+                    reject_via_kumo(&lua, &reply, 550, "5.7.1 Spam message rejected")?;
+                }
+                _ => {
+                    // Unknown action - deliver with headers
+                }
+            }
+
+            // Return the scan reply
+            lua.to_value(&reply)
+        })?,
+    )?;
+
+    Ok(())
+}
