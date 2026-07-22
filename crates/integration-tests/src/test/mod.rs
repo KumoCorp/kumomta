@@ -41,6 +41,7 @@ mod no_ports_in_rcpt_domain;
 mod perm_fail;
 mod proxy_basic;
 mod proxy_protocol;
+mod queue_dmarc;
 mod queue_ndr;
 mod random_bytes;
 mod rebind;
