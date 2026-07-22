@@ -20,10 +20,11 @@ use parking_lot::FairMutex as Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::IpAddr;
+use std::io::{BufRead, BufReader, Write};
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc::error::SendError;
@@ -35,7 +36,8 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-const DMARC_REPORT_LOG_FILEPATH: &'static str = "/var/log/kumomta/dmarc.log";
+const DMARC_REPORT_LOG_FILEPATH: &'static str = "/tmp/kumomta-dmarc.log";
+const MAX_ERROR_BATCH_SIZE: usize = 10000;
 
 declare_event! {
     static DMARC_REPORT_GENERATED: Single("dmarc_report_generated",
@@ -46,7 +48,8 @@ declare_event! {
 static RECORD_STREAM: LazyLock<Mutex<Option<mpsc::Sender<ErrorRecord>>>> =
     LazyLock::new(|| Mutex::new(None));
 
-const DEFAULT_REPORT_WINDOW_SIZE: Duration = Duration::new(60 * 60, 0);
+static REPORT_WINDOW_IN_SECONDS: AtomicU64 = AtomicU64::new(60 * 60);
+
 static REPORTER_CONFIG: LazyLock<Mutex<ReporterConfig>> = LazyLock::new(|| Default::default());
 
 #[derive(Default)]
@@ -64,9 +67,15 @@ fn get_record_stream() -> Option<Sender<ErrorRecord>> {
 async fn send_generated_report(report_content: String, report_email: String) -> anyhow::Result<()> {
     let mut config = load_config().await?;
 
-    config
+    let result = config
         .async_call_callback(&DMARC_REPORT_GENERATED, (report_content, report_email))
-        .await
+        .await;
+
+    result
+}
+
+pub fn set_report_window_in_seconds(secs: u64) {
+    REPORT_WINDOW_IN_SECONDS.store(secs, Ordering::Relaxed)
 }
 
 pub fn startup_dmarc_reporter() {
@@ -81,9 +90,9 @@ pub fn startup_dmarc_reporter() {
 
         let (sender, receiver) = mpsc::channel::<ErrorRecord>(100);
 
-        dmarc_reporter_loop(receiver).await;
-
         *RECORD_STREAM.lock() = Some(sender);
+
+        dmarc_reporter_loop(receiver).await;
     });
 }
 
@@ -121,7 +130,8 @@ fn get_current_log_filename() -> String {
     match secs_since_epoch {
         Ok(duration) => {
             let secs = duration.as_secs();
-            let secs = secs - secs % (60 * 60);
+            let secs = secs - secs % REPORT_WINDOW_IN_SECONDS.load(Ordering::Relaxed);
+            // let secs = secs - secs % REPORT_WINDOW_IN_SECONDS;
 
             format!("{}.{}", DMARC_REPORT_LOG_FILEPATH, secs)
         }
@@ -132,17 +142,22 @@ fn get_current_log_filename() -> String {
 async fn dmarc_reporter_loop<'a>(mut receiver: Receiver<ErrorRecord>) {
     // Start initial timeout as the remaining time before the end of the current interval
 
-    let secs_since_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH);
+    let mut secs_since_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH);
 
-    let window_in_seconds = DEFAULT_REPORT_WINDOW_SIZE.as_secs();
+    let window_in_seconds = REPORT_WINDOW_IN_SECONDS.load(Ordering::Relaxed);
+    // let window_in_seconds = REPORT_WINDOW_IN_SECONDS;
 
     let mut remaining_time = match secs_since_epoch {
         Ok(duration) => {
             let secs = duration.as_secs();
 
-            Duration::from_secs(secs % window_in_seconds)
+            if secs % window_in_seconds > 0 {
+                Duration::from_secs(secs % window_in_seconds)
+            } else {
+                Duration::from_secs(window_in_seconds)
+            }
         }
-        _ => DEFAULT_REPORT_WINDOW_SIZE,
+        _ => Duration::from_secs(window_in_seconds),
     };
 
     loop {
@@ -152,10 +167,12 @@ async fn dmarc_reporter_loop<'a>(mut receiver: Receiver<ErrorRecord>) {
                     Some(error_record) => {
                         let mut incoming_batch = vec![error_record];
 
-                        while !receiver.is_empty() {
+                        let mut num_records = 0;
+                        while !receiver.is_empty() && num_records < MAX_ERROR_BATCH_SIZE {
                             match receiver.recv().await {
                                 Some(next_record) => {
                                     incoming_batch.push(next_record);
+                                    num_records += 1;
                                 }
                                 _ => {
                                     break;
@@ -165,17 +182,22 @@ async fn dmarc_reporter_loop<'a>(mut receiver: Receiver<ErrorRecord>) {
 
                         let current_log = get_current_log_filename();
 
-                        if let Ok(mut f) = File::options().append(true).open(current_log) {
+                        if let Ok(mut f) =
+                            File::options().append(true).create(true).open(current_log)
+                        {
                             for error_record in incoming_batch {
                                 // TODO how do we want this to report out if we can't serialise for the report?
                                 if let Ok(result) = serde_json::to_string(&error_record) {
                                     let _ = writeln!(f, "{result}");
                                 }
                             }
+                        } else {
+                            tracing::error!("Failed to make spool for DMARC reporting");
                         }
                     }
                     None => {
                         // break?
+                        break;
                     }
                 }
             }
@@ -184,14 +206,20 @@ async fn dmarc_reporter_loop<'a>(mut receiver: Receiver<ErrorRecord>) {
                 // todo: handle when reports fail to send
                 let _ = send_aggregated_reports().await;
 
+                secs_since_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH);
+
                 remaining_time = match secs_since_epoch {
                     Ok(duration) => {
                         let secs = duration.as_secs();
 
-                        Duration::from_secs(secs % window_in_seconds)
+                        if secs % window_in_seconds > 0 {
+                            Duration::from_secs(secs % window_in_seconds)
+                        } else {
+                            Duration::from_secs(window_in_seconds)
+                        }
                     }
-                    _ => DEFAULT_REPORT_WINDOW_SIZE,
-                }
+                    _ => Duration::from_secs(window_in_seconds),
+                };
             }
         }
     }
@@ -465,7 +493,7 @@ pub struct ReportingInfo {
 }
 
 /// The individual error records that are then aggregated for output in the report
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub(crate) struct ErrorRecord {
     pub(crate) version: String,
     pub(crate) org_name: String,
@@ -535,7 +563,9 @@ impl<'a> DmarcContext<'a> {
         sender_domain_alignment: SenderDomainAlignment,
         error: &str,
     ) -> anyhow::Result<()> {
-        let source_ip = self.received_from.parse()?;
+        let source_ip: Result<SocketAddr, _> = self.received_from.parse();
+
+        let source_ip = source_ip?.ip();
 
         if let Some(reporting_info) = self.reporting_info {
             let error_record = ErrorRecord {
