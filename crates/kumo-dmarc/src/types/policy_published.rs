@@ -22,7 +22,7 @@ pub struct PolicyPublished {
 }
 
 impl PolicyPublished {
-    pub fn new(
+    pub(crate) fn new(
         domain: String,
         align_dkim: Option<Mode>,
         align_spf: Option<Mode>,

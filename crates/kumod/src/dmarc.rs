@@ -1,11 +1,15 @@
+use std::collections::BTreeMap;
+
 use config::{any_err, get_or_create_sub_module, serialize_options, SerdeWrappedValue};
-use kumo_dmarc::{Disposition, DmarcPassContext, ReportingInfo};
+use kumo_dmarc::{
+    set_report_window_in_seconds, startup_dmarc_reporter, Disposition, DmarcPassContext,
+    ReportingInfo,
+};
 use mailparsing::AuthenticationResult;
 use message::Message;
 use mlua::{Lua, LuaSerdeExt, UserDataRef};
 use mod_dns_resolver::get_resolver_instance;
 use serde::Serialize;
-use std::collections::BTreeMap;
 
 use crate::smtp_server::{RejectDisconnect, RejectError};
 
@@ -17,6 +21,24 @@ struct CheckHostOutput {
 
 pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
     let dmarc_mod = get_or_create_sub_module(lua, "dmarc")?;
+
+    dmarc_mod.set(
+        "start_dmarc_reporter",
+        lua.create_function(|_, _: ()| {
+            startup_dmarc_reporter();
+
+            Ok(mlua::Value::Nil)
+        })?,
+    )?;
+
+    dmarc_mod.set(
+        "set_report_window_in_seconds",
+        lua.create_function(|_, secs: u64| {
+            set_report_window_in_seconds(secs);
+
+            Ok(mlua::Value::Nil)
+        })?,
+    )?;
 
     dmarc_mod.set(
         "check_msg",
@@ -97,11 +119,10 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
 
                 let spf_result: AuthenticationResult = spf_result.0;
 
-                let received_from = spf_result
-                    .props
-                    .get("received_from")
-                    .cloned()
-                    .unwrap_or_default();
+                let received_from = match msg.get_meta("received_from").await {
+                    Ok(serde_json::Value::String(s)) => s.clone(),
+                    _ => String::new(),
+                };
 
                 let reporting_info = if use_reporting {
                     if let Some(reporting_info) = opt_reporting_info {
