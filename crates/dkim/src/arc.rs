@@ -583,4 +583,63 @@ mod test {
             email_content = sealed;
         }
     }
+
+    /// Microsoft 365 / Outlook sends ARC-Authentication-Results headers with
+    /// non-standard syntax (e.g. bare `action=none` without a `ptype.`
+    /// prefix).  The nom parser consumes what it understands and then
+    /// `all_consuming` produces an `Eof` error for the leftover input.
+    /// `explain_nom` formats that error as a multi-line diagnostic string
+    /// containing `\n`.  That string ends up in `ARCIssue::reason` and, from
+    /// there, in the `reason=` field of the emitted `Authentication-Results`
+    /// header — producing an invalid folded header value.
+    ///
+    /// This test traces the exact code path so that the right fix location is
+    /// visible: the newlines enter at the `format!("...{err:#}")` call in
+    /// `ARC::verify` (crates/dkim/src/arc.rs), not inside `emit_value_token`.
+    #[tokio::test]
+    async fn arc_verify_malformed_aar_reason_has_no_control_chars() {
+        // Construct a minimal message containing only a malformed
+        // ARC-Authentication-Results header.  The `action=none` token after
+        // `dmarc=pass` is not valid authres syntax (it needs a `ptype.`
+        // prefix), so the parser stops there and `all_consuming` reports an
+        // `Eof` error whose verbose rendering contains newlines.
+        let message = concat!(
+            "ARC-Authentication-Results: i=1; example.com;\r\n",
+            "\tdmarc=pass action=none header.from=example.com\r\n",
+            "\r\n",
+            "Body\r\n",
+        );
+
+        let email = ParsedEmail::parse(message).unwrap();
+        let resolver = TestResolver::default();
+        let arc = ARC::verify(&email, &resolver).await;
+
+        // The verification must fail (the ARC-Authentication-Results header is malformed).
+        assert_eq!(arc.chain_validation_status(), ChainValidationStatus::Fail);
+
+        // The reason string produced from the nom error contains newlines.
+        let reason = &arc.issues[0].reason;
+        assert!(
+            reason.contains('\n'),
+            "expected nom diagnostic newlines in reason, got: {reason:?}"
+        );
+
+        // When this reason is placed into an Authentication-Results header it
+        // must not contain raw control characters. Those would make the
+        // header invalid per RFC 5322.
+        let ar = mailparsing::AuthenticationResults {
+            serv_id: "mx.example.com".into(),
+            version: None,
+            results: vec![arc.authentication_result()],
+        };
+        let encoded = mailparsing::EncodeHeaderValue::encode_value(&ar);
+        let has_ctl = encoded
+            .as_bytes()
+            .iter()
+            .any(|&b| matches!(b, 0..=8 | 10..=31 | 127));
+        assert!(
+            !has_ctl,
+            "encoded Authentication-Results header contains control characters:\n{encoded:?}"
+        );
+    }
 }
