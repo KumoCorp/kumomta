@@ -410,6 +410,7 @@ pub struct ConcreteEsmtpListenerParams {
     pub deferred_queue: bool,
     pub allow_xclient: bool,
     pub require_proxy_protocol: bool,
+    pub allow_plaintext_auth: bool,
 
     pub trace_headers: TraceHeaders,
 
@@ -523,6 +524,9 @@ impl ConcreteEsmtpListenerParams {
         if let Some(require_proxy_protocol) = base.require_proxy_protocol {
             self.require_proxy_protocol = require_proxy_protocol;
         }
+        if let Some(allow_plaintext_auth) = base.allow_plaintext_auth {
+            self.allow_plaintext_auth = allow_plaintext_auth;
+        }
 
         if let Some(map) = base.meta {
             for (k, v) in map.into_iter() {
@@ -587,6 +591,7 @@ impl Default for ConcreteEsmtpListenerParams {
             line_length_hard_limit: MAX_LINE_LEN,
             allow_xclient: false,
             require_proxy_protocol: false,
+            allow_plaintext_auth: false,
         }
     }
 }
@@ -668,6 +673,9 @@ pub struct GenericEsmtpListenerParams {
 
     #[serde(default)]
     require_proxy_protocol: Option<bool>,
+
+    #[serde(default)]
+    allow_plaintext_auth: Option<bool>,
 }
 
 impl mlua::FromLua for GenericEsmtpListenerParams {
@@ -1845,9 +1853,10 @@ impl SmtpServerSession {
 
                     let mut extensions =
                         vec!["PIPELINING", "ENHANCEDSTATUSCODES", "8BITMIME", "SMTPUTF8"];
-                    if self.tls_active.is_none() {
+                    if self.tls_active.is_none() && !self.params.allow_plaintext_auth {
                         extensions.push("STARTTLS");
-                    } else {
+                    }
+                    if self.tls_active.is_some() || self.params.allow_plaintext_auth {
                         extensions.push("AUTH PLAIN");
                     }
                     if self.params.allow_xclient {
@@ -2559,7 +2568,7 @@ impl SmtpServerSession {
             .await?;
             return Ok(CommandDisposition::Continue);
         }
-        if self.tls_active.is_none() {
+        if self.tls_active.is_none() && !self.params.allow_plaintext_auth {
             self.write_response(
                 524,
                 format!("5.7.11 AUTH {sasl_mech} requires an encrypted channel"),
