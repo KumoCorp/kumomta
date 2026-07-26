@@ -2,7 +2,7 @@
 description: "Why mail leaves from the wrong IP with egress_pool 'unspecified' — queue helper not applied, or a tenant pointing at an undefined pool."
 ---
 
-# Why Is My Mail Sending From the Wrong IP? (egress_pool "unspecified")
+# Why Is My Mail Sending From the Wrong IP? (egress_pool 'unspecified')
 
 If your logs show `egress_pool: unspecified` / `egress_source: unspecified`, or mail is leaving from the host's default IP instead of an address in one of your pools, it almost always means no pool was selected for the message, so KumoMTA fell back to the host default.
 

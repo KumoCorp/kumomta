@@ -75,7 +75,7 @@ via the `extra` table rather than as top-level meta:
 
 ```lua
 kumo.on('http_message_generated', function(msg)
-  local extra = msg:get_meta('extra')
+  local extra = msg:get_meta 'extra'
   if extra then
     msg:set_meta('campaign', extra.campaign_id)
   end

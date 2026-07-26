@@ -2,7 +2,7 @@
 description: "What 'no sources are eligible for selection' means — how TSA suspensions work, how to inspect them with kcli, and what to do about them."
 ---
 
-# Why Are All Sources Suspended ("No Sources Are Eligible For Selection")?
+# Why Are All Sources Suspended (No Sources Are Eligible For Selection)?
 
 A log message such as `no sources for pool='...' are eligible for selection`, or `all possible sources for <domain> are suspended`, means every egress source in the pool that would be used for a destination has been suspended (or the pool is empty). With nothing to send from, messages for that destination accumulate in the queues.
 

@@ -2,7 +2,7 @@
 description: "What ReadyQueueWasFull and DueTimeWasReached mean in KumoMTA logs — why the Ready Queue cannot drain and how to triage it."
 ---
 
-# What Do "ReadyQueueWasFull" and "DueTimeWasReached" Mean?
+# What Do ReadyQueueWasFull and DueTimeWasReached Mean?
 
 These messages appear when mail is being accepted but not leaving the server. Neither is an error. Each one describes a message that was returned to the Scheduled Queue to wait, rather than delivered.
 
