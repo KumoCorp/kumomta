@@ -741,7 +741,7 @@ impl Message {
         match &mut inner.metadata {
             Some(meta) => {
                 meta.sender = sender;
-                inner.flags.set(MessageFlags::DATA_DIRTY, true);
+                inner.flags.set(MessageFlags::META_DIRTY, true);
                 Ok(())
             }
             None => anyhow::bail!("Message::set_sender: metadata is not loaded"),
@@ -795,7 +795,7 @@ impl Message {
         match &mut inner.metadata {
             Some(meta) => {
                 meta.recipient = recipient;
-                inner.flags.set(MessageFlags::DATA_DIRTY, true);
+                inner.flags.set(MessageFlags::META_DIRTY, true);
                 Ok(())
             }
             None => anyhow::bail!("Message::set_recipient_list: metadata is not loaded"),
@@ -2106,6 +2106,90 @@ pub(crate) mod test {
         lua.load("assert(msg:get_meta('test') == nil)")
             .exec()
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn set_sender_marks_meta_dirty() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+        // Simulate a message that has already been persisted by clearing
+        // the dirty flags that new_dirty() sets on construction.
+        {
+            let mut inner = msg.msg_and_id.inner.lock();
+            inner
+                .flags
+                .remove(MessageFlags::DATA_DIRTY | MessageFlags::META_DIRTY);
+        }
+
+        msg.set_sender(EnvelopeAddress::parse("new-sender@example.com").unwrap())
+            .await
+            .unwrap();
+
+        let inner = msg.msg_and_id.inner.lock();
+        assert!(
+            inner.flags.contains(MessageFlags::META_DIRTY),
+            "changing the sender must mark the metadata dirty"
+        );
+        assert!(
+            !inner.flags.contains(MessageFlags::DATA_DIRTY),
+            "changing the sender must not mark the data dirty"
+        );
+    }
+
+    #[tokio::test]
+    async fn set_recipient_list_marks_meta_dirty() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+        {
+            let mut inner = msg.msg_and_id.inner.lock();
+            inner
+                .flags
+                .remove(MessageFlags::DATA_DIRTY | MessageFlags::META_DIRTY);
+        }
+
+        msg.set_recipient_list(vec![
+            EnvelopeAddress::parse("new-recip@example.com").unwrap()
+        ])
+        .await
+        .unwrap();
+
+        let inner = msg.msg_and_id.inner.lock();
+        assert!(
+            inner.flags.contains(MessageFlags::META_DIRTY),
+            "changing the recipient list must mark the metadata dirty"
+        );
+        assert!(
+            !inner.flags.contains(MessageFlags::DATA_DIRTY),
+            "changing the recipient list must not mark the data dirty"
+        );
+    }
+
+    #[tokio::test]
+    async fn set_sender_after_shrink_does_not_flag_empty_data() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+        // Simulate a persisted-then-shrunk message: no dirty flags and an
+        // empty in-memory data buffer (the body lives only on the spool).
+        {
+            let mut inner = msg.msg_and_id.inner.lock();
+            inner
+                .flags
+                .remove(MessageFlags::DATA_DIRTY | MessageFlags::META_DIRTY);
+            inner.data = NO_DATA.clone();
+        }
+
+        msg.set_sender(EnvelopeAddress::parse("new-sender@example.com").unwrap())
+            .await
+            .unwrap();
+
+        // Because an envelope change only dirties the metadata, save_to must
+        // not try to persist the empty data buffer, which would otherwise
+        // fail with "message data must not be empty".
+        assert!(
+            msg.get_data_if_dirty().is_none(),
+            "an envelope change must not flag the empty data buffer for saving"
+        );
+        assert!(
+            msg.needs_save(),
+            "the metadata change must still require a save"
+        );
     }
 
     #[tokio::test]
