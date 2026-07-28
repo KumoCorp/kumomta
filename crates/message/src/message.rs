@@ -435,6 +435,7 @@ impl Message {
             None => anyhow::bail!("set_scheduling: metadata must be loaded first"),
             Some(meta) => {
                 meta.schedule = scheduling;
+                inner.flags.set(MessageFlags::META_DIRTY, true);
                 inner
                     .flags
                     .set(MessageFlags::SCHEDULED, scheduling.is_some());
@@ -2189,6 +2190,35 @@ pub(crate) mod test {
         assert!(
             msg.needs_save(),
             "the metadata change must still require a save"
+        );
+    }
+
+    #[tokio::test]
+    async fn set_scheduling_marks_meta_dirty() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+        {
+            let mut inner = msg.msg_and_id.inner.lock();
+            inner
+                .flags
+                .remove(MessageFlags::DATA_DIRTY | MessageFlags::META_DIRTY);
+        }
+
+        msg.set_scheduling(Some(Scheduling {
+            restriction: None,
+            first_attempt: None,
+            expires: None,
+        }))
+        .await
+        .unwrap();
+
+        let inner = msg.msg_and_id.inner.lock();
+        assert!(
+            inner.flags.contains(MessageFlags::META_DIRTY),
+            "changing the schedule must mark the metadata dirty"
+        );
+        assert!(
+            !inner.flags.contains(MessageFlags::DATA_DIRTY),
+            "changing the schedule must not mark the data dirty"
         );
     }
 
