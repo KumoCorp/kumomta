@@ -107,22 +107,34 @@ async fn inspect_and_abort() -> anyhow::Result<()> {
         "expected 'aborted' in response, got: {abort_resp}"
     );
 
-    // After the abort the connection slot should drain.
-    daemon
-        .source
-        .wait_for_metric(
-            Duration::from_secs(10),
-            |m| {
-                m.name().as_str() == "connection_count"
-                    && m.labels()
-                        .get("service")
-                        .map(|s| s.contains("make.slow_send"))
-                        .unwrap_or(false)
-            },
-            |values| values.iter().sum::<f64>() == 0.0,
-        )
-        .await
-        .context("waiting for connection slot to drain after abort")?;
+    // Aborting tears down the observed dispatcher, but its in-flight
+    // message returns to the ready queue and the maintainer promptly
+    // spawns a replacement dispatcher with a fresh session_id. Wait
+    // for the observed dispatcher to be gone: either no dispatcher is
+    // momentarily present, or the one present has a different
+    // session_id than the one we aborted.
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let resp = api
+            .admin_inspect_ready_q_v1(&InspectReadyQV1Request {
+                queue_name: queue_name.clone(),
+                include_scheduled_queues: false,
+            })
+            .await
+            .context("inspect after abort")?;
+        let observed_aborted_session = resp
+            .dispatchers
+            .iter()
+            .any(|d| d.session_id == dispatcher_session_id);
+        if !observed_aborted_session {
+            break;
+        }
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for aborted dispatcher {dispatcher_session_id} to go away"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
 
     daemon.stop_both().await.context("stop_both")?;
     Ok(())
