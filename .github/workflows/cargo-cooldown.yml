@@ -1,0 +1,60 @@
+name: Update cargo dependencies with cooldown
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, early Monday, to mirror the cargo cadence in dependabot.yml
+    - cron: "0 5 * * 1"
+
+env:
+  CARGO_TERM_COLOR: always
+
+# The default GITHUB_TOKEN is used only for checkout; the branch push and PR
+# creation use the App token generated below, which carries its own
+# installation permissions.
+permissions:
+  contents: read
+
+jobs:
+  cooldown-update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: "Install Rust"
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-cooldown
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-cooldown
+
+      - name: Run cooldown update
+        run: ./assets/ci/update-cargo-deps-with-cooldown.sh
+
+      # Mint a short-lived token for the App installed on this repo. Using it
+      # rather than the default GITHUB_TOKEN makes the resulting PR trigger the
+      # build and format workflows.
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.COOLDOWN_APP_ID }}
+          private-key: ${{ secrets.COOLDOWN_APP_PRIVATE_KEY }}
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          branch: cargo-cooldown/update
+          add-paths: Cargo.lock
+          commit-message: "deps: update Cargo.lock via cooldown"
+          title: "deps: update Cargo.lock via cooldown"
+          body: |
+            Automated dependency update produced by
+            `assets/ci/update-cargo-deps-with-cooldown.sh`, which runs
+            `cargo cooldown update` and respects the cooldown settings in
+            `cooldown.toml`.
+
+            Opened only because the cooldown procedure changed `Cargo.lock`.
+          delete-branch: true
