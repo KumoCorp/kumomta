@@ -30,7 +30,26 @@ jobs:
           crate: cargo-cooldown
 
       - name: Run cooldown update
-        run: ./assets/ci/update-cargo-deps-with-cooldown.sh
+        run: ./assets/ci/update-cargo-deps-with-cooldown.sh 2>&1 | tee "$RUNNER_TEMP/cooldown.log"
+
+      - name: Compose pull request body
+        run: |
+          {
+            echo 'Automated dependency update produced by'
+            echo '`assets/ci/update-cargo-deps-with-cooldown.sh`, which runs'
+            echo '`cargo cooldown update` and respects the cooldown settings in'
+            echo '`cooldown.toml`.'
+            echo
+            echo 'Opened only because the cooldown procedure changed `Cargo.lock`.'
+            echo
+            echo '<details><summary>cooldown output</summary>'
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/cooldown.log"
+            echo '```'
+            echo
+            echo '</details>'
+          } > "$RUNNER_TEMP/pr-body.md"
 
       # Mint a short-lived token for the App installed on this repo. Using it
       # rather than the default GITHUB_TOKEN makes the resulting PR trigger the
@@ -50,11 +69,5 @@ jobs:
           add-paths: Cargo.lock
           commit-message: "deps: update Cargo.lock via cooldown"
           title: "deps: update Cargo.lock via cooldown"
-          body: |
-            Automated dependency update produced by
-            `assets/ci/update-cargo-deps-with-cooldown.sh`, which runs
-            `cargo cooldown update` and respects the cooldown settings in
-            `cooldown.toml`.
-
-            Opened only because the cooldown procedure changed `Cargo.lock`.
+          body-path: ${{ runner.temp }}/pr-body.md
           delete-branch: true
