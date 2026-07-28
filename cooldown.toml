@@ -2,7 +2,7 @@
 # Edit values as needed for your project.
 
 [cooldown]
-incompatible-publish-age = "deny"
+#incompatible-publish-age = "deny"
 # `floor` keeps initial Cargo.lock versions as the minimum; `ignore` allows lower versions.
 lockfile-baseline = "floor"
 
