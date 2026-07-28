@@ -4659,6 +4659,7 @@ dependencies = [
  "nom-utils",
  "nom_locate",
  "pastey",
+ "phf 0.13.1",
  "quoted_printable",
  "serde",
  "serde_json",
@@ -5298,6 +5299,7 @@ dependencies = [
  "humantime",
  "kumo-prometheus",
  "linkme",
+ "mailparsing",
  "mlua",
  "tokio",
 ]

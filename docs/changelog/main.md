@@ -209,6 +209,13 @@
 
 ## Fixes
 
+ * RFC 2822 date parsing now tolerates an obsolete alphabetic time zone such
+   as the `UTC` that Amazon SES emits in its bounce reports, which strict
+   parsing would otherwise reject. A recognized abbreviation resolves to its
+   offset (derived from the IANA time zone database), and any other alphabetic
+   zone falls back to the `-0000` unknown offset per RFC 5322 section 4.3
+   rather than failing the parse. #551
+
  * An SMTP command line containing bytes that are not valid UTF-8 is now
    rejected with a `501` syntax error and the session continues, rather
    than aborting the connection with a `421 technical difficulties`

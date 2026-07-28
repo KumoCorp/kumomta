@@ -670,6 +670,69 @@ mod test {
     use crate::ResolvedAddress;
     use rfc5321::{EnhancedStatusCode, Response};
 
+    #[test]
+    fn parse_ses_obsolete_arrival_date() {
+        // Amazon SES OOB bounces carry an Arrival-Date in an obsolete RFC 2822
+        // form ("Thu, 02 Jul 26 18:55:38 UTC"). This must not fail the report;
+        // the arrival_date below shows it is recovered rather than dropped.
+        let report = Report::parse(include_bytes!("../data/rfc3464/obsolete_arrival_date.eml"))
+            .unwrap()
+            .expect("multipart/report DSN should parse as a report");
+        k9::snapshot!(
+            &report,
+            r#"
+Report {
+    per_message: PerMessageReportEntry {
+        original_envelope_id: None,
+        reporting_mta: RemoteMta {
+            mta_type: "dns",
+            name: "mx.example.com",
+        },
+        dsn_gateway: None,
+        received_from_mta: None,
+        arrival_date: Some(
+            2026-07-02T18:55:38Z,
+        ),
+        extensions: {},
+    },
+    per_recipient: [
+        PerRecipientReportEntry {
+            final_recipient: Recipient {
+                recipient_type: "rfc822",
+                recipient: "user@example.com",
+            },
+            action: Failed,
+            status: ReportStatus {
+                class: 5,
+                subject: 1,
+                detail: 1,
+                comment: None,
+            },
+            original_recipient: Some(
+                Recipient {
+                    recipient_type: "rfc822",
+                    recipient: "user@example.com",
+                },
+            ),
+            remote_mta: None,
+            diagnostic_code: Some(
+                DiagnosticCode {
+                    diagnostic_type: "smtp",
+                    diagnostic: "550 5.1.1 Mailbox does not exist",
+                },
+            ),
+            last_attempt_date: None,
+            final_log_id: None,
+            will_retry_until: None,
+            extensions: {},
+        },
+    ],
+    original_message: None,
+}
+"#
+        );
+    }
+
     fn make_message() -> MimePart<'static> {
         let mut part = MimePart::new_text_plain("hello there").unwrap();
         part.headers_mut().set_subject("Hello!").unwrap();

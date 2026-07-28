@@ -196,12 +196,13 @@ pub(crate) fn extract_headers(part: &[u8]) -> anyhow::Result<BTreeMap<String, Ve
     Ok(extensions)
 }
 
+#[derive(Debug)]
 pub(crate) struct DateTimeRfc2822(pub DateTime<Utc>);
 
 impl FromStr for DateTimeRfc2822 {
     type Err = anyhow::Error;
     fn from_str(input: &str) -> anyhow::Result<Self> {
-        let date = DateTime::parse_from_rfc2822(input)?;
+        let date = mailparsing::parse_rfc2822_date(input)?;
         Ok(Self(date.into()))
     }
 }
@@ -308,6 +309,29 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+    use chrono::TimeZone;
+
+    #[test]
+    fn datetime_rfc2822_obsolete_utc_zone() {
+        // Amazon SES emits dates with the non-standard alphabetic zone "UTC".
+        let expected = Utc.with_ymd_and_hms(2026, 7, 2, 18, 55, 38).unwrap();
+
+        let parsed: DateTime<Utc> = "Thu, 02 Jul 26 18:55:38 UTC"
+            .parse::<DateTimeRfc2822>()
+            .expect("SES obsolete UTC zone should parse")
+            .into();
+        k9::assert_equal!(parsed, expected);
+
+        // The canonical numeric form parses to the same instant.
+        let canonical: DateTime<Utc> = "Thu, 02 Jul 2026 18:55:38 +0000"
+            .parse::<DateTimeRfc2822>()
+            .unwrap()
+            .into();
+        k9::assert_equal!(canonical, expected);
+
+        // A genuinely unparseable value still errors.
+        "not a date".parse::<DateTimeRfc2822>().unwrap_err();
+    }
 
     #[test]
     fn rfc5965_1() {

@@ -237,7 +237,7 @@ impl<'a> Header<'a> {
     }
 
     pub fn as_date(&self) -> Result<DateTime<FixedOffset>> {
-        DateTime::parse_from_rfc2822(self.get_raw_value_string()?)
+        crate::parse_rfc2822_date(self.get_raw_value_string()?)
             .map_err(MailParsingError::ChronoError)
     }
 

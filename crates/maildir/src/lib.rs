@@ -158,7 +158,7 @@ impl MailEntry {
                 .rsplit(';')
                 .nth(0)
                 .ok_or(MailEntryError::DateError("Unable to split Received header"))
-                .and_then(|ts| DateTime::parse_from_rfc2822(ts).map_err(MailEntryError::from)),
+                .and_then(|ts| mailparsing::parse_rfc2822_date(ts).map_err(MailEntryError::from)),
             None => Err("No Received header found")?,
         }
     }
