@@ -63,14 +63,14 @@ ahash = "0.8.11"
 amqprs = {version="2.0", features=["tls", "traces"]}
 anyhow = "1.0"
 arc-swap = "1.6"
-async-nats = {version = "0.47", default-features = false, features = ["jetstream", "ring", "server_2_10", "server_2_11", "server_2_12"]}
+async-nats = {version = "0.49", default-features = false, features = ["jetstream", "ring", "server_2_10", "server_2_11", "server_2_12"]}
 async-stream = "0.3"
 async-trait = "0.1"
 aws-lc-rs = "1.13.1"
 axum = "0.8"
 axum-client-ip = "1.1"
-axum-server = "0.7"
-axum-streams = {version="0.23", features=["text"]}
+axum-server = "0.8"
+axum-streams = {version="0.26", features=["text"]}
 backtrace = "0.3"
 bitflags = "2.11"
 bitstring = "0.2"
@@ -78,7 +78,7 @@ bstr = {version="1.12", features=["serde"]}
 bytes = "1.0"
 camino = "1.1"
 caps = "0.5"
-cgroups-rs = "0.3"
+cgroups-rs = "0.5"
 # Using a git ref until https://github.com/nickspring/charset-normalizer-rs/pull/45 is merged
 charset-normalizer-rs = { git = "https://github.com/KumoCorp/charset-normalizer-rs.git", rev="1f1dc21b49d30d73a99b0136497352b569947ac2" }
 chrono = { version = "0.4.26", default-features = false }
@@ -86,32 +86,32 @@ chrono-tz = {version="0.10", features=["serde"]}
 cidr = {version="0.3", features=["serde", "bitstring"]}
 clap = {version="4.5", features=["derive", "wrap_help"]}
 clap-markdown = "0.1"
-colorgrad = "0.7"
+colorgrad = "0.8"
 crc32fast = "1.5.0"
-criterion = "0.7"
+criterion = "0.8"
 crossbeam-queue= "0.3"
 crossbeam-skiplist= "0.1"
-crossterm = { version = "0.28.0", features = ["event-stream"] } # sync with ratatui
+crossterm = { version = "0.29.0", features = ["event-stream"] } # sync with ratatui
 dashmap = "6.1"
 data-encoding = "2.6"
 data-encoding-macro = "0.1"
-deadpool = {version="0.12", features=["rt_tokio_1"]}
+deadpool = {version="0.13", features=["rt_tokio_1"]}
 derive-where = "1.2.7"
-ed25519-dalek = "2.0"
+ed25519-dalek = "3.0"
 env_logger = "0.11"
-fancy-regex = "0.16"
+fancy-regex = "0.18"
 filenamegen = "0.2.7"
 file_type = "0.8"
-flume = "0.11"
-foreign-types = "0.3" # sync with openssl
+flume = "0.12"
+foreign-types = "0.5" # sync with openssl
 futures = "0.3.28"
 futures-util = "0.3"
 futures-lite = "2.3"
 flate2 = "1.0"
 gcd = "2.3"
 gethostname = "1.0"
-getrandom = "0.3"
-git2 = { version = "0.20", default-features = false }
+getrandom = "0.4"
+git2 = { version = "0.21", default-features = false }
 # handlebars uses a git ref until the next release is made, so that we have
 # recursive lookup available.
 handlebars = { version="6.3", git = "https://github.com/sunng87/handlebars-rust.git", rev="c349c39557700e6a5b5e5273f2fc0f42574b79f3" }
@@ -122,7 +122,7 @@ hex = "0.4"
 hickory-resolver = {version="0.26", features=["dnssec-aws-lc-rs"]}
 hickory-proto = {version="0.26", features=["dnssec-aws-lc-rs"]}
 resolv-conf = "0.7"
-hierarchical_hash_wheel_timer = {version="=1.3", default-features=false, features=["fx-hash"]}
+hierarchical_hash_wheel_timer = {version="=1.4", default-features=false, features=["fx-hash"]}
 human_bytes = "0.4.3"
 humanize-rs = "0.1"
 humantime = "2.1"
@@ -132,13 +132,13 @@ in-container = { version = "1.1.0", default-features = false }
 incr_stats = "1.0"
 indexmap = "2.2"
 indoc = "2.0.5"
-instant-xml = "0.5"
-intrusive-collections = "0.9.7"
+instant-xml = "0.7"
+intrusive-collections = "0.10.2"
 json_comments = "0.2"
-itertools = "0.14"
+itertools = "0.15"
 jwalk = "0.8"
 k9 = "0.12"
-lapin = {version="2.5", default-features=false, features=["native-tls"]}
+lapin = {version="4.10", default-features=false, features=["native-tls"]}
 lexicmp = "0.2"
 libc = "0.2.139"
 linkme = "0.3"
@@ -147,9 +147,9 @@ lipsum = "0.9"
 log = "0.4"
 lru-cache = "0.1"
 mac_address = "1.1"
-machine-uid = "0.5.3"
-mail-builder = "0.2"
-mailparse = "0.14"
+machine-uid = "0.6.0"
+mail-builder = "0.4"
+mailparse = "0.16"
 maplit = "1.0"
 map_vec = "0.6"
 memchr = "2.5"
@@ -158,9 +158,9 @@ metrics-prometheus = "0.11"
 metrics-tracing-context = "0.18"
 minijinja = {version="2.7.0",features=["loader", "builtins", "json", "loop_controls"]}
 minijinja-contrib = {version="2.7.0",features=["datetime", "pycompat", "rand", "textwrap", "unicode_wordwrap", "wordcount", "timezone"]}
-mlua = "0.11"
+mlua = "0.12"
 mockito = "1.6.1"
-nix = "0.30"
+nix = "0.31"
 nom = "8.0.0"
 nom_locate = "5.0"
 notify = "8"
@@ -169,9 +169,9 @@ num_cpus = "1.16.0"
 num-format = "0.4.4"
 openssl = { version="=0.10.80" } # pinned; see patch below
 openssl-sys = { version="0.9" }
-ordermap = {version="0.5", features=["serde"]}
+ordermap = {version="1.2", features=["serde"]}
 parking_lot = "0.12"
-pastey = "0.1"
+pastey = "0.2"
 percent-encoding = "2.3"
 pest = "2.7"
 pest_derive = "2.7"
@@ -180,11 +180,11 @@ prometheus = "0.14"
 psl = "2.1.46"
 psl-utils = {path="crates/psl-utils"}
 quoted_printable = "0.5"
-rand = "0.8"
-ratatui = { version = "0.29.0", features = ["crossterm", "unstable-widget-ref"] }
-rcgen = "0.13"
-rdkafka = "0.38"
-redis = {version="0.32", features=["cluster", "cluster-async", "connection-manager", "tokio-comp", "tls-native-tls", "tokio-native-tls-comp"]}
+rand = "0.10"
+ratatui = { version = "0.30.2", features = ["crossterm", "unstable-widget-ref"] }
+rcgen = "0.14"
+rdkafka = "0.39"
+redis = {version="1.3", features=["cluster", "cluster-async", "connection-manager", "tokio-comp", "tls-native-tls", "tokio-native-tls-comp"]}
 regex = "1.7"
 reqwest = {version="0.12", default-features=false, features=["rustls-tls", "rustls-tls-native-roots"]}
 ring = "0.17"
@@ -193,7 +193,7 @@ rocksdb = {version="0.22", features=["jemalloc"]}
 rustls = "0.23"
 rustls-cert-gen = "0.2"
 rustls-pemfile = "2.2.0"
-rustls-platform-verifier = "0.5"
+rustls-platform-verifier = "0.7"
 scopeguard = "1.2"
 self_cell = "1.0"
 serde = {version="1.0", features=["derive"]}
@@ -203,14 +203,14 @@ serde_path_to_error = "0.1"
 serde_with = "3.4"
 serde_yaml = "0.9"
 sha-1 = { version = "0.10", features = ["oid"] }
-sha2 = "0.10"
+sha2 = "0.11"
 slog = "2.7"
 smallvec = {version="1.13", features=["serde"]}
 socket2 = {version="0.6"}
 socksv5 = {version="0.3", default-features=false, features=["tokio"]}
 sqlite = "0.37"
-strum = { version = "0.27", features = ["derive"] }
-sysinfo = { version = "0.38", default-features = false, features = ["system"] }
+strum = { version = "0.28", features = ["derive"] }
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 tabout = "0.3"
 tempfile = "3.10"
 test-log = {version="0.2", features = ["trace"]}
@@ -221,28 +221,28 @@ tikv-jemallocator = {version="0.5", features=["background_threads", "stats"]}
 tikv-jemalloc-ctl = {version="0.5", features=[]}
 tikv-jemalloc-sys = {version="0.5", features=["profiling", "unprefixed_malloc_on_supported_platforms", "stats"]}
 tokio = "^1.49"
-tokio-executor-trait = "2.1.0"
-tokio-metrics = "0.4.5"
+tokio-executor-trait = "3.1.0"
+tokio-metrics = "0.5.1"
 tokio-metrics-collector = "0.3.1"
 tokio-openssl = "0.6.4"
-tokio-reactor-trait = "1.1.0"
+tokio-reactor-trait = "4.1.1"
 tokio-rustls = "0.26"
 tokio-splice = "0.2"
 tokio-stream = "0.1"
-tokio-tungstenite = "0.28"
-toml = "0.9"
-toml_edit = "0.23"
-tower-http = {version="0.6", features=["trace", "compression-deflate", "compression-gzip", "decompression-deflate", "decompression-gzip"]}
+tokio-tungstenite = "0.29"
+toml = "1.1"
+toml_edit = "0.25"
+tower-http = {version="0.7", features=["trace", "compression-deflate", "compression-gzip", "decompression-deflate", "decompression-gzip"]}
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = {version="0.3", features=["env-filter", "std", "fmt", "json"]}
-tui-prompts = "0.5"
+tui-prompts = "0.6"
 utoipa = {version="5.4", features=["axum_extras", "time", "uuid", "url", "chrono", "non_strict_integers"]}
 utoipa-rapidoc = { version="6.0", features = ["axum"] }
 url = {version="2.4", features = ["serde"]}
 uuid = "1.23.1"
 uuid-helper = { path = "crates/uuid-helper" }
-vaultrs = "0.7"
+vaultrs = "0.8"
 walkdir = "2.3"
 which = "8"
 zstd = "0.13"

@@ -13,7 +13,7 @@ chrono.workspace = true
 config = {path="../config", optional = true}
 memchr.workspace = true
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"], optional = true}
-phf = "0.13"
+phf = "0.14"
 regex.workspace = true
 uuid.workspace = true
 
