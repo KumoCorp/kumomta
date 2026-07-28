@@ -247,3 +247,14 @@
    rather than being silently dropped on the next reload from spool.
    Thanks to @alexanderwburch! #570
 
+ * Closed a narrow race when attaching to the SMTP tracing
+   (`trace-smtp-server`, `trace-smtp-client`) and TSA subscription
+   (`subscribe_suspension_v1`, `subscribe_event_v1`) websocket endpoints.
+   The server did not finish registering the new subscriber until just
+   after the connection handshake completed, so any event produced in the
+   brief window between those two points was not delivered to that client.
+   In practice this could cause a freshly-attached SMTP trace to miss the
+   first event or two of a session that happened to start at the same
+   instant; it did not affect mail flow. The endpoints now register the
+   subscriber before completing the handshake.
+
