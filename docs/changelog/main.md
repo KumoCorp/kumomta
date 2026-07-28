@@ -202,6 +202,11 @@
    startup, that would otherwise lead to rocksdb corrupting itself on
    the restart *after* the permissions were broken.
 
+ * Base64-encoded MIME bodies whose final quantum has non-zero discarded
+   padding bits are now decoded rather than rejected, matching the
+   leniency other mail software applies to such non-canonical encodings.
+   Thanks to @kayozaki! #558
+
 ## Fixes
 
  * An SMTP command line containing bytes that are not valid UTF-8 is now
@@ -234,3 +239,4 @@
    after it was first persisted are now written back to the meta spool,
    rather than being silently dropped on the next reload from spool.
    Thanks to @alexanderwburch! #570
+

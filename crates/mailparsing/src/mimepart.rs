@@ -16,13 +16,17 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 /// Define our own because data_encoding::BASE64_MIME, despite its name,
-/// is not RFC2045 compliant, and will not ignore spaces
+/// is not RFC2045 compliant, and will not ignore spaces.
+/// check_trailing_bits is disabled because real-world MIME producers emit
+/// final quantums whose discarded padding bits are non-zero; a strict decoder
+/// would reject those otherwise-decodable bodies.
 const BASE64_RFC2045: data_encoding::Encoding = data_encoding_macro::new_encoding! {
     symbols: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
     padding: '=',
     ignore: " \r\n\t",
     wrap_width: 76,
     wrap_separator: "\r\n",
+    check_trailing_bits: false,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2281,5 +2285,17 @@ Body\r
                 attachments: vec![image_part.clone()],
             }
         );
+    }
+
+    /// Test the use case of check_trailing_bits being false.
+    /// This accepts a final quantum whose discarded padding bits are non-zero,
+    /// which a strict base64 decoder would reject.
+    /// For reference, valid base64 is aHRtbD4NCg==
+    #[test]
+    fn check_trailing_bits_test() {
+        // The low 4 trailing bits before `==` are non-zero in this sample.
+        // With check_trailing_bits=false we should still accept and decode it.
+        let decoded = BASE64_RFC2045.decode(b"aHRtbD4NCi==").unwrap();
+        assert_eq!(decoded, b"html>\r\n");
     }
 }
