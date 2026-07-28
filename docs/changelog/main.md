@@ -223,3 +223,8 @@
    persist was still treated by the SMTP ingress path as accepted.
    Errors now propagate so the ingress path can reject (and the client
    retries) instead of producing a silent loss.
+
+ * Changes made to a message's envelope (sender, recipient) or schedule
+   after it was first persisted are now written back to the meta spool,
+   rather than being silently dropped on the next reload from spool.
+   Thanks to @alexanderwburch! #570
