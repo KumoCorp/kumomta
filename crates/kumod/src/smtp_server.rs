@@ -375,8 +375,14 @@ impl TraceHeaders {
         }
 
         let value = BASE64.encode(serde_json::to_string(&object)?.as_bytes());
+
+        // The base64 payload is a single whitespace-free token, so the wrapper
+        // only ever breaks it at the hard width; pass SOFT_WIDTH as the hard
+        // width too to fold it at the same column as every other wrapped header.
+        let folded =
+            kumo_wrap::wrap_impl(value.as_str(), kumo_wrap::SOFT_WIDTH, kumo_wrap::SOFT_WIDTH);
         message
-            .prepend_header(Some(&self.header_name), value.as_bytes())
+            .prepend_header(Some(&self.header_name), &folded)
             .await?;
 
         Ok(())

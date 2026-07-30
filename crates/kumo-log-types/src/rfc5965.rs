@@ -84,9 +84,16 @@ impl ARFReport {
                         {
                             continue;
                         }
-                        if let Ok(decoded) =
-                            data_encoding::BASE64.decode(hdr.get_raw_value().as_bytes())
-                        {
+                        // The header value may be folded across continuation
+                        // lines; the folding whitespace is not part of the
+                        // base64 payload, so remove it before decoding.
+                        let encoded: Vec<u8> = hdr
+                            .get_raw_value()
+                            .iter()
+                            .copied()
+                            .filter(|b| !b.is_ascii_whitespace())
+                            .collect();
+                        if let Ok(decoded) = data_encoding::BASE64.decode(&encoded) {
                             #[derive(Deserialize)]
                             struct Wrap {
                                 #[serde(rename = "_@_")]
@@ -452,6 +459,41 @@ Spam Spam Spam
     },
 )
 "#
+        );
+    }
+
+    /// A supplemental trace header folded across continuation lines still
+    /// decodes back to its metadata.
+    #[test]
+    fn supplemental_trace_folded_header() {
+        let report = concat!(
+            "Content-Type: multipart/report; report-type=feedback-report;\r\n",
+            "    boundary=\"b\"\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: message/feedback-report\r\n",
+            "\r\n",
+            "Feedback-Type: abuse\r\n",
+            "User-Agent: SomeGenerator/1.0\r\n",
+            "Version: 1\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: message/rfc822\r\n",
+            "\r\n",
+            "From: <somespammer@example.net>\r\n",
+            // The base64 value is split with a CRLF + TAB fold.
+            "X-KumoRef: eyJfQF8iOiJcXF8vIiwicmVjaXBpZW50Ijoi\r\n",
+            "\tdGVzdEBleGFtcGxlLmNvbSJ9\r\n",
+            "Subject: Earn money\r\n",
+            "\r\n",
+            "Spam\r\n",
+            "--b--\r\n",
+        );
+
+        let result = ARFReport::parse(report.as_bytes()).unwrap().unwrap();
+        k9::assert_equal!(
+            result.supplemental_trace,
+            Some(serde_json::json!({ "recipient": "test@example.com" }))
         );
     }
 

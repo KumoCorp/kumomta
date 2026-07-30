@@ -4231,6 +4231,7 @@ dependencies = [
  "kumo-server-runtime",
  "kumo-spf",
  "kumo-template",
+ "kumo-wrap",
  "linkme",
  "lru-cache",
  "lruttl",

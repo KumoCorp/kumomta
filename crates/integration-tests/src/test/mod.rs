@@ -15,6 +15,7 @@ mod dispatcher_watchdog;
 mod eightbitmime;
 mod end_to_end;
 mod end_to_end_deferred_queue;
+mod end_to_end_long_trace_header;
 mod end_to_end_quoted_localpart;
 mod end_to_end_stuffed;
 mod end_to_end_webhook;

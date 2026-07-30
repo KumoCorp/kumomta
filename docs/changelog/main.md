@@ -258,3 +258,8 @@
    instant; it did not affect mail flow. The endpoints now register the
    subscriber before completing the handshake.
 
+ * Supplemental trace headers (`X-KumoRef`) that encode enough metadata to
+   exceed the SMTP 998-octet line length limit are now folded across
+   continuation lines, rather than being emitted on a single over-long line
+   that a strict receiver (such as another KumoMTA) might reject if/when
+   that header comes back in via an ARF report.
