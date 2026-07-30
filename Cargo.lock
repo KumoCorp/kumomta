@@ -3469,6 +3469,8 @@ dependencies = [
  "tokio-executor-trait",
  "tokio-reactor-trait",
  "tokio-tungstenite 0.28.0",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
  "zstd",
 ]

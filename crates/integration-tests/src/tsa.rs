@@ -1,7 +1,7 @@
 #![cfg(test)]
 use crate::kumod::target_bin;
 use anyhow::Context;
-use kumo_api_types::shaping::{Shaping, ShapingMergeOptions};
+use kumo_api_types::shaping::{CheckLevel, Shaping, ShapingMergeOptions};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::process::Stdio;
@@ -26,6 +26,7 @@ pub struct TsaArgs {
 
 impl TsaDaemon {
     pub async fn spawn(args: TsaArgs) -> anyhow::Result<Self> {
+        crate::logging::init_test_logging();
         let path = target_bin("tsa-daemon")?;
 
         let dir = tempfile::tempdir().context("make temp dir")?;
@@ -147,6 +148,16 @@ impl TsaDaemon {
             "http://{}/get_config_v1/shaping.toml",
             self.listener("http")
         );
-        Shaping::merge_files(&[url], &ShapingMergeOptions::default()).await
+        // Explicitly requesting Error level so that tests can fail loudly.
+        // This is different from the default behavior in kumod which tolerates
+        // transient blips.
+        Shaping::merge_files(
+            &[url],
+            &ShapingMergeOptions {
+                remote_load: CheckLevel::Error,
+                ..Default::default()
+            },
+        )
+        .await
     }
 }

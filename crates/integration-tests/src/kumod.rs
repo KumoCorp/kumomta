@@ -469,6 +469,7 @@ impl KumoDaemon {
     /// and by other call sites that need to control the on-disk
     /// location explicitly.
     async fn spawn_with_dir(args: KumoArgs, dir: TempDir) -> anyhow::Result<Self> {
+        crate::logging::init_test_logging();
         let path = target_bin("kumod")?;
 
         let user = User::from_uid(Uid::current())
