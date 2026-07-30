@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AcctLogRecord"],"fn":["log_authn","log_authz"],"struct":["AuditLogParams","AuthnAuditRecord"]};
