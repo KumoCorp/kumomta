@@ -40,7 +40,12 @@ async fn queue_dmarc() -> anyhow::Result<()> {
     let parsed = messages[0].parsed()?;
     eprintln!("headers: {:?}", parsed.headers());
 
-    assert!(parsed.headers().get_first("Received").is_some());
+    assert!(parsed
+        .headers()
+        .get_first("Received")
+        .unwrap()
+        .to_header_string()
+        .contains("for <dmarc-feedback@example.com>"));
     assert!(parsed.headers().get_first("X-KumoRef").is_some());
 
     assert_equal!(parsed.headers().subject().unwrap().unwrap(), "DMARC Report");
