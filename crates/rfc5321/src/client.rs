@@ -70,6 +70,8 @@ pub enum ClientError {
     },
     #[error("Timed Out sending message payload data")]
     TimeOutData,
+    #[error("Timed Out after {duration:?} waiting for the TLS handshake to complete")]
+    TimeOutHandshake { duration: Duration },
     #[error("SSL Error: {0}")]
     SslErrorStack(#[from] openssl::error::ErrorStack),
     #[error("No usable DANE TLSA records for {hostname}: {tlsa:?}")]
@@ -134,6 +136,7 @@ impl ClientError {
             | Self::FlushError { .. }
             | Self::WriteError { .. }
             | Self::TimeOutData
+            | Self::TimeOutHandshake { .. }
             | Self::SslErrorStack(_)
             | Self::NoUsableDaneTlsa { .. } => false,
             Self::Rejected(response) => response.was_due_to_message(),
@@ -841,8 +844,7 @@ impl SmtpClient {
                         });
                         tracer.trace_event(SmtpClientTraceEvent::Closed);
                     }
-                    return Err(ClientError::TimeOutResponse {
-                        command: Some(Command::StartTls),
+                    return Err(ClientError::TimeOutHandshake {
                         duration: self.timeouts.starttls_timeout,
                     });
                 }
@@ -926,8 +928,7 @@ impl SmtpClient {
                         });
                         tracer.trace_event(SmtpClientTraceEvent::Closed);
                     }
-                    return Err(ClientError::TimeOutResponse {
-                        command: Some(Command::StartTls),
+                    return Err(ClientError::TimeOutHandshake {
                         duration: self.timeouts.starttls_timeout,
                     });
                 }
