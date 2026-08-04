@@ -205,6 +205,40 @@ pub struct OpportunisticInsecureTlsHandshakeError {
     pub label: String,
 }
 
+/// A TLS negotiation that stalls leaves us in the same position as one that
+/// failed outright: TLS is unusable for this peer right now. `starttls`
+/// reports a stall as an error rather than `TlsStatus::FailedHandshake`
+/// though, so it bypasses the recovery that `FailedHandshake` would trigger
+/// and the message retries TLS on every attempt until it expires.
+///
+/// When the path is opportunistic and configured to reconnect in the clear,
+/// map a stall onto `FailedHandshake` so that recovery applies. A stall under
+/// `Required` is still surfaced as an error: downgrading there would violate
+/// the policy.
+fn tls_stall_as_failed_handshake(
+    error: ClientError,
+    enable_tls: Tls,
+    path_config: &EgressPathConfig,
+) -> Result<TlsStatus, ClientError> {
+    let stalled = matches!(
+        &error,
+        ClientError::TimeOutHandshake { .. }
+            | ClientError::TimeOutResponse {
+                command: Some(rfc5321::parser::Command::StartTls),
+                ..
+            }
+    );
+
+    if stalled
+        && enable_tls.is_opportunistic()
+        && path_config.opportunistic_tls_reconnect_on_failed_handshake
+    {
+        Ok(TlsStatus::FailedHandshake(error.to_string()))
+    } else {
+        Err(error)
+    }
+}
+
 impl SmtpDispatcher {
     pub async fn init(
         dispatcher: &mut Dispatcher,
@@ -847,7 +881,7 @@ impl SmtpDispatcher {
             }
             (Tls::OpportunisticInsecure, AdvTls::Yes, BrokenTls::No) => {
                 dispatcher.set_detail("STARTTLS");
-                let (enabled, label) = match client
+                let tls_status = match client
                     .starttls(TlsOptions {
                         insecure: enable_tls.allow_insecure(),
                         prefer_openssl,
@@ -860,8 +894,12 @@ impl SmtpDispatcher {
                         openssl_cipher_suites,
                         rustls_cipher_suites,
                     })
-                    .await?
+                    .await
                 {
+                    Ok(status) => status,
+                    Err(error) => tls_stall_as_failed_handshake(error, enable_tls, &path_config)?,
+                };
+                let (enabled, label) = match tls_status {
                     TlsStatus::FailedHandshake(handshake_error) => {
                         tracing::debug!(
                             "TLS handshake with {address}:{port} failed: \
@@ -925,7 +963,7 @@ impl SmtpDispatcher {
             )
             | (Tls::Opportunistic, AdvTls::Yes, BrokenTls::No) => {
                 dispatcher.set_detail("STARTTLS");
-                match client
+                let tls_status = match client
                     .starttls(TlsOptions {
                         insecure: enable_tls.allow_insecure(),
                         prefer_openssl,
@@ -938,8 +976,12 @@ impl SmtpDispatcher {
                         openssl_cipher_suites,
                         rustls_cipher_suites,
                     })
-                    .await?
+                    .await
                 {
+                    Ok(status) => status,
+                    Err(error) => tls_stall_as_failed_handshake(error, enable_tls, &path_config)?,
+                };
+                match tls_status {
                     TlsStatus::FailedHandshake(handshake_error) => {
                         self.remember_broken_tls(&dispatcher.name, &path_config)
                             .await;
@@ -1695,4 +1737,91 @@ async fn classify_record(response: &Response) -> (RecordType, IsTooManyRecipient
     };
 
     (record_type, too_many)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::time::Duration;
+
+    fn reconnecting_path() -> EgressPathConfig {
+        EgressPathConfig {
+            opportunistic_tls_reconnect_on_failed_handshake: true,
+            ..EgressPathConfig::default()
+        }
+    }
+
+    fn handshake_stall() -> ClientError {
+        ClientError::TimeOutHandshake {
+            duration: Duration::from_secs(60),
+        }
+    }
+
+    fn starttls_command_stall() -> ClientError {
+        ClientError::TimeOutResponse {
+            command: Some(rfc5321::parser::Command::StartTls),
+            duration: Duration::from_secs(60),
+        }
+    }
+
+    #[test]
+    fn stalled_handshake_recovers_when_opportunistic() {
+        for stall in [handshake_stall(), starttls_command_stall()] {
+            let status = tls_stall_as_failed_handshake(
+                stall,
+                Tls::OpportunisticInsecure,
+                &reconnecting_path(),
+            )
+            .expect("a stall under OpportunisticInsecure should become FailedHandshake");
+            assert!(matches!(status, TlsStatus::FailedHandshake(_)));
+        }
+
+        let status = tls_stall_as_failed_handshake(
+            handshake_stall(),
+            Tls::Opportunistic,
+            &reconnecting_path(),
+        )
+        .expect("a stall under Opportunistic should become FailedHandshake");
+        assert!(matches!(status, TlsStatus::FailedHandshake(_)));
+    }
+
+    #[test]
+    fn stalled_handshake_is_not_downgraded_when_tls_is_required() {
+        for tls in [Tls::Required, Tls::RequiredInsecure] {
+            tls_stall_as_failed_handshake(handshake_stall(), tls, &reconnecting_path())
+                .expect_err("a stall under a Required policy must not be downgraded");
+        }
+    }
+
+    #[test]
+    fn stall_is_not_recovered_when_reconnect_is_disabled() {
+        let path = EgressPathConfig {
+            opportunistic_tls_reconnect_on_failed_handshake: false,
+            ..EgressPathConfig::default()
+        };
+        tls_stall_as_failed_handshake(handshake_stall(), Tls::OpportunisticInsecure, &path)
+            .expect_err("without the reconnect option the stall must stay an error");
+    }
+
+    #[test]
+    fn unrelated_errors_are_passed_through() {
+        tls_stall_as_failed_handshake(
+            ClientError::NotConnected,
+            Tls::OpportunisticInsecure,
+            &reconnecting_path(),
+        )
+        .expect_err("a non-stall error must not be treated as a failed handshake");
+
+        // A timeout waiting on a different command is a protocol stall, not a
+        // TLS one, and must not silently disable TLS for the site.
+        tls_stall_as_failed_handshake(
+            ClientError::TimeOutResponse {
+                command: Some(rfc5321::parser::Command::Quit),
+                duration: Duration::from_secs(60),
+            },
+            Tls::OpportunisticInsecure,
+            &reconnecting_path(),
+        )
+        .expect_err("a non-STARTTLS command timeout must not be treated as a failed handshake");
+    }
 }
