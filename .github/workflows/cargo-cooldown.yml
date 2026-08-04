@@ -10,8 +10,8 @@ env:
   CARGO_TERM_COLOR: always
 
 # The default GITHUB_TOKEN is used only for checkout; the branch push and PR
-# creation use the App token generated below, which carries its own
-# installation permissions.
+# creation use the App token generated below, which has its own installation
+# permissions.
 permissions:
   contents: read
 
@@ -45,15 +45,17 @@ jobs:
             echo '<details><summary>cooldown output</summary>'
             echo
             echo '```'
-            cat "$RUNNER_TEMP/cooldown.log"
+            # The console log keeps its ANSI color; strip the escape sequences
+            # here to keep the rendered PR description readable.
+            sed -E 's/\x1b\[[0-9;?]*[ -/]*[@-~]//g' "$RUNNER_TEMP/cooldown.log"
             echo '```'
             echo
             echo '</details>'
           } > "$RUNNER_TEMP/pr-body.md"
 
-      # Mint a short-lived token for the App installed on this repo. Using it
-      # rather than the default GITHUB_TOKEN makes the resulting PR trigger the
-      # build and format workflows.
+      # Mint a short-lived token for the App installed on this repo. Signing
+      # commits with it attributes them to the App bot and marks them Verified,
+      # and the PR it opens triggers the build and format workflows.
       - name: Generate app token
         id: app-token
         uses: actions/create-github-app-token@v3
@@ -65,9 +67,10 @@ jobs:
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ steps.app-token.outputs.token }}
+          sign-commits: true
           branch: cargo-cooldown/update
+          delete-branch: true
           add-paths: Cargo.lock
           commit-message: "deps: update Cargo.lock via cooldown"
           title: "deps: update Cargo.lock via cooldown"
           body-path: ${{ runner.temp }}/pr-body.md
-          delete-branch: true
