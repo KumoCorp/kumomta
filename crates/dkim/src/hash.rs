@@ -294,12 +294,12 @@ Hello Alice
         let hash_algo = HashAlgo::RsaSha1;
         assert_eq!(
             compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
-            "wpj48VhihzV7I31ZZZUp1UpTyyM="
+            "QKvft7OqaNbRT/nH0Qmc/7mSK7w="
         );
         let hash_algo = HashAlgo::RsaSha256;
         assert_eq!(
             compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
-            "1bokzbYiRgXTKMQhrNhLJo1kjDDA1GILbpyTwyNa1uk=",
+            "+kuxulZ7MkxvrZj1LNFkEtOUvi0M2/80KBPP0duHSfw=",
         )
     }
 
@@ -360,6 +360,23 @@ Hello Alice
         let hash_algo = HashAlgo::RsaSha256;
         assert_eq!(
             compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
+            "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
+        )
+    }
+
+    #[test]
+    fn test_compute_body_hash_relaxed_blank_body_line() {
+        let email = ParsedEmail::parse("Subject: nothing\r\n\r\n\r\n").unwrap();
+        assert_eq!(email.get_body(), "\r\n");
+
+        assert_eq!(
+            compute_body_hash(
+                canonicalization::Type::Relaxed,
+                None,
+                HashAlgo::RsaSha256,
+                &email
+            )
+            .unwrap(),
             "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
         )
     }
