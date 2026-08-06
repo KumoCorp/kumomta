@@ -65,7 +65,7 @@ jobs:
     - name: Fixup git permissions
       run: git config --global --add safe.directory $PWD
     - name: "Setup sccache"
-      uses: mozilla-actions/sccache-action@v0.0.10
+      uses: mozilla-actions/sccache-action@v0.0.11
     - name: "Restore Vendored Deps from cache"
       uses: actions/cache@v6
       id: cache-cargo-vendor
@@ -207,7 +207,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
       - name: Login to GHCR
         if: ${{ github.event_name != 'pull_request' }}
-        uses: docker/login-action@v4.4.0
+        uses: docker/login-action@v4.6.0
         with:
           registry: https://ghcr.io
           username: ${{ github.actor }}
