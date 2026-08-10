@@ -209,6 +209,25 @@
 
 ## Fixes
 
+ * A TLS negotiation that *stalls* is now recovered from in the same way as one
+   that fails outright. `starttls` reports a stalled `STARTTLS` command response
+   or a stalled handshake as an error rather than
+   `TlsStatus::FailedHandshake`, so
+   [`opportunistic_tls_reconnect_on_failed_handshake`](../reference/kumo/make_egress_path/opportunistic_tls_reconnect_on_failed_handshake.md)
+   and
+   [`remember_broken_tls`](../reference/kumo/make_egress_path/remember_broken_tls.md)
+   never engaged: every attempt retried TLS against a peer known to stall, and
+   messages expired without ever being tried in the clear. A stall on an
+   opportunistic path configured to reconnect in the clear is now mapped onto
+   `FailedHandshake` so the existing recovery applies. A stall under a
+   `Required` policy is still reported as an error and is never downgraded.
+
+ * A stalled TLS handshake is now reported as its own error, `Timed Out after
+   ... waiting for the TLS handshake to complete`, rather than being described
+   as a timeout waiting for a response to `cmd=STARTTLS`. The two failures are
+   diagnostically very different — the peer answered `220` and then went quiet
+   in the handshake — but were previously indistinguishable in logs.
+
  * RFC 2822 date parsing now tolerates an obsolete alphabetic time zone such
    as the `UTC` that Amazon SES emits in its bounce reports, which strict
    parsing would otherwise reject. A recognized abbreviation resolves to its
