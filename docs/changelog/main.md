@@ -15,6 +15,13 @@
    [store_deadline](../reference/kumo/define_spool/rocks_params.md#store_deadline)
    rocks_params field.
 
+ * Reads from a HashiCorp Vault [keysource](../reference/keysource.md) now
+   time out after 30 seconds rather than waiting indefinitely. A vault
+   endpoint that accepted the connection but never answered would
+   previously park the calling lua forever, which could hold a graceful
+   shutdown open when the read happened in a connection handler. Tunable
+   via the new `vault_timeout` [keysource](../reference/keysource.md) field.
+
  * The `resolve-shaping-domain` script's default output has changed.
    Pass `--json-config` to restore the previous byte-for-byte
    pretty-JSON output of the path config. Run

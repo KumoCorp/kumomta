@@ -5,6 +5,7 @@ use config::{any_err, from_lua_value, get_or_create_sub_module};
 #[cfg(feature = "impl")]
 use mlua::Lua;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 #[cfg(feature = "impl")]
 use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 
@@ -23,6 +24,8 @@ pub enum KeySource {
         vault_path: String,
         #[serde(default = "default_vault_key")]
         vault_key: String,
+        #[serde(default = "default_vault_timeout", with = "duration_serde")]
+        vault_timeout: Option<Duration>,
     },
     Event {
         event_name: String,
@@ -32,6 +35,10 @@ pub enum KeySource {
 
 fn default_vault_key() -> String {
     "key".to_string()
+}
+
+fn default_vault_timeout() -> Option<Duration> {
+    Some(Duration::from_secs(30))
 }
 
 #[cfg(feature = "impl")]
@@ -48,6 +55,7 @@ impl KeySource {
                 vault_mount,
                 vault_path,
                 vault_key,
+                vault_timeout,
             } => {
                 let address = match vault_address {
                     Some(a) => a.to_string(),
@@ -70,6 +78,7 @@ impl KeySource {
                     VaultClientSettingsBuilder::default()
                         .address(address)
                         .token(token)
+                        .timeout(*vault_timeout)
                         .build()?,
                 )?;
 
@@ -283,6 +292,7 @@ mod test {
                 vault_mount: "secret".to_string(),
                 vault_path: path.to_string(),
                 vault_key: "key".to_string(),
+                vault_timeout: default_vault_timeout(),
             }
         }
     }
@@ -366,6 +376,7 @@ mod test {
             vault_mount: "secret".to_string(),
             vault_path: "custom_key".to_string(),
             vault_key: "custom_field".to_string(),
+            vault_timeout: default_vault_timeout(),
         };
 
         // This should fail because the vault secret has "key" but we're looking for "custom_field"
@@ -382,10 +393,60 @@ mod test {
             vault_mount: "secret".to_string(),
             vault_path: "custom_key".to_string(),
             vault_key: "key".to_string(),
+            vault_timeout: default_vault_timeout(),
         };
 
         let data = source.get().await?;
         assert_eq!(data, b"custom_value");
+
+        Ok(())
+    }
+
+    /// Accept connections but never respond to them; this is the shape
+    /// of vault outage that hangs a read that has no timeout.
+    fn spawn_black_hole() -> anyhow::Result<String> {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let address = format!("http://{}", listener.local_addr()?);
+        std::thread::spawn(move || {
+            let mut accepted = vec![];
+            while let Ok((stream, _)) = listener.accept() {
+                accepted.push(stream);
+            }
+        });
+        Ok(address)
+    }
+
+    #[tokio::test]
+    async fn test_vault_timeout() -> anyhow::Result<()> {
+        let source = KeySource::Vault {
+            vault_address: Some(spawn_black_hole()?),
+            vault_token: Some(KEY.to_string()),
+            vault_mount: "secret".to_string(),
+            vault_path: "foo".to_string(),
+            vault_key: "key".to_string(),
+            vault_timeout: Some(Duration::from_secs(1)),
+        };
+
+        // The outer timeout is much longer than vault_timeout; it is here
+        // so that a regression fails this test rather than hanging CI.
+        let start = std::time::Instant::now();
+        let result = timeout(Duration::from_secs(30), source.get())
+            .await
+            .context("vault_timeout did not bound the read")?;
+        let elapsed = start.elapsed();
+
+        let err = format!("{:#}", result.unwrap_err());
+        assert!(
+            err.contains("kv2::read vault_mount=secret, vault_path=foo"),
+            "{err}"
+        );
+
+        // Deliberately loose, so that a loaded CI machine cannot make this
+        // flaky while it still fails if vault_timeout stops being applied.
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "expected the 1s vault_timeout to bound the read, took {elapsed:?}"
+        );
 
         Ok(())
     }
