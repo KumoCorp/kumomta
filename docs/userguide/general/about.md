@@ -1,10 +1,14 @@
+---
+description: About the KumoMTA User Guide, who it is for, the assumed SMTP and email infrastructure knowledge, and the typographical conventions used throughout.
+---
+
 # About This Manual
 
-This is the Reference Manual for the KumoMTA SMTP server, version 1.0, through release 1.0. For license information, see the Legal Notices.
+This is the User Guide for the KumoMTA SMTP server. For license information, see the Legal Notices.
 
-Because this manual serves as a reference, it does not provide general instruction on SMTP or email infrastructure concepts. It also does not teach you how to use your operating system or command-line interpreter.
+This guide assumes familiarity with SMTP and general email infrastructure concepts. It does not teach you how to use your operating system or command-line interpreter.
 
-The KumoMTA Software is under constant development, and this Manual is updated frequently as well.
+KumoMTA is under constant development, and this documentation is updated frequently.
 
 If you have questions about using KumoMTA, community support is available in the [Forum](https://forum.kumomta.com) and the [Community Discord](https://kumomta.com/discord).
 
@@ -37,19 +41,31 @@ File names and directory names are written like this: “The `simple-policy.lua`
 
 Character sequences are written like this: “To specify a wildcard, use the `‘%’` character.”
 
-When commands or statements are prefixed by a prompt, we use these:
+Commands that you type at a shell prompt are shown in a `console` code block, prefixed with a `$` prompt:
 
-```text
-$> type a command here
-#> type a command as root here
-kumo> type a KumoMTA CLI command here
+```console
+$ type a command here
 ```
+
+Commands that must be run with elevated privileges are shown using `sudo`:
+
+```console
+$ sudo type a command as root here
+```
+
+KumoMTA command-line tools, such as `kcli`, are also invoked from the shell prompt:
+
+```console
+$ kcli type a KumoMTA CLI command here
+```
+
+Where it is useful to show the result of a command, the output either follows the command in the same block or appears in an adjacent `txt` block.
 
 Commands are issued in your command interpreter. On Unix, this is typically a program such as sh, csh, or bash.
 
-!!!
-    When you enter a command or statement shown in an example, do not type the
-    prompt shown in the example.
+!!! note
+    When you enter a command shown in an example, do not type the `$` prompt
+    shown in the example.
 
 In syntax descriptions, square brackets (“\[” and “\]”) indicate optional words or clauses. For example, in the following statement, --user is optional:
 

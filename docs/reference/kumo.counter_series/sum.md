@@ -9,7 +9,7 @@ tags:
 series:sum()
 ```
 
-{{since('dev')}}
+{{since('2026.05.12-a6845223')}}
 
 Returns the rolling total across every bucket in the series — that is, the
 sum over the full retention span of `num_buckets * bucket_size`.

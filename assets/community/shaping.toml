@@ -28,7 +28,8 @@
 
 #### BEGIN COMMUNITY CONTRIBUTED SHAPING RULES
 
-#===== GMAIL
+#===== GMAIL 
+# default provider configs in policy-extra/shaping.toml
 [[provider."gmail".automation]]
 regex = "Our system has detected that this message"
 trigger = {Threshold="5/hr"}
@@ -42,12 +43,10 @@ action = {SetConfig={name="max_message_rate", value="10/minute"}}
 duration = "30m"
 
 #===== YAHOO
-# 421 4.7.0 [TS01] Messages from x.x.x.x temporarily deferred due to user complaints
-[[provider."yahoo".automation]]
-regex = "\\[TS01\\]"
-trigger = {Threshold="3/hr"}
-action = {SetConfig={name="max_message_rate", value="1/minute"}}
-duration = "30m"
+# default provider configs in policy-extra/shaping.toml
+
+## 421 4.7.0 [TS01] Messages from x.x.x.x temporarily deferred due to user complaints
+# This one is caught in the default.automation in policy-extra/shaping.toml
 
 # We're seeing unusual traffic patterns from your server.
 # Submit your sending IPs for review.
@@ -106,38 +105,77 @@ trigger = {Threshold="3/hr"}
 action = {SetConfig={name="max_message_rate", value="10/minute"}}
 duration = "1 hour"
 
+#====== YAHOO.CO.JP (custom)
+# This one uses different MX servers then provider.yahoo
+["yahoo.co.jp"]
+connection_limit = 2
+max_message_rate = "10/s"
+max_deliveries_per_connection = 20
+
+# 553 Mail from x.x.x.x not allowed - VS98-IP0 deferred
+[["yahoo.co.jp".automation]]
+regex = "VS98-IP0 deferred"
+trigger = {Threshold="2/hr"}
+action = "Suspend"
+duration = "1 hour"
+
+# 421 [TSS04] Messages from 3.70.121.217 temporarily deferred due to unexpected volume or user complaints
+[["yahoo.co.jp".automation]]
+regex = "421 \\[TSS04\\]"
+trigger = {Threshold="2/hr"}
+action = "Suspend"
+duration = "1 hours"
+
+# 421 [IPTS04] Messages from 136.144.163.100 temporarily deferred due to unexpected volume or user complaints
+[["yahoo.co.jp".automation]]
+regex = "421 \\[IPTS04\\]"
+trigger = {Threshold="2/hr"}
+action = "Suspend"
+duration = "1 hours"
+
+[["yahoo.co.jp".automation]]
+regex = "Timeout waiting for command"
+trigger = {Threshold="2/hr"}
+action = "Suspend"
+duration = "30 minutes"
+
 #===== web.de
-["web.de"]
-max_deliveries_per_connection = 100
+[provider."gmx.net_web.de"]
+match=[
+        {MXSuffix=".web.de"},
+        {MXSuffix=".gmx.net"},
+]
+max_deliveries_per_connection = 20
 connection_limit = 4
 enable_tls = "Required"
 consecutive_connection_failures_before_delay = 5
 
-[["web.de".automation]]
+[[provider."gmx.net_web.de".automation]]
 regex = "Too many connections"
 trigger = {Threshold="3/hr"}
 action = {SetConfig={name="connection_limit", value=1}}
-duration = "2 hours"
+duration = "30 minutes"
 
-[["web.de".automation]]
+[[provider."gmx.net_web.de".automation]]
 regex = "Reject due to policy restrictions."
 trigger = {Threshold="5/hr"}
 action = {SetConfig={name="max_message_rate", value="1/minute"}}
 duration = "1 hour"
 
-[["web.de".automation]]
+[[provider."gmx.net_web.de".automation]]
 regex = "Reject due to policy violations."
 trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "1 hour"
 
-[["web.de".automation]]
+[[provider."gmx.net_web.de".automation]]
 regex = "554.*Reject due to policy restrictions."
 trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "2 hours"
 
 #===== outlook
+# default provider configs in policy-extra/shaping.toml
 [[provider."outlook".automation]]
 regex = "Unfortunately.*part of their network is on our block list"
 trigger = {Threshold="5/hr"}
@@ -192,7 +230,37 @@ trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "1 hour"
 
+#===== icloud.com
+# default provider configs in policy-extra/shaping.toml
+[[provider."apple".automation]]
+regex = "Service unavailable - try again later"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "15 minutes"
+
+# 451 [BS02] Temporary server error. Please try again later.
+[[provider."apple".automation]]
+regex = "\\[BS02\\] Temporary server error."
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "15 minutes"
+
+
+# 421 [HCM1] Your mail from x.y.z.a was deferred.
+[[provider."apple".automation]]
+regex = '''\\[HCM1\\] Your mail from \d+\.\d+\.\d+\.\d+ was deferred'''
+trigger = {Threshold="3/hr"}
+action = "Suspend"
+duration = "15 minutes"
+
+[[provider."apple".automation]]
+regex = "Your email was rejected due to having a domain present in the Spamhaus DBL"
+trigger = {Threshold="3/hr"}
+action = "Suspend"
+duration = "4 hours"
+
 #===== orange
+# default provider configs in policy-extra/shaping.toml
 [[provider."orange".automation]]
 regex = "Trop de connexions"
 trigger = {Threshold="2/hr"}
@@ -217,75 +285,120 @@ trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "2 hour"
 
+[[provider."mimecast".automation]]
+# default provider configs in policy-extra/shaping.toml
+regex = "Internal resource temporarily unavailable"
+trigger = {Threshold="3/hr"}
+action = "Suspend"
+duration = "30 minutes"
+
+# 20260327
+#==== Barracuda network
+[provider."barracuda"]
+match=[
+        {MXSuffix=".barracudanetworks.com."},
+]
+enable_tls = 'Required'
+max_deliveries_per_connection = 15
+provider_connection_limit =10
+
+# 20260327
+#==== Netvigator network
+[provider."netvigator"]
+match=[
+        {MXSuffix=".netvigator.com."},
+]
+enable_tls = 'Required'
+max_deliveries_per_connection = 10
+provider_connection_limit = 5
+
+# 20260327
+[[provider."netvigator".automation]]
+regex = "Too many messages for this session"
+trigger = {Threshold="3/hr"}
+action = "Suspend"
+duration = "30 minutes"
+
+#==== KPN provider
+[provider."kpn"]
+match=[
+        {MXSuffix=".kpnmail.nl."},
+]
+max_deliveries_per_connection = 10
+connection_limit = 10
+enable_tls = "Required"
+
 #===== qq.com
-["qq.com"]
+[provider."qq.com"]
+match=[{MXSuffix=".qq.com"}]
 max_deliveries_per_connection = 8
 connection_limit = 4
 enable_tls = "Required"
 
-[["qq.com".automation]]
+[[provider."qq.com".automation]]
 regex = "550 Sender frequency limited.*"
 trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "1 hour"
 
-[["qq.com".automation]]
+[[provider."qq.com".automation]]
 regex = "550 Ip frequency limited.*"
 trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "1 hour"
 
-[["qq.com".automation]]
+[[provider."qq.com".automation]]
 regex = "550 Connection frequency limited.*"
 trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "1 hour"
 
-[["qq.com".automation]]
+[[provider."qq.com".automation]]
 regex = "550 Domain frequency limited.*"
 trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "1 hour"
 
-[["qq.com".automation]]
+[[provider."qq.com".automation]]
 regex = "550 Mail content denied.*"
 trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "1 hour"
 
 #===== 163.com
-["163.com"]
+[provider."163.com"]
+match=[{MXSuffix=".netease.com"}]
 max_deliveries_per_connection = 7
 connection_limit = 4
 enable_tls = "RequiredInsecure"
 
-[["163.com".automation]]
+[[provider."163.com".automation]]
 regex = "451 DT:SPM*"
 trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "15m"
 
-[["163.com".automation]]
+[[provider."163.com".automation]]
 regex = "421 Too many connections"
 trigger = {Threshold="2/hr"}
 action = {SetConfig={name="connection_limit", value=1}}
 duration = "1 hour"
 
-[["163.com".automation]]
+[[provider."163.com".automation]]
 regex = "554 DT:SPM"
 trigger = {Threshold="2/hr"}
 action = {SetConfig={name="connection_limit", value=1}}
 duration = "1 hour"
 
 # At daily limit
-[["163.com".automation]]
+[[provider."163.com".automation]]
 regex = "550 RP:ORQ"
 trigger = {Threshold="2/hr"}
 action = "Suspend"
 duration = "1 hour"
 
 # At daily limit
-[["163.com".automation]]
+[[provider."163.com".automation]]
 regex = "554 HL:ITC"
 trigger = {Threshold="2/hr"}
 action = "Suspend"

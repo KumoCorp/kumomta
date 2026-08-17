@@ -5,7 +5,7 @@ tags:
 
 # Module `kumo.counter_series`
 
-{{since('dev')}}
+{{since('2026.05.12-a6845223')}}
 
 The `kumo.counter_series` module exposes named, in-memory rolling counters
 backed by a fixed-size ring of time buckets. It is intended for short-term

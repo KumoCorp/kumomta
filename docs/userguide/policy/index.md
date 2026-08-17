@@ -1,3 +1,7 @@
+---
+description: The KumoMTA Policy chapter covers advanced Lua policy scripting use cases for experienced users configuring routing, authentication, and message handling.
+---
+
 # Policy
 
 While the entirety of configuring a KumoMTA instance is done with policy, this

@@ -128,11 +128,57 @@ fn create_canonical_query_string(params: &BTreeMap<String, String>) -> String {
         .join("&")
 }
 
+/// AWS SigV4 Trimall: per the spec, remove leading/trailing ASCII SP/HTAB
+/// and collapse internal runs of SP/HTAB to a single space, but do NOT
+/// touch whitespace inside double-quoted string segments.
+///
+/// See: <https://docs.aws.amazon.com/IAM/latest/UserGuide/create-signed-request.html>
+/// ("Trimall function").
+fn trimall(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = String::with_capacity(value.len());
+    let mut in_quotes = false;
+    let mut pending_space = false;
+    let mut have_emitted = false;
+
+    for &b in bytes {
+        if b == b'"' {
+            if pending_space && have_emitted {
+                out.push(' ');
+            }
+            pending_space = false;
+            out.push('"');
+            have_emitted = true;
+            in_quotes = !in_quotes;
+            continue;
+        }
+
+        if in_quotes {
+            out.push(b as char);
+            continue;
+        }
+
+        if b == b' ' || b == b'\t' {
+            pending_space = true;
+            continue;
+        }
+
+        if pending_space && have_emitted {
+            out.push(' ');
+        }
+        pending_space = false;
+        out.push(b as char);
+        have_emitted = true;
+    }
+
+    out
+}
+
 fn create_canonical_headers(headers: &BTreeMap<String, String>) -> (String, String) {
-    // Convert headers to lowercase and trim values
+    // Convert header names to lowercase and apply AWS Trimall to values.
     let canonical_headers: BTreeMap<String, String> = headers
         .iter()
-        .map(|(k, v)| (k.to_lowercase(), v.trim().to_string()))
+        .map(|(k, v)| (k.to_lowercase(), trimall(v)))
         .collect();
 
     // Sort headers
@@ -183,17 +229,26 @@ pub async fn sign_request(req: SigV4Request) -> anyhow::Result<SigV4Response> {
     // Create payload hash
     let payload_hash = sha256_hex(req.payload.as_bytes());
 
-    // Prepare headers - add required AWS headers
-    let mut headers = req.headers.clone();
-    headers.insert("host".to_string(), "".to_string()); // Will be set by caller
+    // Prepare headers - add required AWS headers. Normalize all caller-supplied
+    // header names to lowercase up front so downstream checks (e.g. the 'host'
+    // precondition) and de-duplication work regardless of input casing.
+    let mut headers: BTreeMap<String, String> = req
+        .headers
+        .iter()
+        .map(|(k, v)| (k.to_lowercase(), v.clone()))
+        .collect();
+
+    anyhow::ensure!(headers.contains_key("host"), "headers must include 'host'");
+
     headers.insert("x-amz-date".to_string(), amz_date.clone());
 
     if let Some(token) = &req.session_token {
         headers.insert("x-amz-security-token".to_string(), token.clone());
     }
 
-    // Add content hash header for some services
-    if req.service != "s3" {
+    // S3 requires x-amz-content-sha256 to be signed; other services do not.
+    // Callers can include it for non-S3 services via req.headers if needed.
+    if req.service == "s3" {
         headers.insert("x-amz-content-sha256".to_string(), payload_hash.clone());
     }
 
@@ -413,6 +468,219 @@ mod tests {
         // Verify query params are included in the canonical request
         assert!(response.canonical_request.contains("Action=ListUsers"));
         assert!(response.canonical_request.contains("Version=2010-05-08"));
+    }
+
+    // Credentials shared across all official AWS test vectors.
+    fn official_vector_access_key() -> KeySource {
+        KeySource::Data {
+            key_data: b"AKIDEXAMPLE".to_vec(),
+        }
+    }
+    fn official_vector_secret_key() -> KeySource {
+        KeySource::Data {
+            key_data: b"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_vec(),
+        }
+    }
+    fn official_vector_timestamp() -> Option<DateTime<Utc>> {
+        Some(
+            DateTime::parse_from_rfc3339("2015-08-30T12:36:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        )
+    }
+    fn official_vector_headers() -> BTreeMap<String, String> {
+        let mut h = BTreeMap::new();
+        h.insert("host".to_string(), "example.amazonaws.com".to_string());
+        h
+    }
+
+    // Test vectors from the official AWS SigV4 test suite:
+    // https://docs.aws.amazon.com/general/latest/gr/sigv4-test-suite.html
+    // (mirrored at https://github.com/saibotsivad/aws-sig-v4-test-suite)
+    #[tokio::test]
+    async fn test_official_vector_get_vanilla() {
+        let req = SigV4Request {
+            access_key: official_vector_access_key(),
+            secret_key: official_vector_secret_key(),
+            region: "us-east-1".to_string(),
+            service: "service".to_string(),
+            method: "GET".to_string(),
+            uri: "/".to_string(),
+            query_params: BTreeMap::new(),
+            headers: official_vector_headers(),
+            payload: String::new(),
+            timestamp: official_vector_timestamp(),
+            session_token: None,
+        };
+
+        let response = sign_request(req).await.expect("signing should succeed");
+
+        k9::assert_equal!(
+            response.canonical_request,
+            "GET\n/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        k9::assert_equal!(
+            response.string_to_sign,
+            "AWS4-HMAC-SHA256\n20150830T123600Z\n20150830/us-east-1/service/aws4_request\nbb579772317eb040ac9ed261061d46c1f17a8133879d6129b6e1c25292927e63"
+        );
+        k9::assert_equal!(
+            response.signature,
+            "5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31"
+        );
+        k9::assert_equal!(
+            response.authorization,
+            "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_official_vector_post_vanilla() {
+        let req = SigV4Request {
+            access_key: official_vector_access_key(),
+            secret_key: official_vector_secret_key(),
+            region: "us-east-1".to_string(),
+            service: "service".to_string(),
+            method: "POST".to_string(),
+            uri: "/".to_string(),
+            query_params: BTreeMap::new(),
+            headers: official_vector_headers(),
+            payload: String::new(),
+            timestamp: official_vector_timestamp(),
+            session_token: None,
+        };
+
+        let response = sign_request(req).await.expect("signing should succeed");
+
+        k9::assert_equal!(
+            response.signature,
+            "5da7c1a2acd57cee7505fc6676e4e544621c30862966e37dddb68e92efbe5d6b"
+        );
+        k9::assert_equal!(
+            response.authorization,
+            "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=5da7c1a2acd57cee7505fc6676e4e544621c30862966e37dddb68e92efbe5d6b"
+        );
+    }
+
+    #[test]
+    fn test_trimall() {
+        // Basic trim + collapse.
+        k9::assert_equal!(trimall("  foo  "), "foo");
+        k9::assert_equal!(trimall("foo   bar  baz"), "foo bar baz");
+        // Tabs treated like spaces.
+        k9::assert_equal!(trimall("\tfoo\t\tbar\t"), "foo bar");
+        // Whitespace inside quoted strings is preserved verbatim.
+        k9::assert_equal!(
+            trimall("  a   \"keep  these   spaces\"   b  "),
+            "a \"keep  these   spaces\" b"
+        );
+        // Empty and whitespace-only inputs.
+        k9::assert_equal!(trimall(""), "");
+        k9::assert_equal!(trimall("   "), "");
+    }
+
+    #[test]
+    fn test_canonical_headers_trimall() {
+        let mut headers = BTreeMap::new();
+        headers.insert("host".to_string(), "  example.com  ".to_string());
+        headers.insert("x-custom".to_string(), "foo   bar  baz".to_string());
+        let (header_string, _) = create_canonical_headers(&headers);
+        assert!(
+            header_string.contains("host:example.com"),
+            "leading/trailing whitespace should be stripped: {header_string}"
+        );
+        assert!(
+            header_string.contains("x-custom:foo bar baz"),
+            "internal whitespace runs should collapse to one space: {header_string}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mixed_case_host_accepted() {
+        let mut headers = BTreeMap::new();
+        headers.insert("Host".to_string(), "example.amazonaws.com".to_string());
+        let req = SigV4Request {
+            access_key: official_vector_access_key(),
+            secret_key: official_vector_secret_key(),
+            region: "us-east-1".to_string(),
+            service: "service".to_string(),
+            method: "GET".to_string(),
+            uri: "/".to_string(),
+            query_params: BTreeMap::new(),
+            headers,
+            payload: String::new(),
+            timestamp: official_vector_timestamp(),
+            session_token: None,
+        };
+        // Should match the lowercase-host vector exactly.
+        let response = sign_request(req).await.expect("signing should succeed");
+        k9::assert_equal!(
+            response.signature,
+            "5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_s3_includes_content_sha256() {
+        let req = SigV4Request {
+            access_key: KeySource::Data {
+                key_data: b"AKIAIOSFODNN7EXAMPLE".to_vec(),
+            },
+            secret_key: KeySource::Data {
+                key_data: b"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_vec(),
+            },
+            region: "us-east-1".to_string(),
+            service: "s3".to_string(),
+            method: "GET".to_string(),
+            uri: "/my-bucket/my-key".to_string(),
+            query_params: BTreeMap::new(),
+            headers: {
+                let mut h = BTreeMap::new();
+                h.insert("host".to_string(), "s3.amazonaws.com".to_string());
+                h
+            },
+            payload: String::new(),
+            timestamp: Some(
+                DateTime::parse_from_rfc3339("2015-08-30T12:36:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+            ),
+            session_token: None,
+        };
+
+        let response = sign_request(req).await.expect("signing should succeed");
+
+        assert!(
+            response.canonical_request.contains("x-amz-content-sha256"),
+            "S3 requests must include x-amz-content-sha256 in the canonical request"
+        );
+        assert!(
+            response.authorization.contains("x-amz-content-sha256"),
+            "S3 requests must sign x-amz-content-sha256"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_missing_host_returns_error() {
+        let req = SigV4Request {
+            access_key: KeySource::Data {
+                key_data: b"AKIAIOSFODNN7EXAMPLE".to_vec(),
+            },
+            secret_key: KeySource::Data {
+                key_data: b"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_vec(),
+            },
+            region: "us-east-1".to_string(),
+            service: "iam".to_string(),
+            method: "GET".to_string(),
+            uri: "/".to_string(),
+            query_params: BTreeMap::new(),
+            headers: BTreeMap::new(), // no host
+            payload: String::new(),
+            timestamp: None,
+            session_token: None,
+        };
+
+        let err = sign_request(req).await.unwrap_err().to_string();
+        k9::assert_equal!(err, "headers must include 'host'");
     }
 
     #[tokio::test]

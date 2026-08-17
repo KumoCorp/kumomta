@@ -1,3 +1,7 @@
+---
+description: "Yes — KumoMTA follows secure development lifecycle practices: security-driven design, Dependabot monitoring, dependency updates, and reviewed contributions."
+---
+
 # Does KumoMTA Follow Secure Development Lifecycle (SDLC) Practices?
 
 Yes, we follow common SDLC practices:

@@ -22,6 +22,7 @@ data-encoding = {workspace=true}
 data-loader = {path="../data-loader"}
 derive-where.workspace = true
 dns-resolver = {path="../dns-resolver", features=["unbound"]}
+mailexchanger = {path="../mailexchanger"}
 duration-serde = {path="../duration-serde"}
 flate2 = {workspace=true}
 flume = {workspace=true}
@@ -34,6 +35,7 @@ kumo-api-types = {path="../kumo-api-types"}
 kumo-chrono-helper = {path="../kumo-chrono-helper"}
 kumo-dmarc = {path="../kumo-dmarc"}
 kumo-log-types = {path="../kumo-log-types"}
+kumo-counter-series = {path="../kumo-counter-series"}
 kumo-prometheus = {path="../kumo-prometheus"}
 kumo-server-common = {path="../kumo-server-common"}
 kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
@@ -41,6 +43,7 @@ kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
 kumo-spf = {path="../kumo-spf"}
 kumo-template = {path="../kumo-template"}
+kumo-wrap = {path="../kumo-wrap"}
 linkme.workspace = true
 lru-cache = {workspace=true}
 lruttl = {path="../lruttl"}
@@ -50,8 +53,8 @@ memchr = {workspace=true}
 message = {path="../message"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mod-dns-resolver = {path="../mod-dns-resolver"}
+mod-serde = {path="../mod-serde"}
 mod-time = {path="../mod-time"}
-mta-sts = {path="../mta-sts"}
 nix = {workspace=true, features=["resource", "user"]}
 num-format.workspace = true
 openssl.workspace = true

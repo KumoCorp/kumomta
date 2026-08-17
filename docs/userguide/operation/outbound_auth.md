@@ -1,3 +1,7 @@
+---
+description: Deliver messages from KumoMTA using SMTP AUTH, configuring an egress path with credentials or a keysource to authenticate when relaying through upstream hosts.
+---
+
 # Delivering Messages Using SMTP AUTH
 
 While not used when delivering messages to remote hosts under normal circumstances, there are scenarios where the KumoMTA server must authenticate when relaying mail. Some examples include:
@@ -26,7 +30,7 @@ kumo.on(
 )
 ```
 
-!!!warning
+!!! warning
     The above example would add AUTH credentials to every outbound connection. In production, this should be selectively applied based on the destination host or domain.
 
 See the [make_egress_path](../../reference/kumo/make_egress_path/index.md) section of the Reference Manual for more information.
@@ -35,7 +39,7 @@ See the [make_egress_path](../../reference/kumo/make_egress_path/index.md) secti
 
 Storing credentials in a static policy file is not recommended. KumoMTA supports multiple options for secure key storage, and we highly recommend that all authentication and signing keys be stored in a keysource.
 
-When using a keysource, the value of `smtp_auth_plain_password is any [keysource](../../reference/keysource.md), which allows for specifying the password via a credential manager such as HashiCorp Vault.
+When using a keysource, the value of `smtp_auth_plain_password` is any [keysource](../../reference/keysource.md), which allows for specifying the password via a credential manager such as HashiCorp Vault.
 
 ```lua
 kumo.on(
@@ -75,4 +79,4 @@ smtp_auth_plain_username = "daniel"
 smtp_auth_plain_password = { vault_mount = "secret", vault_path = "smtp-auth/local", vault_key = "password" }
 {% endcall %}
 
-See the [traffic shaping](../configuration/trafficshaping.md#using-the-shapinglua-helper) section of the User Guide for additional information.
+See the [Traffic Shaping](../trafficshaping/index.md) chapter of the User Guide for additional information.

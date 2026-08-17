@@ -4,15 +4,19 @@ use reqwest::Url;
 use std::collections::HashMap;
 use std::time::Duration;
 
+mod abort_ready_q_conn;
 mod bounce;
 mod bounce_cancel;
 mod bounce_list;
 mod inspect_message;
+mod inspect_ready_q;
 mod inspect_sched_q;
 mod logfilter;
 mod provider_summary;
 mod queue_summary;
 mod rebind;
+mod resolve_egress_path;
+mod spool_compact;
 mod suspend;
 mod suspend_cancel;
 mod suspend_list;
@@ -60,6 +64,7 @@ enum SubCommand {
     BounceList(bounce_list::BounceListCommand),
     BounceCancel(bounce_cancel::BounceCancelCommand),
     Rebind(rebind::RebindCommand),
+    SpoolCompact(spool_compact::SpoolCompactCommand),
     Suspend(suspend::SuspendCommand),
     SuspendList(suspend_list::SuspendListCommand),
     SuspendCancel(suspend_cancel::SuspendCancelCommand),
@@ -67,8 +72,11 @@ enum SubCommand {
     SuspendReadyQList(suspend_ready_q_list::SuspendReadyQListCommand),
     SuspendReadyQCancel(suspend_ready_q_cancel::SuspendReadyQCancelCommand),
     SetLogFilter(logfilter::SetLogFilterCommand),
+    AbortReadyQConn(abort_ready_q_conn::AbortReadyQConnCommand),
     InspectMessage(inspect_message::InspectMessageCommand),
+    InspectReadyQ(inspect_ready_q::InspectReadyQCommand),
     InspectSchedQ(inspect_sched_q::InspectQueueCommand),
+    ResolveEgressPath(resolve_egress_path::ResolveEgressPathCommand),
     ProviderSummary(provider_summary::ProviderSummaryCommand),
     QueueSummary(queue_summary::QueueSummaryCommand),
     TraceSmtpClient(trace_smtp_client::TraceSmtpClientCommand),
@@ -103,13 +111,16 @@ impl SubCommand {
                     ("suspend-ready-q-list", &["suspend"]),
                     ("suspend-ready-q-cancel", &["suspend"]),
                     ("set-log-filter", &["logging", "debugging"]),
+                    ("abort-ready-q-conn", &["ops", "debugging"]),
                     ("inspect-message", &["message", "debugging"]),
+                    ("inspect-ready-q", &["ops", "debugging"]),
                     ("inspect-sched-q", &["debugging"]),
                     ("provider-summary", &["ops"]),
                     ("queue-summary", &["ops"]),
                     ("trace-smtp-client", &["ops", "debugging"]),
                     ("trace-smtp-server", &["ops", "debugging"]),
                     ("top", &["ops", "debugging"]),
+                    ("spool-compact", &["ops", "debugging"]),
                     ("xfer", &["ops", "xfer"]),
                     ("xfer-cancel", &["ops", "xfer"]),
                 ];
@@ -157,6 +168,7 @@ impl SubCommand {
             Self::BounceCancel(cmd) => cmd.run(endpoint).await,
             Self::BounceList(cmd) => cmd.run(endpoint).await,
             Self::Rebind(cmd) => cmd.run(endpoint).await,
+            Self::SpoolCompact(cmd) => cmd.run(endpoint).await,
             Self::Suspend(cmd) => cmd.run(endpoint).await,
             Self::SuspendCancel(cmd) => cmd.run(endpoint).await,
             Self::SuspendList(cmd) => cmd.run(endpoint).await,
@@ -164,8 +176,11 @@ impl SubCommand {
             Self::SuspendReadyQCancel(cmd) => cmd.run(endpoint).await,
             Self::SuspendReadyQList(cmd) => cmd.run(endpoint).await,
             Self::SetLogFilter(cmd) => cmd.run(endpoint).await,
+            Self::AbortReadyQConn(cmd) => cmd.run(endpoint).await,
             Self::InspectMessage(cmd) => cmd.run(endpoint).await,
+            Self::InspectReadyQ(cmd) => cmd.run(endpoint).await,
             Self::InspectSchedQ(cmd) => cmd.run(endpoint).await,
+            Self::ResolveEgressPath(cmd) => cmd.run(endpoint).await,
             Self::ProviderSummary(cmd) => cmd.run(endpoint).await,
             Self::QueueSummary(cmd) => cmd.run(endpoint).await,
             Self::TraceSmtpClient(cmd) => cmd.run(endpoint).await,

@@ -20,6 +20,11 @@ kumo.on('init', function()
     -- This client_timeout value is coupled with assumptions
     -- in disconnect_peer_idle_out!
     client_timeout = '3s',
+    -- A capturing sink should store what it receives without rewriting it,
+    -- so it does not prepend its own X-KumoRef supplemental trace header.
+    trace_headers = {
+      supplemental_header = false,
+    },
   }
   local client_ca = os.getenv 'KUMOD_CLIENT_REQUIRED_CA'
   if client_ca then

@@ -33,6 +33,21 @@ msg:set_meta('foo', { key = 'value' })
 
 You can retrieve a metadata value via [message:get_meta](get_meta.md).
 
+## Naming convention for user-defined keys
+
+KumoMTA reserves a set of predefined meta keys (see [Predefined Metadata](../metadata.md)) and may add more over time. To avoid collisions with current and future predefined keys, prefix your own meta keys with `x_`.
+
+This aligns with the `x_*` keys produced by
+[message:import_x_headers](import_x_headers.md) and the default
+`snake_case` transform used by [message:import_headers](import_headers.md),
+and KumoMTA's own predefined meta keys will never start with `x_`.
+
+```lua
+-- recommended for application-specific data
+msg:set_meta('x_campaign_id', '12345')
+msg:set_meta('x_my_app_flag', true)
+```
+
 ## Pre-defined meta values
 
 The following meta values are unique to the message scope:

@@ -64,7 +64,6 @@ DeliverySummary {
     eprintln!("headers: {:?}", parsed.headers());
 
     assert!(parsed.headers().get_first("Received").is_some());
-    assert!(parsed.headers().get_first("X-KumoRef").is_some());
 
     k9::snapshot!(
         parsed.headers().to().unwrap(),

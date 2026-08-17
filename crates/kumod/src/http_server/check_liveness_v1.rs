@@ -21,6 +21,8 @@ pub async fn check_liveness_v1() -> Response {
                 (503, "load shedding")
             } else if !SpoolManager::get().spool_started() {
                 (503, "waiting for spool startup")
+            } else if let Some(reason) = SpoolManager::get().spool_unhealthy_reason() {
+                (503, reason)
             } else if kumo_server_common::disk_space::is_over_limit() {
                 (503, "storage is too full")
             } else {

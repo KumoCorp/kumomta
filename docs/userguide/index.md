@@ -1,3 +1,7 @@
+---
+description: The KumoMTA User Guide covers installing, configuring, and administering the KumoMTA MTA, from core concepts through deployment for high-volume email sending.
+---
+
 # User Guide
 
 This is the KumoMTA User Guide.
@@ -15,6 +19,7 @@ The user guide is structured in the typical order a user would need in the proce
 * [General](./general/preface.md) - Information on the project, its history, and how to interact with the developer team.
 * [Installation](./installation/overview.md) - Information on how to install KumoMTA for a variety of use cases and platforms.
 * [Configuration](./configuration/concepts.md) - An explanation of how to configure KumoMTA for typical use cases.
+* [Traffic Shaping](./trafficshaping/index.md) - How to configure throttles and automations.
 * [Operation](./operation/starting.md) - Information on how to manage and interact with a KumoMTA server.
 * [Policy](./policy/index.md) - A deeper dive into the policy capabilities of KumoMTA and how to implement advanced use cases.
 * [Clustering](./clustering/index.md) - Information related to deploying KumoMTA in a multi-node cluster environment.

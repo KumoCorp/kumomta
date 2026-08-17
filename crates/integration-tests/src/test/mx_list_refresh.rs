@@ -1,9 +1,10 @@
 use crate::kumod::{DaemonWithMaildirOptions, MailGenParams};
 use anyhow::Context;
+use kumo_api_types::InspectQueueV1Request;
 use kumo_log_types::RecordType::Delivery;
 use rfc5321::SmtpClient;
 use serde_json::json;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[tokio::test]
 async fn mx_list_refresh() -> anyhow::Result<()> {
@@ -80,7 +81,61 @@ async fn mx_list_refresh() -> anyhow::Result<()> {
     )?;
 
     daemon.source.api_client().admin_bump_config_epoch().await?;
-    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Wait for the epoch bump to actually propagate into the
+    // one.example.com queue's resolved config, rather than relying
+    // on a fixed sleep that races under load.  Once the queue's
+    // config reflects the new mx_list (the `255.255.255.255:2`
+    // marker), or the queue has been reaped (in which case the
+    // next send rebuilds it from the new config), we can proceed.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        match daemon
+            .source
+            .api_client()
+            .admin_inspect_sched_q_v1(&InspectQueueV1Request {
+                queue_name: "one.example.com".to_string(),
+                want_body: false,
+                limit: Some(0),
+            })
+            .await
+        {
+            Ok(resp) => {
+                if resp.queue_config.to_string().contains("255.255.255.255:2") {
+                    break;
+                }
+            }
+            // Queue not found: it was reaped, so the next send will
+            // rebuild it from the freshly-loaded config.
+            Err(_) => break,
+        }
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "timed out waiting for one.example.com config refresh"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // In round 1 both queues share a ready queue (same resolved MX
+    // addresses), so a single idle connection sits in that pool
+    // tagged with one.example.com's mx hostname (`1.1.sink`).  After
+    // the epoch bump, two.example.com's site is unchanged.  If we
+    // dispatch round 2 before that idle connection has been reaped
+    // it gets reused, and four@two.example.com ends up logged as
+    // `1.1.sink` instead of `2.1.sink`.  Wait for the shared ready
+    // queue's connection_count to reach 0 so the next send opens a
+    // fresh connection picking up two.example.com's own mx_list.
+    let shared_service =
+        format!("smtp_client:unspecified->mx_list:{sink_listener},255.255.255.255:1@smtp_client");
+    daemon
+        .source
+        .wait_for_metric(
+            Duration::from_secs(30),
+            |m| m.name().as_str() == "connection_count" && m.label_is("service", &shared_service),
+            |conns| conns.iter().sum::<f64>() == 0.0,
+        )
+        .await
+        .context("waiting for shared site connection pool to drain")?;
 
     send(&mut client, "three@one.example.com").await?;
     send(&mut client, "four@two.example.com").await?;
@@ -126,6 +181,15 @@ DeliverySummary {
     // Delivery logs can be emitted in completion order; stabilize the snapshot.
     deliv_and_site.sort_by(|a, b| a.2.cmp(&b.2).then_with(|| a.0.cmp(&b.0)));
 
+    // Within each round the two messages race through their dispatchers,
+    // so the file order of their Delivery records is non-deterministic.
+    // Sort each round by recipient so the snapshot is stable while still
+    // preserving the round-1 vs round-2 distinction (round 2 doesn't
+    // start until round 1's deliveries are observed).
+    assert_eq!(deliv_and_site.len(), 4);
+    deliv_and_site[0..2].sort_by(|a, b| a.0.cmp(&b.0));
+    deliv_and_site[2..4].sort_by(|a, b| a.0.cmp(&b.0));
+
     k9::snapshot!(
         deliv_and_site,
         r#"
@@ -141,14 +205,14 @@ DeliverySummary {
         "1.1.sink",
     ),
     (
-        "three@one.example.com",
-        "unspecified->mx_list:SINK,255.255.255.255:2@smtp_client",
-        "1.2.sink",
-    ),
-    (
         "four@two.example.com",
         "unspecified->mx_list:SINK,255.255.255.255:1@smtp_client",
         "2.1.sink",
+    ),
+    (
+        "three@one.example.com",
+        "unspecified->mx_list:SINK,255.255.255.255:2@smtp_client",
+        "1.2.sink",
     ),
 ]
 "#

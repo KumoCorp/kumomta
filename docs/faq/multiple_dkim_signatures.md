@@ -1,3 +1,7 @@
+---
+description: "Apply multiple DKIM signatures to a message in KumoMTA using the DKIM helper's additional_signatures option and signature blocks, or custom Lua."
+---
+
 # How Can I Apply Multiple DKIM Signatures to a Message?
 
 Applying multiple DKIM signatures to a message is straightforward, but will depend on how you implement DKIM signing in your installation:

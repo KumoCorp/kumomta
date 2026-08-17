@@ -14,6 +14,10 @@ This is an object value, with the following properties:
 
   * `email` - required `string` (`email`). The email address of the recipient
 
+  * `metadata` - optional `object`. Per-recipient metadata key-value pairs. When non-empty, these are
+    stored on the resulting message under the `extra` metadata key,
+    accessible from Lua hooks via `msg:get_meta('extra')`.
+
   * `name` - optional nullable `string`. The optional displayable name of the recipient.
     This field will be set as the `name` field when
     processing template expansion.
@@ -34,6 +38,10 @@ This is an object value, with the following properties:
 ```json
 {
   "email": "john.smith@mailbox-example.com",
+  "metadata": {
+    "campaign_id": "promo-2026-q2",
+    "user_segment": "premium"
+  },
   "name": "John Smith",
   "substitutions": {
     "age": 42,

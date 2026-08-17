@@ -3,7 +3,7 @@ use futures::{Stream, StreamExt};
 use kumo_api_types::rebind::{RebindV1Request, RebindV1Response};
 use kumo_api_types::xfer::*;
 use kumo_api_types::*;
-use kumo_prometheus::parser::Metric;
+pub use kumo_prometheus::parser::Metric;
 use std::time::Duration;
 
 pub use reqwest::Url;
@@ -105,6 +105,14 @@ impl KumoApiClient {
     );
 
     method!(
+        admin_spool_compact_v1,
+        TEXT,
+        POST,
+        "/api/admin/spool-compact/v1",
+        SpoolCompactV1Request
+    );
+
+    method!(
         admin_inspect_sched_q_v1,
         GET,
         "/api/admin/inspect-sched-q/v1",
@@ -199,6 +207,30 @@ impl KumoApiClient {
     );
 
     method!(
+        admin_inspect_ready_q_v1,
+        GET,
+        "/api/admin/inspect-ready-q/v1",
+        InspectReadyQV1Request,
+        InspectReadyQV1Response
+    );
+
+    method!(
+        admin_resolve_egress_path_v1,
+        GET,
+        "/api/admin/resolve-egress-path/v1",
+        ResolveEgressPathV1Request,
+        ResolveEgressPathV1Response
+    );
+
+    method!(
+        admin_abort_ready_q_conn_v1,
+        TEXT,
+        POST,
+        "/api/admin/abort-ready-q-conn/v1",
+        AbortReadyQConnV1Request
+    );
+
+    method!(
         admin_set_diagnostic_log_filter_v1,
         TEXT,
         POST,
@@ -245,6 +277,20 @@ impl KumoApiClient {
             reqwest::Method::POST,
             self.endpoint.join("/api/admin/bump-config-epoch")?,
             &(),
+        )
+        .await
+    }
+
+    /// Inject a message via the HTTP injection API.
+    /// The body is the JSON payload conforming to the InjectV1Request schema.
+    pub async fn inject_v1(
+        &self,
+        body: &impl serde::Serialize,
+    ) -> anyhow::Result<InjectV1Response> {
+        self.request_with_json_response(
+            reqwest::Method::POST,
+            self.endpoint.join("/api/inject/v1")?,
+            body,
         )
         .await
     }

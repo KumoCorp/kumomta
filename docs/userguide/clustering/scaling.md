@@ -1,8 +1,12 @@
+---
+description: Scale KumoMTA clusters up and down in response to sending patterns, monitoring node liveness and draining the spool safely before taking a node offline.
+---
+
 # Scaling Up and Down
 
 One advantage of horizontal scaling in virtualized environments is that resources can be conserved by scaling the KumoMTA cluster up and down in response to sending patterns.
 
-!!!Note
+!!! note
     Auto-scaling is a complicated subject that is not recommended except for those with extensive experience in autoscaling technologies. For most senders, the predictable daily sending patterns are adequate for scheduling scaling, with alerting when the cluster size is too small.
 
 The most common install approach for scaling clusters involves Docker. For examples on deploying more advanced docker architectures, see [https://github.com/KumoCorp/kumomta/tree/main/examples](https://github.com/KumoCorp/kumomta/tree/main/examples).

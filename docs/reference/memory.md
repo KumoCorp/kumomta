@@ -29,15 +29,47 @@ as `memory_limit`, and is reported in bytes.
 A background task is started to monitor the memory usage of the system
 which is derived from:
 
-* If running in a cgroup, the usage reported by that cgroup. Note that
+* If running under a cgroup memory limit, the cgroup *working set* (see
+  [Working Set under a cgroup](#working-set-under-a-cgroup) below). Note that
   this may include memory used by other processes in that same cgroup.
-* The Resident Set Size (RSS) as reported in `/proc/self/statm`
+* Otherwise, the Resident Set Size (RSS) as reported in `/proc/self/statm`.
 * The value configured via
   [kumo.set_memory_soft_limit](kumo/set_memory_soft_limit.md), if any,
   will always take precedence over the above.
 
 The current usage is published via the prometheus metrics endpoint
 as `memory_usage` and is reported in bytes.
+
+### Working Set under a cgroup
+
+When KumoMTA runs under a cgroup memory limit, the value that drives
+`memory_usage` (and therefore headroom and load shedding) depends on the
+KumoMTA version:
+
+|KumoMTA Version|`memory_usage` under a cgroup|
+|---------------|-----------------------------|
+|Earlier versions|raw `memory.current` (cgroup v2) / `memory.usage_in_bytes` (cgroup v1)|
+|{{since('dev', inline=True)}}|working set: `max(current - inactive_file, anon)`|
+
+The earlier raw counter includes cold, kernel-reclaimable file-backed page
+cache (`inactive_file`), which the kernel drops under memory pressure before it
+would OOM-kill the container.  For workloads that write a lot of logs or spool
+to disk that cache can dominate, driving headroom to 0 and triggering load
+shedding against memory that was never at risk.
+
+The working set subtracts that reclaimable cache.  It is the same quantity that
+kubelet/cAdvisor reports as `container_memory_working_set_bytes`, and it aligns
+with the kernel's own OOM reclaimability accounting.  It still counts everything
+that can actually drive an OOM kill: anonymous memory, dirty page cache not yet
+written back, warm file-backed cache (`active_file`), tmpfs/shm, and slab.
+
+The raw cgroup counters that feed this (`memory.current`, `inactive_file`,
+`active_file`) are not republished by KumoMTA; query them from the kernel
+directly or from tooling such as cAdvisor/kubelet, which expose
+`container_memory_working_set_bytes` and the underlying cache figures.
+
+If the cgroup `memory.stat` cannot be read, KumoMTA falls back to reporting the
+raw `memory.current` as `memory_usage` and logs a single warning.
 
 ### Headroom and Load Shedding
 

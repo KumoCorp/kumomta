@@ -1,6 +1,10 @@
+---
+description: Secure your KumoMTA installation with guidance on service accounts, privilege dropping, directory permissions, SMTP relaying, authentication, and TLS.
+---
+
 # Security Considerations
 
-This page summarizies the key considerations for deploying a secure installation of KumoMTA.
+This page summarizes the key considerations for deploying a secure installation of KumoMTA.
 
 ## Operating System
 
@@ -95,7 +99,7 @@ The default configuration in the shaping helper for outgoing SMTP is to enable
 advertises it, but only if the certificate is trusted.
 
 Unfortunately, there are a large number of destination sites with poorly
-maintained TLS, so many kumomta users choose to deploy with
+maintained TLS, so many KumoMTA users choose to deploy with
 `OpportunisticInsecure` TLS as a default, which will try to use TLS if
 available, but will allow communicating in clear text if there are any issues
 trying to establish the connection.  That rationale for this choice is that
@@ -116,7 +120,7 @@ There are three main ways in which you can manage that risk:
   ensure that the TLS is set to required even if your default policy is
   opportunistic.
 * For well-known sites with working TLS, such as Google, override the
-  opportunistic TLS with required TLS in your [shaping configuration](../configuration/trafficshaping.md).
+  opportunistic TLS with required TLS in your [shaping configuration](../trafficshaping/shapingfiles.md).
 * Consider enabling [DANE](../../reference/kumo/make_egress_path/enable_dane.md), which is
   similar in effect to MTA-STS, using signed DNS records instead of publishing
   its policy via HTTPS. It requires working and trusted DNSSEC

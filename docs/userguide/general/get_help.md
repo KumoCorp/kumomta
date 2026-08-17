@@ -1,3 +1,7 @@
+---
+description: Get help with KumoMTA through the community forum, Discord, and paid support, including the details to provide for the fastest issue resolution.
+---
+
 # How to Get Help With KumoMTA
 
 Community support for KumoMTA is available both in the forum and in the

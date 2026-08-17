@@ -15,4 +15,5 @@ percent-encoding = {workspace=true}
 serde = {workspace=true}
 
 [dev-dependencies]
+k9 = {workspace=true}
 tokio = {workspace=true, features=["rt", "macros"]}

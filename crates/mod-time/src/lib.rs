@@ -156,7 +156,7 @@ impl Time {
 
     fn parse_rfc2822(_lua: &Lua, spec: String) -> mlua::Result<Self> {
         Ok(Self {
-            t: DateTime::parse_from_rfc2822(&spec)
+            t: mailparsing::parse_rfc2822_date(&spec)
                 .map_err(any_err)?
                 .to_utc(),
         })

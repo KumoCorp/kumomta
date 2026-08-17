@@ -9,7 +9,7 @@ tags:
 series:sum_over(duration)
 ```
 
-{{since('dev')}}
+{{since('2026.05.12-a6845223')}}
 
 Returns the rolling total over the requested time span.
 

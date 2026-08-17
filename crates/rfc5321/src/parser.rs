@@ -1801,7 +1801,10 @@ fn parse_xclient(input: Span) -> IResult<Span, MaybePartialCommand> {
     .parse(input)
 }
 
-/// `mail = "MAIL FROM:" reverse-path [SP mail-parameters]`
+/// `mail = "MAIL FROM:" [WSP] reverse-path [SP mail-parameters]`
+///
+/// The `[WSP]` after the colon is a leniency for non-conforming clients;
+/// RFC 5321 places the reverse-path immediately after the colon.
 ///
 /// Returns `Full(Command::MailFrom { … })` on a complete successful parse.
 ///
@@ -1820,10 +1823,14 @@ fn parse_mail_from(input: Span) -> IResult<Span, MaybePartialCommand> {
                     tag_no_case("MAIL"),
                     wsp,
                     tag_no_case("FROM:"),
+                    // RFC 5321 has no space between the colon and the reverse-path,
+                    // but many legacy clients emit one (`MAIL FROM: <addr>`). Tolerate
+                    // and discard it rather than rejecting with 501 5.1.7.
+                    opt(wsp),
                     reverse_path,
                     opt(map((wsp, mail_parameters), |(_, p)| p)),
                 )),
-                |(_, _, _, address, parameters)| {
+                |(_, _, _, _, address, parameters)| {
                     MaybePartialCommand::Full(Command::MailFrom {
                         address,
                         parameters: parameters.unwrap_or_default(),
@@ -1836,11 +1843,12 @@ fn parse_mail_from(input: Span) -> IResult<Span, MaybePartialCommand> {
                     tag_no_case("MAIL"),
                     wsp,
                     tag_no_case("FROM:"),
+                    opt(wsp),
                     reverse_path,
                     wsp,
                     anything,
                 )),
-                |(_, _, _, _, _, remainder)| MaybePartialCommand::Partial {
+                |(_, _, _, _, _, _, remainder)| MaybePartialCommand::Partial {
                     verb: CommandVerb::Mail,
                     remainder: (*remainder).into(),
                     reason: PartialReason::Syntax,
@@ -1877,7 +1885,10 @@ fn parse_mail_from(input: Span) -> IResult<Span, MaybePartialCommand> {
     .parse(input)
 }
 
-/// `rcpt = "RCPT TO:" forward-path [SP mail-parameters]`
+/// `rcpt = "RCPT TO:" [WSP] forward-path [SP mail-parameters]`
+///
+/// The `[WSP]` after the colon is a leniency for non-conforming clients;
+/// RFC 5321 places the forward-path immediately after the colon.
 ///
 /// Returns `Full(Command::RcptTo { … })` on a complete successful parse.
 ///
@@ -1896,10 +1907,13 @@ fn parse_rcpt_to(input: Span) -> IResult<Span, MaybePartialCommand> {
                     tag_no_case("RCPT"),
                     wsp,
                     tag_no_case("TO:"),
+                    // Tolerate a stray space after the colon (`RCPT TO: <addr>`),
+                    // as emitted by some legacy clients; see MAIL FROM above.
+                    opt(wsp),
                     forward_path,
                     opt(map((wsp, mail_parameters), |(_, p)| p)),
                 )),
-                |(_, _, _, address, parameters)| {
+                |(_, _, _, _, address, parameters)| {
                     MaybePartialCommand::Full(Command::RcptTo {
                         address,
                         parameters: parameters.unwrap_or_default(),
@@ -1912,11 +1926,12 @@ fn parse_rcpt_to(input: Span) -> IResult<Span, MaybePartialCommand> {
                     tag_no_case("RCPT"),
                     wsp,
                     tag_no_case("TO:"),
+                    opt(wsp),
                     forward_path,
                     wsp,
                     anything,
                 )),
-                |(_, _, _, _, _, remainder)| MaybePartialCommand::Partial {
+                |(_, _, _, _, _, _, remainder)| MaybePartialCommand::Partial {
                     verb: CommandVerb::Rcpt,
                     remainder: (*remainder).into(),
                     reason: PartialReason::Syntax,
@@ -2650,6 +2665,47 @@ Ok(
     }
 
     #[test]
+    fn test_mail_from_space_before_path() {
+        // RFC 5321 forbids a space between the colon and the reverse-path, but
+        // some legacy clients emit one. We tolerate and discard it rather than
+        // rejecting with 501 5.1.7.
+        for cmd in [
+            "MAIL FROM: <user@host>",
+            "MAIL FROM:\t<user@host>",
+            "MAIL FROM:   <user@host>",
+        ] {
+            k9::assert_equal!(
+                unwrapper(Command::parse(cmd)),
+                MaybePartialCommand::Full(Command::MailFrom {
+                    address: mail_path("user", Domain::DomainName("host".parse().unwrap())),
+                    parameters: vec![],
+                })
+            );
+        }
+
+        // Null sender with a stray space.
+        k9::assert_equal!(
+            unwrapper(Command::parse("MAIL FROM: <>")),
+            MaybePartialCommand::Full(Command::MailFrom {
+                address: ReversePath::NullSender,
+                parameters: vec![],
+            })
+        );
+
+        // ESMTP parameters still parse after the relaxed leading space.
+        k9::assert_equal!(
+            unwrapper(Command::parse("MAIL FROM: <user@host> BODY=8BITMIME")),
+            MaybePartialCommand::Full(Command::MailFrom {
+                address: mail_path("user", Domain::DomainName("host".parse().unwrap())),
+                parameters: vec![EsmtpParameter {
+                    name: "BODY".into(),
+                    value: Some("8BITMIME".into()),
+                }],
+            })
+        );
+    }
+
+    #[test]
     fn test_mail_from_at_domain_list() {
         k9::assert_equal!(
             unwrapper(Command::parse(
@@ -2837,6 +2893,46 @@ Ok(
             MaybePartialCommand::Full(Command::RcptTo {
                 address: rcpt_path("user", Domain::DomainName("host".parse().unwrap())),
                 parameters: vec![],
+            })
+        );
+    }
+
+    #[test]
+    fn test_rcpt_to_space_before_path() {
+        // Tolerate a stray space after the colon (`RCPT TO: <addr>`), as emitted
+        // by some legacy clients.
+        for cmd in [
+            "RCPT TO: <user@host>",
+            "RCPT TO:\t<user@host>",
+            "RCPT TO:   <user@host>",
+        ] {
+            k9::assert_equal!(
+                unwrapper(Command::parse(cmd)),
+                MaybePartialCommand::Full(Command::RcptTo {
+                    address: rcpt_path("user", Domain::DomainName("host".parse().unwrap())),
+                    parameters: vec![],
+                })
+            );
+        }
+
+        // Postmaster with a stray space.
+        k9::assert_equal!(
+            unwrapper(Command::parse("RCPT TO: <Postmaster>")),
+            MaybePartialCommand::Full(Command::RcptTo {
+                address: ForwardPath::Postmaster,
+                parameters: vec![],
+            })
+        );
+
+        // ESMTP parameters still parse after the relaxed leading space.
+        k9::assert_equal!(
+            unwrapper(Command::parse("RCPT TO: <user@host> NOTIFY=SUCCESS")),
+            MaybePartialCommand::Full(Command::RcptTo {
+                address: rcpt_path("user", Domain::DomainName("host".parse().unwrap())),
+                parameters: vec![EsmtpParameter {
+                    name: "NOTIFY".into(),
+                    value: Some("SUCCESS".into()),
+                }],
             })
         );
     }

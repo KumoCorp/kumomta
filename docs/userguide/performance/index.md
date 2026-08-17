@@ -1,3 +1,7 @@
+---
+description: Optimize KumoMTA for high-performance sending with this chapter on architecture, Linux tuning, DNS, performance testing, message flows, and log hooks.
+---
+
 # KumoMTA Performance Optimization
 
 KumoMTA is designed for high-performance sending environments and is architected to allow for significant performance tuning.

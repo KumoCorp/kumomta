@@ -6,9 +6,11 @@ edition = "2021"
 [dependencies]
 anyhow = {workspace=true}
 config = {path="../config"}
+serde = {workspace=true}
 json_comments = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 serde_json = {workspace=true}
 serde_yaml = {workspace=true}
 tokio = {workspace=true, features=["fs"]}
 toml = {workspace=true}
+toml_edit = {workspace=true}

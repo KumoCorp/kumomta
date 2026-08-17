@@ -1,3 +1,7 @@
+---
+description: Monitor deliverability with Postmastery Console using KumoMTA data, integrating via webhooks to track blocklisting, DMARC reports, and best practices.
+---
+
 # Deliverability Reporting with Postmastery Console
 
 Postmastery Console is a third-party cloud-hosted tool for monitoring deliverability and the factors that affect deliverability such as blocklisting, DMARC reports, and messaging best practices. Postmastery Console is able to incorporate data provided by KumoMTA to give a full picture of an organization's deliverability. More information on Postmastery Console can be found at [https://www.postmastery.com/postmastery-email-analytics-console/](https://www.postmastery.com/postmastery-email-analytics-console/).

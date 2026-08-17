@@ -1,10 +1,14 @@
+---
+description: Integrate Grafana with KumoMTA to visualize metrics and generate alerts, consuming the KumoMTA data feed exposed through Prometheus for dashboards.
+---
+
 # Grafana integration
 
 ## Introduction
 
 [Grafana](https://grafana.com/) is a popular tool for visualizing data and generating alerts.
 
-Grafana does not directly integrate with KumoMTA, but is a recommended visualization tool that can consume the feed from Prometheus, which *does* directly integrate with KumomTA.
+Grafana does not directly integrate with KumoMTA, but is a recommended visualization tool that can consume the feed from Prometheus, which _does_ directly integrate with KumoMTA.
 
 ## Instructions
 
@@ -43,9 +47,6 @@ service.
 
 Follow the setup [instructions
 here](../operation/status.md#setting-up-a-grafana-dashboard) to configure the
-prometheus feed, and get the samepl Gafana dashboard.
+prometheus feed, and get the sample Grafana dashboard.
 
-If you have done everything right, you should be able to see your data feed in Grafana within seconds.
-
-
-
+You should see your data feed in Grafana within seconds.

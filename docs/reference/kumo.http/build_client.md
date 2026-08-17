@@ -24,7 +24,7 @@ across multiple HTTP requests.
   The default is `60 seconds`. {{since('2024.06.10-84e84b89', inline=True)}}.
 * `accept_invalid_certs` - optional boolean. If true, disables SSL/TLS
   certificate verification for all requests made by the client.
-  {{since('dev', inline=True)}}
+  {{since('2026.05.12-a6845223', inline=True)}}
 
     !!! danger
         Disabling certificate verification removes protection against

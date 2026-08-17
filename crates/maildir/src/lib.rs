@@ -158,7 +158,7 @@ impl MailEntry {
                 .rsplit(';')
                 .nth(0)
                 .ok_or(MailEntryError::DateError("Unable to split Received header"))
-                .and_then(|ts| DateTime::parse_from_rfc2822(ts).map_err(MailEntryError::from)),
+                .and_then(|ts| mailparsing::parse_rfc2822_date(ts).map_err(MailEntryError::from)),
             None => Err("No Received header found")?,
         }
     }
@@ -661,6 +661,11 @@ impl Maildir {
         for d in &["cur", "new", "tmp"] {
             path.push(d);
             self.create_dir_all(path.as_path())?;
+            // Verify that we can create, rename, and unlink files here as
+            // our current identity, so a latent permission problem
+            // surfaces now rather than as confusing delivery failures.
+            dir_probe::probe_directory(path.as_path())
+                .map_err(|err| std::io::Error::other(format!("{err:#}")))?;
             path.pop();
         }
         Ok(())

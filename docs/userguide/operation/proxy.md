@@ -1,6 +1,10 @@
+---
+description: Route KumoMTA message delivery through SOCKS5 or HAProxy forward proxies to share IP addresses across instances and send from remote environments.
+---
+
 # Routing Messages Via Proxy Servers
 
-KumoMTA support SOCK5 and HAProxy for use as forward proxies as part of message delivery.
+KumoMTA supports SOCKS5 and HAProxy for use as forward proxies as part of message delivery.
 
 The most common use cases for a forward proxy are:
 
@@ -98,7 +102,7 @@ page of the Reference Manual for more information.
 
 An example HAProxy server config is as follows:
 
-```
+```txt
 global
     log stdout  format raw  local0  debug
 

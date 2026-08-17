@@ -3,12 +3,14 @@ use crate::rfc3464::{content_type, RemoteMta};
 use anyhow::anyhow;
 use bstr::{BStr, BString, ByteSlice};
 use chrono::{DateTime, Utc};
-use mailparsing::{Header, HeaderParseResult, MimePart};
+use mailparsing::{BStringUtf8, Header, HeaderParseResult, MimePart};
 use rfc5321::parser::EnvelopeAddress;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct ARFReport {
     pub feedback_type: String,
@@ -37,8 +39,10 @@ pub struct ARFReport {
     #[serde(default)]
     pub reported_uri: Vec<String>,
 
+    #[serde_as(as = "BTreeMap<_, Vec<BStringUtf8>>")]
     pub extensions: BTreeMap<String, Vec<BString>>,
 
+    #[serde_as(as = "Option<BStringUtf8>")]
     pub original_message: Option<BString>,
     pub supplemental_trace: Option<serde_json::Value>,
 }
@@ -80,9 +84,16 @@ impl ARFReport {
                         {
                             continue;
                         }
-                        if let Ok(decoded) =
-                            data_encoding::BASE64.decode(hdr.get_raw_value().as_bytes())
-                        {
+                        // The header value may be folded across continuation
+                        // lines; the folding whitespace is not part of the
+                        // base64 payload, so remove it before decoding.
+                        let encoded: Vec<u8> = hdr
+                            .get_raw_value()
+                            .iter()
+                            .copied()
+                            .filter(|b| !b.is_ascii_whitespace())
+                            .collect();
+                        if let Ok(decoded) = data_encoding::BASE64.decode(&encoded) {
                             #[derive(Deserialize)]
                             struct Wrap {
                                 #[serde(rename = "_@_")]
@@ -192,12 +203,13 @@ pub(crate) fn extract_headers(part: &[u8]) -> anyhow::Result<BTreeMap<String, Ve
     Ok(extensions)
 }
 
+#[derive(Debug)]
 pub(crate) struct DateTimeRfc2822(pub DateTime<Utc>);
 
 impl FromStr for DateTimeRfc2822 {
     type Err = anyhow::Error;
     fn from_str(input: &str) -> anyhow::Result<Self> {
-        let date = DateTime::parse_from_rfc2822(input)?;
+        let date = mailparsing::parse_rfc2822_date(input)?;
         Ok(Self(date.into()))
     }
 }
@@ -304,6 +316,29 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+    use chrono::TimeZone;
+
+    #[test]
+    fn datetime_rfc2822_obsolete_utc_zone() {
+        // Amazon SES emits dates with the non-standard alphabetic zone "UTC".
+        let expected = Utc.with_ymd_and_hms(2026, 7, 2, 18, 55, 38).unwrap();
+
+        let parsed: DateTime<Utc> = "Thu, 02 Jul 26 18:55:38 UTC"
+            .parse::<DateTimeRfc2822>()
+            .expect("SES obsolete UTC zone should parse")
+            .into();
+        k9::assert_equal!(parsed, expected);
+
+        // The canonical numeric form parses to the same instant.
+        let canonical: DateTime<Utc> = "Thu, 02 Jul 2026 18:55:38 +0000"
+            .parse::<DateTimeRfc2822>()
+            .unwrap()
+            .into();
+        k9::assert_equal!(canonical, expected);
+
+        // A genuinely unparseable value still errors.
+        "not a date".parse::<DateTimeRfc2822>().unwrap_err();
+    }
 
     #[test]
     fn rfc5965_1() {
@@ -424,6 +459,41 @@ Spam Spam Spam
     },
 )
 "#
+        );
+    }
+
+    /// A supplemental trace header folded across continuation lines still
+    /// decodes back to its metadata.
+    #[test]
+    fn supplemental_trace_folded_header() {
+        let report = concat!(
+            "Content-Type: multipart/report; report-type=feedback-report;\r\n",
+            "    boundary=\"b\"\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: message/feedback-report\r\n",
+            "\r\n",
+            "Feedback-Type: abuse\r\n",
+            "User-Agent: SomeGenerator/1.0\r\n",
+            "Version: 1\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: message/rfc822\r\n",
+            "\r\n",
+            "From: <somespammer@example.net>\r\n",
+            // The base64 value is split with a CRLF + TAB fold.
+            "X-KumoRef: eyJfQF8iOiJcXF8vIiwicmVjaXBpZW50Ijoi\r\n",
+            "\tdGVzdEBleGFtcGxlLmNvbSJ9\r\n",
+            "Subject: Earn money\r\n",
+            "\r\n",
+            "Spam\r\n",
+            "--b--\r\n",
+        );
+
+        let result = ARFReport::parse(report.as_bytes()).unwrap().unwrap();
+        k9::assert_equal!(
+            result.supplemental_trace,
+            Some(serde_json::json!({ "recipient": "test@example.com" }))
         );
     }
 

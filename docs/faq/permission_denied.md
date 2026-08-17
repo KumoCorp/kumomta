@@ -1,3 +1,7 @@
+---
+description: "Resolve a Permission Denied (os error 13) error when starting a KumoMTA listener, usually caused by binding privileged ports or file permissions."
+---
+
 # How do I resolve a `Permission Denied` error?
 
 If you encounter an error message similar to the following:

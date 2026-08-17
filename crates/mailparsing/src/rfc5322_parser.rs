@@ -919,6 +919,46 @@ fn ccontent(input: Span) -> IResult<Span, Span> {
     .parse(input)
 }
 
+/// Remove CFWS (comments and folding whitespace) from a header value, returning
+/// the surviving tokens joined by single spaces, or `None` if it does not
+/// tokenize cleanly.
+pub(crate) fn strip_cfws(input: &str) -> Option<String> {
+    fn token(input: Span) -> IResult<Span, Span> {
+        take_while1(|c| !matches!(c, b' ' | b'\t' | b'\r' | b'\n' | b'(')).parse(input)
+    }
+    fn tokens(input: Span) -> IResult<Span, Vec<Option<Span>>> {
+        many0(alt((map(cfws, |_| None), map(token, Some)))).parse(input)
+    }
+
+    let mut out: Vec<u8> = Vec::new();
+    for token in parse_with(input.as_bytes(), tokens)
+        .ok()?
+        .into_iter()
+        .flatten()
+    {
+        if !out.is_empty() {
+            out.push(b' ');
+        }
+        out.extend_from_slice(token.fragment());
+    }
+    String::from_utf8(out).ok()
+}
+
+#[cfg(test)]
+#[test]
+fn test_strip_cfws() {
+    k9::assert_equal!(
+        strip_cfws("Thu, 02 Jul 26 18:55:38 UTC (Coordinated)").unwrap(),
+        "Thu, 02 Jul 26 18:55:38 UTC"
+    );
+    k9::assert_equal!(
+        strip_cfws("Thu, 02 Jul 26 (comment) 18:55:38 UTC").unwrap(),
+        "Thu, 02 Jul 26 18:55:38 UTC"
+    );
+    // Nested comments and quoted parens are handled by the comment parser.
+    k9::assert_equal!(strip_cfws("a (b (c) \\) d) e").unwrap(), "a e");
+}
+
 fn is_quoted_pair_ascii(c: u8) -> bool {
     match c {
         0x00 | b'\r' | b'\n' | b' ' => true,

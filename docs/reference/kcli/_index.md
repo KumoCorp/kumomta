@@ -26,6 +26,8 @@ Full docs available at: <https://docs.kumomta.com>
 
 * `rebind` — Rebind messages from matching queues into different queue(s)
 
+* `spool-compact` — Forces a flush and full compaction of the named spool
+
 * `suspend` — Administratively suspend messages in matching queues
 
 * `suspend-list` — Returns list of current administrative suspend rules
@@ -40,9 +42,15 @@ Full docs available at: <https://docs.kumomta.com>
 
 * `set-log-filter` — Changes the diagnostic log filter
 
+* `abort-ready-q-conn` — Aborts the dispatcher task within a ready queue identified by its session_id. The dispatcher's drop path returns any in-flight message to the scheduled queue for another delivery attempt
+
 * `inspect-message` — Returns information about a message in the spool
 
+* `inspect-ready-q` — Returns information about a ready queue: its egress identity, effective state (throttles, suspensions, ready and connection counts), and, optionally, the dispatcher tasks that are currently handling its connections plus the egress path configuration in effect
+
 * `inspect-sched-q` — Returns information about a scheduled queue
+
+* `resolve-egress-path` — Resolve the effective egress path configuration and throughput ceilings for a destination domain and egress source
 
 * `provider-summary` — Prints a summary of the aggregate state of the queues from the perspective of the provider or destination site
 

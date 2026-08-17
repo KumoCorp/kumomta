@@ -73,6 +73,51 @@ local answer, reason = kumo.dns.rbl_lookup('10.0.0.1', 'rbl.domain', 'rbl')
 This mode of operation was originally intended for testing, but may prove
 useful in other situations.
 
+### DNSSEC `secure` zones and `servfail`
+
+{{since('dev')}}
+
+Each entry in `zones` may be either a plain zone string (treated as an
+*insecure*, non-DNSSEC zone, which is the original behavior) or a table of the
+form `{ zone = "...", secure = true }`. When `secure` is `true`, answers from
+that zone are reported as DNSSEC-validated. This is required to exercise
+features that only trust securely-resolved data, such as
+[DANE](../kumo/make_egress_path/enable_dane.md).
+
+The `Test` resolver also accepts an optional `servfail` list of owner names;
+any lookup for one of those names returns `SERVFAIL`. This is useful for
+exercising failure-handling paths (for example, DANE downgrade resistance).
+
+```lua
+kumo.dns.define_resolver('secure-test', {
+  Test = {
+    zones = {
+      -- A DNSSEC-validated (secure) zone
+      {
+        zone = [[
+$ORIGIN dane.example.
+@ 3600 IN MX 10 mx.dane.example.
+mx 3600 IN A 127.0.0.1
+_25._tcp.mx 3600 IN TLSA 3 1 1 abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  ]],
+        secure = true,
+      },
+      -- A plain string entry is treated as an insecure zone
+      [[
+$ORIGIN insecure.example.
+@ 3600 IN A 127.0.0.2
+  ]],
+    },
+    -- Any lookup for these names returns SERVFAIL
+    servfail = {
+      '_25._tcp.broken.example',
+    },
+  },
+})
+```
+
+These options are primarily intended for testing.
+
 ## System Default
 
 ```lua
@@ -82,6 +127,10 @@ kumo.dns.define_resolver('myresolver', 'HickorySystemConfig')
 Parses the system resolver configuration and applies that to a separate
 instance of the hickory DNS resolver client. This is equivalent to the default
 resolver settings in kumomta.
+
+If you would like to start from the system upstreams and then layer your own
+resolver options on top, see [kumo.dns.load_resolv_conf](load_resolv_conf.md)
+{{since('dev', inline=True)}}.
 
 ## Unbound with an explicit upstream
 

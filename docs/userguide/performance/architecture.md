@@ -1,3 +1,7 @@
+---
+description: Architect KumoMTA for performance and scalability, weighing CPU choice, horizontal scaling, dynamic cluster sizing, disk, network, and role separation.
+---
+
 # Architecting for Performance and Scalability
 
 For lower volume environments it may be practical to run your email infrastructure on a single KumoMTA instance, especially in a virtualized environment where single-node fault tolerance is relatively high.
@@ -16,7 +20,7 @@ While KumoMTA can be deployed on very large servers with excellent results (in e
 
 ## Dynamic Cluster Sizing
 
-In most sending environment there is a cyclical nature to sending volumes that can vary on the time of day, day of week, and even month of the year. In cyclical environment it can be very cost effective to scale the size of your cluster up and down based on these cycles, especially in public cloud environments.
+In most sending environments there is a cyclical nature to sending volumes that can vary on the time of day, day of week, and even month of the year. In cyclical environments it can be very cost effective to scale the size of your cluster up and down based on these cycles, especially in public cloud environments.
 
 KumoMTA does not automatically perform cluster scaling as our users deploy in a wide variety of ways, but we do provide tools to help users perform the scaling using their tool of choice. See the [Scaling page](../clustering/scaling.md) in the [Clustering chapter](../clustering/index.md) of the User Guide for more information.
 
@@ -36,7 +40,7 @@ When planning storage, especially on physical hardware, it is important to consi
 
 1) Spool - KumoMTA will be continuously reading and writing from/to the spool disk. By default KumoMTA will place its spool under `/var/spool/kumomta` and this location should be mounted to a separate disk (or at least a separate partition).
 
-2) Logs - KumoMTA will continuously write logs, and it should be noted that there is no log purging provided by KumoMTA. By default logs will be written under `/var/log/kumomta` which should be mounted on a separate disk (or a least a separate partition). To prevent running out of disk space you will need to implement log rotation and deletion based on your needs for data retention.
+2) Logs - KumoMTA will continuously write logs, and it should be noted that there is no log purging provided by KumoMTA. By default logs will be written under `/var/log/kumomta` which should be mounted on a separate disk (or at least a separate partition). To prevent running out of disk space you will need to implement log rotation and deletion based on your needs for data retention.
 
 3) Other IO - While KumoMTA will perform the majority of its I/O on the spool and log directories, a separate root partition is recommended to help isolate the general I/O from the spool and log I/O.
 
@@ -58,4 +62,4 @@ Some of the components that should be offloaded to their own servers include:
 * Redis - Redis is used in multi-node environments for common throttles and counters and should not run on the same hardware as individual nodes.
 * Injectors - A common architecture in many sending environments is to run message generators on the MTA nodes. This approach can lead to resource contention between the generators and the KumoMTA daemon and should be avoided.
 * Log Processors - Another common architecture choice is to run log processors locally on the MTA nodes, with the processor reading the logs and pushing the data to a destination of choice. We recommend configuring KumoMTA either with log hooks to deliver data via HTTP/AMQP/Kafka, or to operate the minimum tooling necessary to move log files to a separate system for processing. Note that any log processing done locally will potentially lead to resource contention and can take disk IOPS away from the KumoMTA daemon.
-* DNS - While we do recommend running a local caching Bind 9 service to ensure DNS performance, you do not need to run it on your MTA hardware. KumoMTA has its own resolver and caching in-process, DNS should be on its own server local to the KumoMTA nodes.
+* DNS - While we do recommend running a local caching BIND 9 service to ensure DNS performance, you do not need to run it on your MTA hardware. KumoMTA has its own resolver and caching in-process, DNS should be on its own server local to the KumoMTA nodes.

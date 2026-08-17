@@ -1,0 +1,23 @@
+[package]
+name = "mailexchanger"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = {workspace=true}
+dns-resolver = {path="../dns-resolver"}
+kumo-address = {path="../kumo-address"}
+kumo-log-types = {path="../kumo-log-types"}
+kumo-prometheus = {path="../kumo-prometheus"}
+linkme.workspace = true
+lruttl = {path="../lruttl"}
+mta-sts = {path="../mta-sts"}
+rand = {workspace=true}
+serde = {workspace=true}
+tokio = {workspace=true, features=["macros", "sync", "time"]}
+tracing = {workspace=true}
+hickory-resolver = {workspace=true}
+
+[dev-dependencies]
+k9 = {workspace=true}
+tokio = {workspace=true, features=["macros"]}

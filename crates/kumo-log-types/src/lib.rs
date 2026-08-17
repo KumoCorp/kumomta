@@ -20,6 +20,12 @@ pub mod rfc5965;
 pub struct ResolvedAddress {
     pub name: String,
     pub addr: HostOrSocketAddress,
+    /// Whether the address was resolved via a DNSSEC-validated (secure) chain.
+    /// Used to decide DANE eligibility for the connection. Defaults to false
+    /// for addresses that did not originate from a secure DNS lookup (literals,
+    /// inbound peers, etc).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_secure: bool,
 }
 
 impl std::fmt::Display for ResolvedAddress {
@@ -300,5 +306,5 @@ pub struct MaybeProxiedSourceAddress {
 #[cfg(all(test, target_pointer_width = "64"))]
 #[test]
 fn sizes() {
-    assert_eq!(std::mem::size_of::<JsonLogRecord>(), 712);
+    assert_eq!(std::mem::size_of::<JsonLogRecord>(), 720);
 }

@@ -830,3 +830,196 @@ async fn test_writer_suffix() {
         files[0]
     );
 }
+
+/// Mark `path` readonly.  Both successful `LogWriter::close()` and the
+/// producer's startup sweep over abandoned segments do this; tests use
+/// it to simulate the latter.
+fn mark_readonly(path: &std::path::Path) {
+    let mut perms = std::fs::metadata(path).unwrap().permissions();
+    perms.set_readonly(true);
+    std::fs::set_permissions(path, perms).unwrap();
+}
+
+/// A killed writer leaves the zstd stream un-finished.  When the
+/// producer restarts, its startup sweep marks the abandoned segment
+/// readonly.  The tailer must then yield the recoverable records and
+/// advance past the truncated tail, not error out.  Simulated by
+/// dropping the writer without `finish` and then marking the file
+/// readonly to mimic the sweep.
+#[tokio::test]
+async fn test_truncated_segment_skips_partial_trailing_data() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    // First (truncated) segment: 5 records, no zstd finish.
+    write_open_segment(
+        dir.path(),
+        &[
+            r#"{"seg":1,"n":1}"#,
+            r#"{"seg":1,"n":2}"#,
+            r#"{"seg":1,"n":3}"#,
+            r#"{"seg":1,"n":4}"#,
+            r#"{"seg":1,"n":5}"#,
+        ],
+    );
+    // Find that segment and mark readonly to simulate the producer's
+    // startup sweep marking an abandoned segment as done.
+    let entries: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    k9::assert_equal!(entries.len(), 1);
+    let first_seg = entries[0].path();
+    mark_readonly(&first_seg);
+
+    // Second (clean) segment afterwards.
+    write_segment(dir.path(), &[r#"{"seg":2,"n":1}"#]);
+
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .max_batch_size(100)
+        .max_batch_latency(Duration::from_millis(100))
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+
+    // Collect everything that comes through; we don't assert on
+    // exactly how many records from seg 1 made it (depends on zstd
+    // block boundaries) but we MUST eventually see seg 2's record
+    // and we MUST NOT see an Err.
+    let mut saw_seg2 = false;
+    let mut seg1_count = 0;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    while tokio::time::Instant::now() < deadline {
+        let remaining = deadline - tokio::time::Instant::now();
+        let next = tokio::time::timeout(remaining, tailer.next()).await;
+        match next {
+            Ok(Some(Ok(batch))) => {
+                for rec in batch.records() {
+                    match rec.get("seg").and_then(|v| v.as_u64()) {
+                        Some(1) => seg1_count += 1,
+                        Some(2) => saw_seg2 = true,
+                        _ => panic!("unexpected record {rec}"),
+                    }
+                }
+                if saw_seg2 {
+                    break;
+                }
+            }
+            Ok(Some(Err(e))) => panic!("tailer must not error on truncated segment: {e}"),
+            Ok(None) => break,
+            Err(_) => break,
+        }
+    }
+    assert!(saw_seg2, "tailer never advanced past the truncated segment");
+    assert!(
+        seg1_count > 0,
+        "expected some records from the truncated segment to be recovered"
+    );
+}
+
+/// A non-zstd foreign file dropped into the log directory must not
+/// stop the tailer.  Surrounding legitimate segments must still be
+/// read.
+#[tokio::test]
+async fn test_foreign_non_zstd_file_is_skipped() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    // Legitimate segment first.
+    write_segment(dir.path(), &[r#"{"n":1}"#]);
+    // Foreign file with a name that sorts between/around segments.
+    std::fs::write(dir.path().join("notes.txt"), b"hello, this is not zstd\n").unwrap();
+    // Another legitimate segment.
+    write_segment(dir.path(), &[r#"{"n":2}"#]);
+
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .max_batch_size(100)
+        .max_batch_latency(Duration::from_millis(100))
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+
+    let mut all = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    while all.len() < 2 && tokio::time::Instant::now() < deadline {
+        let remaining = deadline - tokio::time::Instant::now();
+        match tokio::time::timeout(remaining, tailer.next()).await {
+            Ok(Some(Ok(b))) => all.extend(b.records().iter().cloned()),
+            Ok(Some(Err(e))) => panic!("tailer must not error on foreign file: {e}"),
+            Ok(None) => break,
+            Err(_) => break,
+        }
+    }
+    k9::assert_equal!(all, vec![json!({"n": 1}), json!({"n": 2})]);
+}
+
+/// A valid zstd file whose decompressed contents are not JSONL must
+/// not stop the tailer.
+#[tokio::test]
+async fn test_foreign_non_jsonl_zstd_file_is_skipped() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    // Legitimate segment first.
+    write_segment(dir.path(), &[r#"{"n":1}"#]);
+    // Foreign zstd file containing non-JSON text.
+    let compressed = zstd::stream::encode_all(&b"this is not json at all\n"[..], 3).unwrap();
+    std::fs::write(dir.path().join("foreign.zst"), compressed).unwrap();
+    // Another legitimate segment.
+    write_segment(dir.path(), &[r#"{"n":2}"#]);
+
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .max_batch_size(100)
+        .max_batch_latency(Duration::from_millis(100))
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+
+    let mut all = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    while all.len() < 2 && tokio::time::Instant::now() < deadline {
+        let remaining = deadline - tokio::time::Instant::now();
+        match tokio::time::timeout(remaining, tailer.next()).await {
+            Ok(Some(Ok(b))) => all.extend(b.records().iter().cloned()),
+            Ok(Some(Err(e))) => panic!("tailer must not error on foreign zstd file: {e}"),
+            Ok(None) => break,
+            Err(_) => break,
+        }
+    }
+    k9::assert_equal!(all, vec![json!({"n": 1}), json!({"n": 2})]);
+}
+
+/// A bad file whose name sorts after future legitimate segments must
+/// not poison `last_processed` and hide those segments.
+#[tokio::test]
+async fn test_bad_file_sorting_after_future_segments_does_not_block() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    // The writer names files with a date-stamped prefix, so a foreign
+    // file named with a `z` prefix will sort after any future segment.
+    std::fs::write(dir.path().join("zzz-foreign.txt"), b"junk\n").unwrap();
+
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .max_batch_size(100)
+        .max_batch_latency(Duration::from_millis(100))
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+
+    // Drain whatever surfaces from the foreign file -- there should be
+    // no batches, and definitely no error.  Do a brief poll.
+    let _ = tokio::time::timeout(Duration::from_millis(300), tailer.next()).await;
+
+    // Now write a legitimate segment.  Its name (a timestamp) sorts
+    // before "zzz-foreign.txt", so if `last_processed` had been set to
+    // the foreign file we would never see this record.
+    write_segment(dir.path(), &[r#"{"n":42}"#]);
+
+    let batch = next_batch_with_timeout(&mut tailer).await;
+    k9::assert_equal!(batch.records(), &[json!({"n": 42})]);
+}

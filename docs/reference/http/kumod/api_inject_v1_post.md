@@ -306,6 +306,10 @@ This is an object value, with the following properties:
   "recipients": [
     {
       "email": "john.smith@mailbox-example.com",
+      "metadata": {
+        "campaign_id": "promo-2026-q2",
+        "user_segment": "premium"
+      },
       "name": "John Smith",
       "substitutions": {
         "age": 42,

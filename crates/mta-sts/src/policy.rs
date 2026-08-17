@@ -1,7 +1,7 @@
 use futures::future::BoxFuture;
 use std::collections::BTreeMap;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum PolicyMode {
     Enforce,
     Testing,

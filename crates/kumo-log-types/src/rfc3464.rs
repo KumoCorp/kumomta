@@ -7,9 +7,10 @@ use crate::{JsonLogRecord, RecordType};
 use anyhow::{anyhow, Context};
 use bstr::{BStr, BString, ByteSlice};
 use chrono::{DateTime, Utc};
-use mailparsing::MimePart;
+use mailparsing::{BStringUtf8, MimePart};
 use rfc5321::parser::EnvelopeAddress;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
@@ -218,6 +219,7 @@ impl FromStr for DiagnosticCode {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct PerRecipientReportEntry {
     pub final_recipient: Recipient,
@@ -229,6 +231,7 @@ pub struct PerRecipientReportEntry {
     pub last_attempt_date: Option<DateTime<Utc>>,
     pub final_log_id: Option<String>,
     pub will_retry_until: Option<DateTime<Utc>>,
+    #[serde_as(as = "BTreeMap<_, Vec<BStringUtf8>>")]
     pub extensions: BTreeMap<String, Vec<BString>>,
 }
 
@@ -301,6 +304,7 @@ impl PerRecipientReportEntry {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct PerMessageReportEntry {
     pub original_envelope_id: Option<String>,
@@ -308,6 +312,7 @@ pub struct PerMessageReportEntry {
     pub dsn_gateway: Option<RemoteMta>,
     pub received_from_mta: Option<RemoteMta>,
     pub arrival_date: Option<DateTime<Utc>>,
+    #[serde_as(as = "BTreeMap<_, Vec<BStringUtf8>>")]
     pub extensions: BTreeMap<String, Vec<BString>>,
 }
 
@@ -359,10 +364,12 @@ impl PerMessageReportEntry {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct Report {
     pub per_message: PerMessageReportEntry,
     pub per_recipient: Vec<PerRecipientReportEntry>,
+    #[serde_as(as = "Option<BStringUtf8>")]
     pub original_message: Option<BString>,
 }
 
@@ -663,6 +670,69 @@ mod test {
     use crate::ResolvedAddress;
     use rfc5321::{EnhancedStatusCode, Response};
 
+    #[test]
+    fn parse_ses_obsolete_arrival_date() {
+        // Amazon SES OOB bounces carry an Arrival-Date in an obsolete RFC 2822
+        // form ("Thu, 02 Jul 26 18:55:38 UTC"). This must not fail the report;
+        // the arrival_date below shows it is recovered rather than dropped.
+        let report = Report::parse(include_bytes!("../data/rfc3464/obsolete_arrival_date.eml"))
+            .unwrap()
+            .expect("multipart/report DSN should parse as a report");
+        k9::snapshot!(
+            &report,
+            r#"
+Report {
+    per_message: PerMessageReportEntry {
+        original_envelope_id: None,
+        reporting_mta: RemoteMta {
+            mta_type: "dns",
+            name: "mx.example.com",
+        },
+        dsn_gateway: None,
+        received_from_mta: None,
+        arrival_date: Some(
+            2026-07-02T18:55:38Z,
+        ),
+        extensions: {},
+    },
+    per_recipient: [
+        PerRecipientReportEntry {
+            final_recipient: Recipient {
+                recipient_type: "rfc822",
+                recipient: "user@example.com",
+            },
+            action: Failed,
+            status: ReportStatus {
+                class: 5,
+                subject: 1,
+                detail: 1,
+                comment: None,
+            },
+            original_recipient: Some(
+                Recipient {
+                    recipient_type: "rfc822",
+                    recipient: "user@example.com",
+                },
+            ),
+            remote_mta: None,
+            diagnostic_code: Some(
+                DiagnosticCode {
+                    diagnostic_type: "smtp",
+                    diagnostic: "550 5.1.1 Mailbox does not exist",
+                },
+            ),
+            last_attempt_date: None,
+            final_log_id: None,
+            will_retry_until: None,
+            extensions: {},
+        },
+    ],
+    original_message: None,
+}
+"#
+        );
+    }
+
     fn make_message() -> MimePart<'static> {
         let mut part = MimePart::new_text_plain("hello there").unwrap();
         part.headers_mut().set_subject("Hello!").unwrap();
@@ -691,6 +761,7 @@ mod test {
             peer_address: Some(ResolvedAddress {
                 name: "target.example.com".to_string(),
                 addr: "42.42.42.42".to_string().try_into().unwrap(),
+                is_secure: false,
             }),
             provider_name: None,
             queue: "target.example.com".to_string(),
@@ -1742,5 +1813,50 @@ To: redacted@example.com
 )
 "#
         );
+    }
+
+    #[test]
+    fn original_message_serializes_as_json_string() {
+        let report = Report {
+            per_message: PerMessageReportEntry {
+                original_envelope_id: None,
+                reporting_mta: RemoteMta {
+                    mta_type: "dns".to_string(),
+                    name: "mta.example.com".to_string(),
+                },
+                dsn_gateway: None,
+                received_from_mta: None,
+                arrival_date: None,
+                extensions: BTreeMap::new(),
+            },
+            per_recipient: vec![],
+            original_message: Some(BString::from("Subject: hi\n\nhello")),
+        };
+        let json = serde_json::to_value(&report).unwrap();
+        k9::assert_equal!(
+            json["original_message"],
+            serde_json::Value::String("Subject: hi\n\nhello".to_string())
+        );
+    }
+
+    #[test]
+    fn original_message_non_utf8_falls_back_to_bytes() {
+        let report = Report {
+            per_message: PerMessageReportEntry {
+                original_envelope_id: None,
+                reporting_mta: RemoteMta {
+                    mta_type: "dns".to_string(),
+                    name: "mta.example.com".to_string(),
+                },
+                dsn_gateway: None,
+                received_from_mta: None,
+                arrival_date: None,
+                extensions: BTreeMap::new(),
+            },
+            per_recipient: vec![],
+            original_message: Some(BString::from(&b"abc\x80\xffxyz"[..])),
+        };
+        let json = serde_json::to_value(&report).unwrap();
+        assert!(json["original_message"].is_array());
     }
 }

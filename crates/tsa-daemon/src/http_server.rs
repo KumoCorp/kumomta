@@ -28,7 +28,7 @@ use sha2::{Digest, Sha256};
 use std::hash::Hash;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
-use tokio::sync::broadcast::{channel, Sender};
+use tokio::sync::broadcast::{channel, Receiver, Sender};
 use utoipa::OpenApi;
 
 pub static DB_PATH: LazyLock<Mutex<String>> =
@@ -745,9 +745,10 @@ impl SubscriberMgr {
 
 /// This is a legacy endpoint that can only report on the old SuspensionEntry
 /// enum variants
-async fn process_suspension_subscription_inner(mut socket: WebSocket) -> anyhow::Result<()> {
-    let mut rx = SUSPENSION_TX.tx.subscribe();
-
+async fn process_suspension_subscription_inner(
+    mut socket: WebSocket,
+    mut rx: Receiver<SubscriptionItem>,
+) -> anyhow::Result<()> {
     // send the current set of suspensions first
     {
         let suspensions = get_suspensions();
@@ -776,8 +777,8 @@ async fn process_suspension_subscription_inner(mut socket: WebSocket) -> anyhow:
 
 /// This is a legacy endpoint that can only report on the old SuspensionEntry
 /// enum variants
-async fn process_suspension_subscription(socket: WebSocket) {
-    if let Err(err) = process_suspension_subscription_inner(socket).await {
+async fn process_suspension_subscription(socket: WebSocket, rx: Receiver<SubscriptionItem>) {
+    if let Err(err) = process_suspension_subscription_inner(socket, rx).await {
         tracing::error!("error in websocket: {err:#}");
     }
 }
@@ -787,7 +788,13 @@ async fn process_suspension_subscription(socket: WebSocket) {
 #[utoipa::path(get, path = "/subscribe_suspension_v1")]
 #[deprecated]
 pub async fn subscribe_suspension_v1(ws: WebSocketUpgrade) -> impl IntoResponse {
-    ws.on_upgrade(process_suspension_subscription)
+    // Subscribe before completing the upgrade handshake. The handshake response
+    // is what unblocks the connecting client, so subscribing here counts this
+    // session as a receiver before any activity it triggers can be published;
+    // otherwise events sent in that window would be dropped by the
+    // receiver-count check in SubscriberMgr::submit.
+    let rx = SUSPENSION_TX.tx.subscribe();
+    ws.on_upgrade(move |socket| process_suspension_subscription(socket, rx))
 }
 
 #[utoipa::path(get, path = "/get_bounce_v1/bounced.json")]
@@ -799,9 +806,10 @@ async fn get_bounce_v1() -> Result<Json<Vec<SchedQBounce>>, AppError> {
     Ok(Json(result))
 }
 
-async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Result<()> {
-    let mut rx = SUSPENSION_TX.tx.subscribe();
-
+async fn process_event_subscription_inner(
+    mut socket: WebSocket,
+    mut rx: Receiver<SubscriptionItem>,
+) -> anyhow::Result<()> {
     {
         let start = Instant::now();
         let num_ready_q_sus;
@@ -858,15 +866,21 @@ async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Resu
     }
 }
 
-async fn process_event_subscription(socket: WebSocket) {
-    if let Err(err) = process_event_subscription_inner(socket).await {
+async fn process_event_subscription(socket: WebSocket, rx: Receiver<SubscriptionItem>) {
+    if let Err(err) = process_event_subscription_inner(socket, rx).await {
         tracing::error!("error in websocket: {err:#}");
     }
 }
 
 #[utoipa::path(get, path = "/subscribe_event_v1")]
 pub async fn subscribe_event_v1(ws: WebSocketUpgrade) -> impl IntoResponse {
-    ws.on_upgrade(process_event_subscription)
+    // Subscribe before completing the upgrade handshake. The handshake response
+    // is what unblocks the connecting client, so subscribing here counts this
+    // session as a receiver before any activity it triggers can be published;
+    // otherwise events sent in that window would be dropped by the
+    // receiver-count check in SubscriberMgr::submit.
+    let rx = SUSPENSION_TX.tx.subscribe();
+    ws.on_upgrade(move |socket| process_event_subscription(socket, rx))
 }
 
 /// Simple health check endpoint for the TSA Daemon.

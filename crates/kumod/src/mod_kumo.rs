@@ -6,8 +6,8 @@ use crate::smtp_server::{
     EsmtpDomain, EsmtpListenerParams, RejectDisconnect, RejectError, TraceHeaders,
 };
 use anyhow::Context;
-use config::{any_err, from_lua_value, get_or_create_module};
-use kumo_api_types::egress_path::EgressPathConfig;
+use config::{any_err, from_lua_value, get_or_create_module, SerdeWrappedValue};
+use kumo_api_types::egress_path::{EffectiveConstraints, EgressPathConfig};
 use kumo_log_types::rfc3464::ReportGenerationParams;
 use kumo_log_types::JsonLogRecord;
 use kumo_server_common::http_server::HttpListenerParams;
@@ -207,6 +207,50 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     .map_err(any_err)?
                     .or_default();
                 lua.to_value(&path_config)
+            },
+        )?,
+    )?;
+
+    kumo_mod.set(
+        "compute_egress_path_config_constraints",
+        lua.create_function(
+            |lua,
+             (path_config, additional): (
+                SerdeWrappedValue<EgressPathConfig>,
+                Option<SerdeWrappedValue<EffectiveConstraints>>,
+            )| {
+                let extra = additional.as_ref().map(|s| &s.0);
+                lua.to_value(&path_config.0.compute_constraints(extra))
+            },
+        )?,
+    )?;
+
+    kumo_mod.set(
+        "compute_queue_config_constraints",
+        lua.create_function(|lua, queue_config: SerdeWrappedValue<QueueConfig>| {
+            lua.to_value(&queue_config.0.compute_constraints())
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "format_queue_config_toml",
+        lua.create_function(|_lua, queue_config: SerdeWrappedValue<QueueConfig>| {
+            mod_serde::toml_encode_pretty_compact(&queue_config.0).map_err(any_err)
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "format_egress_path_config_toml",
+        lua.create_function(|_lua, path_config: SerdeWrappedValue<EgressPathConfig>| {
+            mod_serde::toml_encode_pretty_compact(&path_config.0).map_err(any_err)
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "format_egress_path_config_constraints",
+        lua.create_function(
+            |_lua, constraints: SerdeWrappedValue<EffectiveConstraints>| {
+                Ok(constraints.0.to_human_string())
             },
         )?,
     )?;

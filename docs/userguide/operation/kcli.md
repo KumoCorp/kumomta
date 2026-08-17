@@ -1,3 +1,7 @@
+---
+description: Use the kcli command-line client to administer KumoMTA over its HTTP API, monitoring queues, managing bounces, and tracing inbound and outbound SMTP.
+---
+
 # Using the kcli Command-Line Client
 
 KumoMTA comes with several API endpoints to make administration of the server
@@ -49,19 +53,19 @@ SITE                                              SOURCE       PROTO       D T C
 
  The output is presented in two sections:
 
-1. The ready queues
-2. The scheduled queues
+1. The Ready Queues
+2. The Scheduled Queues
 
-The ready queue data is presented in columns that are mostly self explanatory, but the numeric counts are labelled with single character labels:
+The Ready Queue data is presented in columns that are mostly self-explanatory, but the numeric counts are labeled with single character labels:
 
 * D - the total number of delivered messages
 * T - the total number of transiently failed messages
 * C - the number of open connections
 * Q - the number of ready messages in the queue
 
-Note that the ready queue counter values reset whenever the ready queue is reaped, which occurs within a few minutes of the ready queue being idle, so those numbers are only useful to get a sense of recent/current activity. Accurate accounting must be performed using the delivery logs and not via this utility.
+Note that the Ready Queue counter values reset whenever the Ready Queue is reaped, which occurs within a few minutes of the Ready Queue being idle, so those numbers are only useful to get a sense of recent/current activity. Accurate accounting must be performed using the delivery logs and not via this utility.
 
-The scheduled queue data is presented in two columns; the queue name and the number of messages in that queue.
+The Scheduled Queue data is presented in two columns; the queue name and the number of messages in that queue.
 
 ## Managing Bounces
 
@@ -99,7 +103,7 @@ If omitted, any tenant will match.
 
 !!! danger
     If you specify none of `domain`, `campaign` or `tenant`, then
-    *ALL* queues will be bounced.
+    _ALL_ queues will be bounced.
 
     With great power, comes great responsibility!
 
@@ -166,9 +170,6 @@ See the [Bounce Cancel
 API](../../reference/http/kumod/api_admin_bounce_v1_delete.md) page of the
 Reference Manual for more information.
 
-## Managing Suspensions
-
-
 ## Setting The Diagnostic Log Level
 
 While the log level is typically set in your configuration, it can also be set
@@ -186,7 +187,7 @@ Reference Manual for more information.
 
 ## Monitoring Inbound SMTP handshaking
 
-When debugging, it is often helpful to monitor the full SMTP handshaking process in real-time.  The kcli client enables that for inbound connections with the `trace-smtp-server` function:
+When debugging, it is often helpful to monitor the full SMTP handshaking process in real time.  The kcli client enables that for inbound connections with the `trace-smtp-server` function:
 
 ```console
 $ kcli trace-smtp-server
@@ -200,7 +201,7 @@ reference manual.
 
 It is common to encounter issues when attempting to deliver to a given destination, while most destinations are delivered to without issues.
 
-In those situations it helps to be able to monitor the oubound connections in question to identify any issues during the communications:
+In those situations it helps to be able to monitor the outbound connections in question to identify any issues during the communications:
 
 ```console
 $ kcli trace-smtp-client

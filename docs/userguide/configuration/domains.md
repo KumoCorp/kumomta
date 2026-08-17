@@ -1,3 +1,7 @@
+---
+description: Configure inbound and relay domains in KumoMTA with the listener_domains.lua helper to control relaying, bounce processing, and feedback loop reception.
+---
+
 # Configuring Inbound and Relay Domains
 
 When listening via SMTP, it is common to simply define a list of `relay_hosts`
@@ -28,11 +32,11 @@ local listener_domains = require 'policy-extras.listener_domains'
 
 kumo.on(
   'get_listener_domain',
-  listener_domains:setup { '/opt/kumomta/etc/listener_domains.toml' }
+  listener_domains:setup { '/opt/kumomta/etc/policy/listener_domains.toml' }
 )
 ```
 
-Then create a text file at `/opt/kumomta/etc/listener_domains.toml` with the following format:
+Then create a text file at `/opt/kumomta/etc/policy/listener_domains.toml` with the following format:
 
 {% call toml_data() %}
 ["*"]
