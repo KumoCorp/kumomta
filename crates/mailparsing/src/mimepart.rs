@@ -2,8 +2,8 @@ use crate::header::{HeaderParseResult, MessageConformance};
 use crate::headermap::HeaderMap;
 use crate::strings::IntoSharedString;
 use crate::{
-    has_lone_cr_or_lf, BStringUtf8, Header, MailParsingError, MessageID, MimeParameterEncoding,
-    MimeParameters, Result, SharedString,
+    has_lone_cr_or_lf, resolve_charset, BStringUtf8, Header, MailParsingError, MessageID,
+    MimeParameterEncoding, MimeParameters, Result, SharedString,
 };
 use bstr::{BStr, BString, ByteSlice};
 use charset_normalizer_rs::entity::NormalizerSettings;
@@ -100,7 +100,7 @@ impl Rfc2045Info {
         let charset = charset.unwrap_or_else(|| "us-ascii".into());
 
         let charset = match charset.to_str() {
-            Ok(charset) => Encoding::by_name(&*charset).ok_or_else(|| {
+            Ok(charset) => resolve_charset(&charset).ok_or_else(|| {
                 MailParsingError::BodyParse(format!("unsupported charset {charset}"))
             }),
             Err(_) => Err(MailParsingError::BodyParse(format!(
@@ -2124,6 +2124,22 @@ Body\r
 
         eprintln!("{rebuilt:?}");
         assert_eq!(rebuilt.body().unwrap().to_string_lossy().trim(), "تست");
+    }
+
+    #[test]
+    fn body_charset_alias_decode() {
+        // MS949 is a built-in alias for euc-kr; no registration required.
+        // "[엠브레인]" as euc-kr/CP949 bytes, base64 encoded.
+        const CONTENT: &str = "Subject: hello\r\n\
+            Content-Type: text/plain; charset=\"MS949\"\r\n\
+            Content-Transfer-Encoding: base64\r\n\
+            \r\n\
+            W7+luuq3ucDOXQ==\r\n";
+
+        let msg = MimePart::parse(CONTENT).unwrap();
+        let body = msg.body().unwrap();
+        assert!(matches!(body, DecodedBody::Text(_)));
+        assert_eq!(body.to_string_lossy(), "[엠브레인]");
     }
 
     #[test]

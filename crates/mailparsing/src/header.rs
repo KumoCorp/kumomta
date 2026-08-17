@@ -663,6 +663,20 @@ Ok(
     }
 
     #[test]
+    fn test_charset_alias_decode() {
+        // MS949 is a built-in alias for euc-kr; no registration required.
+        let (header, _size) = Header::parse("Subject: =?MS949?B?W7+luuq3ucDOXQ==?=").unwrap();
+        k9::snapshot!(
+            header.as_unstructured(),
+            r#"
+Ok(
+    "[엠브레인]",
+)
+"#
+        );
+    }
+
+    #[test]
     fn test_unstructured_encode() {
         let header = Header::new_unstructured("Subject", "hello there");
         k9::snapshot!(header.value, "hello there");

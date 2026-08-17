@@ -1,4 +1,5 @@
 mod builder;
+mod charset;
 mod conformance;
 mod datetime;
 mod error;
@@ -14,6 +15,7 @@ pub use error::MailParsingError;
 pub type Result<T> = std::result::Result<T, MailParsingError>;
 
 pub use builder::*;
+pub use charset::{resolve_charset, CHARSET_ALIASES};
 pub use conformance::*;
 pub use datetime::parse_rfc2822_date;
 pub use header::{Header, HeaderParseResult, MessageConformance};
