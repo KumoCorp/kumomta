@@ -123,10 +123,7 @@ $ vault kv put -mount=secret dkim/example.org private_key=@example-private-dkim-
 ```
 
 Requests to vault are bounded by `vault_timeout` {{since('dev', inline=True)}},
-which defaults to `30 seconds`; see
-[kumo.secrets.load](kumo.secrets/load.md#bounding-a-vault-read) for why that
-matters.
-
+which defaults to `30 seconds`.  Earlier releases had no timeout.
 ### Callback/Event based Data Source
 
 {{since('2025.12.02-67ee9e96')}}

@@ -16,11 +16,9 @@
    rocks_params field.
 
  * Reads from a HashiCorp Vault [keysource](../reference/keysource.md) now
-   time out after 30 seconds rather than waiting indefinitely. A vault
-   endpoint that accepted the connection but never answered would
-   previously park the calling lua forever, which could hold a graceful
-   shutdown open when the read happened in a connection handler. Tunable
+   time out after 30 seconds rather than waiting indefinitely. Tunable
    via the new `vault_timeout` [keysource](../reference/keysource.md) field.
+   Thanks to @ivanmp91! #585
 
  * The `resolve-shaping-domain` script's default output has changed.
    Pass `--json-config` to restore the previous byte-for-byte
