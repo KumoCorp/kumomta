@@ -37,8 +37,8 @@ fn default_vault_key() -> String {
     "key".to_string()
 }
 
-fn default_vault_timeout() -> Option<Duration> {
-    Some(Duration::from_secs(30))
+fn default_vault_timeout() -> Duration {
+    Duration::from_secs(30)
 }
 
 #[cfg(feature = "impl")]
@@ -78,7 +78,7 @@ impl KeySource {
                     VaultClientSettingsBuilder::default()
                         .address(address)
                         .token(token)
-                        .timeout(*vault_timeout)
+                        .timeout(Some(*vault_timeout))
                         .build()?,
                 )?;
 
@@ -401,41 +401,39 @@ mod test {
 
         Ok(())
     }
+
     #[tokio::test]
     async fn test_vault_timeout() -> anyhow::Result<()> {
-    // Accept connections but never answer them, matching the vault outage
-    // that hangs a read with no timeout. The JoinSet aborts the accept loop
-    // when it drops at the end of the test.
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let address = format!("http://{}", listener.local_addr()?);
-    let mut black_hole = tokio::task::JoinSet::new();
-    black_hole.spawn(async move {
-        let mut accepted = vec![];
-        while let Ok((stream, _)) = listener.accept().await {
-            accepted.push(stream);
-        }
-    });    
+        // Never accepted from: the kernel completes the handshake into the
+        // backlog, so the read connects and then waits forever for a response.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+
         let source = KeySource::Vault {
-            vault_address: Some(spawn_black_hole()?),
+            vault_address: Some(format!("http://127.0.0.1:{port}")),
             vault_token: Some(KEY.to_string()),
             vault_mount: "secret".to_string(),
             vault_path: "foo".to_string(),
             vault_key: "key".to_string(),
-            vault_timeout: Some(Duration::from_secs(1)),
+            vault_timeout: Duration::from_secs(1),
         };
 
-        // The outer timeout is much longer than vault_timeout; it is here
-        // so that a regression fails this test rather than hanging CI.
-        let start = std::time::Instant::now();
+        // So that a regression fails the test rather than hanging CI.
         let result = timeout(Duration::from_secs(30), source.get())
             .await
             .context("vault_timeout did not bound the read")?;
-        let elapsed = start.elapsed();
 
-        let err = format!("{:#}", result.unwrap_err());
-        assert!(
-            err.contains("kv2::read vault_mount=secret, vault_path=foo"),
-            "{err}"
+        // The port is kernel-assigned; rewrite it to compare exactly.
+        let err = format!("{:#}", result.unwrap_err()).replace(&format!(":{port}"), ":PORT");
+        assert_eq!(
+            err,
+            "kv2::read vault_mount=secret, vault_path=foo \
+             Vault { vault_address: Some(\"http://127.0.0.1:PORT\"), \
+             vault_token: Some(\"woot\"), vault_mount: \"secret\", \
+             vault_path: \"foo\", vault_key: \"key\", vault_timeout: 1s }: \
+             An error occurred with the request: Error sending HTTP request: \
+             error sending request for url (http://127.0.0.1:PORT/v1/secret/data/foo?): \
+             operation timed out"
         );
 
         Ok(())
