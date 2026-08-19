@@ -2113,7 +2113,10 @@ pub(crate) mod test {
             drop(empty);
             counted && released && uncounted && DATA_COUNT.get() == base
         });
-        assert!(ok, "new_dirty must increment DATA_COUNT only for non-empty data");
+        assert!(
+            ok,
+            "new_dirty must increment DATA_COUNT only for non-empty data"
+        );
     }
 
     const X_HDR_CONTENT: &str =
