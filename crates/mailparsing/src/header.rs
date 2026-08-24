@@ -81,20 +81,21 @@ pub struct HeaderParseResult<'a> {
     pub overall_conformance: MessageConformance,
 }
 
-/// Returns true if the first line of `data` is a valid header field, indicating
-/// the message has a header section. Per RFC 5322 a field name is one or more
-/// `ftext` characters (printable US-ASCII, no whitespace, excluding colon)
-/// followed by a colon, so the first line must match that to be a header.
+/// Returns true if the first line of `data` is a plausible header field: a field
+/// name (`ftext`: printable US-ASCII, no whitespace, excluding colon) that is
+/// either followed by a colon or ends the line on its own (a colon-less name is
+/// tolerated). Used to tell whether the message has a header section at all.
 fn first_line_is_header(data: &[u8]) -> bool {
     let mut saw_name = false;
     for &b in data {
         match b {
             b':' => return saw_name,
+            b'\r' | b'\n' => return saw_name,
             0x21..=0x7e => saw_name = true,
             _ => return false,
         }
     }
-    false
+    saw_name
 }
 
 impl<'a> Header<'a> {

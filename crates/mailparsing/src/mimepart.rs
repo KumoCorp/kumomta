@@ -1791,13 +1791,9 @@ Ok(
 
     #[test]
     fn funky_headers() {
-        // A colon-less line that is *not* the first line is still tolerated as
-        // a header with the MISSING_COLON_VALUE conformance flag. The first
-        // line must be a valid header for the message to have a header section.
         let message = concat!(
-            "Subject: hello\r\n",
-            "Other\r\n",
-            "Also:\r\n",
+            "Subject\r\n",
+            "Other:\r\n",
             "Content-Type: multipart/alternative; boundary=foobar\r\n",
             "Mime-Version: 1.0\r\n",
             "Date: Sun, 02 Oct 2016 07:06:22 -0700 (PDT)\r\n",
