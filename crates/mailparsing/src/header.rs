@@ -81,6 +81,22 @@ pub struct HeaderParseResult<'a> {
     pub overall_conformance: MessageConformance,
 }
 
+/// Returns true if the first line of `data` is a valid header field, indicating
+/// the message has a header section. Per RFC 5322 a field name is one or more
+/// `ftext` characters (printable US-ASCII, no whitespace, excluding colon)
+/// followed by a colon, so the first line must match that to be a header.
+fn first_line_is_header(data: &[u8]) -> bool {
+    let mut saw_name = false;
+    for &b in data {
+        match b {
+            b':' => return saw_name,
+            0x21..=0x7e => saw_name = true,
+            _ => return false,
+        }
+    }
+    false
+}
+
 impl<'a> Header<'a> {
     pub fn with_name_value<N: Into<SharedString<'a>>, V: Into<SharedString<'a>>>(
         name: N,
@@ -246,6 +262,19 @@ impl<'a> Header<'a> {
         S: IntoSharedString<'a>,
     {
         let (header_block, mut overall_conformance) = header_block.into_shared_string();
+
+        // Decide whether the message has a header section at all. An RFC 5322
+        // header field has the form `field-name ":" value`, so the first line
+        // of the message must be a valid header field for there to be any
+        // headers. If it is not, then, the message has no header section and the entire content is the body.
+        if !first_line_is_header(header_block.as_bytes()) {
+            return Ok(HeaderParseResult {
+                headers: HeaderMap::new(vec![]),
+                body_offset: 0,
+                overall_conformance,
+            });
+        }
+
         let mut headers = vec![];
         let mut idx = 0;
 
@@ -265,11 +294,6 @@ impl<'a> Header<'a> {
                 }
                 return Err(MailParsingError::HeaderParse(
                     "lone CR in header".to_string(),
-                ));
-            }
-            if headers.is_empty() && b.is_ascii_whitespace() {
-                return Err(MailParsingError::HeaderParse(
-                    "header block must not start with spaces".to_string(),
                 ));
             }
             let (header, next) = Self::parse(header_block.slice(idx..header_block.len()))?;
