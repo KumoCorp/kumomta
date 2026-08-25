@@ -500,6 +500,12 @@ impl MailExchanger {
                     "MX lookup for {domain_name} failed after {elapsed:?}: {err:#}",
                     elapsed = start.elapsed()
                 );
+                tracing::debug!(
+                    target: "mx_resolve",
+                    domain = domain_name,
+                    %error,
+                    "MX lookup failed; domain drops out of any site_name rollup"
+                );
                 return Ok(Err(error));
             }
         };
@@ -524,7 +530,15 @@ impl MailExchanger {
         let mta_sts = if is_mx && is_mta_sts_enabled() {
             match apply_mta_sts(name_fq, &mut by_pref, &mut hosts, &mut expires, resolver).await {
                 Ok(status) => status,
-                Err(error) => return Ok(Err(error)),
+                Err(error) => {
+                    tracing::debug!(
+                        target: "mx_resolve",
+                        domain = domain_name,
+                        %error,
+                        "MTA-STS evaluation failed; domain drops out of any site_name rollup"
+                    );
+                    return Ok(Err(error));
+                }
             }
         } else {
             PolicyMode::None
@@ -536,6 +550,16 @@ impl MailExchanger {
             .collect();
 
         let site_name = factor_names(&hosts);
+        tracing::debug!(
+            target: "mx_resolve",
+            domain = domain_name,
+            %site_name,
+            ?hosts,
+            is_mx,
+            is_secure,
+            elapsed_ms = start.elapsed().as_millis() as u64,
+            "resolved MX to site_name"
+        );
         let mx = Self {
             hosts,
             domain_name: name_fq.to_ascii(),

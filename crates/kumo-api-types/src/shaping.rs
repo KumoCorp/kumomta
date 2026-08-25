@@ -747,6 +747,11 @@ impl Shaping {
                     let mx = match mx.get(&domain) {
                         Some(Ok(mx)) => mx,
                         Some(Err(err)) => {
+                            tracing::debug!(
+                                target: "shaping_load",
+                                %domain,
+                                "dropping domain from shaping: MX resolve failed: {err:#}"
+                            );
                             collector.push(
                                 options.dns_fail,
                                 format!(
@@ -757,6 +762,11 @@ impl Shaping {
                             continue;
                         }
                         None => {
+                            tracing::debug!(
+                                target: "shaping_load",
+                                %domain,
+                                "dropping domain from shaping: MX was not resolved"
+                            );
                             collector.push(
                                 options.dns_fail,
                                 format!(
@@ -777,6 +787,13 @@ impl Shaping {
                         );
                         continue;
                     }
+
+                    tracing::trace!(
+                        target: "shaping_load",
+                        %domain,
+                        site_name = %mx.site_name,
+                        "domain resolved to site_name"
+                    );
 
                     site_aliases
                         .entry(mx.site_name.to_string())
@@ -895,6 +912,17 @@ impl Shaping {
         }
         let hash = ctx.finalize();
         let hash = data_encoding::HEXLOWER.encode(&hash);
+
+        tracing::debug!(
+            target: "shaping_load",
+            %hash,
+            sites = by_site.len(),
+            domains = by_domain.len(),
+            providers = by_provider.len(),
+            warnings = collector.warnings.len(),
+            errors = collector.errors.len(),
+            "merged shaping config"
+        );
 
         Ok(Self {
             inner: Arc::new(ShapingInner {
