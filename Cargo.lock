@@ -3962,6 +3962,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-mac-address"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "mac_address",
+ "nix 0.30.1",
+ "tracing",
+]
+
+[[package]]
 name = "kumo-machine-info"
 version = "0.1.0"
 dependencies = [
@@ -3969,8 +3979,7 @@ dependencies = [
  "chrono",
  "gethostname 1.1.0",
  "in-container",
- "libc",
- "mac_address",
+ "kumo-mac-address",
  "machine-uid",
  "mockito",
  "num_cpus",
@@ -5430,6 +5439,7 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+ "memoffset",
 ]
 
 [[package]]
@@ -9425,8 +9435,7 @@ dependencies = [
 name = "uuid-helper"
 version = "0.1.0"
 dependencies = [
- "libc",
- "mac_address",
+ "kumo-mac-address",
  "uuid",
 ]
 

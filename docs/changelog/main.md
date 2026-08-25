@@ -209,6 +209,16 @@
 
 ## Fixes
 
+ * xfer: a message received via inter-node transfer, on systems hosted on AWS,
+   could end up with a wildly incorrect far-future timestamp. The reason for
+   this is that the underlying rust mac_address crate would pick a NIC that had
+   the same MAC address as other AWS instances in your cluster, and that
+   triggered a code path where the collision resolving logic misinterpreted the
+   timestamp portion of the incoming spool id. Both issues have been resolved,
+   and you now also have influence over which MAC address is selected via the
+   new `KUMO_MAC_INTERFACE` and `KUMO_MAC_ADDRESS` environment variables. See
+   [MAC Address Selection](../userguide/clustering/nodeid.md#mac-address-selection).
+
  * RFC 2822 date parsing now tolerates an obsolete alphabetic time zone such
    as the `UTC` that Amazon SES emits in its bounce reports, which strict
    parsing would otherwise reject. A recognized abbreviation resolves to its

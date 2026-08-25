@@ -1,0 +1,10 @@
+[package]
+name = "kumo-mac-address"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libc = {workspace=true}
+mac_address = {workspace=true}
+nix = {workspace=true, features=["net"]}
+tracing = {workspace=true}

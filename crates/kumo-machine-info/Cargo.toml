@@ -8,8 +8,7 @@ anyhow.workspace = true
 chrono.workspace = true
 gethostname.workspace = true
 in-container.workspace = true
-libc.workspace = true
-mac_address.workspace = true
+kumo-mac-address = {path="../kumo-mac-address"}
 machine-uid.workspace = true
 num_cpus.workspace = true
 reqwest.workspace = true

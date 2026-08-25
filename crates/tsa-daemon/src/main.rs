@@ -106,7 +106,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             log_dir: opts.diag_log_dir.clone(),
             diag_format: opts.diag_format,
             filter_env_var: "KUMO_TSA_LOG",
-            default_filter: "tsa_daemon=info,kumo_server_common=info,kumo_server_runtime=info",
+            default_filter: "tsa_daemon=info,kumo_server_common=info,kumo_server_runtime=info,kumo_mac_address=info",
         },
         lua_funcs: &[kumo_server_common::register, mod_auto::register],
         policy: &opts.policy,

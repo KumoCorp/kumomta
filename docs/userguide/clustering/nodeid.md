@@ -39,8 +39,9 @@ If `NodeId` cannot be persisted then the following fallback procedure will be
 used to compute an ID that will have a consistent value across restarts of
 the kumod process:
 
-  * First attempt to determine the MAC address of the primary network interface
-    on the system
+  * First attempt to determine the MAC address of a physical network interface
+    on the system, as described in [MAC Address Selection](#mac-address-selection)
+    below.
 
   * If we cannot determine the MAC address then use the POSIX `gethostid(3)`
     call to obtain a 32-bit stable identifier for the system, which is extended
@@ -57,4 +58,36 @@ instance, so we recommend fixing any permission errors that might be preventing
 persisting a true random UUID or alternatively, adjusting your node
 provisioning to pre-define a `KUMO_NODE_ID` environment variable if you have
 stronger opinions about how you want to provision and manage these things.
+
+## MAC Address Selection
+
+{{since('dev')}}
+
+The MAC address is used by the fallback Node ID above, and also identifies the
+node within the ids assigned to spooled messages. It must be distinct between
+hosts to avoid multiple hosts attempting to assign the same spool id.  While
+KumoMTA has logic to detect and avoid this sort of collision, it results in
+lower performance.
+
+By default KumoMTA selects the first physical network interface, skipping
+loopback and virtual devices such as container bridges (`docker0`), veth pairs,
+and tunnels, whose addresses are frequently identical across otherwise separate
+machines. On some hosts (for example certain cloud or containerized setups) this
+automatic choice can still select an interface whose MAC is not unique. The
+following environment variables let you override the selection:
+
+  * `KUMO_MAC_INTERFACE` - set this to the name of a network interface (for
+    example `eth0` or `ens5`) and its MAC address will be used.
+
+  * `KUMO_MAC_ADDRESS` - set this to a literal MAC address, in the usual colon
+    or hyphen separated hex form, to use verbatim. Each host must be given a
+    distinct value in order to prevent collisions.
+
+The resolved MAC address, along with how it was selected, is written to the log
+when the node starts up.
+
+In earlier versions of KumoMTA the MAC address was always taken from the first
+interface reported by the operating system, with no skipping of virtual devices
+and no way to override the choice; the `KUMO_MAC_INTERFACE` and
+`KUMO_MAC_ADDRESS` environment variables did not exist.
 

@@ -134,16 +134,15 @@ impl SpoolId {
         // which is what we're using here.
         static CONTEXT: LazyLock<ContextV1> = LazyLock::new(ContextV1::new_random);
 
-        let (mut seconds, mut subsec_nanos) = ts.to_gregorian();
+        let (mut seconds, mut subsec_nanos) = ts.to_unix();
         loop {
-            let (counter, secs, nanos) =
-                CONTEXT.generate_timestamp_sequence(seconds, subsec_nanos.into());
+            let (counter, secs, nanos) = CONTEXT.generate_timestamp_sequence(seconds, subsec_nanos);
             seconds = secs;
-            subsec_nanos = nanos as u16;
+            subsec_nanos = nanos;
 
             let ts = Timestamp::from_unix_time(
                 seconds,
-                subsec_nanos.into(),
+                subsec_nanos,
                 counter.into(),
                 CONTEXT.usable_bits() as u8,
             );
@@ -177,5 +176,23 @@ mod test {
         let bytes = id.as_bytes();
         let id2 = SpoolId::from_slice(bytes.as_slice()).unwrap();
         assert_eq!(id, id2);
+    }
+
+    #[test]
+    fn cloned_timestamp_preserves_time() {
+        // A freshly minted id already has this node's mac address. Re-deriving
+        // it collides on the first attempt and exercises the clock-sequence
+        // fallback loop that reconstructs the timestamp.
+        let id = SpoolId::new();
+        let derived = id.derive_new_with_cloned_timestamp();
+        assert_ne!(id, derived);
+
+        let delta = (derived.created() - id.created()).abs();
+        assert!(
+            delta < Duration::seconds(1),
+            "derived timestamp {} should be close to source {}, delta {delta:?}",
+            derived.created(),
+            id.created()
+        );
     }
 }

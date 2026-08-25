@@ -4,6 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-mac_address = {workspace=true}
-libc = {workspace=true}
+kumo-mac-address = {path="../kumo-mac-address"}
 uuid = {workspace=true, features=["v1", "rng"]}
