@@ -742,8 +742,7 @@ Report {
 
     fn make_bounce() -> JsonLogRecord {
         let nodeid = uuid_helper::now_v1();
-        let created =
-            mailparsing::parse_rfc2822_date("Tue, 1 Jul 2003 10:52:37 +0200").unwrap();
+        let created = mailparsing::parse_rfc2822_date("Tue, 1 Jul 2003 10:52:37 +0200").unwrap();
         let now = mailparsing::parse_rfc2822_date("Tue, 1 Jul 2003 12:52:37 +0200").unwrap();
         JsonLogRecord {
             kind: RecordType::Bounce,
@@ -791,8 +790,7 @@ Report {
 
     fn make_expiration() -> JsonLogRecord {
         let nodeid = uuid_helper::now_v1();
-        let created =
-            mailparsing::parse_rfc2822_date("Tue, 1 Jul 2003 10:52:37 +0200").unwrap();
+        let created = mailparsing::parse_rfc2822_date("Tue, 1 Jul 2003 10:52:37 +0200").unwrap();
         let now = mailparsing::parse_rfc2822_date("Tue, 1 Jul 2003 12:52:37 +0200").unwrap();
         JsonLogRecord {
             kind: RecordType::Expiration,
