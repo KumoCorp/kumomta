@@ -24,3 +24,6 @@ mailparsing = { path="../mailparsing" }
 percent-encoding = {workspace=true}
 tempfile = {workspace=true}
 walkdir = {workspace=true}
+
+[lints]
+workspace = true

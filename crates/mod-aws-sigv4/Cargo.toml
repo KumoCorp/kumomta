@@ -17,3 +17,6 @@ serde = {workspace=true}
 [dev-dependencies]
 k9 = {workspace=true}
 tokio = {workspace=true, features=["rt", "macros"]}
+
+[lints]
+workspace = true

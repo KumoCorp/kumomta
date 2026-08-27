@@ -13,3 +13,6 @@ rdkafka.workspace=true
 serde.workspace=true
 serde_bytes.workspace=true
 tokio.workspace=true
+
+[lints]
+workspace = true

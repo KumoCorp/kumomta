@@ -20,3 +20,6 @@ thiserror = {workspace=true}
 [dev-dependencies]
 k9 = {workspace=true}
 tokio = {workspace = true, features = ["full", "tracing"]}
+
+[lints]
+workspace = true

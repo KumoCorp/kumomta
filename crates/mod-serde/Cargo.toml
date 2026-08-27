@@ -14,3 +14,6 @@ serde_yaml = {workspace=true}
 tokio = {workspace=true, features=["fs"]}
 toml = {workspace=true}
 toml_edit = {workspace=true}
+
+[lints]
+workspace = true

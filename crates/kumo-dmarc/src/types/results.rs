@@ -40,8 +40,8 @@ impl ToXml for SpfAuthResult {
 
         SpfAuth {
             domain: self.domain.to_string(),
-            scope: self.scope.clone(),
-            result: self.result.clone(),
+            scope: self.scope,
+            result: self.result,
         }
         .serialize(field, serializer)
     }
@@ -169,9 +169,9 @@ impl ToString for Disposition {
     }
 }
 
-impl Into<Disposition> for Policy {
-    fn into(self) -> Disposition {
-        match self {
+impl From<Policy> for Disposition {
+    fn from(val: Policy) -> Self {
+        match val {
             Policy::None => Disposition::None,
             Policy::Quarantine => Disposition::Quarantine,
             Policy::Reject => Disposition::Reject,

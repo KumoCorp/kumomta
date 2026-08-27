@@ -163,7 +163,7 @@ fn generate_path_op(
         path = &path[1..],
         verb = verb.to_ascii_lowercase()
     )
-    .replace(|c| c == '/' || c == '-', "_");
+    .replace(['/', '-'], "_");
     let output_path = format!("{}/{page_name}.md", doc_dir_for_service(service));
 
     let mut output_file = std::fs::File::create(&output_path)?;

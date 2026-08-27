@@ -13,3 +13,6 @@ kumo-prometheus = { path = "../kumo-prometheus" }
 mailparsing = { path = "../mailparsing" }
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 tokio.workspace = true
+
+[lints]
+workspace = true

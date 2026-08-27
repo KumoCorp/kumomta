@@ -10,3 +10,6 @@ futures-util.workspace = true
 nix = {workspace=true, features=["user"]}
 tempfile.workspace = true
 tokio = {workspace=true, features=["full"]}
+
+[lints]
+workspace = true

@@ -82,7 +82,7 @@ impl KeySource {
                     })?;
 
                 let value = entry
-                    .get(&vault_key)
+                    .get(vault_key)
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| {
                         anyhow!("vault secret at {vault_path} does not contain key '{vault_key}'")

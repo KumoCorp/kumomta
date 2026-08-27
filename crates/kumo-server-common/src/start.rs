@@ -154,8 +154,8 @@ fn start_cpu_usage_monitor() {
     std::thread::spawn(|| {
         use std::time::Duration;
         use sysinfo::{
-            get_current_pid, CpuRefreshKind, Pid, ProcessRefreshKind, ProcessesToUpdate,
-            RefreshKind, System,
+            get_current_pid, CpuRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind,
+            System,
         };
 
         let mut sys = System::new_with_specifics(
@@ -185,7 +185,7 @@ fn start_cpu_usage_monitor() {
             SYS_CPU_USAGE.set(sys_usage);
             SYS_CPU_USAGE_NORM.set(sys_usage / num_cpus);
 
-            if let Some(p) = sys.process(Pid::from(my_pid)) {
+            if let Some(p) = sys.process(my_pid) {
                 let proc_usage = p.cpu_usage() as i64;
                 PROC_CPU_USAGE.set(proc_usage);
                 PROC_CPU_USAGE_NORM.set(proc_usage / num_cpus);

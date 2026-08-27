@@ -235,7 +235,7 @@ impl EgressSource {
                 .map(|server_addr| ProxyProto::HA {
                     server: server_addr,
                     source,
-                    addresses: addresses.clone(),
+                    addresses,
                 })
                 .collect());
         }

@@ -235,7 +235,7 @@ pub mod azure {
             let request = client
                 .request(
                     Method::GET,
-                    &format!("{base_url}/metadata/instance?api-version=2021-02-01"),
+                    format!("{base_url}/metadata/instance?api-version=2021-02-01"),
                 )
                 .headers(headers)
                 .build()?;
@@ -492,7 +492,7 @@ pub mod aws {
                 );
 
                 let request = client
-                    .request(Method::PUT, &format!("{base_url}/latest/api/token"))
+                    .request(Method::PUT, format!("{base_url}/latest/api/token"))
                     .headers(headers)
                     .build()?;
 
@@ -522,7 +522,7 @@ pub mod aws {
             let request = client
                 .request(
                     Method::GET,
-                    &format!("{base_url}/latest/dynamic/instance-identity/document"),
+                    format!("{base_url}/latest/dynamic/instance-identity/document"),
                 )
                 .headers(headers)
                 .build()?;
@@ -650,7 +650,7 @@ pub mod gcp {
             let request = client
                 .request(
                     Method::GET,
-                    &format!("{base_url}/computeMetadata/v1/instance/id"),
+                    format!("{base_url}/computeMetadata/v1/instance/id"),
                 )
                 .headers(headers)
                 .build()?;

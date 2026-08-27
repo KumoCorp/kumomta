@@ -378,6 +378,7 @@ pub struct EgressPathConfig {
     ///   * SMTP / Xfer: max(2 * longest of mail_from, rcpt_to, data,
     ///     data_dot timeouts, 60s)
     ///   * Lua / HttpInjectionGenerator / DeferredSmtpInjection: 600s
+    ///
     /// Users with a large `max_batch_latency` should set this
     /// explicitly so the watchdog does not flag batch accumulation.
     #[serde(default, with = "duration_serde")]

@@ -24,3 +24,6 @@ k9.workspace = true
 [[bench]]
 name = "normalizer"
 harness = false
+
+[lints]
+workspace = true

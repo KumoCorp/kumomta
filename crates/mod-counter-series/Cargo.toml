@@ -13,3 +13,6 @@ mlua = { workspace = true, features = ["vendored", "lua54", "async", "send", "se
 parking_lot = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["time"] }
+
+[lints]
+workspace = true

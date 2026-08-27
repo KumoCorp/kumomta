@@ -8,3 +8,6 @@ bstr.workspace = true
 
 [dev-dependencies]
 k9.workspace = true
+
+[lints]
+workspace = true

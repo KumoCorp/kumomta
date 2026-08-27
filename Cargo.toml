@@ -59,6 +59,62 @@ resolver = "2"
 opt-level = 3
 debug = 1 # include line tables for more meaningful backtraces
 
+[workspace.lints.clippy]
+# Lints we have decided are not worth their churn for this codebase.
+assertions_on_constants = "allow"
+# The &* deref-to-str at the charset call sites is deliberate.
+borrow_deref_ref = "allow"
+collapsible_else_if = "allow"
+collapsible_if = "allow"
+comparison_chain = "allow"
+# A manual Default impl documents which variant is the default.
+derivable_impls = "allow"
+drop_non_drop = "allow"
+explicit_auto_deref = "allow"
+if_same_then_else = "allow"
+inherent_to_string = "allow"
+int_plus_one = "allow"
+# Boxing to shrink an enum is a memory tradeoff, not a clear win.
+large_enum_variant = "allow"
+len_without_is_empty = "allow"
+let_and_return = "allow"
+manual_c_str_literals = "allow"
+manual_flatten = "allow"
+# The rfc5321 parser writes byte ranges as explicit comparisons to mirror the ABNF.
+manual_range_contains = "allow"
+manual_strip = "allow"
+match_like_matches_macro = "allow"
+module_inception = "allow"
+multiple_bound_locations = "allow"
+needless_bool = "allow"
+needless_borrow = "allow"
+needless_lifetimes = "allow"
+needless_option_as_deref = "allow"
+needless_range_loop = "allow"
+needless_return = "allow"
+new_without_default = "allow"
+option_map_unit_fn = "allow"
+redundant_closure = "allow"
+redundant_guards = "allow"
+# Same rationale as large_enum_variant.
+result_large_err = "allow"
+self_named_constructors = "allow"
+single_match = "allow"
+to_string_trait_impl = "allow"
+too_many_arguments = "allow"
+type_complexity = "allow"
+# Casts like `libc::S_ISVTX as u32` stay portable where the source type differs.
+unnecessary_cast = "allow"
+unnecessary_map_or = "allow"
+unnecessary_mut_passed = "allow"
+unnecessary_to_owned = "allow"
+upper_case_acronyms = "allow"
+useless_format = "allow"
+while_let_on_iterator = "allow"
+# writeln! on CRLF protocol text would append a lone LF.
+write_with_newline = "allow"
+wrong_self_convention = "allow"
+
 [workspace.dependencies]
 ahash = "0.8.11"
 amqprs = {version="2.0", features=["tls", "traces"]}

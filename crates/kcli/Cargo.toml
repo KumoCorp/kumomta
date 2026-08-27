@@ -44,3 +44,6 @@ version-info = {path="../version-info"}
 k9 = {workspace=true}
 throttle = {path="../throttle", default-features=false}
 indoc = {workspace=true}
+
+[lints]
+workspace = true

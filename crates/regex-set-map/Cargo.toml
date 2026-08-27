@@ -11,3 +11,6 @@ mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "seriali
 regex = {workspace=true}
 serde = {workspace=true}
 serde_json = {workspace=true}
+
+[lints]
+workspace = true

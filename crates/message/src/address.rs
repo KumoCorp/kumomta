@@ -80,7 +80,7 @@ impl UserData for HeaderAddressList {
         fields.add_field_method_get("domain", |_, this| {
             Ok(this.domain().map_err(any_err)?.to_string())
         });
-        fields.add_field_method_get("email", |_, this| Ok(this.email().map_err(any_err)?));
+        fields.add_field_method_get("email", |_, this| this.email().map_err(any_err));
         fields.add_field_method_get("name", |_, this| {
             Ok(this.name().map_err(any_err)?.map(|s| s.to_string()))
         });

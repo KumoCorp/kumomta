@@ -174,9 +174,9 @@ pub enum LogReportDisposition {
     LogThenRelay,
 }
 
-impl Into<serde_json::Value> for LogReportDisposition {
-    fn into(self) -> serde_json::Value {
-        format!("{self:?}").into()
+impl From<LogReportDisposition> for serde_json::Value {
+    fn from(val: LogReportDisposition) -> Self {
+        format!("{val:?}").into()
     }
 }
 
@@ -1788,18 +1788,21 @@ impl SmtpServerSession {
                     {
                         Ok(stream) => {
                             let (_io, conn) = stream.get_ref();
-                            let mut tls_info = TlsInformation::default();
-
-                            tls_info.provider_name = "rustls".to_string();
-                            tls_info.cipher = match conn.negotiated_cipher_suite() {
-                                Some(suite) => {
-                                    suite.suite().as_str().unwrap_or("UNKNOWN").to_string()
-                                }
-                                None => String::new(),
-                            };
-                            tls_info.protocol_version = match conn.protocol_version() {
-                                Some(version) => version.as_str().unwrap_or("UNKNOWN").to_string(),
-                                None => String::new(),
+                            let mut tls_info = TlsInformation {
+                                provider_name: "rustls".to_string(),
+                                cipher: match conn.negotiated_cipher_suite() {
+                                    Some(suite) => {
+                                        suite.suite().as_str().unwrap_or("UNKNOWN").to_string()
+                                    }
+                                    None => String::new(),
+                                },
+                                protocol_version: match conn.protocol_version() {
+                                    Some(version) => {
+                                        version.as_str().unwrap_or("UNKNOWN").to_string()
+                                    }
+                                    None => String::new(),
+                                },
+                                ..Default::default()
                             };
 
                             if let Some(certs) = conn.peer_certificates() {
@@ -2294,10 +2297,10 @@ impl SmtpServerSession {
         }
         self.read_buffer.drain(0..consumed_bytes);
 
-        if addr.is_some() {
-            let old_peer = self.peer_address.clone();
+        if let Some(addr) = addr {
+            let old_peer = self.peer_address;
 
-            self.peer_address = addr.unwrap();
+            self.peer_address = addr;
             self.meta
                 .set_meta("orig_received_from", self.orig_peer_address.to_string());
             self.meta
@@ -2315,10 +2318,10 @@ impl SmtpServerSession {
                 when: Utc::now(),
             });
         }
-        if dest_addr.is_some() {
-            let old_via = self.my_address.clone();
+        if let Some(dest_addr) = dest_addr {
+            let old_via = self.my_address;
 
-            self.my_address = dest_addr.unwrap();
+            self.my_address = dest_addr;
             self.meta
                 .set_meta("orig_received_via", self.orig_my_address.to_string());
             self.meta
@@ -2431,7 +2434,7 @@ impl SmtpServerSession {
         }
 
         if addr.is_some() || port.is_some() {
-            let old_peer = self.peer_address.clone();
+            let old_peer = self.peer_address;
 
             let new_addr = addr.unwrap_or(old_peer.ip());
             let new_port = port.unwrap_or(old_peer.port());
@@ -2457,7 +2460,7 @@ impl SmtpServerSession {
         }
 
         if dest_addr.is_some() || dest_port.is_some() {
-            let old_via = self.my_address.clone();
+            let old_via = self.my_address;
 
             let new_addr = dest_addr.unwrap_or(old_via.ip());
             let new_port = dest_port.unwrap_or(old_via.port());
@@ -2958,14 +2961,11 @@ impl SmtpServerSession {
                         for recip in base_message.recipient_list().await? {
                             by_domain
                                 .entry(recip.domain().to_lowercase())
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push(recip);
                         }
 
-                        batches = by_domain
-                            .into_iter()
-                            .map(|(_keys, values)| values)
-                            .collect();
+                        batches = by_domain.into_values().collect();
                     }
                 }
             }
@@ -3185,7 +3185,7 @@ impl SmtpServerSession {
                     log_arf: relay_disposition.log_arf,
                     log_oob: relay_disposition.log_oob,
                     will_enqueue: relay_this_one,
-                    was_arf_or_oob: was_arf_or_oob,
+                    was_arf_or_oob,
                     queue: queue_name.clone(),
                     meta: meta_obj,
                     sender,

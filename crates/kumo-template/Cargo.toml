@@ -12,3 +12,6 @@ mod-smtp-response-normalize = { path = "../mod-smtp-response-normalize" }
 self_cell.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[lints]
+workspace = true

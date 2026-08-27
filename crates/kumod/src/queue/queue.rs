@@ -1604,12 +1604,12 @@ impl Queue {
                                         {expanded_maildir_path} for queue {name}"
                                     )
                                 })?;
-                                Ok(md.store_new(&msg_data).with_context(|| {
+                                md.store_new(&msg_data).with_context(|| {
                                     format!(
                                         "failed to store message to maildir \
                                         {expanded_maildir_path} for queue {name}"
                                     )
-                                })?)
+                                })
                             }
                         },
                         &get_main_runtime(),
@@ -1633,10 +1633,7 @@ impl Queue {
                 if !successes.is_empty() {
                     let mut status = vec![];
                     for (recipient, id) in successes {
-                        status.push(format!(
-                            "{}: wrote to maildir with id={id}",
-                            recipient.to_string()
-                        ));
+                        status.push(format!("{}: wrote to maildir with id={id}", recipient));
                     }
                     let status = status.join(", ");
                     log_disposition(LogDisposition {
@@ -1669,7 +1666,7 @@ impl Queue {
                     for (recipient, err) in failures {
                         status.push(format!(
                             "{}: failed to write to maildir: {err:#}",
-                            recipient.to_string()
+                            recipient
                         ));
                         remaining_recipient_list.push(recipient);
                     }

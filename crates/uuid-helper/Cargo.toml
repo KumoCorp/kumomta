@@ -6,3 +6,6 @@ edition = "2021"
 [dependencies]
 kumo-mac-address = {path="../kumo-mac-address"}
 uuid = {workspace=true, features=["v1", "rng"]}
+
+[lints]
+workspace = true

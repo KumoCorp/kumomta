@@ -12,3 +12,6 @@ data-encoding = {workspace=true}
 data-loader = {path="../data-loader"}
 mlua = {workspace=true, features=["serialize"]}
 serde_json = {workspace=true}
+
+[lints]
+workspace = true

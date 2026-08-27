@@ -633,7 +633,7 @@ pub async fn import_configs_from_sqlite(
                         source,
                         option: EgressPathConfigValueUnchecked {
                             name,
-                            value: config_value.into(),
+                            value: config_value,
                         },
                         expires: expires.parse()?,
                     },
@@ -655,12 +655,10 @@ async fn get_config_v1() -> Result<String, AppError> {
 
 fn get_suspensions() -> Suspensions {
     let state = TSA_STATE.get().expect("tsa_state missing");
-    let mut suspensions = Suspensions::default();
-
-    suspensions.ready_q = state.export_readyq_suspensions();
-    suspensions.sched_q = state.export_schedq_suspensions();
-
-    suspensions
+    Suspensions {
+        ready_q: state.export_readyq_suspensions(),
+        sched_q: state.export_schedq_suspensions(),
+    }
 }
 
 pub async fn import_suspensions_from_sqlite(

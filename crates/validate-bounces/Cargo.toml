@@ -7,3 +7,6 @@ edition = "2021"
 anyhow = {workspace=true}
 clap = {workspace=true}
 bounce-classify = {path="../bounce-classify"}
+
+[lints]
+workspace = true

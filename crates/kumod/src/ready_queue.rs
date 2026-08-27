@@ -2831,7 +2831,7 @@ impl Dispatcher {
 pub fn ideal_connection_count(queue_size: usize, connection_limit: usize) -> usize {
     let factor = 0.023;
     let goal = (connection_limit as f32)
-        * (1. - (-1.0 * queue_size as f32 * factor).exp()).min(queue_size as f32);
+        * (1. - (-(queue_size as f32) * factor).exp()).min(queue_size as f32);
     goal.ceil().min(queue_size as f32) as usize
 }
 

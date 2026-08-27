@@ -21,3 +21,6 @@ hickory-resolver = {workspace=true}
 [dev-dependencies]
 k9 = {workspace=true}
 tokio = {workspace=true, features=["macros"]}
+
+[lints]
+workspace = true

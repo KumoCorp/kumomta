@@ -8,3 +8,6 @@ anyhow.workspace = true
 clap = { workspace = true, features = ["derive"] }
 human_bytes.workspace = true
 regex.workspace = true
+
+[lints]
+workspace = true

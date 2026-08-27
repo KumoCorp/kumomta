@@ -10,3 +10,6 @@ human_bytes.workspace = true
 kumo-api-types = {path="../kumo-api-types", features=["lua"]}
 kumo-server-memory.path = "../kumo-server-memory"
 tokio = {workspace=true, features=["full"]}
+
+[lints]
+workspace = true

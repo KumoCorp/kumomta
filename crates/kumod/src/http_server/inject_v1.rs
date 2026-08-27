@@ -373,12 +373,12 @@ pub enum TemplateDialectWithSchema {
     Handlebars,
 }
 
-impl Into<TemplateDialect> for TemplateDialectWithSchema {
-    fn into(self) -> TemplateDialect {
-        match self {
-            Self::Jinja => TemplateDialect::Jinja,
-            Self::Static => TemplateDialect::Static,
-            Self::Handlebars => TemplateDialect::Handlebars,
+impl From<TemplateDialectWithSchema> for TemplateDialect {
+    fn from(val: TemplateDialectWithSchema) -> Self {
+        match val {
+            TemplateDialectWithSchema::Jinja => TemplateDialect::Jinja,
+            TemplateDialectWithSchema::Static => TemplateDialect::Static,
+            TemplateDialectWithSchema::Handlebars => TemplateDialect::Handlebars,
         }
     }
 }
@@ -493,7 +493,7 @@ impl<'a> Compiled<'a> {
         }
 
         let to_mailbox = Address::Mailbox(Mailbox {
-            name: recip.name.clone().map(Into::into),
+            name: recip.name.clone(),
             address: AddrSpec::parse(&recip.email)?,
         });
         subst.insert(
@@ -595,7 +595,7 @@ impl InjectV1Request {
             } => {
                 if let Some(from) = from {
                     let mailbox = Address::Mailbox(Mailbox {
-                        name: from.name.clone().map(Into::into),
+                        name: from.name.clone(),
                         address: AddrSpec::parse(&from.email)
                             .context("failed parsing content.from")?,
                     });
@@ -604,7 +604,7 @@ impl InjectV1Request {
                 }
                 if let Some(reply_to) = reply_to {
                     let mailbox = Address::Mailbox(Mailbox {
-                        name: reply_to.name.clone().map(Into::into),
+                        name: reply_to.name.clone(),
                         address: AddrSpec::parse(&reply_to.email)
                             .context("failed parsing content.reply_to")?,
                     });
@@ -693,7 +693,7 @@ impl InjectV1Request {
                         // The filename extension is needed to enable auto-escaping
                         templates.push(env.get_template("amp_html_body.html")?);
                     }
-                    for (header_name, _) in headers {
+                    for header_name in headers.keys() {
                         templates.push(env.get_template(&format!("headers[{header_name}]"))?);
                     }
                 }
@@ -1273,7 +1273,7 @@ pub async fn inject_v1(
         &*HTTPINJECT
     };
 
-    let via_address = Some(app_state.local_addr().ip().clone());
+    let via_address = Some(app_state.local_addr().ip());
     let hostname = Some(app_state.params().hostname.to_string());
 
     pool.spawn(format!("http inject_v1 for {peer_address:?}"), async move {
@@ -1327,10 +1327,8 @@ impl HttpInjectionGeneratorDispatcher {
                     Ok(Some(v)) => v.parse().ok(),
                     _ => None,
                 };
-                let hostname: Option<String> = match msg.get_meta_string("hostname").await {
-                    Ok(v) => v,
-                    _ => None,
-                };
+                let hostname: Option<String> =
+                    msg.get_meta_string("hostname").await.unwrap_or_default();
 
                 let sender = msg.sender().await?;
 

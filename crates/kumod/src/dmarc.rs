@@ -143,7 +143,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                             result: AuthenticationResult {
                                 method: "dmarc".into(),
                                 method_version: None,
-                                result: disposition.to_string().to_ascii_lowercase().into(),
+                                result: disposition.to_string().to_ascii_lowercase(),
                                 reason: Some(reason.into()),
                                 props,
                             },

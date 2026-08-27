@@ -202,7 +202,7 @@ impl HeaderList {
     }
 }
 
-pub(crate) fn compute_headers_hash<'a>(
+pub(crate) fn compute_headers_hash(
     canonicalization_type: canonicalization::Type,
     header_list: &Vec<&Header>,
     hash_algo: HashAlgo,

@@ -87,3 +87,6 @@ caps = {workspace=true}
 [dev-dependencies]
 k9 = {workspace=true}
 maplit = {workspace=true}
+
+[lints]
+workspace = true

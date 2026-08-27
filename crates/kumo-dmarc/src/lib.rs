@@ -29,7 +29,7 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-const DMARC_REPORT_LOG_FILEPATH: &'static str = "/var/log/kumomta/dmarc.log";
+const DMARC_REPORT_LOG_FILEPATH: &str = "/var/log/kumomta/dmarc.log";
 
 pub struct DmarcPassContext {
     /// Domain of the sender in the "From:"
@@ -70,7 +70,7 @@ impl DmarcPassContext {
 
         let mut dmarc_context = DmarcContext::new(
             &from_domain,
-            mail_from_domain.as_ref().map(|x| x.as_str()),
+            mail_from_domain.as_deref(),
             &recipient_list[..],
             received_from.as_str(),
             &dkim_results[..],
@@ -264,8 +264,7 @@ impl<'a> DmarcContext<'a> {
            The line was: {line}. \
            Is the file corrupt?"
                     ))
-                })
-                .into();
+                });
 
             input_records.push(result?);
         }
@@ -275,7 +274,7 @@ impl<'a> DmarcContext<'a> {
 
         for record in input_records {
             let entry = errors_grouped_by_email.entry(record.email.clone());
-            let record_source_ip = record.source_ip.clone();
+            let record_source_ip = record.source_ip;
 
             entry
                 .and_modify(|entry| {
@@ -404,7 +403,7 @@ impl<'a> DmarcContext<'a> {
         let dmarc_domain = format!("_dmarc.{}", self.from_domain);
         match fetch_dmarc_records(&dmarc_domain, resolver).await {
             DmarcRecordResolution::Records(records) => {
-                for record in records {
+                if let Some(record) = records.into_iter().next() {
                     let mut result = record
                         .evaluate(self, &dmarc_domain, SenderDomainAlignment::Exact)
                         .await;
@@ -436,7 +435,7 @@ impl<'a> DmarcContext<'a> {
                                 }
                             }
                             DmarcRecordResolution::Records(records) => {
-                                for record in records {
+                                if let Some(record) = records.into_iter().next() {
                                     let mut result = record
                                         .evaluate(
                                             self,
@@ -472,7 +471,7 @@ fn policy_tags(record: &Record) -> BTreeMap<String, BString> {
     let mut props = BTreeMap::new();
 
     for (tag, value) in record.tags() {
-        props.insert(format!("policy.{tag}").into(), value.as_str().into());
+        props.insert(format!("policy.{tag}"), value.as_str().into());
     }
 
     props

@@ -36,3 +36,6 @@ tokio = { workspace=true, features = ["macros"] }
 [[bench]]
 name = "sign"
 harness = false
+
+[lints]
+workspace = true

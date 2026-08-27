@@ -19,3 +19,6 @@ resolv-conf = {workspace=true}
 serde = {workspace=true}
 serde_json = {workspace=true}
 hickory-resolver = {workspace=true, features=["serde"]}
+
+[lints]
+workspace = true

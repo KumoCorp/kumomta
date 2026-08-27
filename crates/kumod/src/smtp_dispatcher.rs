@@ -1120,7 +1120,7 @@ impl SmtpDispatcher {
             source_address: self.source_address.clone(),
             provider: dispatcher.path_config.borrow().provider_name.as_deref(),
             session_id: Some(dispatcher.session_id),
-            recipient_list: recipient_list,
+            recipient_list,
         })
         .await
     }

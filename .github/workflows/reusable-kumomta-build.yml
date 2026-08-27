@@ -79,6 +79,8 @@ jobs:
       run: "cargo vendor --locked --versioned-dirs >> .cargo/config.toml"
     - name: Build for test
       run: make build
+    - name: Check clippy
+      run: make clippy
     - name: Run tests
       run: make test
     - name: Build Release

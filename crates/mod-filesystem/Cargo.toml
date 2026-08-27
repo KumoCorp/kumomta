@@ -17,3 +17,6 @@ lruttl = {path="../lruttl"}
 serde = {workspace=true}
 mod-time = {path="../mod-time"}
 chrono = {workspace=true}
+
+[lints]
+workspace = true

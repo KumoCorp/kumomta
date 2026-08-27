@@ -11,3 +11,6 @@ tokio = {workspace = true, features=["net"]}
 
 [dev-dependencies]
 k9 = {workspace=true}
+
+[lints]
+workspace = true

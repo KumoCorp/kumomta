@@ -17,3 +17,6 @@ tracing.workspace = true
 mlua = {workspace=true, features=["vendored", "lua54", "async", "macros", "send", "serialize"]}
 serde = {workspace=true}
 serde_json = {workspace=true}
+
+[lints]
+workspace = true

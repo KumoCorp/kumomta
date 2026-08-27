@@ -8,3 +8,6 @@ libc = {workspace=true}
 mac_address = {workspace=true}
 nix = {workspace=true, features=["net"]}
 tracing = {workspace=true}
+
+[lints]
+workspace = true

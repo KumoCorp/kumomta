@@ -46,3 +46,6 @@ k9 = {workspace=true}
 mod-serde = {path="../mod-serde"}
 tempfile.workspace = true
 tokio = {workspace=true, features=["full"]}
+
+[lints]
+workspace = true

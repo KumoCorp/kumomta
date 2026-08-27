@@ -12,3 +12,6 @@ mod-memoize = { path = "../mod-memoize" }
 mlua = {workspace=true, features=["vendored", "lua54", "async", "macros", "send", "serialize"]}
 serde = {workspace=true}
 serde_json = {workspace=true}
+
+[lints]
+workspace = true

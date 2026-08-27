@@ -49,3 +49,6 @@ tracing-subscriber = {workspace=true}
 zstd = {workspace=true}
 flate2 = {workspace=true}
 reqwest = {workspace=true, features=["json"]}
+
+[lints]
+workspace = true

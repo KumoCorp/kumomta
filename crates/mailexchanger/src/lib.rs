@@ -614,7 +614,7 @@ impl MailExchanger {
                     }
                     by_pref.push(ResolvedAddress {
                         name: mx_host.to_string(),
-                        addr: addr.into(),
+                        addr,
                         is_secure: false,
                     });
                     continue;
