@@ -24,8 +24,8 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
 
     dmarc_mod.set(
         "start_dmarc_reporter",
-        lua.create_function(|_, _: ()| {
-            startup_dmarc_reporter();
+        lua.create_function(|_, path_to_dmarc_log: String| {
+            startup_dmarc_reporter(path_to_dmarc_log);
 
             Ok(mlua::Value::Nil)
         })?,

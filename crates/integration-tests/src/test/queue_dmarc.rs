@@ -1,6 +1,10 @@
 use crate::kumod::{DaemonWithMaildirOptions, MailGenParams};
 use anyhow::Context;
+use bstr::{BString, ByteSlice};
+use flate2::read::GzDecoder;
 use k9::assert_equal;
+use mailparsing::DecodedBody;
+use std::io::Read;
 use std::time::Duration;
 
 /// Verify that what we send in transits through and is delivered
@@ -18,7 +22,6 @@ async fn queue_dmarc() -> anyhow::Result<()> {
 
     let response = MailGenParams {
         recip: Some("permfail@sub.example.com"),
-        body: Some("woot"),
         ..Default::default()
     }
     .send(&mut client)
@@ -32,30 +35,36 @@ async fn queue_dmarc() -> anyhow::Result<()> {
         .await;
 
     daemon.stop_both().await.context("stop_both")?;
-    println!("Stopped!");
 
     let mut messages = daemon.extract_maildir_messages()?;
 
     assert_equal!(messages.len(), 1);
+
     let parsed = messages[0].parsed()?;
-    eprintln!("headers: {:?}", parsed.headers());
 
-    assert!(parsed
+    let pmap = parsed.child_parts()[1]
         .headers()
-        .get_first("Received")
+        .content_disposition()
         .unwrap()
-        .to_header_string()
-        .contains("for <dmarc-feedback@example.com>"));
-    assert!(parsed.headers().get_first("X-KumoRef").is_some());
+        .unwrap()
+        .parameter_map();
 
-    assert_equal!(parsed.headers().subject().unwrap().unwrap(), "DMARC Report");
+    let filename = pmap.get(&BString::from("filename")).clone().unwrap();
 
-    let body = parsed.body().unwrap();
-    let body = body.to_string_lossy();
+    let DecodedBody::Binary(bytes) = parsed.child_parts()[1].body().unwrap() else {
+        panic!("expected binary data")
+    };
 
-    assert!(body.contains("<email>dmarc-feedback@example.com</email>"));
+    let mut decoder = GzDecoder::new(&bytes[..]);
+    let mut decoded_string = String::new();
+    decoder.read_to_string(&mut decoded_string).unwrap();
 
-    assert!(body.contains("<disposition>Reject</disposition>"));
+    // Spot check that the content looks sufficiently like a dmarc report.
+    // We don't do a full validation here because testing the report shape
+    // is covered by tests in kumo-dmarc itself
+    assert!(filename.contains_str(b"testorg!"));
+    assert!(decoded_string.contains("<email>dmarc-feedback@example.com</email>"));
+    assert!(decoded_string.contains("<disposition>Reject</disposition>"));
 
     Ok(())
 }

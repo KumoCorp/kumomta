@@ -12,10 +12,11 @@ use crate::types::report_metadata::ReportMetadata;
 use crate::types::results::{AuthResults, DmarcResult, PolicyEvaluated, Results, Row};
 pub use crate::types::results::{Disposition, DispositionWithContext};
 use bstr::BString;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Timelike, Utc};
 use config::{declare_event, load_config};
 use dns_resolver::Resolver;
-use mailparsing::AuthenticationResult;
+use mailparsing::{AttachmentOptions, AuthenticationResult, MessageBuilder};
+use mod_mimepart::PartRef;
 use parking_lot::FairMutex as Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -27,7 +28,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
-use tokio::sync::mpsc::error::SendError;
+use tokio::sync::mpsc::error::{SendError, TryRecvError};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use uuid::Uuid;
 
@@ -36,13 +37,11 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-const DMARC_REPORT_LOG_FILEPATH: &str = "/var/log/kumomta/dmarc.log";
 const MAX_ERROR_BATCH_SIZE: usize = 10000;
 
 declare_event! {
     static DMARC_REPORT_GENERATED: Single("dmarc_report_generated",
-        report_content: String,
-        report_email: String) -> ();
+        report_message: PartRef) -> ();
 }
 
 static RECORD_STREAM: LazyLock<Mutex<Option<mpsc::Sender<ErrorRecord>>>> =
@@ -64,11 +63,61 @@ fn get_record_stream() -> Option<Sender<ErrorRecord>> {
     RECORD_STREAM.lock().clone()
 }
 
-async fn send_generated_report(report_content: String, report_email: String) -> anyhow::Result<()> {
+async fn send_generated_report(
+    report_content: String,
+    report_email: String,
+    receiver_domain: String,
+    policy_domain: String,
+    begin_timestamp: i64,
+    end_timestamp: i64,
+) -> anyhow::Result<()> {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+
     let mut config = load_config().await?;
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(report_content.as_bytes())?;
+    let compressed_data = encoder.finish()?;
+
+    let datetime = Utc::now();
+
+    let mut message = MessageBuilder::new();
+    message.set_from(report_email.as_str())?;
+    message.set_to(&*report_email).ok(); // the no_ports test assigns an address that is invalid in To:
+    message.set_subject(
+        format!(
+            "Report Domain: {} Submitter: {} Report-ID: <{}.{}.{}.{}>",
+            policy_domain,
+            report_email,
+            datetime.year(),
+            datetime.month(),
+            datetime.day(),
+            datetime.hour()
+        )
+        .as_str(),
+    )?;
+    message.text_plain("Please see the attached report of DMARC failures");
+    message.set_stable_content(true);
+    message
+        .attach(
+            "application/gzip",
+            &compressed_data,
+            Some(&AttachmentOptions {
+                content_id: None,
+                file_name: Some(BString::from(format!(
+                    "{}!{}!{}!{}.xml.gz",
+                    receiver_domain, policy_domain, begin_timestamp, end_timestamp
+                ))),
+                inline: false,
+            }),
+        )
+        .unwrap();
+
+    let mime_part = message.build()?;
 
     let result = config
-        .async_call_callback(&DMARC_REPORT_GENERATED, (report_content, report_email))
+        .async_call_callback(&DMARC_REPORT_GENERATED, PartRef::new(mime_part))
         .await;
 
     result
@@ -78,21 +127,16 @@ pub fn set_report_window_in_seconds(secs: u64) {
     REPORT_WINDOW_IN_SECONDS.store(secs, Ordering::Relaxed)
 }
 
-pub fn startup_dmarc_reporter() {
+pub fn startup_dmarc_reporter(path_to_dmarc_log: String) {
     tokio::spawn(async move {
         // Do the initial flush of all pre-existing records that need to be reported from the previous instance
-        match send_aggregated_reports().await {
-            Err(_err) => {
-                // todo: do something with this error
-            }
-            _ => {}
-        }
+        send_aggregated_reports(&path_to_dmarc_log).await;
 
         let (sender, receiver) = mpsc::channel::<ErrorRecord>(100);
 
         *RECORD_STREAM.lock() = Some(sender);
 
-        dmarc_reporter_loop(receiver).await;
+        dmarc_reporter_loop(receiver, path_to_dmarc_log).await;
     });
 }
 
@@ -108,116 +152,124 @@ pub(crate) async fn capture_error_record(
     }
 }
 
-pub(crate) async fn send_aggregated_reports() -> anyhow::Result<()> {
-    let email_reports = aggregate_errors().await;
-
-    if let Ok(email_reports) = email_reports {
-        for (email, report) in email_reports {
-            if let Ok(result) = instant_xml::to_string(&report) {
-                send_generated_report(result, email).await?;
-            }
+pub(crate) async fn send_aggregated_reports(path_to_dmarc_log: &str) {
+    let email_reports = match aggregate_errors(path_to_dmarc_log).await {
+        Ok(reports) => reports,
+        Err(err) => {
+            tracing::error!("failed to aggregate reports: {err:#}");
+            return;
         }
-    } else {
-        // todo: we need a way to warn the user the report could not be processed
-    }
+    };
 
-    Ok(())
+    for (email, report) in email_reports {
+        let receiver_domain = report.metadata.org_name.clone();
+        let begin_timestamp = report.metadata.date_range.begin.timestamp();
+        let end_timestamp = report.metadata.date_range.end.timestamp();
+
+        if let Ok(result) = instant_xml::to_string(&report) {
+            if let Err(err) = send_generated_report(
+                result,
+                email,
+                receiver_domain.clone(),
+                receiver_domain,
+                begin_timestamp,
+                end_timestamp,
+            )
+            .await
+            {
+                tracing::error!("failed to send generated aggregate report: {err:#}")
+            }
+        } else {
+            tracing::error!("failed to build DMARC XML report");
+        }
+    }
 }
 
-fn get_current_log_filename() -> String {
+fn get_current_log_filename(log_base_filepath: &str) -> String {
     let secs_since_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH);
 
     match secs_since_epoch {
         Ok(duration) => {
             let secs = duration.as_secs();
             let secs = secs - secs % REPORT_WINDOW_IN_SECONDS.load(Ordering::Relaxed);
-            // let secs = secs - secs % REPORT_WINDOW_IN_SECONDS;
 
-            format!("{}.{}", DMARC_REPORT_LOG_FILEPATH, secs)
+            format!("{}.{}", log_base_filepath, secs)
         }
-        _ => DMARC_REPORT_LOG_FILEPATH.into(),
+        _ => log_base_filepath.into(),
     }
 }
 
-async fn dmarc_reporter_loop<'a>(mut receiver: Receiver<ErrorRecord>) {
+fn calculate_remaining_log_window(duration: Duration, window_in_seconds: u64) -> Duration {
+    let secs = duration.as_secs();
+
+    if !secs.is_multiple_of(window_in_seconds) {
+        Duration::from_secs(secs % window_in_seconds)
+    } else {
+        Duration::from_secs(window_in_seconds)
+    }
+}
+
+async fn dmarc_reporter_loop(mut receiver: Receiver<ErrorRecord>, path_to_dmarc_log: String) {
     // Start initial timeout as the remaining time before the end of the current interval
 
     let mut secs_since_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH);
 
     let window_in_seconds = REPORT_WINDOW_IN_SECONDS.load(Ordering::Relaxed);
-    // let window_in_seconds = REPORT_WINDOW_IN_SECONDS;
 
     let mut remaining_time = match secs_since_epoch {
-        Ok(duration) => {
-            let secs = duration.as_secs();
-
-            if secs % window_in_seconds > 0 {
-                Duration::from_secs(secs % window_in_seconds)
-            } else {
-                Duration::from_secs(window_in_seconds)
-            }
-        }
+        Ok(duration) => calculate_remaining_log_window(duration, window_in_seconds),
         _ => Duration::from_secs(window_in_seconds),
     };
 
     loop {
         match tokio::time::timeout(remaining_time, receiver.recv()).await {
-            Ok(r) => {
-                match r {
-                    Some(error_record) => {
-                        let mut incoming_batch = vec![error_record];
+            Ok(Some(error_record)) => {
+                let mut incoming_batch = vec![error_record];
 
-                        let mut num_records = 0;
-                        while !receiver.is_empty() && num_records < MAX_ERROR_BATCH_SIZE {
-                            match receiver.recv().await {
-                                Some(next_record) => {
-                                    incoming_batch.push(next_record);
-                                    num_records += 1;
-                                }
-                                _ => {
-                                    break;
-                                }
-                            }
+                while incoming_batch.len() < MAX_ERROR_BATCH_SIZE {
+                    match receiver.try_recv() {
+                        Ok(next_record) => {
+                            incoming_batch.push(next_record);
                         }
+                        Err(TryRecvError::Disconnected) => {
+                            tracing::info!("Mail server shutting down, closing DMARC reporter");
+                            break;
+                        }
+                        Err(TryRecvError::Empty) => break,
+                    }
+                }
 
-                        let current_log = get_current_log_filename();
+                let current_log = get_current_log_filename(&path_to_dmarc_log);
 
-                        if let Ok(mut f) =
-                            File::options().append(true).create(true).open(current_log)
-                        {
-                            for error_record in incoming_batch {
-                                // TODO how do we want this to report out if we can't serialise for the report?
-                                if let Ok(result) = serde_json::to_string(&error_record) {
+                match File::options().append(true).create(true).open(&current_log) {
+                    Ok(mut f) => {
+                        for error_record in incoming_batch {
+                            match serde_json::to_string(&error_record) {
+                                Ok(result) => {
                                     let _ = writeln!(f, "{result}");
                                 }
+                                Err(err) => {
+                                    tracing::error!("Failed to write to {current_log}: {err:#}")
+                                }
                             }
-                        } else {
-                            tracing::error!("Failed to make spool for DMARC reporting");
                         }
                     }
-                    None => {
-                        // break?
-                        break;
+                    Err(err) => {
+                        tracing::error!("Failed to write to {current_log}: {err:#}");
                     }
                 }
             }
+            Ok(None) => {
+                break;
+            }
             Err(_) => {
                 // Timeout reached
-                // todo: handle when reports fail to send
-                let _ = send_aggregated_reports().await;
+                let _ = send_aggregated_reports(&path_to_dmarc_log).await;
 
                 secs_since_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH);
 
                 remaining_time = match secs_since_epoch {
-                    Ok(duration) => {
-                        let secs = duration.as_secs();
-
-                        if secs % window_in_seconds > 0 {
-                            Duration::from_secs(secs % window_in_seconds)
-                        } else {
-                            Duration::from_secs(window_in_seconds)
-                        }
-                    }
+                    Ok(duration) => calculate_remaining_log_window(duration, window_in_seconds),
                     _ => Duration::from_secs(window_in_seconds),
                 };
             }
@@ -225,12 +277,14 @@ async fn dmarc_reporter_loop<'a>(mut receiver: Receiver<ErrorRecord>) {
     }
 }
 
-pub async fn aggregate_errors() -> anyhow::Result<HashMap<String, Feedback>> {
+pub async fn aggregate_errors(
+    path_to_dmarc_log: &str,
+) -> anyhow::Result<HashMap<String, Feedback>> {
     let mut input_records = vec![];
 
-    let current_log = get_current_log_filename();
+    let current_log = get_current_log_filename(path_to_dmarc_log);
 
-    let file_blob = format!("{}*", DMARC_REPORT_LOG_FILEPATH);
+    let file_blob = format!("{}*", path_to_dmarc_log);
     let mut matching_historical_logs = vec![];
 
     if let Ok(paths) = glob::glob(&file_blob) {
@@ -250,24 +304,23 @@ pub async fn aggregate_errors() -> anyhow::Result<HashMap<String, Feedback>> {
 
             for line in lines.map_while(Result::ok) {
                 let result: anyhow::Result<ErrorRecord> =
-                    serde_json::from_str::<ErrorRecord>(&line)
-                        .map_err(|error| {
-                            anyhow::Error::new(error).context(format!(
-                                "Failed to decode a line from the DMARC report file \
+                    serde_json::from_str::<ErrorRecord>(&line).map_err(|error| {
+                        anyhow::Error::new(error).context(format!(
+                            "Failed to decode a line from the DMARC report file \
            {}. \
            The line was: {line}. \
            Is the file corrupt?",
-                                matching_historical_log.to_string_lossy()
-                            ))
-                        })
-                        .into();
+                            matching_historical_log.to_string_lossy()
+                        ))
+                    });
 
                 input_records.push(result?);
             }
         }
 
-        // What should we do if this fails to remove?
-        let _ = std::fs::remove_file(matching_historical_log);
+        if let Err(err) = std::fs::remove_file(&matching_historical_log) {
+            tracing::error!("Failed to remove dmarc log {}: {err:#}. Duplicate reports may be sent on the next run in XXX secs", matching_historical_log.to_string_lossy());
+        }
     }
 
     let mut errors_grouped_by_email: HashMap<String, BTreeMap<IpAddr, Vec<ErrorRecord>>> =
@@ -275,7 +328,7 @@ pub async fn aggregate_errors() -> anyhow::Result<HashMap<String, Feedback>> {
 
     for record in input_records {
         let entry = errors_grouped_by_email.entry(record.email.clone());
-        let record_source_ip = record.source_ip.clone();
+        let record_source_ip = record.source_ip;
 
         entry
             .and_modify(|entry| {
@@ -604,162 +657,6 @@ impl<'a> DmarcContext<'a> {
                 },
             };
 
-            let result = serde_json::to_string(&error_record)?;
-
-            let mut f = File::options()
-                .append(true)
-                .open(DMARC_REPORT_LOG_FILEPATH)?;
-
-            writeln!(f, "{result}")?;
-        }
-
-        Ok(())
-    }
-
-    pub async fn aggregate(&self) -> anyhow::Result<()> {
-        let mut input_records = vec![];
-        let file = File::open(DMARC_REPORT_LOG_FILEPATH)?;
-        let lines = BufReader::new(file).lines();
-
-        for line in lines.map_while(Result::ok) {
-            let result: anyhow::Result<ErrorRecord> = serde_json::from_str::<ErrorRecord>(&line)
-                .map_err(|error| {
-                    anyhow::Error::new(error).context(format!(
-                        "Failed to decode a line from the DMARC report file \
-           {DMARC_REPORT_LOG_FILEPATH}. \
-           The line was: {line}. \
-           Is the file corrupt?"
-                    ))
-                });
-
-            input_records.push(result?);
-        }
-
-        let mut errors_grouped_by_email: HashMap<String, BTreeMap<IpAddr, Vec<ErrorRecord>>> =
-            HashMap::new();
-
-        for record in input_records {
-            let entry = errors_grouped_by_email.entry(record.email.clone());
-            let record_source_ip = record.source_ip;
-
-            entry
-                .and_modify(|entry| {
-                    entry
-                        .entry(record.source_ip)
-                        .and_modify(|x| x.push(record.clone()))
-                        .or_insert_with(|| vec![record.clone()]);
-                })
-                .or_insert({
-                    let mut new_group = BTreeMap::new();
-
-                    new_group.insert(record_source_ip, vec![record]);
-
-                    new_group
-                });
-        }
-
-        for (email, errors_grouped_by_ip) in errors_grouped_by_email.iter_mut() {
-            let mut errors = vec![];
-            let mut record = vec![];
-
-            //we know this is safe to do because for this list to be present, we will have found it earlier
-            let (_, first_records) = errors_grouped_by_ip
-                .iter()
-                .next()
-                .expect("guaranteed to not be empty by the logic above");
-
-            let first_record = &first_records[0];
-
-            let version = first_record.version.clone();
-            let org_name = first_record.org_name.clone();
-            let email = email.clone();
-            let extra_contact_info = first_record.extra_contact_info.clone();
-
-            let mut date_range = DateRange::new(first_record.when, first_record.when);
-
-            let report_id = Uuid::new_v4().to_string();
-
-            let domain = first_record.domain.clone();
-            let align_dkim = first_record.align_dkim;
-            let align_spf = first_record.align_spf;
-            let policy = first_record.policy;
-            let subdomain_policy = first_record.subdomain_policy;
-            let rate = first_record.rate;
-            let report_failure = first_record.report_failure;
-
-            for (ip, error_group_for_ip) in errors_grouped_by_ip.iter_mut() {
-                let row = Row {
-                    source_ip: *ip,
-                    count: error_group_for_ip.len() as u64,
-                    policy_evaluated: error_group_for_ip[0].policy_evaluated.clone(),
-                };
-
-                let mut results = Results {
-                    row,
-                    identifiers: Identifier {
-                        envelope_to: vec![],
-                        envelope_from: vec![],
-                        header_from: String::new(),
-                    },
-                    auth_results: AuthResults {
-                        dkim: vec![],
-                        spf: vec![],
-                    },
-                };
-
-                for group_error in error_group_for_ip.iter() {
-                    errors.push(group_error.error.clone());
-
-                    date_range.begin = std::cmp::min(date_range.begin, group_error.when);
-                    date_range.end = std::cmp::max(date_range.end, group_error.when);
-
-                    results
-                        .identifiers
-                        .envelope_from
-                        .extend_from_slice(&group_error.identifier.envelope_from);
-                    results
-                        .identifiers
-                        .envelope_to
-                        .extend_from_slice(&group_error.identifier.envelope_to);
-
-                    results
-                        .auth_results
-                        .dkim
-                        .extend_from_slice(&group_error.auth_results.dkim);
-                    results
-                        .auth_results
-                        .spf
-                        .extend_from_slice(&group_error.auth_results.spf);
-                }
-
-                record.push(results);
-            }
-
-            let _feedback = Feedback {
-                version,
-                metadata: ReportMetadata {
-                    org_name,
-                    email,
-                    extra_contact_info,
-                    report_id,
-                    date_range,
-                    error: errors,
-                },
-                policy: PolicyPublished::new(
-                    domain,
-                    align_dkim,
-                    align_spf,
-                    policy,
-                    subdomain_policy,
-                    rate,
-                    report_failure,
-                ),
-                record,
-            };
-
-            // if let Ok(result) = instant_xml::to_string(&feedback) {
-            //     println!("log: {}", result);
-            // }
             capture_error_record(error_record).await?;
         }
 

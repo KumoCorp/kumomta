@@ -65,12 +65,11 @@ sub 3600 IN MX 10 mx.example.com.
   }
 
   kumo.dmarc.set_report_window_in_seconds(4)
-  kumo.dmarc.start_dmarc_reporter()
+  kumo.dmarc.start_dmarc_reporter '/tmp/kumomta-dmarc.log'
 
   kumo.configure_local_logs {
     log_dir = TEST_DIR .. '/logs',
     max_segment_duration = '1s',
-    headers = { 'X-*', 'Y-*', 'Subject' },
   }
 
   kumo.define_spool {
@@ -92,12 +91,14 @@ kumo.on('get_listener_domain', function(domain, listener, conn_meta)
   }
 end)
 
-kumo.on('dmarc_report_generated', function(body, email)
+kumo.on('dmarc_report_generated', function(payload)
   local msg = kumo.make_message(
     'sender@example.com',
-    email,
-    'From: sender@example.com\r\nSubject: DMARC Report\r\n\r\n' .. body
+    'sender@example.com',
+    'From: sender@example.com\r\nSubject: Report Domain: example.com Submitter: dmarc.example.com Report-Id: <2020.2.2.1>\r\n\r\n'
   )
+
+  msg:set_data(tostring(payload))
 
   local ok, err = pcall(kumo.inject_message, msg)
   if not ok then
@@ -106,6 +107,8 @@ kumo.on('dmarc_report_generated', function(body, email)
 end)
 
 kumo.on('smtp_server_message_received', function(msg)
+  -- Set up a simple DKIM to start with, which our DMARC
+  -- checking will use later
   local dkim_auth_results = msg:dkim_verify()
   if #dkim_auth_results == 0 then
     dkim_auth_results = {
@@ -117,6 +120,8 @@ kumo.on('smtp_server_message_received', function(msg)
     }
   end
 
+  -- Set the 'received from' so that the verification that needs it
+  -- will have it handy (namely DMARC will use this)
   msg:set_meta('received_from', '127.0.0.1:42')
 
   local spf_disp = kumo.spf.check_msg(msg)
@@ -127,9 +132,6 @@ kumo.on('smtp_server_message_received', function(msg)
     org_name = 'testorg',
     email = 'dmarc-feedback@example.com',
   })
-
-  local result = msg:import_scheduling_header 'X-Schedule'
-  kumo.log_info('schedule result', kumo.serde.json_encode(result))
 end)
 
 kumo.on('get_egress_source', function(source_name)

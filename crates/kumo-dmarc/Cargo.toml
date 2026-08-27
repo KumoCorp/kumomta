@@ -10,10 +10,12 @@ chrono = { workspace = true }
 config = { path = "../config" }
 dns-resolver = { path = "../dns-resolver" }
 instant-xml = { workspace = true }
+flate2 = { workspace=true }
 glob = { workspace = true }
 kumo-spf = { path = "../kumo-spf" }
 linkme.workspace = true
 mailparsing = { path = "../mailparsing" }
+mod-mimepart = { path="../mod-mimepart" }
 parking_lot = { workspace = true }
 psl-utils = { workspace = true }
 rand = { workspace = true }
