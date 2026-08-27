@@ -3,6 +3,9 @@ ARG TARGETPLATFORM
 
 WORKDIR /toml2jsonc
 COPY crates/toml2jsonc .
+# The crate is built in isolation here without the surrounding workspace, so
+# drop the workspace lints inheritance that cargo cannot resolve on its own.
+RUN sed -i '/^\[lints\]/,/^workspace = true/d' Cargo.toml
 RUN case "$TARGETPLATFORM" in \
       "linux/amd64") echo x86_64-unknown-linux-musl > /target.txt ;; \
       "linux/arm64"|"linux/arm64/v8") echo aarch64-unknown-linux-musl > /target.txt ;; \
