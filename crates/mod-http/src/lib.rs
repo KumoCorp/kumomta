@@ -396,33 +396,32 @@ impl LuaUserData for HeaderMapWrapper {
         });
 
         methods.add_meta_method(MetaMethod::Pairs, |lua, this, ()| {
-            let stateless_iter =
-                lua.create_function(|lua, (this, key): (HeaderMapWrapper, Option<String>)| {
-                    let iter = this.0.iter();
+            // Snapshot every header line up front and iterate by position. The
+            // header map is a multimap, and a name-keyed iterator can never
+            // advance past a repeated name: given the previous key it re-finds
+            // its first occurrence and yields the one after it forever. Values
+            // are kept as raw bytes to avoid a lossy conversion.
+            let entries: Vec<(String, Vec<u8>)> = this
+                .0
+                .iter()
+                .map(|(name, value)| (name.as_str().to_string(), value.as_bytes().to_vec()))
+                .collect();
 
-                    let mut this_is_key = false;
-
-                    if key.is_none() {
-                        this_is_key = true;
-                    }
-
-                    for (this_key, value) in iter {
-                        if this_is_key {
-                            let key = lua.create_string(this_key.as_str().as_bytes())?;
-                            let value = lua.create_string(value.as_bytes())?;
-
-                            return Ok(mlua::MultiValue::from_vec(vec![
-                                Value::String(key),
-                                Value::String(value),
-                            ]));
-                        }
-                        if Some(this_key.as_str()) == key.as_deref() {
-                            this_is_key = true;
-                        }
-                    }
-                    Ok(mlua::MultiValue::new())
+            let mut index = 0;
+            let iter =
+                lua.create_function_mut(move |lua, (_state, _control): (Value, Value)| {
+                    let Some((name, value)) = entries.get(index) else {
+                        return Ok(mlua::MultiValue::new());
+                    };
+                    index += 1;
+                    let name = lua.create_string(name)?;
+                    let value = lua.create_string(value)?;
+                    Ok(mlua::MultiValue::from_vec(vec![
+                        Value::String(name),
+                        Value::String(value),
+                    ]))
                 })?;
-            Ok((stateless_iter, this.clone(), Value::Nil))
+            Ok((iter, Value::Nil, Value::Nil))
         });
     }
 }
@@ -581,4 +580,65 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn headers_with_duplicate_set_cookie() -> HeaderMapWrapper {
+        let mut headers = HeaderMap::new();
+        headers.append("content-type", "text/html".parse().unwrap());
+        headers.append("set-cookie", "a=1".parse().unwrap());
+        headers.append("set-cookie", "b=2".parse().unwrap());
+        headers.append("set-cookie", "c=3".parse().unwrap());
+        HeaderMapWrapper(headers)
+    }
+
+    // Iterating a response's headers with `pairs` must visit every header line
+    // exactly once. It must stop even when a header name repeats (three
+    // Set-Cookie lines here, as github.com sends). The loop is capped to make a
+    // non-terminating iterator fail the count assertion rather than hang the
+    // test process.
+    #[test]
+    fn pairs_terminates_over_repeated_header_name() {
+        let lua = Lua::new();
+        lua.globals()
+            .set("headers", headers_with_duplicate_set_cookie())
+            .unwrap();
+
+        let (count, cookies): (usize, String) = lua
+            .load(
+                r#"
+                local n = 0
+                local cookies = {}
+                for k, v in pairs(headers) do
+                    n = n + 1
+                    if n > 1000 then break end
+                    if k == 'set-cookie' then
+                        cookies[#cookies + 1] = v
+                    end
+                end
+                return n, table.concat(cookies, ',')
+            "#,
+            )
+            .eval()
+            .unwrap();
+
+        k9::assert_equal!(count, 4);
+        k9::assert_equal!(cookies, "a=1,b=2,c=3");
+    }
+
+    // Direct indexing returns the first value for a repeated header name and is
+    // the safe accessor to use in policy.
+    #[test]
+    fn index_returns_first_value_for_repeated_header_name() {
+        let lua = Lua::new();
+        lua.globals()
+            .set("headers", headers_with_duplicate_set_cookie())
+            .unwrap();
+
+        let cookie: String = lua.load(r#"return headers['set-cookie']"#).eval().unwrap();
+        k9::assert_equal!(cookie, "a=1");
+    }
 }

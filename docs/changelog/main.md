@@ -209,6 +209,10 @@
 
 ## Fixes
 
+ * Iterating a `kumo.http` [response's headers](../reference/kumo.http/Response.md#responseheaders)
+   with `pairs()` no longer loops forever when a header name repeats, such as
+   multiple `Set-Cookie` headers.
+
  * xfer: a message received via inter-node transfer, on systems hosted on AWS,
    could end up with a wildly incorrect far-future timestamp. The reason for
    this is that the underlying rust mac_address crate would pick a NIC that had
