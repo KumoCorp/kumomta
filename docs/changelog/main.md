@@ -219,6 +219,10 @@
    new `KUMO_MAC_INTERFACE` and `KUMO_MAC_ADDRESS` environment variables. See
    [MAC Address Selection](../userguide/clustering/nodeid.md#mac-address-selection).
 
+ * A follow-on from the xfer far-future timestamp issue: producing a DSN for a
+   message with such a crazy date could panic the kumod process, because chrono's
+   RFC 2822 rendering gives up with a hostile panic when the year does not fit.
+
  * RFC 2822 date parsing now tolerates an obsolete alphabetic time zone such
    as the `UTC` that Amazon SES emits in its bounce reports, which strict
    parsing would otherwise reject. A recognized abbreviation resolves to its

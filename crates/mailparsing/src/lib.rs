@@ -15,7 +15,7 @@ pub type Result<T> = std::result::Result<T, MailParsingError>;
 
 pub use builder::*;
 pub use conformance::*;
-pub use datetime::parse_rfc2822_date;
+pub use datetime::{format_rfc2822_date, parse_rfc2822_date};
 pub use header::{Header, HeaderParseResult, MessageConformance};
 pub use headermap::*;
 pub use mimepart::*;

@@ -7,7 +7,7 @@ use crate::{JsonLogRecord, RecordType};
 use anyhow::{anyhow, Context};
 use bstr::{BStr, BString, ByteSlice};
 use chrono::{DateTime, Utc};
-use mailparsing::{BStringUtf8, MimePart};
+use mailparsing::{format_rfc2822_date, BStringUtf8, MimePart};
 use rfc5321::parser::EnvelopeAddress;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -250,13 +250,13 @@ impl std::fmt::Display for PerRecipientReportEntry {
             write!(fmt, "Diagnostic-Code: {code}\r\n")?;
         }
         if let Some(when) = &self.last_attempt_date {
-            write!(fmt, "Last-Attempt-Date: {}\r\n", when.to_rfc2822())?;
+            write!(fmt, "Last-Attempt-Date: {}\r\n", format_rfc2822_date(*when))?;
         }
         if let Some(id) = &self.final_log_id {
             write!(fmt, "Final-Log-Id: {id}\r\n")?;
         }
         if let Some(when) = &self.will_retry_until {
-            write!(fmt, "Will-Retry-Until: {}\r\n", when.to_rfc2822())?;
+            write!(fmt, "Will-Retry-Until: {}\r\n", format_rfc2822_date(*when))?;
         }
         for (k, vlist) in &self.extensions {
             for v in vlist {
@@ -329,7 +329,7 @@ impl std::fmt::Display for PerMessageReportEntry {
             write!(fmt, "Received-From-MTA: {mta}\r\n")?;
         }
         if let Some(when) = &self.arrival_date {
-            write!(fmt, "Arrival-Date: {}\r\n", when.to_rfc2822())?;
+            write!(fmt, "Arrival-Date: {}\r\n", format_rfc2822_date(*when))?;
         }
         for (k, vlist) in &self.extensions {
             for v in vlist {
@@ -462,6 +462,8 @@ impl Report {
             _ => return Ok(None),
         };
 
+        let created = format_rfc2822_date(log.created);
+
         let arrival_date = Some(log.created);
 
         let per_message = PerMessageReportEntry {
@@ -508,7 +510,6 @@ impl Report {
                     "The message was received at {created}\r\n\
                     from {sender} and addressed to {recip_list}.\r\n\
                     ",
-                    created = log.created.to_rfc2822(),
                     sender = log.sender,
                 );
                 if let Some(peer) = &log.peer_address {
@@ -538,7 +539,6 @@ impl Report {
                     The message will be deleted from the queue.\r\n\
                     No further attempts will be made to deliver it.\r\n\
                     ",
-                    created = log.created.to_rfc2822(),
                     sender = log.sender,
                     status = log.response.to_single_line()
                 )
@@ -1355,6 +1355,72 @@ Report {
     ],
     original_message: None,
 }
+"#
+        );
+    }
+
+    #[test]
+    fn generate_bounce_far_future_created() {
+        use chrono::TimeZone;
+
+        let params = ReportGenerationParams {
+            reporting_mta: RemoteMta {
+                mta_type: "dns".to_string(),
+                name: "mta1.example.com".to_string(),
+            },
+            enable_bounce: true,
+            enable_expiration: true,
+            include_original_message: IncludeOriginalMessage::No,
+            stable_content: true,
+        };
+
+        // A corrupt spool id can yield a creation time whose year is past 9999.
+        // Generating the report must not panic. The date renders with all of
+        // its digits in both the Arrival-Date header and the prose.
+        let mut log = make_bounce();
+        log.created = chrono::Utc.with_ymd_and_hms(60123, 1, 1, 0, 0, 0).unwrap();
+
+        let report_msg = Report::generate(&params, None, &log).unwrap().unwrap();
+        let report_eml = BString::from(report_msg.to_message_bytes());
+        k9::snapshot!(
+            &report_eml,
+            r#"
+Content-Type: multipart/report;\r
+\tboundary="report-boundary";\r
+\treport-type="delivery-status"\r
+Subject: Returned mail\r
+Mime-Version: 1.0\r
+Message-ID: <UUID@mta1.example.com>\r
+To: sender@sender.example.com\r
+From: Mail Delivery Subsystem <mailer-daemon@mta1.example.com>\r
+\r
+--report-boundary\r
+Content-Type: text/plain;\r
+\tcharset="us-ascii"\r
+\r
+The message was received at Fri, 1 Jan 60123 00:00:00 +0000\r
+from sender@sender.example.com and addressed to recip@target.example.com.\r
+While communicating with target.example.com (42.42.42.42):\r
+Response: 550 5.7.1 no thanks\r
+\r
+The message will be deleted from the queue.\r
+No further attempts will be made to deliver it.\r
+--report-boundary\r
+Content-Type: message/delivery-status;\r
+\tcharset="us-ascii"\r
+\r
+Reporting-MTA: dns; mta1.example.com\r
+Arrival-Date: Fri, 1 Jan 60123 00:00:00 +0000\r
+\r
+Final-Recipient: rfc822;recip@target.example.com\r
+Action: failed\r
+Status: 5.7.1 no thanks\r
+Remote-MTA: dns; target.example.com\r
+Diagnostic-Code: smtp; 550 5.7.1 no thanks\r
+Last-Attempt-Date: Tue, 1 Jul 2003 10:52:37 +0000\r
+\r
+--report-boundary--\r
+
 "#
         );
     }
