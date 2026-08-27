@@ -7,3 +7,8 @@ await-holding-invalid-types = [
   { path = "dashmap::mapref::multiple::RefMulti", reason = "potentially deadlocks" },
   { path = "dashmap::mapref::multiple::RefMutMulti", reason = "potentially deadlocks" },
 ]
+
+disallowed-methods = [
+  { path = "chrono::DateTime::to_rfc2822", reason = "panics on out-of-range dates; use mailparsing::format_rfc2822_date" },
+  { path = "chrono::DateTime::parse_from_rfc2822", reason = "rejects obsolete alphabetic timezones such as the UTC that Amazon SES emits; use mailparsing::parse_rfc2822_date" },
+]

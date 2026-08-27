@@ -386,7 +386,7 @@ impl Opt {
         }
 
         let now = Utc::now();
-        let datestamp = now.to_rfc2822();
+        let datestamp = mailparsing::format_rfc2822_date(now);
         let id = Uuid::new_v4().simple().to_string();
 
         let body = self.body_size_content.get().unwrap();

@@ -60,7 +60,7 @@ where
     <T as TimeZone>::Offset: std::fmt::Display,
 {
     fn encode_value(&self) -> SharedString<'static> {
-        (*self).to_rfc2822().into()
+        crate::format_rfc2822_date(self.clone()).into()
     }
 }
 

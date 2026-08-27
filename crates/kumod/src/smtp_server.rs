@@ -2920,7 +2920,7 @@ impl SmtpServerSession {
         // any real work
         let mut accepted_messages = vec![];
 
-        let datestamp = Utc::now().to_rfc2822();
+        let datestamp = mailparsing::format_rfc2822_date(Utc::now());
 
         // For multiple recipient messages, `batches` holds how we will
         // split and track delivery.

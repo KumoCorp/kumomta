@@ -159,7 +159,7 @@ impl<'a> MessageBuilder<'a> {
         if root.headers().date()?.is_none() {
             if self.stable_content {
                 root.headers_mut().set_date(
-                    chrono::DateTime::parse_from_rfc2822("Tue, 1 Jul 2003 10:52:37 +0200")
+                    crate::parse_rfc2822_date("Tue, 1 Jul 2003 10:52:37 +0200")
                         .expect("test date to be valid"),
                 )?;
             } else {

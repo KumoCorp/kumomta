@@ -56,14 +56,17 @@ pub fn format_rfc2822_date<Tz: TimeZone>(date: DateTime<Tz>) -> String {
 /// writes its DSN dates with the token `UTC`, which chrono does not recognize.
 ///
 /// When the strict parse fails we retry after replacing a trailing alphabetic
-/// zone token with a numeric offset. A token with a single widely-agreed
-/// meaning (`UTC`, and the common regional abbreviations chrono lacks such as
+/// zone token with a numeric offset. A token with one widely-agreed meaning
+/// (`UTC`, and the common regional abbreviations chrono lacks such as
 /// `CET`/`CEST`) resolves to its real offset. Anything chrono neither knows nor
 /// we can resolve unambiguously falls back to `-0000`, the RFC 5322 section 4.3
 /// unknown-offset marker: the same instant as UTC, which keeps the stated
 /// wall-clock date and time while recording that the true offset is unknown.
-/// The original error is preserved when the retry does not help, so genuinely
-/// malformed input still reports the real problem rather than a zone complaint.
+/// The original error is preserved when the retry does not help. This keeps
+/// malformed input reporting the real problem rather than a zone complaint.
+// This function is the sanctioned caller of chrono's strict parser. The
+// disallowed_methods lint blocks calling it anywhere else.
+#[allow(clippy::disallowed_methods)]
 pub fn parse_rfc2822_date(
     input: &str,
 ) -> Result<DateTime<FixedOffset>, chrono::format::ParseError> {
@@ -184,7 +187,10 @@ mod test {
             utc.with_ymd_and_hms(1, 1, 1, 0, 0, 0).unwrap(),
         ];
         for date in samples {
-            k9::assert_equal!(format_rfc2822_date(date), date.to_rfc2822());
+            // The comparison against chrono's own output is the point of the test.
+            #[allow(clippy::disallowed_methods)]
+            let expected = date.to_rfc2822();
+            k9::assert_equal!(format_rfc2822_date(date), expected);
         }
     }
 

@@ -765,7 +765,7 @@ async fn make_message<'a>(
     let id = SpoolId::new();
 
     let generated = if request.trace_headers.received_header {
-        let datestamp = Utc::now().to_rfc2822();
+        let datestamp = mailparsing::format_rfc2822_date(Utc::now());
         let from_domain = sender.domain();
         let recip = &recip.email;
         // I can see someone wanting more control over the hostname that

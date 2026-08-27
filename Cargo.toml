@@ -69,6 +69,8 @@ collapsible_if = "allow"
 comparison_chain = "allow"
 # A manual Default impl documents which variant is the default.
 derivable_impls = "allow"
+# The disallowed methods themselves are listed in .clippy.toml.
+disallowed_methods = "deny"
 drop_non_drop = "allow"
 explicit_auto_deref = "allow"
 if_same_then_else = "allow"
