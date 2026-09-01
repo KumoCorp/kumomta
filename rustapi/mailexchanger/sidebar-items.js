@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["PolicyMode","ResolvedMxAddresses"],"fn":["get_mx_negative_ttl","get_mx_timeout","is_mta_sts_enabled","set_mta_sts_enabled","set_mx_concurrency_limit","set_mx_negative_cache_ttl","set_mx_timeout"],"struct":["MailExchanger"]};
