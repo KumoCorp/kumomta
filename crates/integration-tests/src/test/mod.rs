@@ -44,6 +44,7 @@ mod perm_fail;
 mod proxy_basic;
 mod proxy_protocol;
 mod queue_ndr;
+mod queue_skip_validation;
 mod random_bytes;
 mod rebind;
 mod rebind_event_defined;
