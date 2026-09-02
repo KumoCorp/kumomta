@@ -5,6 +5,7 @@ use config::{any_err, from_lua_value, get_or_create_sub_module};
 #[cfg(feature = "impl")]
 use mlua::Lua;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 #[cfg(feature = "impl")]
 use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 
@@ -23,6 +24,8 @@ pub enum KeySource {
         vault_path: String,
         #[serde(default = "default_vault_key")]
         vault_key: String,
+        #[serde(default = "default_vault_timeout", with = "duration_serde")]
+        vault_timeout: Duration,
     },
     Event {
         event_name: String,
@@ -32,6 +35,10 @@ pub enum KeySource {
 
 fn default_vault_key() -> String {
     "key".to_string()
+}
+
+fn default_vault_timeout() -> Duration {
+    Duration::from_secs(30)
 }
 
 #[cfg(feature = "impl")]
@@ -48,6 +55,7 @@ impl KeySource {
                 vault_mount,
                 vault_path,
                 vault_key,
+                vault_timeout,
             } => {
                 let address = match vault_address {
                     Some(a) => a.to_string(),
@@ -70,6 +78,7 @@ impl KeySource {
                     VaultClientSettingsBuilder::default()
                         .address(address)
                         .token(token)
+                        .timeout(Some(*vault_timeout))
                         .build()?,
                 )?;
 
@@ -283,6 +292,7 @@ mod test {
                 vault_mount: "secret".to_string(),
                 vault_path: path.to_string(),
                 vault_key: "key".to_string(),
+                vault_timeout: default_vault_timeout(),
             }
         }
     }
@@ -366,6 +376,7 @@ mod test {
             vault_mount: "secret".to_string(),
             vault_path: "custom_key".to_string(),
             vault_key: "custom_field".to_string(),
+            vault_timeout: default_vault_timeout(),
         };
 
         // This should fail because the vault secret has "key" but we're looking for "custom_field"
@@ -382,10 +393,48 @@ mod test {
             vault_mount: "secret".to_string(),
             vault_path: "custom_key".to_string(),
             vault_key: "key".to_string(),
+            vault_timeout: default_vault_timeout(),
         };
 
         let data = source.get().await?;
         assert_eq!(data, b"custom_value");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_vault_timeout() -> anyhow::Result<()> {
+        // Never accepted from: the kernel completes the handshake into the
+        // backlog, so the read connects and then waits forever for a response.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+
+        let source = KeySource::Vault {
+            vault_address: Some(format!("http://127.0.0.1:{port}")),
+            vault_token: Some(KEY.to_string()),
+            vault_mount: "secret".to_string(),
+            vault_path: "foo".to_string(),
+            vault_key: "key".to_string(),
+            vault_timeout: Duration::from_secs(1),
+        };
+
+        // So that a regression fails the test rather than hanging CI.
+        let result = timeout(Duration::from_secs(30), source.get())
+            .await
+            .context("vault_timeout did not bound the read")?;
+
+        // The port is kernel-assigned; rewrite it to compare exactly.
+        let err = format!("{:#}", result.unwrap_err()).replace(&format!(":{port}"), ":PORT");
+        assert_eq!(
+            err,
+            "kv2::read vault_mount=secret, vault_path=foo \
+             Vault { vault_address: Some(\"http://127.0.0.1:PORT\"), \
+             vault_token: Some(\"woot\"), vault_mount: \"secret\", \
+             vault_path: \"foo\", vault_key: \"key\", vault_timeout: 1s }: \
+             An error occurred with the request: Error sending HTTP request: \
+             error sending request for url (http://127.0.0.1:PORT/v1/secret/data/foo?): \
+             operation timed out"
+        );
 
         Ok(())
     }
