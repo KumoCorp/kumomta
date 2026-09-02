@@ -27,6 +27,27 @@ pub fn suffix_str(s: &str) -> Option<&str> {
     psl::suffix_str(s)
 }
 
+/// Check whether the public suffix is explicitly present in the public
+/// suffix list (as opposed to being resolved via the fallback rule for an
+/// unknown top-level domain). Returns `false` when the input has no public
+/// suffix. The caller is expected to pass an already-normalized domain
+/// (typically via [`normalize_domain`]).
+pub fn suffix_is_known(s: &str) -> bool {
+    psl::suffix(s.as_bytes())
+        .map(|suffix| suffix.is_known())
+        .unwrap_or(false)
+}
+
+/// Check whether the registrable domain's public suffix is explicitly
+/// present in the public suffix list. Returns `false` when the input has no
+/// registrable domain. The caller is expected to pass an already-normalized
+/// domain (typically via [`normalize_domain`]).
+pub fn domain_is_known(s: &str) -> bool {
+    psl::domain(s.as_bytes())
+        .map(|domain| domain.suffix().is_known())
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -68,5 +89,41 @@ mod tests {
     fn domain_str_after_normalize() {
         let n = normalize_domain("foo.Example.COM.");
         assert_eq!(domain_str(&n), Some("example.com"));
+    }
+
+    #[test]
+    fn suffix_is_known_known() {
+        let n = normalize_domain("www.example.com");
+        assert_eq!(suffix_is_known(&n), true);
+    }
+
+    #[test]
+    fn suffix_is_known_unknown_fallback() {
+        let n = normalize_domain("domain.invalid");
+        assert_eq!(suffix_is_known(&n), false);
+    }
+
+    #[test]
+    fn suffix_is_known_empty() {
+        let n = normalize_domain("");
+        assert_eq!(suffix_is_known(&n), false);
+    }
+
+    #[test]
+    fn domain_is_known_known() {
+        let n = normalize_domain("www.example.com");
+        assert_eq!(domain_is_known(&n), true);
+    }
+
+    #[test]
+    fn domain_is_known_unknown_fallback() {
+        let n = normalize_domain("domain.invalid");
+        assert_eq!(domain_is_known(&n), false);
+    }
+
+    #[test]
+    fn domain_is_known_empty() {
+        let n = normalize_domain("");
+        assert_eq!(domain_is_known(&n), false);
     }
 }
