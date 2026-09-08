@@ -641,6 +641,11 @@ TOC = [
         ],
     ),
     Gen(
+        "Glossary",
+        "glossary",
+        extract_title=True,
+    ),
+    Gen(
         "FAQ",
         "faq",
         extract_title=True,
