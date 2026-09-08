@@ -378,6 +378,33 @@ pub(crate) fn content_type(part: &MimePart) -> Option<BString> {
     Some(ct.value)
 }
 
+/// Extracts the returned original message from a report's returned-content
+/// part, undoing any transfer encoding that the part's content type permits.
+/// Returns None when `ct` is not a returned-content type this recognizes, or
+/// when the part cannot be decoded, because encoded bytes are not a usable
+/// original message and are better left out than presented as if decoded.
+/// Content type comparison is case insensitive, as media types require.
+pub(crate) fn decode_returned_content(part: &MimePart, ct: Option<&BStr>) -> Option<Vec<u8>> {
+    let ct = ct?;
+    if ct.eq_ignore_ascii_case(b"message/rfc822") {
+        // Its body already holds the original octets because message/rfc822
+        // must use an identity transfer encoding (7bit, 8bit, or binary) per
+        // RFC 2046.
+        Some(part.raw_body().as_bytes().to_vec())
+    } else if ct.eq_ignore_ascii_case(b"text/rfc822-headers")
+        || ct.eq_ignore_ascii_case(b"message/global")
+        || ct.eq_ignore_ascii_case(b"message/global-headers")
+    {
+        // text/rfc822-headers (RFC 6522), message/global (RFC 6532), and
+        // message/global-headers (RFC 6533) may be quoted-printable or base64
+        // encoded. Undo that without charset decoding to keep the returned
+        // octets as they were.
+        part.transfer_decoded_body().ok()
+    } else {
+        None
+    }
+}
+
 impl Report {
     pub fn parse(input: &[u8]) -> anyhow::Result<Option<Self>> {
         // The chained MimePart::parse error states the parse-failure reason.
@@ -398,12 +425,10 @@ impl Report {
         for part in mail.child_parts() {
             let ct = content_type(part);
             let ct = ct.as_ref().map(|b| b.as_bstr());
-            if ct == Some(BStr::new("message/rfc822"))
-                || ct == Some(BStr::new("text/rfc822-headers"))
-            {
-                original_message = Some(BString::new(
-                    part.raw_body().as_bytes().replace(b"\r\n", b"\n"),
-                ));
+            // Assign only on a successful decode, to avoid a later part that
+            // fails to decode erasing an earlier one that succeeded.
+            if let Some(decoded) = decode_returned_content(part, ct) {
+                original_message = Some(BString::new(decoded.replace(b"\r\n", b"\n")));
             }
         }
 
@@ -1542,6 +1567,71 @@ Some(
             Status: 4.0.0\r\n\
             Diagnostic-Code: smtp; 426 connection timed out\r\n\
             Last-Attempt-Date: Thu, 7 Jul 1994 21:15:49 +0000\r\n"
+        );
+    }
+
+    #[test]
+    fn quoted_printable_rfc822_headers_are_decoded() {
+        // A sender may return the original headers in a quoted-printable
+        // text/rfc822-headers part, which is permitted for text types. The
+        // parser must undo the transfer encoding while preserving the raw
+        // header octets, here a Subject holding shift_jis bytes.
+        let eml = concat!(
+            "Content-Type: multipart/report; report-type=\"delivery-status\";\r\n",
+            "\tboundary=\"b\"\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: message/delivery-status\r\n",
+            "\r\n",
+            "Reporting-MTA: dns; mta.example.com\r\n",
+            "\r\n",
+            "Final-Recipient: rfc822;recip@example.com\r\n",
+            "Action: failed\r\n",
+            "Status: 5.0.0\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: text/rfc822-headers; charset=\"shift_jis\"\r\n",
+            "Content-Transfer-Encoding: quoted-printable\r\n",
+            "\r\n",
+            "Subject: =93=FA=96=7B=8C=EA\r\n",
+            "--b--\r\n",
+        );
+
+        let report = Report::parse(eml.as_bytes()).unwrap().unwrap();
+        k9::assert_equal!(
+            report.original_message.unwrap(),
+            BString::from(&b"Subject: \x93\xFA\x96\x7B\x8C\xEA\n"[..])
+        );
+    }
+
+    #[test]
+    fn returned_content_type_is_case_insensitive() {
+        // Media types are case insensitive. A returned-content part whose
+        // content type is not in canonical lower case is still recognized.
+        let eml = concat!(
+            "Content-Type: multipart/report; report-type=\"delivery-status\";\r\n",
+            "\tboundary=\"b\"\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: message/delivery-status\r\n",
+            "\r\n",
+            "Reporting-MTA: dns; mta.example.com\r\n",
+            "\r\n",
+            "Final-Recipient: rfc822;recip@example.com\r\n",
+            "Action: failed\r\n",
+            "Status: 5.0.0\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: Message/RFC822\r\n",
+            "\r\n",
+            "Subject: Hello!\r\n",
+            "--b--\r\n",
+        );
+
+        let report = Report::parse(eml.as_bytes()).unwrap().unwrap();
+        k9::assert_equal!(
+            report.original_message.unwrap(),
+            BString::from(&b"Subject: Hello!\n"[..])
         );
     }
 

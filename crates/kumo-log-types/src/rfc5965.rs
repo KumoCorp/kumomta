@@ -1,5 +1,5 @@
 //! ARF reports
-use crate::rfc3464::{content_type, RemoteMta};
+use crate::rfc3464::{content_type, decode_returned_content, RemoteMta};
 use anyhow::anyhow;
 use bstr::{BStr, BString, ByteSlice};
 use chrono::{DateTime, Utc};
@@ -71,53 +71,54 @@ impl ARFReport {
         for part in mail.child_parts() {
             let ct = content_type(part);
             let ct = ct.as_ref().map(|b| b.as_bstr());
-            if ct == Some(BStr::new("message/rfc822"))
-                || ct == Some(BStr::new("text/rfc822-headers"))
+            // A returned-content part may be quoted-printable or base64
+            // encoded. Decode before inspecting or storing it, and skip parts
+            // that are not returned content or that cannot be decoded.
+            let Some(returned) = decode_returned_content(part, ct) else {
+                continue;
+            };
+
+            if let Ok(HeaderParseResult { headers, .. }) =
+                Header::parse_headers(returned.as_slice())
             {
-                if let Ok(HeaderParseResult { headers, .. }) =
-                    Header::parse_headers(part.raw_body())
-                {
-                    // Look for x-headers that might be our supplemental trace headers
-                    for hdr in headers.iter() {
-                        if !(hdr.get_name().starts_with_str("X-")
-                            || hdr.get_name().starts_with_str("x-"))
-                        {
-                            continue;
+                // Look for x-headers that might be our supplemental trace headers
+                for hdr in headers.iter() {
+                    if !(hdr.get_name().starts_with_str("X-")
+                        || hdr.get_name().starts_with_str("x-"))
+                    {
+                        continue;
+                    }
+                    // The header value may be folded across continuation lines.
+                    // Remove the folding whitespace before decoding because it
+                    // is not part of the base64 payload.
+                    let encoded: Vec<u8> = hdr
+                        .get_raw_value()
+                        .iter()
+                        .copied()
+                        .filter(|b| !b.is_ascii_whitespace())
+                        .collect();
+                    if let Ok(decoded) = data_encoding::BASE64.decode(&encoded) {
+                        #[derive(Deserialize)]
+                        struct Wrap {
+                            #[serde(rename = "_@_")]
+                            marker: String,
+                            #[serde(flatten)]
+                            payload: serde_json::Value,
                         }
-                        // The header value may be folded across continuation
-                        // lines; the folding whitespace is not part of the
-                        // base64 payload, so remove it before decoding.
-                        let encoded: Vec<u8> = hdr
-                            .get_raw_value()
-                            .iter()
-                            .copied()
-                            .filter(|b| !b.is_ascii_whitespace())
-                            .collect();
-                        if let Ok(decoded) = data_encoding::BASE64.decode(&encoded) {
-                            #[derive(Deserialize)]
-                            struct Wrap {
-                                #[serde(rename = "_@_")]
-                                marker: String,
-                                #[serde(flatten)]
-                                payload: serde_json::Value,
-                            }
-                            if let Ok(obj) = serde_json::from_slice::<Wrap>(&decoded) {
-                                // Sanity check that it is our encoded data, rather than
-                                // some other random header that may have been inserted
-                                // somewhere along the way
-                                if obj.marker == "\\_/" {
-                                    supplemental_trace.replace(obj.payload);
-                                    break;
-                                }
+                        if let Ok(obj) = serde_json::from_slice::<Wrap>(&decoded) {
+                            // Sanity check that it is our encoded data, rather
+                            // than some other random header that may have been
+                            // inserted earlier in the stream
+                            if obj.marker == "\\_/" {
+                                supplemental_trace.replace(obj.payload);
+                                break;
                             }
                         }
                     }
                 }
-
-                original_message = Some(BString::new(
-                    part.raw_body().as_bytes().replace("\r\n", "\n"),
-                ));
             }
+
+            original_message = Some(BString::new(returned.replace(b"\r\n", b"\n")));
         }
 
         for part in mail.child_parts() {
@@ -494,6 +495,36 @@ Spam Spam Spam
         k9::assert_equal!(
             result.supplemental_trace,
             Some(serde_json::json!({ "recipient": "test@example.com" }))
+        );
+    }
+
+    #[test]
+    fn quoted_printable_rfc822_headers_are_decoded() {
+        // A quoted-printable text/rfc822-headers part must be transfer decoded
+        // while preserving its raw octets, here a Subject holding shift_jis bytes.
+        let report = concat!(
+            "Content-Type: multipart/report; report-type=feedback-report;\r\n",
+            "    boundary=\"b\"\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: message/feedback-report\r\n",
+            "\r\n",
+            "Feedback-Type: abuse\r\n",
+            "User-Agent: SomeGenerator/1.0\r\n",
+            "Version: 1\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: text/rfc822-headers; charset=\"shift_jis\"\r\n",
+            "Content-Transfer-Encoding: quoted-printable\r\n",
+            "\r\n",
+            "Subject: =93=FA=96=7B=8C=EA\r\n",
+            "--b--\r\n",
+        );
+
+        let result = ARFReport::parse(report.as_bytes()).unwrap().unwrap();
+        k9::assert_equal!(
+            result.original_message.unwrap(),
+            BString::from(b"Subject: \x93\xFA\x96\x7B\x8C\xEA\n")
         );
     }
 
