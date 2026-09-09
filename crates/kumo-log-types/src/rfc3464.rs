@@ -405,6 +405,53 @@ pub(crate) fn decode_returned_content(part: &MimePart, ct: Option<&BStr>) -> Opt
     }
 }
 
+/// Builds the part of a report that echoes the failed message back to its
+/// sender. Content that cannot be represented in a conforming, 7-bit clean form
+/// is omitted instead of failing the whole report. Returns the full message
+/// when it is requested and representable; otherwise returns only the original
+/// headers.
+fn returned_content_part(
+    mode: IncludeOriginalMessage,
+    msg: &MimePart,
+) -> Option<MimePart<'static>> {
+    match mode {
+        IncludeOriginalMessage::No => None,
+        IncludeOriginalMessage::HeadersOnly => returned_headers_part(msg),
+        IncludeOriginalMessage::FullContent => {
+            let mut data = vec![];
+            match msg.write_message(&mut data) {
+                // message/rfc822 permits only an identity transfer encoding.
+                // This guard requires the written bytes to already be 7-bit
+                // clean before using that content type.
+                Ok(()) if data.is_ascii() => {
+                    MimePart::new_no_transfer_encoding("message/rfc822", &data).ok()
+                }
+                // write_message returned Err, or its output is not 7-bit
+                // clean. Discard the full message and return only the headers.
+                _ => returned_headers_part(msg),
+            }
+        }
+    }
+}
+
+/// Builds a text/rfc822-headers part holding the headers of `msg`, or None
+/// when it cannot be built. The result is always 7-bit clean, and the headers
+/// are preserved byte for byte even when they contain 8-bit octets.
+fn returned_headers_part(msg: &MimePart) -> Option<MimePart<'static>> {
+    let mut data = vec![];
+    for hdr in msg.headers().iter() {
+        hdr.write_header(&mut data).ok();
+    }
+    if data.is_ascii() {
+        MimePart::new_no_transfer_encoding("text/rfc822-headers", &data).ok()
+    } else {
+        // Unlike message/rfc822, text/rfc822-headers permits a transfer
+        // encoding. base64 preserves the 8-bit octets while keeping this part
+        // 7-bit clean.
+        MimePart::new_binary("text/rfc822-headers", &data, None).ok()
+    }
+}
+
 impl Report {
     pub fn parse(input: &[u8]) -> anyhow::Result<Option<Self>> {
         // The chained MimePart::parse error states the parse-failure reason.
@@ -582,31 +629,11 @@ impl Report {
             MimePart::new_text("message/delivery-status", &*status_text).context("new_text")?,
         );
 
-        match (params.include_original_message, msg) {
-            (IncludeOriginalMessage::No, _) | (_, None) => {}
-            (IncludeOriginalMessage::HeadersOnly, Some(msg)) => {
-                let mut data = vec![];
-                for hdr in msg.headers().iter() {
-                    hdr.write_header(&mut data).ok();
-                }
-                parts.push(
-                    MimePart::new_no_transfer_encoding("text/rfc822-headers", &data)
-                        .context("new_no_transfer_encoding")?,
-                );
+        if let Some(msg) = msg {
+            if let Some(part) = returned_content_part(params.include_original_message, msg) {
+                parts.push(part);
             }
-            (IncludeOriginalMessage::FullContent, Some(msg)) => {
-                // A message that cannot be re-serialized (such as a multipart
-                // missing a usable boundary) is omitted from the report rather
-                // than failing the whole report generation.
-                let mut data = vec![];
-                if msg.write_message(&mut data).is_ok() {
-                    parts.push(
-                        MimePart::new_no_transfer_encoding("message/rfc822", &data)
-                            .context("new_no_transfer_encoding")?,
-                    );
-                }
-            }
-        };
+        }
 
         let mut report_msg = MimePart::new_multipart(
             "multipart/report",
@@ -1600,7 +1627,7 @@ Some(
         let report = Report::parse(eml.as_bytes()).unwrap().unwrap();
         k9::assert_equal!(
             report.original_message.unwrap(),
-            BString::from(&b"Subject: \x93\xFA\x96\x7B\x8C\xEA\n"[..])
+            BString::from(b"Subject: \x93\xFA\x96\x7B\x8C\xEA\n")
         );
     }
 
@@ -1631,7 +1658,86 @@ Some(
         let report = Report::parse(eml.as_bytes()).unwrap().unwrap();
         k9::assert_equal!(
             report.original_message.unwrap(),
-            BString::from(&b"Subject: Hello!\n"[..])
+            BString::from(b"Subject: Hello!\n")
+        );
+    }
+
+    #[test]
+    fn generate_bounce_with_8bit_headers() {
+        let params = ReportGenerationParams {
+            reporting_mta: RemoteMta {
+                mta_type: "dns".to_string(),
+                name: "mta1.example.com".to_string(),
+            },
+            enable_bounce: true,
+            enable_expiration: false,
+            include_original_message: IncludeOriginalMessage::HeadersOnly,
+            stable_content: true,
+        };
+
+        // A Subject holding raw shift_jis octets that cannot be represented in
+        // a 7-bit clean text/rfc822-headers part without a transfer encoding.
+        let original_msg =
+            MimePart::parse(&b"Subject: \x93\xFA\x96\x7B\x8C\xEA\r\n\r\nbody\r\n"[..]).unwrap();
+        let log = make_bounce();
+
+        let report_eml = Report::generate(&params, Some(&original_msg), &log)
+            .unwrap()
+            .unwrap()
+            .to_message_bytes()
+            .unwrap();
+
+        // The report must be 7-bit clean because SMTPUTF8/8BITMIME cannot be
+        // relied upon downstream.
+        assert!(
+            report_eml.is_ascii(),
+            "generated report must be 7-bit clean"
+        );
+
+        // It round-trips, recovering the raw 8-bit Subject octets.
+        let round_trip = Report::parse(&report_eml).unwrap().unwrap();
+        k9::assert_equal!(
+            round_trip.original_message.unwrap(),
+            BString::from(b"Subject: \x93\xFA\x96\x7B\x8C\xEA\n")
+        );
+    }
+
+    #[test]
+    fn generate_bounce_with_8bit_full_content_degrades_to_headers() {
+        let params = ReportGenerationParams {
+            reporting_mta: RemoteMta {
+                mta_type: "dns".to_string(),
+                name: "mta1.example.com".to_string(),
+            },
+            enable_bounce: true,
+            enable_expiration: false,
+            include_original_message: IncludeOriginalMessage::FullContent,
+            stable_content: true,
+        };
+
+        // Only the body is 8-bit. The headers are ASCII. This isolates the body
+        // as the trigger for the FullContent degrade under test.
+        let original_msg = MimePart::parse(
+            &b"Subject: hi\r\nContent-Type: text/plain\r\n\r\n\x93\xFA body\r\n"[..],
+        )
+        .unwrap();
+        let log = make_bounce();
+
+        let report_eml = Report::generate(&params, Some(&original_msg), &log)
+            .unwrap()
+            .unwrap()
+            .to_message_bytes()
+            .unwrap();
+
+        assert!(
+            report_eml.is_ascii(),
+            "generated report must be 7-bit clean"
+        );
+
+        let round_trip = Report::parse(&report_eml).unwrap().unwrap();
+        k9::assert_equal!(
+            round_trip.original_message.unwrap(),
+            BString::from(b"Subject: hi\nContent-Type: text/plain\n")
         );
     }
 
@@ -2050,7 +2156,7 @@ To: redacted@example.com
                 extensions: BTreeMap::new(),
             },
             per_recipient: vec![],
-            original_message: Some(BString::from(&b"abc\x80\xffxyz"[..])),
+            original_message: Some(BString::from(b"abc\x80\xffxyz")),
         };
         let json = serde_json::to_value(&report).unwrap();
         assert!(json["original_message"].is_array());

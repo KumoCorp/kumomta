@@ -52,3 +52,8 @@
    kumod now retains only `CAP_NET_BIND_SERVICE`, which it needs to bind
    privileged ports.
 
+ * [kumo.generate_rfc3464_message](../reference/kumo/generate_rfc3464_message.md)
+   no longer fails to produce a bounce when the original message has 8-bit
+   headers or body. The returned copy of the original is encoded to keep the
+   report 7-bit clean, and downgrades to just the headers, or is omitted, when
+   its content cannot be represented that way.
