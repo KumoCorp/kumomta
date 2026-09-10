@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AuthKindResult"],"fn":["auth_middleware"],"struct":["HttpEndpointResource"]};

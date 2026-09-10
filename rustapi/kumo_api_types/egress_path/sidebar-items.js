@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CeilingSource","ConfigRefreshStrategy","MemoryReductionPolicy","ReconnectStrategy","Tls","WakeupStrategy"],"fn":["find_rustls_cipher_suite","parse_openssl_options"],"struct":["EffectiveCeiling","EffectiveConstraints","EgressPathConfig","MxResolution"]};

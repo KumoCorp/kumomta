@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["HARD_WIDTH","SOFT_WIDTH"],"fn":["wrap","wrap_bytes","wrap_impl"]};

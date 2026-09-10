@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["mark_existing_logs_as_done_in_dir","mark_path_as_done"],"struct":["OpenedFile"]};

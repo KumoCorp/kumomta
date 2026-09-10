@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["IsTooManyRecipients"],"struct":["EnhancedStatusCode","Response","SmtpClientTimeouts"]};

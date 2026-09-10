@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MailEntryError","MaildirError"],"struct":["MailEntries","MailEntry","Maildir","MaildirEntries"]};
