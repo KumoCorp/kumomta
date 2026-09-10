@@ -2452,12 +2452,14 @@ pub(crate) fn qp_encode(s: &[u8]) -> String {
     for (start, end, c) in s.char_indices() {
         let bytes = &s[start..end];
 
-        let b = if (c.is_ascii_alphanumeric() || c.is_ascii_punctuation())
-            && c != '?'
-            && c != '='
-            && c != ' '
-            && c != '\t'
-        {
+        // RFC 2047 section 5(3) restricts the punctuation allowed unencoded in
+        // a Q encoded-word within a phrase to this set. Because a phrase is the
+        // most restrictive context this encoder serves, encoding to it keeps
+        // one encoder valid everywhere, at the cost of encoding some
+        // punctuation a Subject could have left alone. Since an underscore
+        // represents a space in the Q encoding, a literal underscore must be
+        // encoded as =5F to avoid a decoder turning it back into a space.
+        let b = if c.is_ascii_alphanumeric() || matches!(c, '!' | '*' | '+' | '-' | '/') {
             Bytes::Passthru(bytes)
         } else if c == ' ' {
             Bytes::Passthru(b"_")
@@ -2513,10 +2515,20 @@ fn test_qp_encode() {
     k9::snapshot!(
         encoded,
         r#"
-=?UTF-8?q?hello,_I_am_a_line_that_is_this_long,_or_maybe_a_little_bit_?=\r
-\t=?UTF-8?q?longer_than_this,_and_that_should_get_wrapped_by_the_encoder?=
+=?UTF-8?q?hello=2C_I_am_a_line_that_is_this_long=2C_or_maybe_a_little_?=\r
+\t=?UTF-8?q?bit_longer_than_this=2C_and_that_should_get_wrapped_by_the_e?=\r
+\t=?UTF-8?q?ncoder?=
 "#
     );
+}
+
+#[cfg(test)]
+#[test]
+fn test_qp_encode_literal_underscore() {
+    // A literal underscore must be escaped as =5F to distinguish it from the
+    // underscore that Q encoding uses to represent a space.
+    let encoded = qp_encode("formul\u{e1}rios Word_TEST".as_bytes());
+    k9::assert_equal!(encoded, "=?UTF-8?q?formul=C3=A1rios_Word=5FTEST?=");
 }
 
 /// Quote input string `s`, using a backslash escape, if any

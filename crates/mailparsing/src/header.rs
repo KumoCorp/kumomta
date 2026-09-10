@@ -696,10 +696,10 @@ Subject: hello there, this is a longer header than the standard width and so it\
         k9::snapshot!(
             header.to_header_string(),
             r#"
-Subject: =?UTF-8?q?hello_there_Andr=C3=A9,_this_is_a_longer_header_than_the_sta?=\r
-\t=?UTF-8?q?ndard_width_and_so_it_should_get_wrapped_in_the_produced_val?=\r
-\t=?UTF-8?q?ue._Do_you_hear_me_Andr=C3=A9=3F_this_should_get_really_long?=\r
-\t=?UTF-8?q?!?=\r
+Subject: =?UTF-8?q?hello_there_Andr=C3=A9=2C_this_is_a_longer_header_than_the_s?=\r
+\t=?UTF-8?q?tandard_width_and_so_it_should_get_wrapped_in_the_produced_v?=\r
+\t=?UTF-8?q?alue=2E_Do_you_hear_me_Andr=C3=A9=3F_this_should_get_really_?=\r
+\t=?UTF-8?q?long!?=\r
 
 "#
         );

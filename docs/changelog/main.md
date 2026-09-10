@@ -209,6 +209,13 @@
 
 ## Fixes
 
+ * When a header value supplied through the HTTP injection API contained a
+   non-ASCII character, forcing RFC 2047 Q encoding, a literal underscore in
+   that value was emitted unescaped. A conforming mail client would then decode
+   it back to a space, silently corrupting the header. Literal underscores are
+   now escaped as `=5F`, and the Q encoder no longer passes through punctuation
+   that RFC 2047 does not permit unencoded in a header phrase.
+
  * Iterating a `kumo.http` [response's headers](../reference/kumo.http/Response.md#responseheaders)
    with `pairs()` no longer loops forever when a header name repeats, such as
    multiple `Set-Cookie` headers.
