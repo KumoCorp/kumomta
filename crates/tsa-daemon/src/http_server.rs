@@ -10,8 +10,10 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use axum::Json;
 use chrono::{DateTime, Utc};
+use kumo_api_types::egress_path::EgressPathConfig;
 use kumo_api_types::shaping::{
-    Action, EgressPathConfigValueUnchecked, Regex, Rule, Shaping, Trigger,
+    Action, EgressPathConfigAdjustment, EgressPathConfigValueUnchecked, Regex, Rule, Shaping,
+    Trigger,
 };
 use kumo_api_types::tsa::{
     ReadyQSuspension, SchedQBounce, SchedQSuspension, SubscriptionItem, SuspensionEntry,
@@ -262,6 +264,74 @@ async fn create_ready_q_suspension(
     Ok(())
 }
 
+/// Resolve the current base value for `adj.name` on `domain` from the
+/// daemon's periodically-refreshed shaping config, then apply the
+/// AdjustConfig/AdjustDomainConfig down-path against it.
+///
+/// If the field has no explicit value anywhere in the shaping config,
+/// `connection_limit`/`max_deliveries_per_connection` fall back to
+/// `EgressPathConfig`'s struct-level defaults; the rate fields have no
+/// meaningful default (unset means unlimited), so those are logged and
+/// skipped rather than erroring out the rest of this record's actions.
+async fn apply_adjust_config(
+    action_hash: &ActionHash,
+    rule: &Rule,
+    record: &JsonLogRecord,
+    adj: &EgressPathConfigAdjustment,
+    domain: &str,
+    source: &str,
+    prefer_rollup: PreferRollup,
+    shaping: &Shaping,
+) -> anyhow::Result<()> {
+    let state = TSA_STATE.get().expect("tsa_state missing");
+
+    // Fast path: skip resolving the base value (a shaping-config lookup
+    // that can involve live MX/DNS resolution) once an override already
+    // exists -- its down-step never reads it anyway.
+    if state.down_step_if_present(action_hash, rule, record) {
+        return Ok(());
+    }
+
+    let site_name = record
+        .site
+        .trim_start_matches(&format!("{source}->"))
+        .trim_end_matches("@smtp_client")
+        .to_string();
+    let merged = shaping
+        .get_egress_path_config_value(domain, source, &site_name)
+        .await?;
+
+    let original_value = match merged.get(&adj.name) {
+        Some(v) => json_to_toml_value(v)?,
+        None if adj.name == "connection_limit" => {
+            toml::Value::Integer(EgressPathConfig::default().connection_limit.limit as i64)
+        }
+        None if adj.name == "max_deliveries_per_connection" => {
+            toml::Value::Integer(EgressPathConfig::default().max_deliveries_per_connection as i64)
+        }
+        None => {
+            tracing::error!(
+                "AdjustConfig/AdjustDomainConfig for domain={domain} field={} skipped: \
+                 field is not configured for this domain, so there is no base value \
+                 to adjust relative to",
+                adj.name
+            );
+            return Ok(());
+        }
+    };
+
+    state.create_or_update_adaptive_override(
+        action_hash,
+        rule,
+        record,
+        adj,
+        domain,
+        source,
+        prefer_rollup,
+        &original_value,
+    )
+}
+
 pub async fn publish_log_batch(records: &mut Vec<JsonLogRecord>) -> anyhow::Result<()> {
     let shaping = get_shaping();
 
@@ -409,6 +479,32 @@ async fn publish_log_v1_impl(
                                     source,
                                     PreferRollup::No,
                                 );
+                        }
+                        Action::AdjustConfig(adj) => {
+                            apply_adjust_config(
+                                &action_hash,
+                                m,
+                                &record,
+                                adj,
+                                &domain,
+                                source,
+                                PreferRollup::Yes,
+                                shaping,
+                            )
+                            .await?;
+                        }
+                        Action::AdjustDomainConfig(adj) => {
+                            apply_adjust_config(
+                                &action_hash,
+                                m,
+                                &record,
+                                adj,
+                                &domain,
+                                source,
+                                PreferRollup::No,
+                                shaping,
+                            )
+                            .await?;
                         }
                         Action::Bounce => {
                             create_bounce(

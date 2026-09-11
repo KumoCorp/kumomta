@@ -9191,6 +9191,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sqlite",
+ "throttle",
  "tikv-jemalloc-sys",
  "tikv-jemallocator",
  "tokio",
@@ -9199,6 +9200,7 @@ dependencies = [
  "toml_edit 0.23.10+spec-1.0.0",
  "tracing",
  "utoipa",
+ "uuid",
  "version-info",
 ]
 

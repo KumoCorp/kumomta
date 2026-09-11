@@ -34,8 +34,49 @@ duration = "1 hour"
 ["delivery.mx-sink.wezfurlong.org"]
 mx_rollup = false
 enable_tls = "OpportunisticInsecure"
+max_message_rate = "1000/s"
 
 [["delivery.mx-sink.wezfurlong.org".automation]]
 regex = "OK ids="
 action = "Suspend"
+duration = "1 hour"
+
+[["delivery.mx-sink.wezfurlong.org".automation]]
+regex = "you said 450-adjust-connlimit"
+action = {AdjustConfig={name="connection_limit", decrease_percent=50, floor_percent=25, ramp_up_interval="5m"}}
+duration = "1 hour"
+
+[["delivery.mx-sink.wezfurlong.org".automation]]
+regex = "you said 450-adjust-msgrate"
+action = {AdjustConfig={name="max_message_rate", decrease_percent=20, floor_percent=50, ramp_up_interval="5m"}}
+duration = "1 hour"
+
+[["delivery.mx-sink.wezfurlong.org".automation]]
+regex = "you said 450-adjust-compound"
+action = {AdjustConfig={name="connection_limit", decrease_percent=50, floor_percent=25, ramp_up_interval="5m"}}
+duration = "1 hour"
+
+[["delivery.mx-sink.wezfurlong.org".automation]]
+regex = "you said 450-adjust-rampup"
+action = {AdjustConfig={name="connection_limit", decrease_percent=50, floor_percent=25, ramp_up_interval="1s"}}
+duration = "1 hour"
+
+[["default".automation]]
+regex = "you said 450-adjust-default-rollup"
+action = {AdjustConfig={name="connection_limit", decrease_percent=50, floor_percent=25, ramp_up_interval="5m"}}
+duration = "1 hour"
+
+[["default".automation]]
+regex = "you said 450-adjust-default-norollup"
+action = {AdjustDomainConfig={name="connection_limit", decrease_percent=25, floor_percent=10, ramp_up_interval="5m"}}
+duration = "1 hour"
+
+[["delivery.mx-sink.wezfurlong.org".automation]]
+regex = "you said 450-adjust-amount"
+action = {AdjustConfig={name="connection_limit", decrease_amount=10, floor_amount=5, ramp_up_interval="5m"}}
+duration = "1 hour"
+
+[["delivery.mx-sink.wezfurlong.org".automation]]
+regex = "you said 450-adjust-deliveries"
+action = {AdjustConfig={name="max_deliveries_per_connection", decrease_amount=24, floor_amount=500, ramp_up_interval="5m"}}
 duration = "1 hour"

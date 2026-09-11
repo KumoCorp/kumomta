@@ -143,6 +143,75 @@ duration = "2 hours"
 
 The full set of Traffic Shaping Automation actions is available on the [traffic shaping](../../reference/kumo.shaping/load.md#traffic-shaping-automation-rules) page of the Reference Manual.
 
+### Gradually Recovering from a Throttle
+
+`SetConfig` pins a value; if you'd rather ease off when an ISP starts
+complaining and then ease back up automatically once things are quiet,
+use `AdjustConfig` (or `AdjustDomainConfig` for `mx_rollup=false`
+semantics) instead:
+
+{% call toml_data() %}
+[["yahoo.com".automation]]
+regex = "\\[TS02\\]"
+action = {AdjustConfig={name="max_message_rate", decrease_percent=10, floor_percent=25, ramp_up_interval="15m"}}
+duration = "30m"
+{% endcall %}
+
+Each time this rule matches, `max_message_rate` is cut by 10% of its
+current value (compounding if it matches again while already reduced),
+down to a floor of 25% of the domain's originally configured rate. Once
+15 minutes pass with no further matches, the rate is stepped back up by
+10%, repeating until it's back to the original value.
+
+As with other automation actions, each match pushes `duration` out
+again from that match, so the override stays in effect as long as the
+error keeps recurring. A completed ramp-up step also pushes `duration`
+out again, so a slow recovery doesn't get cut off partway through and
+snap back to the original value -- the override only goes away once
+neither a match nor a step has happened for a full `duration`.
+
+You can monitor the current state of any in-progress ramp via:
+
+```console
+$ curl http://127.0.0.1:8008/get_config_v1/shaping.toml
+```
+
+which annotates each adjusted field with its original value, how far
+below original it currently is, and when the next ramp-up step is
+eligible.
+
+If a percentage doesn't fit your mental model well for a given field --
+for example, you'd rather think in terms of "cut the connection limit by
+5" than "cut it by some percent" -- use the absolute-count fields instead:
+`decrease_amount`/`floor_amount`/`ramp_step_amount` in place of
+`decrease_percent`/`floor_percent`/`ramp_step_percent`:
+
+{% call toml_data() %}
+[["example.com".automation]]
+regex = "421 .*too many connections"
+action = {AdjustConfig={name="connection_limit", decrease_amount=5, floor_amount=2, ramp_up_interval="10m"}}
+duration = "1hr"
+{% endcall %}
+
+Each match reduces `connection_limit` by a flat 5, down to a floor of 2,
+and ramps back up by 5 per step (`ramp_step_amount` defaults to
+`decrease_amount`) once 10 minutes pass with no further matches.
+
+`decrease`, `floor`, and `ramp_step` each pick their style independently,
+so you can freely mix percentage and absolute-count fields within one
+rule -- e.g. `decrease_percent` with `floor_amount`.
+
+`AdjustConfig`/`AdjustDomainConfig` also supports `max_deliveries_per_connection`,
+useful for ISPs that complain about too many messages sent over a single
+connection:
+
+{% call toml_data() %}
+[["example.com".automation]]
+regex = "450 .*too many messages"
+action = {AdjustConfig={name="max_deliveries_per_connection", decrease_amount=25, floor_amount=100, ramp_up_interval="10m"}}
+duration = "1hr"
+{% endcall %}
+
 ## Monitoring the TSA Daemon
 
 Adjustments to the traffic shaping rules are achieved by creating a custom `shaping.toml` file that is maintained by the TSA daemon and loaded as an overlay on the existing `shaping.toml file created by the user.

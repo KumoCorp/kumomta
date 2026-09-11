@@ -227,3 +227,65 @@ The following new actions are now supported:
    both the same destination domain, *tenant* AND *campaign* as the triggering
    record.  If no campaign was assigned, behave as though `"BounceTenant"` was
    the action.
+
+{{since('dev')}}
+
+The following new actions are now supported:
+
+ * `{AdjustConfig{name="NAME", ..., ramp_up_interval="DURATION"}}` -
+   define a *relative* configuration adjustment: each trigger decreases
+   `NAME` (compounding on repeated triggers) down to a floor, then ramps
+   it back up once the rule stops triggering for `ramp_up_interval`,
+   repeating until it's back to its original value. Supported fields:
+   `max_message_rate`, `max_connection_rate`, `source_selection_rate`,
+   `connection_limit`, `max_deliveries_per_connection`.
+
+   Like every other automation action, each trigger pushes `expires` out
+   to `duration` from that trigger, so the override stays in effect as
+   long as the triggering condition keeps recurring. A successful
+   ramp-up step also pushes `expires` out by another `duration`, so an
+   in-progress recovery isn't cut short and snapped back to the original
+   value just because `duration` was sized for a shorter ramp than
+   actually needed. The override is only ever removed once *neither* a
+   trigger nor a completed step has happened for a full `duration` --
+   which also means a `duration` that's too short for a stalled ramp
+   (e.g. `ramp_up_interval` set unreasonably long) still bounds how long
+   it can persist below its original value.
+
+   `decrease`, `floor`, and `ramp_step` are each specified independently,
+   using one of two styles:
+    * **Percentage** - `decrease_percent`/`floor_percent`/`ramp_step_percent`,
+      relative to `NAME`'s current value (`decrease`, `ramp_step`) or
+      original value (`floor`).
+    * **Absolute count** - `decrease_amount`/`floor_amount`/`ramp_step_amount`.
+      {{since('dev', inline=True)}}
+
+   `decrease` is required (exactly one style). `floor` defaults to zero in
+   `decrease`'s style; `ramp_step` defaults to `decrease` itself. Each
+   field picks its style independently of the others (e.g.
+   `decrease_percent` with `floor_amount` is fine), but not both styles
+   for the same field.
+ * `{AdjustDomainConfig{name="NAME", ...}}` -
+   same as `AdjustConfig`, but with `mx_rollup=false`, even if the rule was
+   defined inside a domain where `mx_rollup=true`.
+
+For example, to cut `max_message_rate` by 10% each time Yahoo returns a
+`[TS02]` unusual-traffic response, with a floor of 25% of the original
+rate, ramping back up by 10% every 15 minutes of quiet:
+
+{% call toml_data() %}
+[["yahoo.com".automation]]
+regex = "\\[TS02\\]"
+action = {AdjustConfig={name="max_message_rate", decrease_percent=10, floor_percent=25, ramp_up_interval="15m"}}
+duration = "30m"
+{% endcall %}
+
+Or, to reduce `connection_limit` by a fixed count of 5 (down to a floor of
+2), ramping back up by 1 every 10 minutes of quiet:
+
+{% call toml_data() %}
+[["example.com".automation]]
+regex = "421 .*too many connections"
+action = {AdjustConfig={name="connection_limit", decrease_amount=5, floor_amount=2, ramp_step_amount=1, ramp_up_interval="10m"}}
+duration = "1hr"
+{% endcall %}
