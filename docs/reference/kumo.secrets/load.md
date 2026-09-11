@@ -16,6 +16,8 @@ local passwd = kumo.secrets.load {
   vault_path = 'example.com-passwd',
   -- Optional: specify a custom key name (defaults to "key")
   -- vault_key = "password"
+  -- Optional: bound the request (defaults to "30 seconds") {{since('dev', inline=True)}}
+  -- vault_timeout = "10 seconds"
 }
 request:basic_auth('username', passwd)
 

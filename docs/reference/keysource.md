@@ -88,6 +88,11 @@ local vault_signer = kumo.dkim.rsa_sha256_signer {
     -- {{since('2025.10.06-5ec871ab', inline=True)}}
     -- Defaults to "key" if not specified
     -- vault_key = "my_custom_key_name"
+
+    -- Optional: bound how long the request to vault may take
+    -- {{since('dev', inline=True)}}
+    -- Defaults to "30 seconds"
+    -- vault_timeout = "10 seconds"
   },
 }
 ```
@@ -117,6 +122,8 @@ And store it in vault like this:
 $ vault kv put -mount=secret dkim/example.org private_key=@example-private-dkim-key.pem
 ```
 
+Requests to vault are bounded by `vault_timeout` {{since('dev', inline=True)}},
+which defaults to `30 seconds`.  Earlier releases had no timeout.
 ### Callback/Event based Data Source
 
 {{since('2025.12.02-67ee9e96')}}
