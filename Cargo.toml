@@ -171,6 +171,7 @@ gcd = "2.3"
 gethostname = "1.0"
 getrandom = "0.3"
 git2 = { version = "0.20", default-features = false }
+glob = "0.3"
 # handlebars uses a git ref until the next release is made, so that we have
 # recursive lookup available.
 handlebars = { version="6.3", git = "https://github.com/sunng87/handlebars-rust.git", rev="c349c39557700e6a5b5e5273f2fc0f42574b79f3" }
@@ -312,4 +313,3 @@ zstd-safe = {version="7.0", features=["std"]}
 openssl = { version="0.10.80", git="https://github.com/KumoCorp/rust-openssl.git", branch="dane-openssl-v0.10.80" }
 # Can be removed once dane support is upstreamed
 openssl-sys = { version="0.9.116", git="https://github.com/KumoCorp/rust-openssl.git", branch="dane-openssl-v0.10.80" }
-

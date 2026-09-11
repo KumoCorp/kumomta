@@ -2,7 +2,7 @@ use crate::record::Record;
 use crate::spec::MacroSpec;
 use dns_resolver::{DnsError, Resolver};
 use hickory_resolver::proto::rr::{Name, RecordType};
-use instant_xml::{FromXml, ToXml};
+use instant_xml::ToXml;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::net::IpAddr;
@@ -16,7 +16,7 @@ use record::Qualifier;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Clone, Copy, Eq, FromXml, PartialEq, ToXml, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, ToXml, Serialize, Deserialize)]
 #[xml(scalar, rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum SpfDisposition {
