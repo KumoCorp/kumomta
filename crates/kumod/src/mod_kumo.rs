@@ -22,8 +22,39 @@ use spool::SpoolId;
 use std::sync::Arc;
 use throttle::ThrottleSpec;
 
+/// Register `alias` as another name for the charset `target`, updating the
+/// global alias table that the mail parser consults while decoding.
+/// `target` must be a charset already known to the decoder.
+pub fn add_charset_alias(alias: &str, target: &str) -> anyhow::Result<()> {
+    mailparsing::resolve_charset(target).ok_or_else(|| {
+        anyhow::anyhow!("add_charset_alias: unknown charset target '{target}' for alias '{alias}'")
+    })?;
+    mailparsing::CHARSET_ALIASES
+        .write()
+        .expect("charset alias registry lock poisoned")
+        .insert(alias.to_ascii_lowercase(), target.to_ascii_lowercase());
+    Ok(())
+}
+
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let kumo_mod = get_or_create_module(lua, "kumo")?;
+
+    // Accepts a list of `{target_charset, {alias, ...}}` pairs, eg:
+    //   kumo.add_charset_alias{ {'euc-kr', {'ms949', 'cp949'}} }
+    kumo_mod.set(
+        "add_charset_alias",
+        lua.create_function(|_, mappings: mlua::Table| {
+            for entry in mappings.sequence_values::<mlua::Table>() {
+                let entry = entry?;
+                let target: String = entry.get(1)?;
+                let aliases: Vec<String> = entry.get(2)?;
+                for alias in &aliases {
+                    add_charset_alias(alias, &target).map_err(any_err)?;
+                }
+            }
+            Ok(())
+        })?,
+    )?;
 
     crate::http_server::admin_suspend_ready_q_v1::register(lua)?;
     crate::http_server::admin_suspend_v1::register(lua)?;

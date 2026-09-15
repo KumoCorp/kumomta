@@ -1,7 +1,6 @@
 use crate::headermap::EncodeHeaderValue;
-use crate::{MailParsingError, Result, SharedString};
+use crate::{resolve_charset, MailParsingError, Result, SharedString};
 use bstr::{BStr, BString, ByteSlice, ByteVec};
-use charset_normalizer_rs::Encoding;
 use nom::branch::alt;
 use nom::bytes::complete::{take_while, take_while1, take_while_m_n};
 use nom::combinator::{all_consuming, map, opt, recognize};
@@ -1053,7 +1052,7 @@ fn encoded_word(input: Span) -> IResult<Span, BString> {
         )
     })?;
 
-    let charset = Encoding::by_name(&*charset_name).ok_or_else(|| {
+    let charset = resolve_charset(&charset_name).ok_or_else(|| {
         make_context_error(
             input,
             format!("encoded_word: unsupported charset '{charset_name}'"),
@@ -2171,7 +2170,7 @@ impl MimeParameters {
 
         for ele in elements {
             if let Some(cset) = ele.mime_charset.as_ref().and_then(|b| b.to_str().ok()) {
-                mime_charset = Encoding::by_name(&*cset);
+                mime_charset = resolve_charset(&cset);
             }
 
             match ele.encoding {
