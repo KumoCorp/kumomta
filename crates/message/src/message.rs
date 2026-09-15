@@ -322,7 +322,10 @@ impl Message {
     ) -> anyhow::Result<Self> {
         anyhow::ensure!(meta.is_object(), "metadata must be a json object");
         MESSAGE_COUNT.inc();
-        DATA_COUNT.inc();
+        // count resident data only, to pair with the Drop/shrink dec guard
+        if !data.is_empty() {
+            DATA_COUNT.inc();
+        }
         META_COUNT.inc();
         Ok(Self {
             msg_and_id: Arc::new(MessageWithId {
@@ -382,6 +385,10 @@ impl Message {
     pub(crate) fn new_from_parts(id: SpoolId, metadata: MetaData, data: Arc<Box<[u8]>>) -> Self {
         MESSAGE_COUNT.inc();
         META_COUNT.inc();
+        // count resident data only, to pair with the Drop/shrink dec guard
+        if !data.is_empty() {
+            DATA_COUNT.inc();
+        }
 
         let flags = if metadata.schedule.is_some() {
             MessageFlags::SCHEDULED
@@ -2076,6 +2083,41 @@ pub(crate) mod test {
 
     fn data_as_string(msg: &Message) -> String {
         String::from_utf8(msg.get_data_maybe_not_loaded().to_vec()).unwrap()
+    }
+
+    fn new_dirty_data(data: &[u8]) -> Message {
+        Message::new_dirty(
+            SpoolId::new(),
+            EnvelopeAddress::parse("s@example.com").unwrap(),
+            vec![EnvelopeAddress::parse("r@example.com").unwrap()],
+            serde_json::json!({}),
+            Arc::new(data.to_vec().into_boxed_slice()),
+        )
+        .unwrap()
+    }
+
+    // DATA_COUNT must count only resident (non-empty) data, so new_dirty pairs
+    // with the Drop/shrink `!data.is_empty()` decrement guard. An empty body
+    // (e.g. make_message with "") must not increment, or it leaks on drop.
+    // DATA_COUNT is process-global; retry to absorb parallel-test noise.
+    #[test]
+    fn new_dirty_counts_only_non_empty_data() {
+        let ok = (0..32).any(|_| {
+            let base = DATA_COUNT.get();
+            let non_empty = new_dirty_data(b"hello");
+            let counted = DATA_COUNT.get() == base + 1;
+            drop(non_empty);
+            let released = DATA_COUNT.get() == base;
+
+            let empty = new_dirty_data(b"");
+            let uncounted = DATA_COUNT.get() == base;
+            drop(empty);
+            counted && released && uncounted && DATA_COUNT.get() == base
+        });
+        assert!(
+            ok,
+            "new_dirty must increment DATA_COUNT only for non-empty data"
+        );
     }
 
     const X_HDR_CONTENT: &str =
