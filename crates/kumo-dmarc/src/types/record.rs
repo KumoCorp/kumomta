@@ -148,6 +148,15 @@ impl Record {
             };
         }
 
+        let _ = cx
+            .report_error(
+                self,
+                dmarc_domain,
+                sender_domain_alignment,
+                "No aligned DKIM or SPF",
+            )
+            .await;
+
         DispositionWithContext {
             result: self.disposition(sender_domain_alignment),
             context: "No aligned DKIM or SPF".into(),
