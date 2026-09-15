@@ -30,6 +30,7 @@ serde_bytes.workspace = true
 serde_json = {workspace=true}
 sha2 = {workspace=true}
 sqlite = {workspace=true}
+throttle = {path="../throttle", default-features=false}
 tikv-jemalloc-sys = {workspace=true, features=["profiling", "unprefixed_malloc_on_supported_platforms"]}
 tikv-jemallocator = {workspace=true}
 tokio = {workspace=true, features=["full", "tracing"]}
@@ -39,6 +40,9 @@ toml_edit = {workspace=true}
 tracing = {workspace=true}
 utoipa = {workspace=true}
 version-info = {path="../version-info"}
+
+[dev-dependencies]
+uuid = {workspace=true}
 
 [lints]
 workspace = true
