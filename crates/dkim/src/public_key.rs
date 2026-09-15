@@ -53,37 +53,46 @@ fn parse_single_key(txt: &str) -> Result<DkimPublicKey, DKIMError> {
     let tag = tags_map.get("p").ok_or(DKIMError::NoKeyForSignature)?;
     let bytes = data_encoding::BASE64
         .decode(tag.value.as_bytes())
-        .map_err(|err| {
-            DKIMError::KeyUnavailable(format!("failed to decode public key: {}", err))
+        .map_err(|err| DKIMError::KeyParseError {
+            context: "failed to decode public key",
+            detail: err.to_string(),
         })?;
     match key_type {
         KeyType::Rsa => Ok(DkimPublicKey::Rsa(
             PKey::from_rsa(
                 Rsa::public_key_from_der(&bytes)
                     .or_else(|_| Rsa::public_key_from_der_pkcs1(&bytes))
-                    .map_err(|err| {
-                        DKIMError::KeyUnavailable(format!("failed to parse public key: {}", err))
+                    .map_err(|err| DKIMError::KeyParseError {
+                        context: "failed to parse public key",
+                        detail: err.to_string(),
                     })?,
             )
-            .map_err(|err| {
-                DKIMError::KeyUnavailable(format!("failed to parse public key: {}", err))
+            .map_err(|err| DKIMError::KeyParseError {
+                context: "failed to parse public key",
+                detail: err.to_string(),
             })?,
         )),
         KeyType::Ed25519 => {
             let mut key_bytes = [0u8; ed25519_dalek::PUBLIC_KEY_LENGTH];
             if bytes.len() != key_bytes.len() {
-                return Err(DKIMError::KeyUnavailable(format!(
-                    "ed25519 public keys should be {} bytes in length, have: {}",
-                    ed25519_dalek::PUBLIC_KEY_LENGTH,
-                    bytes.len()
-                )));
+                return Err(DKIMError::KeyParseError {
+                    context: "failed to parse public key",
+                    detail: format!(
+                        "ed25519 public keys should be {} bytes in length, have: {}",
+                        ed25519_dalek::PUBLIC_KEY_LENGTH,
+                        bytes.len()
+                    ),
+                });
             }
 
             key_bytes.copy_from_slice(&bytes);
 
             Ok(DkimPublicKey::Ed25519(
                 ed25519_dalek::VerifyingKey::from_bytes(&key_bytes).map_err(|err| {
-                    DKIMError::KeyUnavailable(format!("failed to parse public key: {}", err))
+                    DKIMError::KeyParseError {
+                        context: "failed to parse public key",
+                        detail: err.to_string(),
+                    }
                 })?,
             ))
         }
@@ -165,6 +174,28 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(key, DKIMError::KeyIncompatibleVersion);
+    }
+
+    #[tokio::test]
+    async fn test_retrieve_public_key_malformed_is_permfail() {
+        use crate::Status;
+
+        // A `p=` value that base64-decodes but is not a valid DER key
+        // (truncated / "too small"). This is a malformed published key, not a
+        // transient lookup failure, so it must be a permanent failure.
+        let resolver = TestResolver::default().with_txt(
+            "dkim._domainkey.example.com",
+            "v=DKIM1; k=rsa; p=AQAB".to_owned(),
+        );
+
+        let err = retrieve_public_keys(&resolver, "example.com", "dkim")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, DKIMError::KeyParseError { .. }),
+            "unexpected error: {err:?}"
+        );
+        assert_eq!(err.status(), Status::Permfail);
     }
 
     #[tokio::test]
