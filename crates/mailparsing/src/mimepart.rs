@@ -1807,6 +1807,43 @@ Ok(
             .contains(MessageConformance::MISSING_COLON_VALUE));
     }
 
+    #[test]
+    fn header_less_body_starting_with_space() {
+        // The body begins with a space, which cannot start a header field, so
+        // the message has no headers and the entire content is the body.
+        let message = " test\r\n";
+        let part = MimePart::parse(message).unwrap();
+        assert!(part.headers().iter().next().is_none());
+        assert_eq!(part.raw_body(), message);
+    }
+
+    #[test]
+    fn header_less_html_body() {
+        // Raw HTML with no headers: the first line is not a valid header field
+        // (no colon), so the whole message is treated as the body rather than
+        // being rejected.
+        let message = concat!(
+            "<!DOCTYPE html>\r\n",
+            "<html lang=\"en\" xmlns:v=\"urn:schemas-microsoft-com:vml\">\r\n",
+            "<head>\r\n",
+            "    <meta charset=\"utf-8\">\r\n",
+            "\r\n",
+        );
+        let part = MimePart::parse(message).unwrap();
+        assert!(part.headers().iter().next().is_none());
+        assert_eq!(part.raw_body(), message);
+    }
+
+    #[test]
+    fn header_less_body_with_colon_sentence() {
+        // A body sentence that happens to contain a colon must not be mistaken
+        // for a header: a field name may not contain whitespace.
+        let message = "one two three: email\r\n";
+        let part = MimePart::parse(message).unwrap();
+        assert!(part.headers().iter().next().is_none());
+        assert_eq!(part.raw_body(), message);
+    }
+
     /// This is a regression test for an issue where we'd interpret the
     /// binary bytes as default windows-1252 codepage charset, and mangle them.
     /// The high byte is sufficient to trigger the offending code prior
