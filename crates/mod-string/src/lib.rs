@@ -112,10 +112,26 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     string_mod.set(
+        "psl_domain_is_known",
+        lua.create_function(move |_, s: String| {
+            let n = psl_utils::normalize_domain(&s);
+            Ok(psl_utils::domain_is_known(&n))
+        })?,
+    )?;
+
+    string_mod.set(
         "psl_suffix",
         lua.create_function(move |_, s: String| {
             let n = psl_utils::normalize_domain(&s);
             Ok(psl_utils::suffix_str(&n).map(|s| s.to_string()))
+        })?,
+    )?;
+
+    string_mod.set(
+        "psl_suffix_is_known",
+        lua.create_function(move |_, s: String| {
+            let n = psl_utils::normalize_domain(&s);
+            Ok(psl_utils::suffix_is_known(&n))
         })?,
     )?;
 
