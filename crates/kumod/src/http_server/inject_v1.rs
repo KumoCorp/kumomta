@@ -527,6 +527,8 @@ impl<'a> Compiled<'a> {
                 html_body,
                 amp_html_body,
                 headers,
+                from,
+                reply_to,
                 ..
             } => {
                 let mut builder = MessageBuilder::new();
@@ -550,11 +552,19 @@ impl<'a> Compiled<'a> {
                 }
 
                 let mut need_to = true;
+                let mut need_from = from.is_some();
+                let mut need_reply_to = reply_to.is_some();
 
                 #[allow(clippy::for_kv_map)]
                 for (name, _value) in headers {
                     if need_to && name.eq_ignore_ascii_case("to") {
                         need_to = false;
+                    }
+                    if need_from && name.eq_ignore_ascii_case("from") {
+                        need_from = false;
+                    }
+                    if need_reply_to && name.eq_ignore_ascii_case("reply-to") {
+                        need_reply_to = false;
                     }
                     let expanded = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
                     id += 1;
@@ -566,6 +576,32 @@ impl<'a> Compiled<'a> {
 
                 if need_to {
                     builder.set_to(to_mailbox)?;
+                }
+
+                // Built the same address-aware way as `to_mailbox` above, and
+                // set via the typed `set_from`/`set_reply_to` accessors so the
+                // addr-spec is never re-flattened through the generic
+                // ASCII-or-qp_encode `Header::new_unstructured` path.
+                if need_from {
+                    if let Some(from) = from {
+                        let from_mailbox = Address::Mailbox(Mailbox {
+                            name: from.name.clone(),
+                            address: AddrSpec::parse(&from.email)
+                                .context("failed parsing content.from")?,
+                        });
+                        builder.set_from(from_mailbox)?;
+                    }
+                }
+
+                if need_reply_to {
+                    if let Some(reply_to) = reply_to {
+                        let reply_to_mailbox = Address::Mailbox(Mailbox {
+                            name: reply_to.name.clone(),
+                            address: AddrSpec::parse(&reply_to.email)
+                                .context("failed parsing content.reply_to")?,
+                        });
+                        builder.set_reply_to(reply_to_mailbox)?;
+                    }
                 }
 
                 for part in &self.attached {
@@ -594,21 +630,21 @@ impl InjectV1Request {
                 reply_to,
             } => {
                 if let Some(from) = from {
-                    let mailbox = Address::Mailbox(Mailbox {
-                        name: from.name.clone(),
-                        address: AddrSpec::parse(&from.email)
-                            .context("failed parsing content.from")?,
-                    });
-
-                    headers.insert("From".to_string(), mailbox.encode_value().to_string());
+                    // Validate eagerly so a malformed address is rejected here,
+                    // rather than per-recipient inside expand_for_recip(). The
+                    // From header itself is now built and set there via the
+                    // address-aware `set_from` (mirroring how `To` is handled),
+                    // so it never has to survive a round-trip through this
+                    // generic string-keyed headers map, where
+                    // `Header::new_unstructured` would blanket-qp_encode the
+                    // whole value -- including the addr-spec, which RFC 2047
+                    // §5 rule 3 forbids -- and produce an unparseable header.
+                    AddrSpec::parse(&from.email).context("failed parsing content.from")?;
+                    headers.remove("From");
                 }
                 if let Some(reply_to) = reply_to {
-                    let mailbox = Address::Mailbox(Mailbox {
-                        name: reply_to.name.clone(),
-                        address: AddrSpec::parse(&reply_to.email)
-                            .context("failed parsing content.reply_to")?,
-                    });
-                    headers.insert("Reply-To".to_string(), mailbox.encode_value().to_string());
+                    AddrSpec::parse(&reply_to.email).context("failed parsing content.reply_to")?;
+                    headers.remove("Reply-To");
                 }
                 if let Some(v) = subject {
                     headers.insert("Subject".to_string(), v.to_string());
@@ -1715,6 +1751,112 @@ Ok(
                         domain: "example.com",
                     },
                 },
+            ],
+        ),
+    ),
+)
+"#
+        );
+    }
+
+    /// Regression test: a non-ASCII local-part in `content.from`/`content.reply_to`
+    /// used to be flattened into a plain `String` and re-encoded wholesale by
+    /// `Header::new_unstructured`'s blanket `qp_encode`, which wraps the entire
+    /// value -- including the addr-spec -- inside an RFC 2047 encoded-word.
+    /// That's illegal per RFC 2047 §5 rule 3 ("An encoded-word MUST NOT appear
+    /// within an addr-spec") and produced a header that failed to parse back
+    /// at all. See KUMO_DISCORD_FROM_ADDRESS_BUG_WALKTHROUGH.md for the full trace.
+    #[tokio::test]
+    async fn test_non_ascii_from_and_reply_to_builder() {
+        let mut request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: Some("James Smythe".to_string()),
+                substitutions: HashMap::new(),
+                metadata: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Builder {
+                text_body: Some("Hello, {{ name }}!".to_string()),
+                amp_html_body: None,
+                html_body: None,
+                subject: Some("hello {{ name }}".to_string()),
+                from: Some(FromHeader {
+                    email: "公式オンラインストア@example.com".to_string(),
+                    name: Some("Test".to_string()),
+                }),
+                reply_to: Some(FromHeader {
+                    email: "サポート@example.com".to_string(),
+                    name: Some("Support".to_string()),
+                }),
+                headers: Default::default(),
+                attachments: vec![],
+            },
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+            template_dialect: Default::default(),
+        };
+
+        request.normalize().unwrap();
+        let compiled = request.compile().unwrap();
+        let generated = compiled
+            .expand_for_recip(
+                &request.recipients[0],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap();
+
+        println!("{generated}");
+        let parsed = MimePart::parse(generated.as_str()).unwrap();
+        println!("{parsed:?}");
+
+        // Before the fix, `from()`/`reply_to()` would return an `Err` here
+        // (the nom address-list grammar can't parse an RFC 2047 encoded-word
+        // straddling the addr-spec) instead of the correct, unmangled address.
+        k9::snapshot!(
+            parsed.headers().from(),
+            r#"
+Ok(
+    Some(
+        MailboxList(
+            [
+                Mailbox {
+                    name: Some(
+                        "Test",
+                    ),
+                    address: AddrSpec {
+                        local_part: "公式オンラインストア",
+                        domain: "example.com",
+                    },
+                },
+            ],
+        ),
+    ),
+)
+"#
+        );
+
+        k9::snapshot!(
+            parsed.headers().reply_to(),
+            r#"
+Ok(
+    Some(
+        AddressList(
+            [
+                Mailbox(
+                    Mailbox {
+                        name: Some(
+                            "Support",
+                        ),
+                        address: AddrSpec {
+                            local_part: "サポート",
+                            domain: "example.com",
+                        },
+                    },
+                ),
             ],
         ),
     ),
