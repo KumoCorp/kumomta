@@ -572,23 +572,28 @@ impl<'a> Compiled<'a> {
 
                 // normalize() strips any raw "From"/"Reply-To" from `headers`
                 // when these are set, so no duplicate-header check is needed
-                // here. Set address-aware (like `to_mailbox`) so the
+                // here. Built address-aware (like `to_mailbox`) so the
                 // addr-spec never goes through `Header::new_unstructured`'s
-                // qp_encode path.
+                // qp_encode path, but still folded via kumo_wrap so a long
+                // display name wraps the same way it used to.
                 if let Some(from) = from {
-                    builder.set_from(Address::Mailbox(Mailbox {
+                    let mailbox = Address::Mailbox(Mailbox {
                         name: from.name.clone(),
                         address: AddrSpec::parse(&from.email)
                             .context("failed parsing content.from")?,
-                    }))?;
+                    });
+                    let wrapped = kumo_wrap::wrap(&mailbox.encode_value().to_string());
+                    builder.push(mailparsing::Header::with_name_value("From", wrapped));
                 }
 
                 if let Some(reply_to) = reply_to {
-                    builder.set_reply_to(Address::Mailbox(Mailbox {
+                    let mailbox = Address::Mailbox(Mailbox {
                         name: reply_to.name.clone(),
                         address: AddrSpec::parse(&reply_to.email)
                             .context("failed parsing content.reply_to")?,
-                    }))?;
+                    });
+                    let wrapped = kumo_wrap::wrap(&mailbox.encode_value().to_string());
+                    builder.push(mailparsing::Header::with_name_value("Reply-To", wrapped));
                 }
 
                 for part in &self.attached {
