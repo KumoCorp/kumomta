@@ -1,4 +1,4 @@
-use crate::kumod::DaemonWithMaildir;
+use crate::kumod::DaemonWithMaildirOptions;
 use anyhow::Context;
 use k9::assert_equal;
 use std::time::Duration;
@@ -6,9 +6,16 @@ use std::time::Duration;
 /// Regression test: a non-ASCII local-part in content.from/content.reply_to
 /// used to get double-encoded (RFC 2047 encoded-word wrapped around the
 /// addr-spec), producing a header that failed to parse back at all.
+///
+/// Uses a custom source policy (source-verify-from-header.lua) that calls
+/// the real msg:from_header()/msg:get_address_header("Reply-To") Lua
+/// bindings in an http_message_generated hook, so this exercises the actual
+/// production code path, not just a Rust-side re-check of the same parse.
 #[tokio::test]
 async fn http_inject_non_ascii_from() -> anyhow::Result<()> {
-    let mut daemon = DaemonWithMaildir::start()
+    let mut daemon = DaemonWithMaildirOptions::new()
+        .policy_file("source-verify-from-header.lua")
+        .start()
         .await
         .context("DaemonWithMaildir::start")?;
 
@@ -46,14 +53,22 @@ async fn http_inject_non_ascii_from() -> anyhow::Result<()> {
     assert_equal!(messages.len(), 1);
     let parsed = messages[0].parsed()?;
 
-    // Before the fix, from()/reply_to() would return an Err here.
+    // Matches Message::get_address_header()'s hdr.as_address_list() call,
+    // which is what the Lua-exposed msg:from_header() actually runs in
+    // production -- HeaderMap::from() uses as_mailbox_list() instead, a
+    // different top-level grammar rule, so it wouldn't prove this path.
+    // Before the fix, this would return an Err here.
     k9::snapshot!(
-        parsed.headers().from(),
+        parsed
+            .headers()
+            .get_first("From")
+            .expect("From header present")
+            .as_address_list(),
         r#"
 Ok(
-    Some(
-        MailboxList(
-            [
+    AddressList(
+        [
+            Mailbox(
                 Mailbox {
                     name: Some(
                         "Test",
@@ -63,8 +78,8 @@ Ok(
                         domain: "example.com",
                     },
                 },
-            ],
-        ),
+            ),
+        ],
     ),
 )
 "#

@@ -1789,14 +1789,22 @@ Ok(
         let parsed = MimePart::parse(generated.as_str()).unwrap();
         println!("{parsed:?}");
 
-        // Before the fix, from()/reply_to() would return an Err here.
+        // Matches Message::get_address_header()'s hdr.as_address_list() call,
+        // which is what the Lua-exposed msg:from_header() actually runs in
+        // production -- HeaderMap::from() uses as_mailbox_list() instead, a
+        // different top-level grammar rule, so it wouldn't prove this path.
+        // Before the fix, this would return an Err here.
         k9::snapshot!(
-            parsed.headers().from(),
+            parsed
+                .headers()
+                .get_first("From")
+                .expect("From header present")
+                .as_address_list(),
             r#"
 Ok(
-    Some(
-        MailboxList(
-            [
+    AddressList(
+        [
+            Mailbox(
                 Mailbox {
                     name: Some(
                         "Test",
@@ -1806,8 +1814,8 @@ Ok(
                         domain: "example.com",
                     },
                 },
-            ],
-        ),
+            ),
+        ],
     ),
 )
 "#
