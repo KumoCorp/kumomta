@@ -527,6 +527,8 @@ impl<'a> Compiled<'a> {
                 html_body,
                 amp_html_body,
                 headers,
+                from,
+                reply_to,
                 ..
             } => {
                 let mut builder = MessageBuilder::new();
@@ -568,6 +570,32 @@ impl<'a> Compiled<'a> {
                     builder.set_to(to_mailbox)?;
                 }
 
+                // normalize() strips any raw "From"/"Reply-To" from `headers`
+                // when these are set, so no duplicate-header check is needed
+                // here. Built address-aware (like `to_mailbox`) so the
+                // addr-spec never goes through `Header::new_unstructured`'s
+                // qp_encode path, but still folded via kumo_wrap so a long
+                // display name wraps the same way it used to.
+                if let Some(from) = from {
+                    let mailbox = Address::Mailbox(Mailbox {
+                        name: from.name.clone(),
+                        address: AddrSpec::parse(&from.email)
+                            .context("failed parsing content.from")?,
+                    });
+                    let wrapped = kumo_wrap::wrap(&mailbox.encode_value().to_string());
+                    builder.push(mailparsing::Header::with_name_value("From", wrapped));
+                }
+
+                if let Some(reply_to) = reply_to {
+                    let mailbox = Address::Mailbox(Mailbox {
+                        name: reply_to.name.clone(),
+                        address: AddrSpec::parse(&reply_to.email)
+                            .context("failed parsing content.reply_to")?,
+                    });
+                    let wrapped = kumo_wrap::wrap(&mailbox.encode_value().to_string());
+                    builder.push(mailparsing::Header::with_name_value("Reply-To", wrapped));
+                }
+
                 for part in &self.attached {
                     builder.attach_part(part.clone());
                 }
@@ -579,8 +607,10 @@ impl<'a> Compiled<'a> {
 }
 
 impl InjectV1Request {
-    /// Apply the from/subject/reply_to header shortcuts to the more
-    /// general headers map to make the compile/expand phases
+    /// Apply the subject shortcut to the headers map, and validate + drop
+    /// any raw From/Reply-To header that would conflict with the
+    /// from/reply_to shortcuts, which are built and set in
+    /// expand_for_recip() instead.
     fn normalize(&mut self) -> anyhow::Result<()> {
         match &mut self.content {
             Content::Builder {
@@ -594,21 +624,12 @@ impl InjectV1Request {
                 reply_to,
             } => {
                 if let Some(from) = from {
-                    let mailbox = Address::Mailbox(Mailbox {
-                        name: from.name.clone(),
-                        address: AddrSpec::parse(&from.email)
-                            .context("failed parsing content.from")?,
-                    });
-
-                    headers.insert("From".to_string(), mailbox.encode_value().to_string());
+                    AddrSpec::parse(&from.email).context("failed parsing content.from")?;
+                    headers.remove("From");
                 }
                 if let Some(reply_to) = reply_to {
-                    let mailbox = Address::Mailbox(Mailbox {
-                        name: reply_to.name.clone(),
-                        address: AddrSpec::parse(&reply_to.email)
-                            .context("failed parsing content.reply_to")?,
-                    });
-                    headers.insert("Reply-To".to_string(), mailbox.encode_value().to_string());
+                    AddrSpec::parse(&reply_to.email).context("failed parsing content.reply_to")?;
+                    headers.remove("Reply-To");
                 }
                 if let Some(v) = subject {
                     headers.insert("Subject".to_string(), v.to_string());
@@ -1715,6 +1736,114 @@ Ok(
                         domain: "example.com",
                     },
                 },
+            ],
+        ),
+    ),
+)
+"#
+        );
+    }
+
+    /// Regression test: a non-ASCII local-part in content.from/content.reply_to
+    /// used to get double-encoded (RFC 2047 encoded-word wrapped around the
+    /// addr-spec), producing a header that failed to parse back at all.
+    #[tokio::test]
+    async fn test_non_ascii_from_and_reply_to_builder() {
+        let mut request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: Some("James Smythe".to_string()),
+                substitutions: HashMap::new(),
+                metadata: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Builder {
+                text_body: Some("Hello, {{ name }}!".to_string()),
+                amp_html_body: None,
+                html_body: None,
+                subject: Some("hello {{ name }}".to_string()),
+                from: Some(FromHeader {
+                    email: "公式オンラインストア@example.com".to_string(),
+                    name: Some("Test".to_string()),
+                }),
+                reply_to: Some(FromHeader {
+                    email: "サポート@example.com".to_string(),
+                    name: Some("Support".to_string()),
+                }),
+                headers: Default::default(),
+                attachments: vec![],
+            },
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+            template_dialect: Default::default(),
+        };
+
+        request.normalize().unwrap();
+        let compiled = request.compile().unwrap();
+        let generated = compiled
+            .expand_for_recip(
+                &request.recipients[0],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap();
+
+        println!("{generated}");
+        let parsed = MimePart::parse(generated.as_str()).unwrap();
+        println!("{parsed:?}");
+
+        // Matches Message::get_address_header()'s hdr.as_address_list() call,
+        // which is what the Lua-exposed msg:from_header() actually runs in
+        // production -- HeaderMap::from() uses as_mailbox_list() instead, a
+        // different top-level grammar rule, so it wouldn't prove this path.
+        // Before the fix, this would return an Err here.
+        k9::snapshot!(
+            parsed
+                .headers()
+                .get_first("From")
+                .expect("From header present")
+                .as_address_list(),
+            r#"
+Ok(
+    AddressList(
+        [
+            Mailbox(
+                Mailbox {
+                    name: Some(
+                        "Test",
+                    ),
+                    address: AddrSpec {
+                        local_part: "公式オンラインストア",
+                        domain: "example.com",
+                    },
+                },
+            ),
+        ],
+    ),
+)
+"#
+        );
+
+        k9::snapshot!(
+            parsed.headers().reply_to(),
+            r#"
+Ok(
+    Some(
+        AddressList(
+            [
+                Mailbox(
+                    Mailbox {
+                        name: Some(
+                            "Support",
+                        ),
+                        address: AddrSpec {
+                            local_part: "サポート",
+                            domain: "example.com",
+                        },
+                    },
+                ),
             ],
         ),
     ),
