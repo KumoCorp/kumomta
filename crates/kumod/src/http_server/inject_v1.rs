@@ -552,19 +552,11 @@ impl<'a> Compiled<'a> {
                 }
 
                 let mut need_to = true;
-                let mut need_from = from.is_some();
-                let mut need_reply_to = reply_to.is_some();
 
                 #[allow(clippy::for_kv_map)]
                 for (name, _value) in headers {
                     if need_to && name.eq_ignore_ascii_case("to") {
                         need_to = false;
-                    }
-                    if need_from && name.eq_ignore_ascii_case("from") {
-                        need_from = false;
-                    }
-                    if need_reply_to && name.eq_ignore_ascii_case("reply-to") {
-                        need_reply_to = false;
                     }
                     let expanded = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
                     id += 1;
@@ -578,30 +570,25 @@ impl<'a> Compiled<'a> {
                     builder.set_to(to_mailbox)?;
                 }
 
-                // Built the same address-aware way as `to_mailbox` above, and
-                // set via the typed `set_from`/`set_reply_to` accessors so the
-                // addr-spec is never re-flattened through the generic
-                // ASCII-or-qp_encode `Header::new_unstructured` path.
-                if need_from {
-                    if let Some(from) = from {
-                        let from_mailbox = Address::Mailbox(Mailbox {
-                            name: from.name.clone(),
-                            address: AddrSpec::parse(&from.email)
-                                .context("failed parsing content.from")?,
-                        });
-                        builder.set_from(from_mailbox)?;
-                    }
+                // normalize() strips any raw "From"/"Reply-To" from `headers`
+                // when these are set, so no duplicate-header check is needed
+                // here. Set address-aware (like `to_mailbox`) so the
+                // addr-spec never goes through `Header::new_unstructured`'s
+                // qp_encode path.
+                if let Some(from) = from {
+                    builder.set_from(Address::Mailbox(Mailbox {
+                        name: from.name.clone(),
+                        address: AddrSpec::parse(&from.email)
+                            .context("failed parsing content.from")?,
+                    }))?;
                 }
 
-                if need_reply_to {
-                    if let Some(reply_to) = reply_to {
-                        let reply_to_mailbox = Address::Mailbox(Mailbox {
-                            name: reply_to.name.clone(),
-                            address: AddrSpec::parse(&reply_to.email)
-                                .context("failed parsing content.reply_to")?,
-                        });
-                        builder.set_reply_to(reply_to_mailbox)?;
-                    }
+                if let Some(reply_to) = reply_to {
+                    builder.set_reply_to(Address::Mailbox(Mailbox {
+                        name: reply_to.name.clone(),
+                        address: AddrSpec::parse(&reply_to.email)
+                            .context("failed parsing content.reply_to")?,
+                    }))?;
                 }
 
                 for part in &self.attached {
@@ -615,8 +602,10 @@ impl<'a> Compiled<'a> {
 }
 
 impl InjectV1Request {
-    /// Apply the from/subject/reply_to header shortcuts to the more
-    /// general headers map to make the compile/expand phases
+    /// Apply the subject shortcut to the headers map, and validate + drop
+    /// any raw From/Reply-To header that would conflict with the
+    /// from/reply_to shortcuts, which are built and set in
+    /// expand_for_recip() instead.
     fn normalize(&mut self) -> anyhow::Result<()> {
         match &mut self.content {
             Content::Builder {
@@ -630,15 +619,6 @@ impl InjectV1Request {
                 reply_to,
             } => {
                 if let Some(from) = from {
-                    // Validate eagerly so a malformed address is rejected here,
-                    // rather than per-recipient inside expand_for_recip(). The
-                    // From header itself is now built and set there via the
-                    // address-aware `set_from` (mirroring how `To` is handled),
-                    // so it never has to survive a round-trip through this
-                    // generic string-keyed headers map, where
-                    // `Header::new_unstructured` would blanket-qp_encode the
-                    // whole value -- including the addr-spec, which RFC 2047
-                    // §5 rule 3 forbids -- and produce an unparseable header.
                     AddrSpec::parse(&from.email).context("failed parsing content.from")?;
                     headers.remove("From");
                 }
@@ -1759,13 +1739,9 @@ Ok(
         );
     }
 
-    /// Regression test: a non-ASCII local-part in `content.from`/`content.reply_to`
-    /// used to be flattened into a plain `String` and re-encoded wholesale by
-    /// `Header::new_unstructured`'s blanket `qp_encode`, which wraps the entire
-    /// value -- including the addr-spec -- inside an RFC 2047 encoded-word.
-    /// That's illegal per RFC 2047 §5 rule 3 ("An encoded-word MUST NOT appear
-    /// within an addr-spec") and produced a header that failed to parse back
-    /// at all. See KUMO_DISCORD_FROM_ADDRESS_BUG_WALKTHROUGH.md for the full trace.
+    /// Regression test: a non-ASCII local-part in content.from/content.reply_to
+    /// used to get double-encoded (RFC 2047 encoded-word wrapped around the
+    /// addr-spec), producing a header that failed to parse back at all.
     #[tokio::test]
     async fn test_non_ascii_from_and_reply_to_builder() {
         let mut request = InjectV1Request {
@@ -1813,9 +1789,7 @@ Ok(
         let parsed = MimePart::parse(generated.as_str()).unwrap();
         println!("{parsed:?}");
 
-        // Before the fix, `from()`/`reply_to()` would return an `Err` here
-        // (the nom address-list grammar can't parse an RFC 2047 encoded-word
-        // straddling the addr-spec) instead of the correct, unmangled address.
+        // Before the fix, from()/reply_to() would return an Err here.
         k9::snapshot!(
             parsed.headers().from(),
             r#"

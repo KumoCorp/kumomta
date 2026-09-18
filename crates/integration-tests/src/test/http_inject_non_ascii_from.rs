@@ -3,18 +3,9 @@ use anyhow::Context;
 use k9::assert_equal;
 use std::time::Duration;
 
-/// Regression test for the From/Reply-To header corruption bug.
-///
-/// `content.from`/`content.reply_to` are built correctly, address-aware, via
-/// `Mailbox::encode_value()` in `normalize()`. Before the fix, that string was
-/// then flattened into the generic `headers: BTreeMap<String, String>` bag and
-/// re-encoded wholesale by `Header::new_unstructured`'s blanket `qp_encode` in
-/// `expand_for_recip()`, which wraps the *entire* value -- including the
-/// addr-spec -- inside a single RFC 2047 encoded-word. That's illegal per
-/// RFC 2047 §5 rule 3 ("An encoded-word MUST NOT appear within an
-/// addr-spec") and produced a header that fails to parse back at all.
-///
-/// See KUMO_DISCORD_FROM_ADDRESS_BUG_WALKTHROUGH.md for the full trace.
+/// Regression test: a non-ASCII local-part in content.from/content.reply_to
+/// used to get double-encoded (RFC 2047 encoded-word wrapped around the
+/// addr-spec), producing a header that failed to parse back at all.
 #[tokio::test]
 async fn http_inject_non_ascii_from() -> anyhow::Result<()> {
     let mut daemon = DaemonWithMaildir::start()
@@ -55,11 +46,7 @@ async fn http_inject_non_ascii_from() -> anyhow::Result<()> {
     assert_equal!(messages.len(), 1);
     let parsed = messages[0].parsed()?;
 
-    // The actual regression check: before the fix, `from()`/`reply_to()`
-    // returned an `Err` here (the nom address-list grammar can't parse an
-    // RFC 2047 encoded-word straddling the addr-spec). After the fix it must
-    // parse cleanly and preserve the exact, unmangled UTF-8 address and
-    // display name.
+    // Before the fix, from()/reply_to() would return an Err here.
     k9::snapshot!(
         parsed.headers().from(),
         r#"
