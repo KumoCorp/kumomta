@@ -296,7 +296,7 @@ duration = "30 minutes"
 #==== Barracuda network
 [provider."barracuda"]
 match=[
-        {MXSuffix=".barracudanetworks.com."},
+        {MXSuffix=".barracudanetworks.com"},
 ]
 enable_tls = 'Required'
 max_deliveries_per_connection = 15
@@ -306,7 +306,7 @@ provider_connection_limit =10
 #==== Netvigator network
 [provider."netvigator"]
 match=[
-        {MXSuffix=".netvigator.com."},
+        {MXSuffix=".netvigator.com"},
 ]
 enable_tls = 'Required'
 max_deliveries_per_connection = 10
@@ -322,7 +322,7 @@ duration = "30 minutes"
 #==== KPN provider
 [provider."kpn"]
 match=[
-        {MXSuffix=".kpnmail.nl."},
+        {MXSuffix=".kpnmail.nl"},
 ]
 max_deliveries_per_connection = 10
 connection_limit = 10
