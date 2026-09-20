@@ -2,7 +2,7 @@ use crate::types::identifier::Identifier;
 use crate::types::policy::Policy;
 use crate::types::policy_override::PolicyOverrideReason;
 use bstr::BString;
-use instant_xml::{FromXml, ToXml};
+use instant_xml::ToXml;
 use kumo_spf::SpfDisposition;
 use mailparsing::AuthenticationResult;
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::net::IpAddr;
 
-#[derive(Debug, Eq, FromXml, PartialEq, ToXml, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, ToXml, Serialize, Deserialize, Clone, Copy)]
 #[xml(scalar, rename_all = "lowercase")]
 pub enum SpfScope {
     Helo,
