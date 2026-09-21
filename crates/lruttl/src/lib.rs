@@ -454,6 +454,21 @@ pub fn set_cache_capacity(name: &str, capacity: usize) -> bool {
     }
 }
 
+/// Purge (invalidate) a single named cache, dropping all of its entries.
+///
+/// Returns the number of entries that were removed, or `None` if there is
+/// no live cache currently registered under `name`.
+///
+/// Unlike [`set_cache_capacity`], this operates on the live cache registry
+/// rather than the set of pre-defined caches, so it also works for caches
+/// created dynamically at runtime (for example, via `kumo.memoize`).
+pub fn purge_cache_by_name(name: &str) -> Option<usize> {
+    all_caches()
+        .iter()
+        .find(|p| p.name() == name)
+        .map(|p| p.purge())
+}
+
 pub fn spawn_memory_monitor() {
     vivify();
     tokio::spawn(purge_caches_on_memory_shortage());
@@ -1086,5 +1101,40 @@ mod test {
         assert_eq!(1, foos.pop().unwrap().await.unwrap().unwrap().item);
 
         assert_eq!(cache.inner.cache.len(), 1);
+    }
+
+    #[test(tokio::test)]
+    async fn test_purge_cache_by_name() {
+        let cache = Arc::new(LruCacheWithTtl::<String, u64>::new(
+            "test_purge_cache_by_name",
+            8,
+        ));
+
+        // Populate an entry.
+        let result = cache
+            .get_or_try_insert(&"foo".to_string(), |_| Duration::from_secs(86400), async {
+                Ok::<_, anyhow::Error>(1u64)
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.item, 1);
+        assert_eq!(cache.inner.cache.len(), 1);
+
+        // Purge just this cache by name via the global registry.
+        let removed = purge_cache_by_name("test_purge_cache_by_name");
+        assert_eq!(removed, Some(1));
+        assert_eq!(cache.inner.cache.len(), 0);
+
+        // A subsequent lookup repopulates it.
+        let result = cache
+            .get_or_try_insert(&"foo".to_string(), |_| Duration::from_secs(86400), async {
+                Ok::<_, anyhow::Error>(2u64)
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.item, 2);
+
+        // An unknown cache name yields None.
+        assert_eq!(purge_cache_by_name("no_such_cache_xyz"), None);
     }
 }
