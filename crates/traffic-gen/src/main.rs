@@ -247,27 +247,25 @@ impl Client {
         match self {
             Self::Smtp(client) => {
                 let result = client.send_mail(sender, recip, body).await;
-                match result
-                {
+                match result {
                     Ok(_) => SendDisposition::Ok,
                     Err(
-                        ClientError::Rejected(Response { code: 421, .. }) |
-                        ClientError::TimeOutResponse{..} |
-                        ClientError::TimeOutRequest{..} |
-                        ClientError::TimeOutData |
-                        ClientError::Rejected(Response {
-                        code: 451,
-                        enhanced_code:
+                        ClientError::Rejected(Response { code: 421, .. })
+                        | ClientError::TimeOutResponse { .. }
+                        | ClientError::TimeOutRequest { .. }
+                        | ClientError::TimeOutData
+                        | ClientError::Rejected(Response {
+                            code: 451,
                             // Too many recipients
-                            Some(EnhancedStatusCode {
-                                class: 4,
-                                subject: 5,
-                                detail: 3,
-                            }),
-                        ..
-                    })) => {
-                        SendDisposition::Reconnect
-                    }
+                            enhanced_code:
+                                Some(EnhancedStatusCode {
+                                    class: 4,
+                                    subject: 5,
+                                    detail: 3,
+                                }),
+                            ..
+                        }),
+                    ) => SendDisposition::Reconnect,
                     err @ Err(_) => {
                         SendDisposition::Failed(err.context("Failed to send mail").unwrap_err())
                     }
