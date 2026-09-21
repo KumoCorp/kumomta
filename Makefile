@@ -18,6 +18,7 @@ build:
 	cargo build $(BUILD_OPTS) -p traffic-gen
 	cargo build $(BUILD_OPTS) -p toml2jsonc
 	cargo build $(BUILD_OPTS) -p tls-probe
+	cargo build $(BUILD_OPTS) -p fault-inject-preload
 
 # Check compilation with all possible feature combinations
 # Requires: cargo install --locked cargo-feature-combinations

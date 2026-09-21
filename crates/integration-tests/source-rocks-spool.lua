@@ -20,6 +20,10 @@ local kumo = require 'kumo'
 
 local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 local SINK_PORT = tonumber(os.getenv 'KUMOD_SMTP_SINK_PORT')
+-- Tests that inject filesystem faults place the spool under a directory they
+-- know before the daemon starts, to scope the fault to it. Falls back to
+-- TEST_DIR otherwise.
+local SPOOL_DIR = os.getenv 'KUMOD_ROCKS_SPOOL_DIR' or TEST_DIR
 
 kumo.on('init', function()
   -- The default paths for these point under /var/spool and would
@@ -60,17 +64,26 @@ kumo.on('init', function()
     -- metrics_monitor tick, the gate engages within ~5-10s of the
     -- corruption being introduced.
     error_latch_duration = '2s',
+    error_unlatch_duration = os.getenv 'KUMOD_ROCKS_ERROR_UNLATCH_DURATION'
+      or '5m',
+    -- Tests that exercise the backpressure timeout shorten this: a stalled
+    -- write then gives up quickly instead of waiting the 30s default.
+    store_deadline = os.getenv 'KUMOD_ROCKS_STORE_DEADLINE' or '30s',
   }
 
+  -- Building these paths under SPOOL_DIR, rather than the daemon's own
+  -- TEST_DIR, lets a fault-injecting test relocate the spool under a
+  -- directory it controls and fault the whole thing without needing to
+  -- know these subdirectory names.
   kumo.define_spool {
     name = 'data',
-    path = TEST_DIR .. '/data-spool',
+    path = SPOOL_DIR .. '/data-spool',
     kind = 'RocksDB',
     rocks_params = rocks_params,
   }
   kumo.define_spool {
     name = 'meta',
-    path = TEST_DIR .. '/meta-spool',
+    path = SPOOL_DIR .. '/meta-spool',
     kind = 'RocksDB',
     rocks_params = rocks_params,
   }

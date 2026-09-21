@@ -4,7 +4,7 @@
 Type: Gauge
 Labels: path
 ```
-Set to 1 when this spool's load-shedding gate is latched, 0 otherwise.  When set, ingress paths (SMTP, HTTP inject) reject traffic and foreground store/remove operations fail fast rather than stall.
+Set to 1 while this spool refuses writes, or 0 otherwise. When set, SMTP and HTTP ingress reject traffic, and store/remove operations return an error immediately.
 
 
 !!! info
@@ -12,27 +12,30 @@ Set to 1 when this spool's load-shedding gate is latched, 0 otherwise.  When set
 
 {{since('dev')}}
 
-The gate latches in either of two ways:
+A foreground operation returning `Corruption` or `IOError` immediately
+latches the gate, causing subsequent writes to return errors. These failures
+include missing and corrupt SST files.
 
-* **Immediate**: a foreground spool operation (load, store,
-  remove) returns a rocksdb error classified as definitively
-  bad (`Corruption` or `IOError` -- e.g. a missing or corrupt
-  SST file discovered during a read).  These conditions have
-  no transient interpretation, so the gate latches on the
-  first such observation.
-* **Debounced**: less specific failure signals --
-  `background-errors` has grown since this process started, or
-  foreground operations have returned non-fatal errors --
-  sustained continuously for the configured
-  `error_latch_duration` (default 15s).  This filters out
-  brief auto-resumed errors.
+Newly observed background errors, other foreground errors, and timeouts
+while waiting for RocksDB to accept a write start the `error_latch_duration`
+delay (default 15 seconds). Even an isolated error causes a latch after
+this delay.
 
-If `allow_error_unlatch` is enabled (the default), the gate
-auto-clears after `error_unlatch_duration` of observed recovery
-(default 5 minutes) with no new errors of either class.
-Otherwise it stays set until the process is restarted.
+With `allow_error_unlatch = true` (the default), writes resume after
+`error_unlatch_duration` (default 5 minutes) has elapsed since the later
+of the latch time and the most recent error observation. If the database
+remains damaged, another error can latch the gate again. Set
+`allow_error_unlatch = false` to keep writes paused until an operator
+inspects the database and restarts the process.
 
-SREs should treat any sustained non-zero value as an
-operator-actionable incident; pair this metric with
-`rocks_spool_background_errors` to understand why.
+The monitor checks background-error growth and applies the latch and
+retry timers, then sleeps for 5 seconds. Later errors are handled by
+the next iteration.
+
+Automatic retries accept this sampling delay: writes may resume between a
+background error and its observation. Disable `allow_error_unlatch` to
+keep writes paused across that window.
+
+If writes remain paused, inspect `rocks_spool_background_errors` and the
+RocksDB LOG to identify the storage failure.
 

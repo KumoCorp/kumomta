@@ -89,27 +89,30 @@
    resolved at connection time and each returned address is tried in
    turn, sharing the `connect_timeout` budget.
 
- * KumoMTA now proactively detects when the rocksdb-backed spool has
-   reached a state that requires operator intervention (a missing or
-   corrupt SST surfaced through a foreground read/write, or sustained
-   background-error accumulation from compactions or flushes) and
-   transitions into a load-shedding state. While the spool is
-   unhealthy, the SMTP banner returns 421, HTTP injection and
-   `/api/check-liveness/v1` return 503, and delivery is paused.
-   Pausing delivery limits the window in which a successful SMTP
-   transaction could be followed by a failed spool `remove()`, which
-   would otherwise cause that message to be redelivered. The
-   diagnostic log records each transition that drives this: when
-   the rocksdb `background-errors` counter grows, when a foreground
-   read or write returns a fatal `IOError` or `Corruption`, when the
-   load-shedding gate latches, and (where applicable) when the gate
-   later auto-clears after sustained recovery. Each record names
-   the spool path and points at the rocksdb LOG file in that
-   directory for the underlying cause. The delivery pause itself
-   can be toggled with the new
+ * KumoMTA now detects when the rocksdb-backed spool has reached a state that
+   requires operator intervention (a missing or corrupt SST surfaced through a
+   foreground read/write, or sustained background-error accumulation from
+   compactions or flushes) and transitions into a load-shedding state. During
+   load-shedding, the SMTP banner returns 421, HTTP injection and
+   `/api/check-liveness/v1` return 503, and delivery is paused. Pausing delivery
+   limits the window in which a successful SMTP transaction could be followed by
+   a failed spool `remove()`, which would otherwise cause that message to be
+   redelivered. The diagnostic log records each transition that drives this:
+   when the rocksdb `background-errors` counter grows, when a foreground read or
+   write returns a fatal `IOError` or `Corruption`, when the load-shedding gate
+   latches, and (where applicable) when it later reopens for an automatic retry
+   after `error_unlatch_duration` passes with the gate latched and no newly
+   observed errors of either class. Reopening is a retry, not verified recovery,
+   and a still-damaged database can latch again. `error_unlatch_duration` is
+   rejected at configure time if it is zero while `allow_error_unlatch` is
+   enabled, and foreground error reporting is serialized with gate transitions
+   so a concurrent fatal error cannot be silently undone by a reopen. Each
+   record names the spool path and points at the rocksdb LOG file in that
+   directory for the underlying cause. The delivery pause itself can be toggled
+   with the new
    [kumo.suspend_delivery_when_spool_unhealthy](../reference/kumo/suspend_delivery_when_spool_unhealthy.md)
-   policy function (default: enabled). Several new metrics expose
-   the underlying state to monitoring:
+   policy function (default: enabled). Several new metrics expose the underlying
+   state to monitoring:
    [rocks_spool_load_shed_active](../reference/metrics/kumod/rocks_spool_load_shed_active.md),
    [rocks_spool_background_errors](../reference/metrics/kumod/rocks_spool_background_errors.md),
    [rocks_spool_write_stopped](../reference/metrics/kumod/rocks_spool_write_stopped.md),

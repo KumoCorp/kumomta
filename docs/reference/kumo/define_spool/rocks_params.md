@@ -406,44 +406,54 @@ operators can tell the two cases apart.
 
 {{since('dev')}}
 
-How long the composite "this database is wedged" signal must hold
-continuously before the load-shedding gate latches.  Specified as
-a duration string.  Defaults to 15 seconds.
+Delay from the first observed error in an incident before the load-shedding
+gate latches. Specified as a duration string. Defaults to 15 seconds.
 
-The signal goes high whenever the rocksdb `background-errors`
-counter has grown above the value observed at process start, or
-any foreground spool operation has returned a rocksdb error since
-process start; see
-[rocks_spool_load_shed_active](../../metrics/kumod/rocks_spool_load_shed_active.md)
-for the full description.  Brief blips that recover within this
-window do not latch the gate, which filters out transient
-auto-resumed errors.
+New background errors, non-fatal foreground RocksDB errors, and exhausted
+backpressure deadlines start this delay. Even an isolated error causes the gate
+to latch, because a database that has stopped working may also stop reporting
+errors. Transient errors follow the same latch policy.
 
-Note that fatal foreground errors (`Corruption` or `IOError`)
-latch the gate immediately and do not consult this debounce
-window.
+Foreground `Corruption` and `IOError` latch the gate immediately,
+bypassing the delay. See [rocks_spool_load_shed_active][load-shed-active].
+
+Background errors and timed transitions are checked by a monitor that sleeps
+5 seconds between iterations. Scheduling and time spent collecting statistics
+can delay transitions further.
 
 ## error_unlatch_duration
 
 {{since('dev')}}
 
-How long the healthy state must hold continuously before the
-load-shedding gate auto-unlatches.  Specified as a duration string.
-Defaults to 5 minutes.  Only consulted when
-[allow_error_unlatch](#allow_error_unlatch) is `true`.
+Minimum time both latched and without newly observed errors before the gate
+reopens for a retry. Specified as a duration string. Defaults to 5 minutes.
+Only consulted when [allow_error_unlatch](#allow_error_unlatch) is `true`,
+in which case it must be greater than zero.
 
-A relatively long value gives operators time to inspect the
-database after a brief failure window before the daemon starts
-accepting writes again on its own.
+The interval starts at the later of the latch time and the most recent error
+observation. Every new error observation restarts it. A shorter unlatch duration
+than latch duration is allowed. The gate still remains latched for the full
+unlatch duration. The monitor disables the gate when it next observes that the
+interval has elapsed.
+
+A relatively long value allows operators to inspect the database before writes
+resume. Quiet error counters do not establish that the database has recovered or
+that existing message data is intact.
 
 ## allow_error_unlatch
 
 {{since('dev')}}
 
-When `true` (the default), the load-shedding gate clears itself
-after [error_unlatch_duration](#error_unlatch_duration) of observed
-recovery.
+When `true` (the default), writes resume automatically after
+[error_unlatch_duration](#error_unlatch_duration) has elapsed since the later
+of the latch time and the most recent error observation. A database that
+remains damaged may latch again.
 
-Set to `false` to require an operator restart to clear the gate,
-which is appropriate when you want a human to confirm the
-underlying cause is resolved before accepting traffic again.
+Background errors are sampled: a new error can occur between a sample and
+reopening the gate. Automatic reopening is a best-effort recovery attempt, not a
+guarantee that the spool is healthy.
+
+Set to `false` to keep writes paused until an operator inspects the database
+and restarts the process.
+
+[load-shed-active]: ../../metrics/kumod/rocks_spool_load_shed_active.md

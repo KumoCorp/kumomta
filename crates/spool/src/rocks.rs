@@ -1,3 +1,4 @@
+use self::health::{Health, Policy};
 use crate::{
     Spool, SpoolBackpressureTimeout, SpoolCallerDeadlineExceeded, SpoolEntry, SpoolId,
     SpoolUnhealthyError,
@@ -18,12 +19,13 @@ use rocksdb::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 use tokio::runtime::Handle;
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::{sleep, timeout_at};
+
+mod health;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RocksSpoolParams {
@@ -109,36 +111,34 @@ pub struct RocksSpoolParams {
     )]
     pub store_deadline: Duration,
 
-    /// How long the composite "this database is wedged" signal must
-    /// hold continuously before the load-shedding gate latches.
-    /// The signal goes high whenever the rocksdb
-    /// `background-errors` counter has grown above the value
-    /// observed at process start, or any foreground spool operation
-    /// has returned a rocksdb error since process start.  Brief
-    /// blips that recover within this window do not latch the gate.
+    /// Delay after an error before pausing writes, specified as a duration
+    /// string such as `"15s"` or `"2m"`.
+    /// Even an isolated error starts this delay. A read, write, or enumeration
+    /// returning Corruption or IOError bypasses the delay and immediately
+    /// pauses writes until an automatic retry or process restart. Errors in
+    /// background flushes and compactions start the delay when the monitor
+    /// observes their count increasing.
     #[serde(
         with = "duration_serde",
         default = "RocksSpoolParams::default_error_latch_duration"
     )]
     pub error_latch_duration: Duration,
 
-    /// How long the healthy state must hold continuously before the
-    /// load-shedding gate auto-unlatches.  Only consulted when
-    /// `allow_error_unlatch` is true.  A relatively long value
-    /// (minutes) gives operators time to inspect the database after a
-    /// brief failure window before the daemon starts accepting writes
-    /// again on its own.
+    /// The duration to pause before an automatic retry, specified as a duration
+    /// string such as `"5m"` or `"30s"`. The timer starts when the gate latches
+    /// and restarts on each error observation. Must be nonzero when
+    /// `allow_error_unlatch` is true. Longer pauses allow more time for
+    /// operator inspection.
     #[serde(
         with = "duration_serde",
         default = "RocksSpoolParams::default_error_unlatch_duration"
     )]
     pub error_unlatch_duration: Duration,
 
-    /// When true (the default), the load-shedding gate clears itself
-    /// after `error_unlatch_duration` of observed recovery.  Set to
-    /// false to require an operator restart to clear the gate, which
-    /// is appropriate when you want a human to confirm the underlying
-    /// cause is resolved before accepting traffic again.
+    /// Whether writes resume automatically after `error_unlatch_duration`
+    /// elapses with the gate latched and error counts unchanged. Defaults to
+    /// true. Set to false to keep writes paused until an operator restarts
+    /// the process after inspecting the database.
     #[serde(default = "RocksSpoolParams::default_allow_error_unlatch")]
     pub allow_error_unlatch: bool,
 }
@@ -263,23 +263,9 @@ pub struct RocksSpool {
     limit_concurrent_stores: Option<Arc<Semaphore>>,
     limit_concurrent_loads: Option<Arc<Semaphore>>,
     limit_concurrent_removes: Option<Arc<Semaphore>>,
-    /// Latched load-shedding gate driven by `metrics_monitor`.  When
-    /// set, foreground `store()`/`remove()` calls return an error
-    /// instead of waiting on rocksdb backpressure, and the ingress
-    /// paths refuse new traffic.  See `metrics_monitor` for the
-    /// composite signal that drives latch/unlatch transitions.
-    load_shed_active: Arc<AtomicBool>,
-    /// Count of foreground spool operations (load, enumerate,
-    /// store, remove) that have failed with a rocksdb error
-    /// since the last auto-unlatch (or since process start if no
-    /// auto-unlatch has happened).  `metrics_monitor` reads this
-    /// to detect failure modes that do not surface as background
-    /// errors -- notably a missing SST discovered during a
-    /// `get()`, which the C++ side reports to the caller but does
-    /// not feed into `rocksdb.background-errors`.  Reset to 0 by
-    /// the auto-unlatch path's compare-exchange so a subsequent
-    /// blip can be observed as fresh growth.
-    foreground_errors: Arc<AtomicU64>,
+    /// Error observations and the gate shared by foreground operations
+    /// and the monitor.
+    health: Arc<Health>,
     store_deadline: Duration,
 }
 
@@ -292,21 +278,83 @@ const BACKOFF_INITIAL: Duration = Duration::from_micros(500);
 /// a long wedge.
 const BACKOFF_MAX: Duration = Duration::from_millis(50);
 
+/// Selects the binding deadline for a backpressured write: the caller's
+/// deadline when it falls before the `store_deadline` of the spool, otherwise
+/// the spool deadline. Returns that deadline along with whether it was the
+/// caller's.
+fn select_effective_deadline(
+    caller_deadline: Option<Instant>,
+    spool_deadline: Instant,
+) -> (Instant, bool) {
+    match caller_deadline {
+        Some(c) if c < spool_deadline => (c, true),
+        _ => (spool_deadline, false),
+    }
+}
+
 impl RocksSpool {
-    /// Driver shared by `store()` and `remove()`.  Issues `write_opt`
-    /// with `no_slowdown=true` repeatedly with exponential backoff
-    /// until one of: the write succeeds, the effective deadline is
-    /// reached, the load-shedding gate latches, or rocksdb returns a
-    /// non-`Incomplete` error.
-    ///
-    /// This replaces an earlier design that used `spawn_blocking` with
-    /// `no_slowdown=false`.  That approach could not be cancelled, held
-    /// a blocking-pool worker per stalled call (risking pool
-    /// exhaustion during a wedge), and could not observe the latched
-    /// load-shedding gate.  The polling design preserves write
-    /// atomicity -- each iteration is a single rocksdb batch write,
-    /// which is atomic by construction -- while restoring
-    /// cancellation, gate observability, and bounded resource use.
+    /// Builds the typed error for a backpressure deadline: the
+    /// caller-provided deadline when `caller_wins` is true, otherwise the
+    /// spool's own `store_deadline`.
+    fn timeout_err(&self, caller_wins: bool) -> anyhow::Error {
+        if caller_wins {
+            SpoolCallerDeadlineExceeded.into()
+        } else {
+            SpoolBackpressureTimeout {
+                deadline: self.store_deadline,
+            }
+            .into()
+        }
+    }
+
+    /// Routes a backpressure timeout to the delayed latch path rather than
+    /// latching now: a load spike can exhaust the deadline on an intact
+    /// database, and the delay waits out that transient before latching. The
+    /// log fires only on the incident-starting transition (bounded to once per
+    /// incident, since a latched gate rejects writes before they reach this
+    /// path), not per timed-out write.
+    fn note_backpressure_timeout(&self) {
+        if self.health.record_foreground_error(false) {
+            tracing::error!(
+                "rocksdb at {}: a write timed out waiting for RocksDB to accept it. \
+                 This is the first sign of trouble in a new incident; it does not by \
+                 itself mean the spool has stopped accepting writes yet, but the \
+                 load-shedding gate will close {:?} from now, at which point ingress \
+                 will start rejecting traffic -- this happens even if no further \
+                 errors occur. Investigate disk I/O and space on this host, and check \
+                 the RocksDB LOG file in the spool directory for background errors.",
+                self.db.path().display(),
+                self.health.latch_duration(),
+            );
+        }
+    }
+
+    /// Acquires a concurrency permit under the effective deadline, or reports
+    /// the timeout as a backpressure incident and returns the typed error.
+    /// Returns `None` when `permits` is `None`.
+    async fn acquire_store_permit(
+        &self,
+        permits: Option<Arc<Semaphore>>,
+        effective_deadline: Instant,
+        caller_wins: bool,
+    ) -> anyhow::Result<Option<OwnedSemaphorePermit>> {
+        let Some(s) = permits else {
+            return Ok(None);
+        };
+        match timeout_at(effective_deadline.into(), s.acquire_owned()).await {
+            Ok(r) => Ok(Some(r?)),
+            Err(_) => {
+                self.note_backpressure_timeout();
+                Err(self.timeout_err(caller_wins))
+            }
+        }
+    }
+
+    /// Writes a RocksDB batch, retrying with exponential backoff until the
+    /// write succeeds, the effective deadline is reached, the load-shedding
+    /// gate latches, or RocksDB returns a non-`Incomplete` error. The write is
+    /// atomic, cancellable, and doesn't hold a blocking-pool worker while it
+    /// waits.
     async fn write_with_backpressure(
         &self,
         opts: WriteOptions,
@@ -323,7 +371,7 @@ impl RocksSpool {
         // covered by the per-connection ingress checks (notably,
         // already-established SMTP connections doing new
         // transactions).
-        if self.load_shed_active.load(Ordering::Relaxed) {
+        if self.health.is_active() {
             return Err(SpoolUnhealthyError.into());
         }
 
@@ -333,64 +381,27 @@ impl RocksSpool {
             Ok(()) => return Ok(()),
             Err(err) if err.kind() == ErrorKind::Incomplete => {}
             Err(err) => {
-                record_foreground_error(
-                    &self.foreground_errors,
-                    &self.load_shed_active,
-                    self.db.path(),
-                    &err,
-                );
+                record_foreground_error(&self.health, self.db.path(), &err);
                 return Err(err.into());
             }
         }
 
         let spool_deadline = Instant::now() + self.store_deadline;
-        // Decide upfront which side's deadline wins, so both the
-        // semaphore-acquisition timeout and the backpressure-loop
-        // timeout can surface the matching typed error.  Without
-        // this, the SMTP layer cannot tell a caller-provided
-        // `data_processing_timeout` from the spool's own
-        // `store_deadline` and would mis-label the wire response.
-        let (effective_deadline, caller_wins) = match caller_deadline {
-            Some(c) if c < spool_deadline => (c, true),
-            _ => (spool_deadline, false),
-        };
-        let timeout_err = || -> anyhow::Error {
-            if caller_wins {
-                SpoolCallerDeadlineExceeded.into()
-            } else {
-                SpoolBackpressureTimeout {
-                    deadline: self.store_deadline,
-                }
-                .into()
-            }
-        };
+        let (effective_deadline, caller_wins) =
+            select_effective_deadline(caller_deadline, spool_deadline);
 
-        let _permit = match permits {
-            Some(s) => match timeout_at(effective_deadline.into(), s.acquire_owned()).await {
-                Ok(r) => Some(r?),
-                Err(_) => return Err(timeout_err()),
-            },
-            None => None,
-        };
+        let _permit = self
+            .acquire_store_permit(permits, effective_deadline, caller_wins)
+            .await?;
 
         let mut backoff = BACKOFF_INITIAL;
         loop {
-            if self.load_shed_active.load(Ordering::Relaxed) {
+            if self.health.is_active() {
                 return Err(SpoolUnhealthyError.into());
             }
             if Instant::now() >= effective_deadline {
-                // Sustained backpressure for the full deadline is
-                // itself a useful signal that the spool may be
-                // unhealthy.  Feed it into the foreground error
-                // machinery so the debounced latch path can react if
-                // we see this repeatedly; an occasional one-off
-                // (e.g. a brief load spike) gets washed out by the
-                // `error_latch_duration` window.  We do not
-                // immediate-latch because no rocksdb error has been
-                // returned -- the inability to make progress is
-                // ambiguous, not definitively bad.
-                self.foreground_errors.fetch_add(1, Ordering::Relaxed);
-                return Err(timeout_err());
+                self.note_backpressure_timeout();
+                return Err(self.timeout_err(caller_wins));
             }
             sleep(backoff).await;
             backoff = (backoff * 2).min(BACKOFF_MAX);
@@ -401,12 +412,7 @@ impl RocksSpool {
                 Ok(()) => return Ok(()),
                 Err(err) if err.kind() == ErrorKind::Incomplete => continue,
                 Err(err) => {
-                    record_foreground_error(
-                        &self.foreground_errors,
-                        &self.load_shed_active,
-                        self.db.path(),
-                        &err,
-                    );
+                    record_foreground_error(&self.health, self.db.path(), &err);
                     return Err(err.into());
                 }
             }
@@ -426,6 +432,12 @@ impl RocksSpool {
         opts.set_keep_log_file_num(10);
 
         let p = params.unwrap_or_default();
+        let policy = Policy {
+            latch_duration: p.error_latch_duration,
+            unlatch_duration: p.error_unlatch_duration,
+            allow_unlatch: p.allow_error_unlatch,
+        };
+        policy.validate()?;
         if let Some(i) = p.increase_parallelism {
             opts.increase_parallelism(i);
         }
@@ -491,24 +503,17 @@ impl RocksSpool {
             .with_context(|| format!("spool directory {} is not usable", path.display()))?;
 
         let db = Arc::new(DB::open(&opts, path)?);
-        let load_shed_active = Arc::new(AtomicBool::new(false));
-        let foreground_errors = Arc::new(AtomicU64::new(0));
+        // Baseline at zero: every error on this DB instance, including one
+        // from startup work performed by DB::open itself, can start an
+        // incident.
+        let health = Arc::new(Health::new(0, policy, format!("{}", path.display())));
         let store_deadline = p.store_deadline;
 
-        {
-            let weak_db = Arc::downgrade(&db);
-            let weak_mirror = Arc::downgrade(&load_shed_active);
-            let weak_fg_errors = Arc::downgrade(&foreground_errors);
-            tokio::spawn(metrics_monitor(
-                weak_db,
-                weak_mirror,
-                weak_fg_errors,
-                format!("{}", path.display()),
-                p.error_latch_duration,
-                p.error_unlatch_duration,
-                p.allow_error_unlatch,
-            ));
-        }
+        tokio::spawn(metrics_monitor(
+            Arc::downgrade(&db),
+            Arc::downgrade(&health),
+            format!("{}", path.display()),
+        ));
 
         Ok(Self {
             db,
@@ -516,8 +521,7 @@ impl RocksSpool {
             limit_concurrent_stores,
             limit_concurrent_loads,
             limit_concurrent_removes,
-            load_shed_active,
-            foreground_errors,
+            health,
             store_deadline,
         })
     }
@@ -531,8 +535,7 @@ impl Spool for RocksSpool {
             None => None,
         };
         let db = self.db.clone();
-        let fg_errors = self.foreground_errors.clone();
-        let load_shed = self.load_shed_active.clone();
+        let health = self.health.clone();
         let db_path: PathBuf = self.db.path().to_owned();
         tokio::task::Builder::new()
             .name("rocksdb load")
@@ -545,13 +548,10 @@ impl Spool for RocksSpool {
                             anyhow::bail!("no such key {id}");
                         }
                         Err(err) => {
-                            // Rocksdb get errors (e.g. a missing SST
-                            // file discovered during the read) do not
-                            // increment rocksdb.background-errors.
-                            // Record them so the load-shedding gate
-                            // can react -- immediately for fatal
-                            // classes, or after debounce otherwise.
-                            record_foreground_error(&fg_errors, &load_shed, &db_path, &err);
+                            // Count read failures explicitly, since
+                            // background-error sampling cannot detect a failed
+                            // read.
+                            record_foreground_error(&health, &db_path, &err);
                             drop(permit);
                             return Err(err.into());
                         }
@@ -627,7 +627,7 @@ impl Spool for RocksSpool {
     }
 
     fn unhealthy_reason(&self) -> Option<&'static str> {
-        if self.load_shed_active.load(Ordering::Relaxed) {
+        if self.health.is_active() {
             Some("the spool is not accepting writes")
         } else {
             None
@@ -676,8 +676,7 @@ impl Spool for RocksSpool {
         start_time: DateTime<Utc>,
     ) -> anyhow::Result<()> {
         let db = Arc::clone(&self.db);
-        let fg_errors = self.foreground_errors.clone();
-        let load_shed = self.load_shed_active.clone();
+        let health = self.health.clone();
         let db_path: PathBuf = self.db.path().to_owned();
         tokio::task::Builder::new()
             .name("rocksdb enumerate")
@@ -696,7 +695,7 @@ impl Spool for RocksSpool {
                                 // (immediately for IOError /
                                 // Corruption) and abort the
                                 // enumeration.
-                                record_foreground_error(&fg_errors, &load_shed, &db_path, &err);
+                                record_foreground_error(&health, &db_path, &err);
                                 return Err(err.into());
                             }
                         };
@@ -730,6 +729,30 @@ impl Spool for RocksSpool {
 #[cfg(test)]
 mod test {
     use super::*;
+    use k9::assert_equal;
+
+    /// The caller's deadline binds only when it is sooner than the spool's own
+    /// `store_deadline`. The returned flag indicates whether the caller's
+    /// deadline was selected.
+    #[test]
+    fn effective_deadline_prefers_the_sooner_caller_deadline() {
+        let base = Instant::now();
+        let spool = base + Duration::from_secs(10);
+
+        let sooner = base + Duration::from_secs(1);
+        assert_equal!(
+            select_effective_deadline(Some(sooner), spool),
+            (sooner, true)
+        );
+
+        let later = base + Duration::from_secs(20);
+        assert_equal!(
+            select_effective_deadline(Some(later), spool),
+            (spool, false)
+        );
+
+        assert_equal!(select_effective_deadline(None, spool), (spool, false));
+    }
 
     #[tokio::test]
     async fn rocks_spool() -> anyhow::Result<()> {
@@ -863,36 +886,43 @@ fn property_u64(db: &DB, name: &rocksdb::properties::PropName) -> u64 {
     db.property_int_value(name).ok().flatten().unwrap_or(0)
 }
 
-/// Classify a rocksdb error returned from a foreground spool
-/// operation.  `Corruption` and `IOError` are returned by rocksdb
-/// when the underlying database state is observably wrong (a missing
-/// or corrupt SST file, a checksum mismatch, etc.) -- conditions
-/// that do not have any transient interpretation.  We use this to
-/// latch the load-shedding gate immediately rather than waiting out
-/// the normal debounce window.
+/// Returns true for errors that require an immediate write pause to protect
+/// stored data from further damage.
 fn is_definitively_bad(err: &rocksdb::Error) -> bool {
     matches!(err.kind(), ErrorKind::Corruption | ErrorKind::IOError)
 }
 
-/// Record a foreground spool error: always increment the counter so
-/// the metrics monitor can observe sustained-failure patterns, and
-/// for errors classified as definitively bad, latch the gate now.
-/// Logs once on the false-to-true transition of the gate.
-fn record_foreground_error(
-    fg_errors: &AtomicU64,
-    load_shed: &AtomicBool,
-    path: &Path,
-    err: &rocksdb::Error,
-) {
-    fg_errors.fetch_add(1, Ordering::Relaxed);
-    if is_definitively_bad(err) && !load_shed.swap(true, Ordering::Relaxed) {
-        tracing::error!(
-            "rocksdb at {}: fatal foreground error ({:?}); load-shedding \
-             gate latched immediately. Underlying error: {}",
-            path.display(),
-            err.kind(),
-            err.as_ref(),
-        );
+/// Records a RocksDB error and pauses writes immediately for Corruption
+/// and IOError. Logs the first error after startup or a retry, and any
+/// error that changes the spool from accepting writes to refusing them.
+fn record_foreground_error(health: &Health, path: &Path, err: &rocksdb::Error) {
+    let fatal = is_definitively_bad(err);
+    if health.record_foreground_error(fatal) {
+        if fatal {
+            tracing::error!(
+                "rocksdb at {}: a store, load, or enumeration hit a {:?} error: {}. \
+                 This usually means a missing or corrupt SST file. The load-shedding gate is \
+                 latching immediately: ingress will reject traffic and this spool will not accept \
+                 further writes until an operator investigates the RocksDB LOG file in the spool \
+                 directory, repairs or restores the affected files, and either waits for automatic \
+                 recovery (if allow_error_unlatch is enabled) or restarts the process.",
+                path.display(),
+                err.kind(),
+                err.as_ref(),
+            );
+        } else {
+            tracing::error!(
+                "rocksdb at {}: a store, load, or enumeration returned an error: {}. This is the \
+                 first sign of trouble in a new incident; it does not by itself mean the spool has \
+                 stopped accepting writes yet, but the load-shedding gate will close {:?} from \
+                 now, at which point ingress will start rejecting traffic -- this happens even if \
+                 no further errors occur. Check the RocksDB LOG file in the spool directory for \
+                 the underlying cause.",
+                path.display(),
+                err.as_ref(),
+                health.latch_duration(),
+            );
+        }
     }
 }
 
@@ -986,36 +1016,38 @@ static WRITE_STOPPED: IntGaugeVec(
 }
 
 declare_metric! {
-/// Set to 1 when this spool's load-shedding gate is latched, 0
-/// otherwise.  When set, ingress paths (SMTP, HTTP inject) reject
-/// traffic and foreground store/remove operations fail fast rather
-/// than stall.
+/// Set to 1 while this spool refuses writes, or 0 otherwise. When set,
+/// SMTP and HTTP ingress reject traffic, and store/remove operations
+/// return an error immediately.
 ///
 /// {{since('dev')}}
 ///
-/// The gate latches in either of two ways:
+/// A foreground operation returning `Corruption` or `IOError` immediately
+/// latches the gate, causing subsequent writes to return errors. These failures
+/// include missing and corrupt SST files.
 ///
-/// * **Immediate**: a foreground spool operation (load, store,
-///   remove) returns a rocksdb error classified as definitively
-///   bad (`Corruption` or `IOError` -- e.g. a missing or corrupt
-///   SST file discovered during a read).  These conditions have
-///   no transient interpretation, so the gate latches on the
-///   first such observation.
-/// * **Debounced**: less specific failure signals --
-///   `background-errors` has grown since this process started, or
-///   foreground operations have returned non-fatal errors --
-///   sustained continuously for the configured
-///   `error_latch_duration` (default 15s).  This filters out
-///   brief auto-resumed errors.
+/// Newly observed background errors, other foreground errors, and timeouts
+/// while waiting for RocksDB to accept a write start the `error_latch_duration`
+/// delay (default 15 seconds). Even an isolated error causes a latch after
+/// this delay.
 ///
-/// If `allow_error_unlatch` is enabled (the default), the gate
-/// auto-clears after `error_unlatch_duration` of observed recovery
-/// (default 5 minutes) with no new errors of either class.
-/// Otherwise it stays set until the process is restarted.
+/// With `allow_error_unlatch = true` (the default), writes resume after
+/// `error_unlatch_duration` (default 5 minutes) has elapsed since the later
+/// of the latch time and the most recent error observation. If the database
+/// remains damaged, another error can latch the gate again. Set
+/// `allow_error_unlatch = false` to keep writes paused until an operator
+/// inspects the database and restarts the process.
 ///
-/// SREs should treat any sustained non-zero value as an
-/// operator-actionable incident; pair this metric with
-/// `rocks_spool_background_errors` to understand why.
+/// The monitor checks background-error growth and applies the latch and
+/// retry timers, then sleeps for 5 seconds. Later errors are handled by
+/// the next iteration.
+///
+/// Automatic retries accept this sampling delay: writes may resume between a
+/// background error and its observation. Disable `allow_error_unlatch` to
+/// keep writes paused across that window.
+///
+/// If writes remain paused, inspect `rocks_spool_background_errors` and the
+/// RocksDB LOG to identify the storage failure.
 static LOAD_SHED_ACTIVE: IntGaugeVec(
         "rocks_spool_load_shed_active",
         &["path"]
@@ -1099,44 +1131,7 @@ static ACTUAL_DELAYED_WRITE_RATE_METRIC: IntGaugeVec(
     );
 }
 
-/// Internal state for the load-shedding latch state machine.  See the
-/// per-tick logic in `metrics_monitor`.
-struct HealthState {
-    /// `background-errors` count observed on the first monitor tick.
-    /// Only growth above this baseline counts toward latching, so a
-    /// daemon restarted against a DB whose accumulated count is
-    /// already non-zero does not immediately latch.
-    initial_bg_errors: u64,
-    /// `background-errors` count from the previous monitor tick.
-    /// Used both for once-per-transition logging and to detect
-    /// quiet windows when deciding whether to auto-unlatch.
-    prev_bg_errors: u64,
-    /// Foreground spool error count from the previous monitor tick.
-    /// The counter itself starts at zero per process, so unlike
-    /// `initial_bg_errors` there is no separate baseline -- any
-    /// non-zero observation reflects errors in the current run.
-    prev_fg_errors: u64,
-    /// Instant we first observed an unhealthy signal (bg above
-    /// baseline OR any foreground errors) in the current run.
-    unhealthy_since: Option<Instant>,
-    /// Instant of the most recent monitor tick where bg_errors
-    /// increased over the previous tick.
-    last_bg_growth_at: Option<Instant>,
-    /// Instant of the most recent monitor tick where the
-    /// foreground error counter increased over the previous tick.
-    last_fg_growth_at: Option<Instant>,
-    latched: bool,
-}
-
-async fn metrics_monitor(
-    db: Weak<DB>,
-    mirror: Weak<AtomicBool>,
-    foreground_errors: Weak<AtomicU64>,
-    path: String,
-    latch_duration: Duration,
-    unlatch_duration: Duration,
-    allow_unlatch: bool,
-) {
+async fn metrics_monitor(db: Weak<DB>, health: Weak<Health>, path: String) {
     let mem_table_total = MEM_TABLE_TOTAL
         .get_metric_with_label_values(&[path.as_str()])
         .unwrap();
@@ -1171,26 +1166,6 @@ async fn metrics_monitor(
         .get_metric_with_label_values(&[path.as_str()])
         .unwrap();
 
-    // Initial bg_errors observation anchors the latch logic against
-    // pre-existing accumulated errors from prior process lifetimes,
-    // so a restart against a DB with a historical count does not
-    // immediately latch.  If the DB has already been dropped before
-    // we get here, exit silently -- there is nothing to monitor.
-    let Some(db_init) = db.upgrade() else {
-        return;
-    };
-    let initial_bg = property_u64(&db_init, BACKGROUND_ERRORS);
-    drop(db_init);
-    let mut state = HealthState {
-        initial_bg_errors: initial_bg,
-        prev_bg_errors: initial_bg,
-        prev_fg_errors: 0,
-        unhealthy_since: None,
-        last_bg_growth_at: None,
-        last_fg_growth_at: None,
-        latched: false,
-    };
-
     loop {
         match db.upgrade() {
             Some(db) => {
@@ -1218,131 +1193,13 @@ async fn metrics_monitor(
                     .set(property_u64(&db, ESTIMATE_PENDING_COMPACTION_BYTES) as i64);
                 actual_delayed_write_rate.set(property_u64(&db, ACTUAL_DELAYED_WRITE_RATE) as i64);
 
-                let now = Instant::now();
-                let fg = foreground_errors
-                    .upgrade()
-                    .map(|c| c.load(Ordering::Relaxed))
-                    .unwrap_or(0);
-
-                // The foreground error path may have latched the gate
-                // directly on a fatal error (Corruption/IOError) since
-                // our last tick.  Reconcile our internal state so the
-                // unlatch logic sees the gate as latched without
-                // duplicating the "gate latched" log.
-                if let Some(m) = mirror.upgrade() {
-                    if m.load(Ordering::Relaxed) && !state.latched {
-                        state.latched = true;
-                        state.unhealthy_since = Some(now);
-                    }
-                }
-
-                if bg > state.prev_bg_errors {
-                    tracing::error!(
-                        "rocksdb at {path}: background error count \
-                         increased from {prev} to {bg}; check the LOG \
-                         file in that directory for details",
-                        prev = state.prev_bg_errors,
-                    );
-                    state.last_bg_growth_at = Some(now);
-                }
-                state.prev_bg_errors = bg;
-
-                if fg > state.prev_fg_errors {
-                    tracing::error!(
-                        "rocksdb at {path}: foreground spool error count \
-                         increased from {prev} to {fg}; this typically \
-                         indicates a missing or corrupt SST file \
-                         discovered during a read",
-                        prev = state.prev_fg_errors,
-                    );
-                    state.last_fg_growth_at = Some(now);
-                }
-                state.prev_fg_errors = fg;
-
-                // Latch signal: background errors have grown since this
-                // process started, OR any foreground errors have been
-                // observed.  We cannot use rocksdb's
-                // `compaction-pending` or `is-write-stopped` properties
-                // to refine this -- when paranoid_checks fires,
-                // rocksdb pauses background scheduling and both
-                // properties drop to 0 even though the DB is wedged.
-                // The sustained-for-latch_duration window is what
-                // filters out brief auto-resumed blips.
-                let unhealthy_now = bg > state.initial_bg_errors || fg > 0;
-
-                if unhealthy_now {
-                    let since = *state.unhealthy_since.get_or_insert(now);
-                    if !state.latched && now.duration_since(since) >= latch_duration {
-                        state.latched = true;
-                        if let Some(m) = mirror.upgrade() {
-                            m.store(true, Ordering::Relaxed);
-                        }
-                        tracing::error!(
-                            "rocksdb at {path}: load-shedding gate latched \
-                             after {latch_duration:?} of sustained background \
-                             errors (accumulated count: {bg}). Ingress paths \
-                             will now reject traffic. Inspect the LOG file \
-                             for the underlying cause.",
-                        );
-                    }
-                } else if !state.latched {
-                    // Healthy tick before latch: reset the debounce
-                    // window so a future blip gets its full
-                    // latch_duration grace, not a stale baseline
-                    // from an earlier, separate transient.
-                    state.unhealthy_since = None;
-                }
-
-                // Auto-unlatch: neither bg_errors nor fg_errors have
-                // grown for `unlatch_duration`.  This catches
-                // self-healed transients (one blip, then quiet).  It
-                // does NOT distinguish a self-healed transient from a
-                // truly wedged DB where compactions have been
-                // abandoned and simply stopped producing further
-                // errors.  Operators who require a stronger
-                // guarantee should set `allow_error_unlatch = false`.
-                if state.latched && allow_unlatch {
-                    let bg_stable_since = state.last_bg_growth_at.unwrap_or(now);
-                    let fg_stable_since = state.last_fg_growth_at.unwrap_or(now);
-                    let stable_since = bg_stable_since.max(fg_stable_since);
-                    if now.duration_since(stable_since) >= unlatch_duration {
-                        // CAS the foreground counter from our tick
-                        // snapshot to 0.  This is the synchronization
-                        // point that prevents an auto-unlatch from
-                        // racing with a concurrent
-                        // record_foreground_error: if a fresh fatal
-                        // error landed mid-tick, the CAS fails and we
-                        // defer the unlatch to the next tick.
-                        let cleared = match foreground_errors.upgrade() {
-                            Some(c) => c
-                                .compare_exchange(fg, 0, Ordering::Relaxed, Ordering::Relaxed)
-                                .is_ok(),
-                            // Process is shutting down; skip.
-                            None => false,
-                        };
-                        if cleared {
-                            state.latched = false;
-                            // Re-anchor the baselines at the current
-                            // counts so that we only re-latch on *new*
-                            // growth above this point; otherwise the
-                            // static post-transient counts would keep us
-                            // permanently unhealthy.
-                            state.initial_bg_errors = bg;
-                            state.prev_fg_errors = 0;
-                            state.unhealthy_since = None;
-                            if let Some(m) = mirror.upgrade() {
-                                m.store(false, Ordering::Relaxed);
-                            }
-                            tracing::info!(
-                                "rocksdb at {path}: load-shedding gate cleared \
-                                 after {unlatch_duration:?} without new errors \
-                                 (bg baseline re-anchored at {bg}); ingress \
-                                 paths will accept traffic again",
-                            );
-                        }
-                    }
-                }
-                load_shed_active.set(if state.latched { 1 } else { 0 });
+                let Some(health) = health.upgrade() else {
+                    return;
+                };
+                // Apply each background sample independently. New errors
+                // observed after reopening start another latch delay.
+                health.sample_background_errors(bg);
+                load_shed_active.set(if health.is_active() { 1 } else { 0 });
             }
             None => {
                 // Dead

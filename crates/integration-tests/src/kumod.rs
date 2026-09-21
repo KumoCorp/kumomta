@@ -25,6 +25,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
+use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio_tungstenite::connect_async;
@@ -186,6 +187,132 @@ pub fn target_bin(tool: &str) -> anyhow::Result<PathBuf> {
     std::fs::canonicalize(&path).with_context(|| format!("canonicalize {path}"))
 }
 
+/// Locates a workspace `cdylib` artifact (such as the fault-injection
+/// preload) in the same target directory `target_bin` uses.
+pub fn target_lib(name: &str) -> anyhow::Result<PathBuf> {
+    let target = std::env::var("CARGO_TARGET_DIR").unwrap_or("../../target".to_string());
+    let profile = if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    };
+    let path = format!("{target}/{profile}/lib{name}.so");
+    std::fs::canonicalize(&path).with_context(|| format!("canonicalize {path}"))
+}
+
+/// Drives the `fault-inject-preload` LD_PRELOAD shim for a test. Owns the
+/// sentinel file and the faulted path list, and provides the daemon env vars
+/// and the enable/disable calls. A test names only the paths it wants faulted
+/// and when.
+pub struct FaultInjector {
+    _dir: TempDir,
+    sentinel: PathBuf,
+    prefixes: Vec<PathBuf>,
+    suffixes: Vec<String>,
+    delay: Option<Duration>,
+}
+
+impl FaultInjector {
+    /// Creates a fresh fault directory and sentinel, with no path faulted yet.
+    /// Build the faulted paths from `self.path()` via `fault_path`.
+    pub fn new() -> anyhow::Result<Self> {
+        let dir = tempfile::tempdir().context("make fault injector temp dir")?;
+        let sentinel = dir.path().join("fault_on");
+        Ok(Self {
+            _dir: dir,
+            sentinel,
+            prefixes: vec![],
+            suffixes: vec![],
+            delay: None,
+        })
+    }
+
+    /// Returns the root directory this injector owns.
+    pub fn path(&self) -> &Path {
+        self._dir.path()
+    }
+
+    /// Narrows the fault to a subdirectory of `self.path()`, given as a
+    /// relative suffix. Call it once per subtree to fault. When nothing is
+    /// called the whole directory is faulted.
+    #[allow(unused)]
+    pub fn fault_path(mut self, relative: impl AsRef<Path>) -> Self {
+        self.prefixes.push(self.path().join(relative));
+        self
+    }
+
+    /// Narrows the fault to files whose name ends with `suffix` (e.g. `.sst`).
+    /// With no calls, every file under the faulted paths is affected.
+    #[allow(unused)]
+    pub fn fault_suffix(mut self, suffix: impl Into<String>) -> Self {
+        self.suffixes.push(suffix.into());
+        self
+    }
+
+    /// Switches from the default error injection to delaying each faulted write
+    /// by `delay` and then letting it succeed, modelling slow storage.
+    #[allow(unused)]
+    pub fn delay(mut self, delay: Duration) -> Self {
+        self.delay = Some(delay);
+        self
+    }
+
+    /// Returns the env vars that preload the shim into a daemon and configure
+    /// it with the fault paths and sentinel of this injector. The fault is
+    /// inactive until a later call to `enable`.
+    pub fn env_vars(&self) -> anyhow::Result<Vec<(String, String)>> {
+        let preload = target_lib("fault_inject_preload")?;
+        let prefixes = if self.prefixes.is_empty() {
+            self.path().display().to_string()
+        } else {
+            self.prefixes
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(":")
+        };
+        let mut vars = vec![
+            (
+                "LD_PRELOAD".to_string(),
+                preload.to_str().unwrap().to_string(),
+            ),
+            ("KUMO_FAULT_PATH_PREFIXES".to_string(), prefixes),
+            (
+                "KUMO_FAULT_ACTIVE_FILE".to_string(),
+                self.sentinel.to_str().unwrap().to_string(),
+            ),
+        ];
+        if !self.suffixes.is_empty() {
+            vars.push((
+                "KUMO_FAULT_PATH_SUFFIXES".to_string(),
+                self.suffixes.join(":"),
+            ));
+        }
+        if let Some(delay) = self.delay {
+            vars.push((
+                "KUMO_FAULT_DELAY_MS".to_string(),
+                delay.as_millis().to_string(),
+            ));
+        }
+        Ok(vars)
+    }
+
+    /// Begins faulting writes under the configured prefixes.
+    pub async fn enable(&self) -> anyhow::Result<()> {
+        fs::write(&self.sentinel, b"")
+            .await
+            .context("create fault sentinel")
+    }
+
+    /// Stops faulting writes. Already-open descriptors are unaffected until
+    /// their next write, at which point the shim re-checks the sentinel.
+    pub async fn disable(&self) -> anyhow::Result<()> {
+        fs::remove_file(&self.sentinel)
+            .await
+            .context("remove fault sentinel")
+    }
+}
+
 pub struct DaemonWithMaildirOptions {
     policy_file: String,
     sink_policy_file: String,
@@ -204,6 +331,19 @@ impl DaemonWithMaildirOptions {
     #[allow(unused)]
     pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env.push((key.into(), value.into()));
+        self
+    }
+
+    /// Adds several environment variables simultaneously, e.g. the set a
+    /// `FaultInjector` supplies via `env_vars`.
+    #[allow(unused)]
+    pub fn envs(
+        mut self,
+        vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        for (key, value) in vars {
+            self.env.push((key.into(), value.into()));
+        }
         self
     }
 

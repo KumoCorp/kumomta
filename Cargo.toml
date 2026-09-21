@@ -4,6 +4,7 @@ members = [
   "crates/cidr-map",
   "crates/dir-probe",
   "crates/domain-map",
+  "crates/fault-inject-preload",
   "crates/integration-tests",
   "crates/jsonschematodocs",
   "crates/kcli",

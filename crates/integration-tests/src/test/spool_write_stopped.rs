@@ -1,4 +1,4 @@
-use crate::kumod::{DaemonWithMaildirOptions, KumoArgs, KumoDaemon, MailGenParams};
+use crate::kumod::{DaemonWithMaildirOptions, FaultInjector, KumoArgs, KumoDaemon, MailGenParams};
 use anyhow::Context;
 use k9::assert_equal;
 use kumo_log_types::{JsonLogRecord, RecordType};
@@ -129,15 +129,17 @@ async fn wait_for_load_shed_active(daemon: &KumoDaemon, timeout: Duration) -> an
         .await
 }
 
-/// Verifies that when the rocksdb-backed spool wedges at runtime, the
-/// composite latch in `metrics_monitor` engages within the configured
-/// window and the load-shedding gate fires across all three ingress
-/// paths (SMTP, HTTP inject, HTTP liveness) with the external
-/// reason string.  Also verifies that the forced compaction surfaces
-/// the underlying rocksdb error to the caller.
+/// Verifies that when the rocksdb-backed spool wedges at runtime, the composite
+/// latch in `metrics_monitor` engages within the configured window and the
+/// load-shedding gate activates across the ingress paths (SMTP, HTTP inject,
+/// HTTP liveness) with the external reason string. Also verifies that the
+/// forced compaction reports the underlying rocksdb error to the caller, and
+/// that once the spool stops wedging the gate reopens on its own and SMTP
+/// delivery and HTTP liveness both accept traffic again.
 #[tokio::test]
 async fn spool_write_stopped_load_shedding() -> anyhow::Result<()> {
     let mut daemon = DaemonWithMaildirOptions::new()
+        .env("KUMOD_ROCKS_ERROR_UNLATCH_DURATION", "6s")
         .policy_file("source-rocks-spool.lua")
         .start()
         .await
@@ -271,6 +273,30 @@ async fn spool_write_stopped_load_shedding() -> anyhow::Result<()> {
             "503 Service Unavailable the spool is not accepting writes"
         );
     }
+
+    daemon
+        .source
+        .wait_for_metric(
+            Duration::from_secs(90),
+            |m| m.name().as_str() == "rocks_spool_load_shed_active",
+            |values| !values.is_empty() && values.iter().all(|v| *v == 0.0),
+        )
+        .await
+        .context("wait for quiet spool to reopen")?;
+    assert_equal!(
+        send_one(&daemon).await.context("send after reopening")?,
+        250
+    );
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/check-liveness/v1",
+            daemon.source.listener("http")
+        ))
+        .send()
+        .await?;
+    let status = response.status();
+    let body = response.text().await?;
+    assert_equal!(format!("{status} {body}"), "200 OK OK");
 
     // Clean shutdown -- propagate any errors as the test would.
     // Shutting down a write-stopped rocksdb may itself surface errors;
@@ -768,6 +794,172 @@ async fn spool_restart_after_meta_corruption() -> anyhow::Result<()> {
         );
     }
 
+    daemon.stop_both().await.context("stop_both")?;
+    Ok(())
+}
+
+/// Injects a full-disk (ENOSPC) fault scoped to the rocksdb spool directory and
+/// verifies the load-shedding gate latches while writes fail, then reopens on
+/// its own once space is restored and the spool accepts mail again.
+///
+/// The corruption tests above break reads of already-stored data. This breaks
+/// writes, which is what a real full disk does, and exercises the gate
+/// reopening automatically after a write failure -- the path that issue #597
+/// found never unlatched.
+///
+/// The fault is applied by an LD_PRELOAD shim (the `fault-inject-preload`
+/// crate) that returns ENOSPC for writes under the spool directory while a
+/// sentinel file exists. The spool is relocated to a test-owned directory via
+/// `KUMOD_ROCKS_SPOOL_DIR` to scope the fault to it without touching other
+/// daemon state such as its logs or accounting database.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn spool_enospc_latches_and_recovers() -> anyhow::Result<()> {
+    // Fault the whole injector directory: the policy builds the data and meta
+    // spools under it, so this test does not need to name those subdirectories.
+    let fault = FaultInjector::new()?;
+
+    let mut daemon = DaemonWithMaildirOptions::new()
+        .policy_file("source-rocks-spool.lua")
+        .env("KUMOD_ROCKS_SPOOL_DIR", fault.path().to_str().unwrap())
+        .env("KUMOD_ROCKS_ERROR_UNLATCH_DURATION", "6s")
+        .envs(fault.env_vars()?)
+        .start()
+        .await
+        .context("start daemon")?;
+
+    // Hold delivery to keep accepted messages in the spool.
+    suspend_example_com(&daemon, "hold for enospc test")
+        .await
+        .context("suspend example.com")?;
+
+    // Baseline: the spool accepts a message before any fault.
+    assert_equal!(send_one(&daemon).await.context("baseline send")?, 250);
+
+    // Begin the disk-full fault: spool writes now return ENOSPC.
+    fault.enable().await?;
+
+    // The WAL append for this store hits ENOSPC, a fatal IO error that latches
+    // the gate immediately. This first attempt fails while the write is in
+    // flight, distinct from the load-shed rejection that later connections get
+    // once the gate has latched.
+    {
+        let err = send_one(&daemon)
+            .await
+            .unwrap_err()
+            .downcast::<ClientError>()
+            .context("downcast ClientError")?;
+        match err {
+            ClientError::Rejected(resp) => {
+                assert_equal!(resp.code, 421);
+                assert_equal!(resp.content, "kumo.test technical difficulties");
+            }
+            other => anyhow::bail!("unexpected client error: {other:?}"),
+        }
+    }
+    wait_for_load_shed_active(&daemon.source, Duration::from_secs(30))
+        .await
+        .context("gate did not latch under ENOSPC")?;
+
+    // Ingress rejects new connections while the gate is latched.
+    {
+        let banner = read_smtp_banner(&daemon.source).await?;
+        assert_equal!(banner.code, 421);
+        assert_equal!(
+            banner.content,
+            "kumo.test the spool is not accepting writes. Try later"
+        );
+    }
+
+    // End the fault: space is restored.
+    fault.disable().await?;
+
+    // The gate must reopen on its own, and the spool must accept mail again.
+    daemon
+        .source
+        .wait_for_metric(
+            Duration::from_secs(90),
+            |m| m.name().as_str() == "rocks_spool_load_shed_active",
+            |values| !values.is_empty() && values.iter().all(|v| *v == 0.0),
+        )
+        .await
+        .context("gate did not reopen after ENOSPC cleared")?;
+    assert_equal!(send_one(&daemon).await.context("send after recovery")?, 250);
+
+    daemon.stop_both().await.context("stop_both")?;
+    Ok(())
+}
+
+/// Drives the backpressure-timeout path (as opposed to the error paths above):
+/// slow -- not failing -- flush writes stall RocksDB into rejecting foreground
+/// writes with `Incomplete`, so `store()` exhausts its `store_deadline` in the
+/// backoff loop and reports a backpressure timeout, then latches the gate after
+/// `error_latch_duration`. This is the slow-disk analogue of the ENOSPC test:
+/// writes never fail, they just cannot make progress.
+///
+/// The fault shim runs in delay mode scoped to `.sst` files: the write-ahead
+/// log stays fast and only flush stalls, matching the shape actually produced
+/// by a slow disk. A tiny `write_buffer_size` fills the memtable within a few
+/// messages, engaging the stall quickly.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn spool_backpressure_timeout_latches() -> anyhow::Result<()> {
+    let fault = FaultInjector::new()?
+        .fault_suffix(".sst")
+        .delay(Duration::from_secs(5));
+
+    let mut daemon = DaemonWithMaildirOptions::new()
+        .policy_file("source-rocks-spool.lua")
+        .env("KUMOD_ROCKS_SPOOL_DIR", fault.path().to_str().unwrap())
+        .env("KUMOD_ROCKS_STORE_DEADLINE", "2s")
+        .env("KUMOD_ROCKS_ERROR_UNLATCH_DURATION", "60s")
+        .envs(fault.env_vars()?)
+        .start()
+        .await
+        .context("start daemon")?;
+
+    // Hold delivery to keep accepted messages in the spool.
+    suspend_example_com(&daemon, "hold for backpressure test")
+        .await
+        .context("suspend example.com")?;
+
+    // Baseline: the spool accepts a message before any fault.
+    assert_equal!(send_one(&daemon).await.context("baseline send")?, 250);
+
+    // Slow every flush from now on.
+    fault.enable().await?;
+
+    // Keep offering messages until the gate latches. The memtable fills behind
+    // the stalled flush, RocksDB then rejects writes with `Incomplete`, and a
+    // store eventually exhausts its deadline in the backoff loop. Only a store
+    // attempted while the stall is engaged hits `Incomplete`. A one-shot burst
+    // sent before the memtable fills would be accepted immediately instead and
+    // never see the stall at all. Sustained load keeps offering stores across
+    // the window when the stall is engaged, guaranteeing one is routed to it.
+    let sender = async {
+        loop {
+            let _ = send_one(&daemon).await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+    tokio::select! {
+        _ = sender => unreachable!("sender loops forever"),
+        r = wait_for_load_shed_active(&daemon.source, Duration::from_secs(60)) => {
+            r.context("gate did not latch under backpressure timeout")?;
+        }
+    }
+
+    // A new connection is load-shed at the banner while the gate is latched.
+    {
+        let banner = read_smtp_banner(&daemon.source).await?;
+        assert_equal!(banner.code, 421);
+        assert_equal!(
+            banner.content,
+            "kumo.test the spool is not accepting writes. Try later"
+        );
+    }
+
+    fault.disable().await?;
     daemon.stop_both().await.context("stop_both")?;
     Ok(())
 }

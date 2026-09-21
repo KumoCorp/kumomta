@@ -1,0 +1,17 @@
+[package]
+name = "fault-inject-preload"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# An LD_PRELOAD shim used only by integration tests to inject filesystem
+# errors at chosen path prefixes. Built as a cdylib so it can be preloaded
+# into a kumod child process.
+[lib]
+crate-type = ["cdylib"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = {workspace=true}
+
+[lints]
+workspace = true
