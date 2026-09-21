@@ -488,13 +488,19 @@ struct PurgeLruttlCacheParams {
         ("name" = String, Query, description = "name of the lruttl cache to purge")
     ),
     responses(
-        (status=200, description = "purge attempted; body reports the outcome")
+        (status=200, description = "cache purged; body reports the number of entries removed"),
+        (status=404, description = "no cache is registered under that name")
     ),
 )]
-async fn purge_lruttl_cache(Query(params): Query<PurgeLruttlCacheParams>) -> String {
+async fn purge_lruttl_cache(
+    Query(params): Query<PurgeLruttlCacheParams>,
+) -> Result<String, AppError> {
     match lruttl::purge_cache_by_name(&params.name) {
-        Some(n) => format!("purged {n} entries from cache {}", params.name),
-        None => format!("no lruttl cache named {} is registered", params.name),
+        Some(n) => Ok(format!("purged {n} entries from cache {}", params.name)),
+        None => Err(AppError::new(
+            StatusCode::NOT_FOUND,
+            format!("no lruttl cache named {} is registered", params.name),
+        )),
     }
 }
 

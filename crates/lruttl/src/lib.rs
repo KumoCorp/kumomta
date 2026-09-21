@@ -459,6 +459,11 @@ pub fn set_cache_capacity(name: &str, capacity: usize) -> bool {
 /// Returns the number of entries that were removed, or `None` if there is
 /// no live cache currently registered under `name`.
 ///
+/// If more than one live cache shares `name` (which can happen briefly while a
+/// `kumo.memoize` cache is being replaced after a parameter change, when the
+/// old cache is still held by an in-flight lookup), only the first matching
+/// cache is purged. This mirrors [`set_cache_capacity`].
+///
 /// Unlike [`set_cache_capacity`], this operates on the live cache registry
 /// rather than the set of pre-defined caches, so it also works for caches
 /// created dynamically at runtime (for example, via `kumo.memoize`).
