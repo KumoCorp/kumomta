@@ -158,6 +158,11 @@ jobs:
             runs_on: kumo-linux-16core-amd64
             arch: amd64
             artifact_name: rockylinux_9_amd64
+          - builder_image: docker://ghcr.io/kumocorp/builder-for-aarch64-rockylinux:9
+            base_image: rockylinux:9
+            runs_on: kumo-linux-16core-arm64
+            arch: aarch64
+            artifact_name: rockylinux_9_aarch64
 
   assemble-docker:
     needs: [build-ubuntu]
