@@ -291,3 +291,17 @@
    continuation lines, rather than being emitted on a single over-long line
    that a strict receiver (such as another KumoMTA) might reject if/when
    that header comes back in via an ARF report.
+
+ * HTTP injection (`/api/inject/v1`)'s `content.from`/`content.reply_to`
+   shortcuts produced an unparseable header when the address had a
+   non-ASCII local-part or domain: the correctly address-aware encoded
+   value was re-encoded a second time by the generic header path, wrapping
+   the `@` and domain inside an RFC 2047 encoded-word, which RFC 2047 §5
+   rule 3 forbids within an addr-spec. `From`/`Reply-To` are now set the
+   same address-aware way `To` already was, so internationalized
+   (SMTPUTF8/RFC 6531) addresses in these fields round-trip correctly.
+   Caveat: `content.from`/`content.reply_to`'s `name`/`email` no longer go
+   through per-recipient template substitution (e.g. `{{ name }}` in a
+   display name), since they previously only received that as an
+   incidental side effect of the now-removed buggy code path. This matches
+   how `content.to` already behaves. Open an issue if you need this restored.
