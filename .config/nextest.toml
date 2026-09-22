@@ -1,2 +1,12 @@
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 2 }
+
+# tsa_adjust_config_ramps_up_after_quiet_period exercises the real 60s
+# background state_pruner() tick end-to-end (not a direct call into
+# prune_adaptive_overrides), waiting across two real ticks -- it takes
+# ~125s locally, which is already past the default 120s hard timeout
+# above. Give it more headroom rather than shortening what it actually
+# needs to wait for.
+[[profile.default.overrides]]
+filter = 'test(tsa_adjust_config_ramps_up_after_quiet_period)'
+slow-timeout = { period = "60s", terminate-after = 4 }

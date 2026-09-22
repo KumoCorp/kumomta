@@ -39,6 +39,15 @@
 
 ## Other Changes and Enhancements
 
+ * New `AdjustConfig`/`AdjustDomainConfig` traffic shaping automation actions
+   gradually decrease a numeric egress path field (`max_message_rate`,
+   `max_connection_rate`, `source_selection_rate`, `connection_limit`, or
+   `max_deliveries_per_connection`) on each rule trigger, then ramp it back
+   up automatically once the triggering condition goes quiet, rather than
+   pinning a fixed value like `SetConfig`/`SetDomainConfig` does. See
+   [the UserGuide](../userguide/trafficshaping/automation.md#gradually-recovering-from-a-throttle)
+   for details.
+
  * The ESMTP command parser now tolerates a stray space between the colon and
    the address in `MAIL FROM:` and `RCPT TO:` commands (e.g. `MAIL FROM: <a@b>`).
    RFC 5321 does not permit this space, but a number of legacy clients emit it;
