@@ -182,6 +182,7 @@ impl RouterAndDocs {
 
         add_handlers!(
             bump_config_epoch,
+            purge_lruttl_cache,
             memory_stats,
             task_dump,
             report_metrics,
@@ -465,6 +466,42 @@ async fn machine_info(State(state): State<AppState>) -> Result<Json<MachineInfoV
 async fn bump_config_epoch() -> Result<(), AppError> {
     config::epoch::bump_current_epoch();
     Ok(())
+}
+
+#[derive(Deserialize)]
+struct PurgeLruttlCacheParams {
+    name: String,
+}
+
+/// Purge (invalidate) all entries from a single named lruttl cache.
+///
+/// This drops the cached data for `name` so that the next lookup repopulates
+/// it from source. It is useful when the data backing a specific cache has
+/// changed and you want that change to take effect immediately, without
+/// waiting for the cache TTL or a global config-epoch bump (which would
+/// invalidate every epoch-scoped cache, not just this one).
+#[utoipa::path(
+    post,
+    tag="config",
+    path="/api/admin/purge-lruttl-cache",
+    params(
+        ("name" = String, Query, description = "name of the lruttl cache to purge")
+    ),
+    responses(
+        (status=200, description = "cache purged; body reports the number of entries removed"),
+        (status=404, description = "no cache is registered under that name")
+    ),
+)]
+async fn purge_lruttl_cache(
+    Query(params): Query<PurgeLruttlCacheParams>,
+) -> Result<String, AppError> {
+    match lruttl::purge_cache_by_name(&params.name) {
+        Some(n) => Ok(format!("purged {n} entries from cache {}", params.name)),
+        None => Err(AppError::new(
+            StatusCode::NOT_FOUND,
+            format!("no lruttl cache named {} is registered", params.name),
+        )),
+    }
 }
 
 #[derive(Deserialize)]

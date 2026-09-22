@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.03.11-17b80530"
+    "version": "2026.09.22-3146bc68"
   },
   "paths": {
     "/api/admin/bump-config-epoch": {
@@ -33,6 +33,35 @@
         "responses": {
           "200": {
             "description": "stats were returned"
+          }
+        }
+      }
+    },
+    "/api/admin/purge-lruttl-cache": {
+      "post": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Purge (invalidate) all entries from a single named lruttl cache.",
+        "description": "This drops the cached data for `name` so that the next lookup repopulates\nit from source. It is useful when the data backing a specific cache has\nchanged and you want that change to take effect immediately, without\nwaiting for the cache TTL or a global config-epoch bump (which would\ninvalidate every epoch-scoped cache, not just this one).",
+        "operationId": "purge_lruttl_cache",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "description": "name of the lruttl cache to purge",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "cache purged; body reports the number of entries removed"
+          },
+          "404": {
+            "description": "no cache is registered under that name"
           }
         }
       }

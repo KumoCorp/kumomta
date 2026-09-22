@@ -281,6 +281,15 @@ impl KumoApiClient {
         .await
     }
 
+    /// Purge (invalidate) all entries from a single named lruttl cache on the
+    /// target node, so that the next lookup repopulates it from source.
+    pub async fn admin_purge_lruttl_cache(&self, name: &str) -> anyhow::Result<String> {
+        let mut url = self.endpoint.join("/api/admin/purge-lruttl-cache")?;
+        url.query_pairs_mut().append_pair("name", name);
+        self.request_with_text_response(reqwest::Method::POST, url, &())
+            .await
+    }
+
     /// Inject a message via the HTTP injection API.
     /// The body is the JSON payload conforming to the InjectV1Request schema.
     pub async fn inject_v1(
