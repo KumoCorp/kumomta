@@ -107,7 +107,7 @@ Content-Type: multipart/report;
   boundary="report-boundary";
   report-type="delivery-status"
 Subject: Returned mail
-Mime-Version: 1.0
+MIME-Version: 1.0
 Message-ID: <UUID@mta1.example.com>
 To: sender@sender.example.com
 From: Mail Delivery Subsystem <mailer-daemon@mta1.example.com>
@@ -156,7 +156,7 @@ Content-Type: multipart/report;
   boundary="report-boundary";
   report-type="delivery-status"
 Subject: Returned mail
-Mime-Version: 1.0
+MIME-Version: 1.0
 Message-ID: <UUID@mta1.example.com>
 To: sender@sender.example.com
 From: Mail Delivery Subsystem <mailer-daemon@mta1.example.com>

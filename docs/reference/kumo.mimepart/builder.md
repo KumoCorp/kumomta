@@ -51,7 +51,7 @@ Will produce a message looking something like this; the `boundary` strings will 
 ```
 Content-Type: multipart/mixed;
    boundary="mm-boundary"
-Mime-Version: 1.0
+MIME-Version: 1.0
 Date: Tue, 1 Jul 2003 10:52:37 +0200
 
 --mm-boundary

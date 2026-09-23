@@ -210,7 +210,7 @@ impl<'a> HeaderMap<'a> {
         MimeParameters,
         as_content_transfer_encoding
     );
-    accessor!(mime_version, "Mime-Version", BString, as_unstructured);
+    accessor!(mime_version, "MIME-Version", BString, as_unstructured);
     accessor!(
         content_disposition,
         "Content-Disposition",

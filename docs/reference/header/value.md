@@ -40,7 +40,7 @@ which is the version shown at the top of this page.
 |Content-Type|mime_params||
 |From|mailbox_list||
 |Message-ID|message_id||
-|Mime-Version|unstructured||
+|MIME-Version|unstructured||
 |References|message_id_list||
 |Reply-To|address_list||
 |Resent-Bcc|address_list||

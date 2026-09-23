@@ -2758,7 +2758,7 @@ X-Header: value\r
 Subject: Hello\r
 X-Header: another value\r
 From :Someone@somewhere\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 \r
 Body
 "#
@@ -2782,7 +2782,7 @@ X-Header: value\r
 Subject: Hello\r
 X-Header: another value\r
 From: <Someone@somewhere>\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 \r
 Body\r
 

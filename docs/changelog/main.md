@@ -42,3 +42,8 @@
  * Rebuilding a message header now recognizes `Authentication-Results` as a
    structured header, re-encoding it in canonical form rather than leaving it
    untouched as free text.
+
+ * Constructed messages, including those built by the HTTP injection API, now
+   emit the `MIME-Version` header with its uppercase spelling rather than
+   `Mime-Version`. Both are valid per RFC 2045, but some spam filters such as
+   rspamd score the mixed-case form. #564

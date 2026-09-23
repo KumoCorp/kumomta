@@ -1402,7 +1402,7 @@ Content-Type: text/plain;\r
 Content-Transfer-Encoding: quoted-printable\r
 Subject: hello there\r
 From: Someone <someone@example.com>\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 \r
 hello=0A\r
 
@@ -2020,7 +2020,7 @@ X-Header: value\r
 Subject: Hello\r
 X-Header: another value\r
 From :Someone@somewhere\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 \r
 Body
 "#
@@ -2047,7 +2047,7 @@ X-Header: value\r
 Subject: Hello\r
 X-Header: another value\r
 From: <Someone@somewhere>\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 \r
 Body\r
 

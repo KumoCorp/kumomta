@@ -53,7 +53,7 @@ The set of supported conformance issues is:
 |NEEDS_TRANSFER_ENCODING|The parsed content includes 8-bit content and thus needs to have transfer encoding applied in order to safely transit the 7-bit SMTP network|
 |MISSING_DATE_HEADER|The `"Date:"` header is not present|
 |MISSING_MESSAGE_ID_HEADER|The `"Message-ID:"` header is not present|
-|MISSING_MIME_VERSION|The `"Mime-Version:"` header is either not present or is set to some other value than `"1.0"`|
+|MISSING_MIME_VERSION|The `"MIME-Version:"` header is either not present or is set to some other value than `"1.0"`|
 
 The way this method works is that it will attempt to parse the data associated
 with the message into a MIME tree. The parsing stage will accumulate the set of

@@ -131,7 +131,7 @@ const KNOWN_HEADERS: &[(&str, Grammar)] = &[
     ("Authentication-Results", Grammar::AuthenticationResults),
     ("Subject", Grammar::Unstructured),
     ("Comments", Grammar::Unstructured),
-    ("Mime-Version", Grammar::Unstructured),
+    ("MIME-Version", Grammar::Unstructured),
 ];
 
 fn grammar_for_name(name: &[u8]) -> Grammar {

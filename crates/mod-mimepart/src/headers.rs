@@ -427,7 +427,7 @@ const NAME_GETTER: &[(&str, fn(&Lua, &Header) -> mlua::Result<mlua::Value>)] = &
     ("Bcc", get_address_list),
     ("Message-ID", get_message_id),
     ("Subject", get_unstructured),
-    ("Mime-Version", get_unstructured),
+    ("MIME-Version", get_unstructured),
     ("Content-Transfer-Encoding", get_content_transfer_encoding),
     ("Content-Type", get_content_type),
     ("Content-Disposition", get_content_disposition),

@@ -860,7 +860,7 @@ Content-Type: multipart/report;\r
 \tboundary="report-boundary";\r
 \treport-type="delivery-status"\r
 Subject: Returned mail\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 Message-ID: <UUID@mta1.example.com>\r
 To: sender@sender.example.com\r
 From: Mail Delivery Subsystem <mailer-daemon@mta1.example.com>\r
@@ -991,7 +991,7 @@ Content-Type: multipart/report;\r
 \tboundary="report-boundary";\r
 \treport-type="delivery-status"\r
 Subject: Returned mail\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 Message-ID: <UUID@mta1.example.com>\r
 To: sender@sender.example.com\r
 From: Mail Delivery Subsystem <mailer-daemon@mta1.example.com>\r
@@ -1124,7 +1124,7 @@ Content-Type: multipart/report;\r
 \tboundary="report-boundary";\r
 \treport-type="delivery-status"\r
 Subject: Returned mail\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 Message-ID: <UUID@mta1.example.com>\r
 To: sender@sender.example.com\r
 From: Mail Delivery Subsystem <mailer-daemon@mta1.example.com>\r
@@ -1262,7 +1262,7 @@ Content-Type: multipart/report;\r
 \tboundary="report-boundary";\r
 \treport-type="delivery-status"\r
 Subject: Returned mail\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 Message-ID: <UUID@mta1.example.com>\r
 To: sender@sender.example.com\r
 From: Mail Delivery Subsystem <mailer-daemon@mta1.example.com>\r
@@ -1387,7 +1387,7 @@ Content-Type: multipart/report;\r
 \tboundary="report-boundary";\r
 \treport-type="delivery-status"\r
 Subject: Returned mail\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 Message-ID: <UUID@mta1.example.com>\r
 To: sender@sender.example.com\r
 From: Mail Delivery Subsystem <mailer-daemon@mta1.example.com>\r
