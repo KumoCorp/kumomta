@@ -609,6 +609,131 @@ fn test_obs_local_part_encode_roundtrip() {
 
 #[cfg(test)]
 #[test]
+fn test_encode_folds_long_mailbox_display_name() {
+    let mailbox = Mailbox {
+        name: Some(
+            "The Honorable Regional Manager of the Northwestern Sales Territory Office".to_string(),
+        ),
+        address: AddrSpec::new("alex", "example.com"),
+    };
+    let encoded = mailbox.encode_value().to_string();
+    k9::snapshot!(
+        BString::from(encoded.clone()),
+        r#"
+"The Honorable Regional Manager of the Northwestern Sales Territory Office"\r
+\t<alex@example.com>
+"#
+    );
+    k9::assert_equal!(
+        Parser::parse_mailbox_header(encoded.as_bytes()).unwrap(),
+        mailbox
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn test_encode_folds_non_ascii_mailbox_display_name() {
+    // Use a non-ASCII name long enough that qp_encode itself folds it into
+    // multiple encoded-words joined by "\r\n\t". The addr-spec fold decision
+    // must measure only the last physical line of the encoded phrase, not the
+    // total length of the phrase, or it would spuriously trigger another fold
+    // before <addr> regardless of how short the last line actually is. No
+    // round-trip assertion: decoding a qp_encode fold that lands mid-word
+    // reconstructs a space at the boundary, a separate, pre-existing lossy
+    // round-trip in the phrase parser.
+    let mailbox = Mailbox {
+        name: Some("日本語の非常に長い表示名前です本当に長いですよ".repeat(3)),
+        address: AddrSpec::new("alex", "example.com"),
+    };
+    let encoded = mailbox.encode_value().to_string();
+    // Whether to insert a fold before <addr> is decided by whether appending
+    // <addr> to the last qp_encode line would exceed the fold width, using the
+    // length of that last physical line rather than the total encoded length.
+    // Here it does not exceed the width, so no further fold is inserted.
+    k9::snapshot!(
+        BString::from(encoded.clone()),
+        r#"
+=?UTF-8?q?=E6=97=A5=E6=9C=AC=E8=AA=9E=E3=81=AE=E9=9D=9E=E5=B8=B8?=\r
+\t=?UTF-8?q?=E3=81=AB=E9=95=B7=E3=81=84=E8=A1=A8=E7=A4=BA=E5=90=8D?=\r
+\t=?UTF-8?q?=E5=89=8D=E3=81=A7=E3=81=99=E6=9C=AC=E5=BD=93=E3=81=AB?=\r
+\t=?UTF-8?q?=E9=95=B7=E3=81=84=E3=81=A7=E3=81=99=E3=82=88=E6=97=A5?=\r
+\t=?UTF-8?q?=E6=9C=AC=E8=AA=9E=E3=81=AE=E9=9D=9E=E5=B8=B8=E3=81=AB?=\r
+\t=?UTF-8?q?=E9=95=B7=E3=81=84=E8=A1=A8=E7=A4=BA=E5=90=8D=E5=89=8D?=\r
+\t=?UTF-8?q?=E3=81=A7=E3=81=99=E6=9C=AC=E5=BD=93=E3=81=AB=E9=95=B7?=\r
+\t=?UTF-8?q?=E3=81=84=E3=81=A7=E3=81=99=E3=82=88=E6=97=A5=E6=9C=AC?=\r
+\t=?UTF-8?q?=E8=AA=9E=E3=81=AE=E9=9D=9E=E5=B8=B8=E3=81=AB=E9=95=B7?=\r
+\t=?UTF-8?q?=E3=81=84=E8=A1=A8=E7=A4=BA=E5=90=8D=E5=89=8D=E3=81=A7?=\r
+\t=?UTF-8?q?=E3=81=99=E6=9C=AC=E5=BD=93=E3=81=AB=E9=95=B7=E3=81=84?=\r
+\t=?UTF-8?q?=E3=81=A7=E3=81=99=E3=82=88?= <alex@example.com>
+"#
+    );
+    Parser::parse_mailbox_header(encoded.as_bytes()).unwrap();
+}
+
+#[cfg(test)]
+#[test]
+fn test_encode_folds_mailbox_list_at_boundaries() {
+    let list = MailboxList(vec![
+        Mailbox {
+            name: Some(
+                "The Honorable Regional Manager of the Northwestern Sales Territory".to_string(),
+            ),
+            address: AddrSpec::new("alex", "example.com"),
+        },
+        Mailbox {
+            name: Some("Bob Smith".to_string()),
+            address: AddrSpec::new("bob", "example.com"),
+        },
+    ]);
+    let encoded = list.encode_value().to_string();
+    k9::snapshot!(
+        BString::from(encoded.clone()),
+        r#"
+"The Honorable Regional Manager of the Northwestern Sales Territory"\r
+\t<alex@example.com>,\r
+\t"Bob Smith" <bob@example.com>
+"#
+    );
+    k9::assert_equal!(
+        Parser::parse_mailbox_list_header(encoded.as_bytes()).unwrap(),
+        list
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn test_encode_folds_address_list_at_boundaries() {
+    // Same as the mailbox-list case, for the address-list headers
+    // (To/Cc/Bcc/Reply-To).
+    let list = AddressList(vec![
+        Address::Mailbox(Mailbox {
+            name: Some(
+                "The Honorable Regional Manager of the Northwestern Sales Territory".to_string(),
+            ),
+            address: AddrSpec::new("alex", "example.com"),
+        }),
+        Address::Mailbox(Mailbox {
+            name: Some("Bob Smith".to_string()),
+            address: AddrSpec::new("bob", "example.com"),
+        }),
+    ]);
+    let encoded = list.encode_value().to_string();
+    k9::snapshot!(
+        BString::from(encoded.clone()),
+        r#"
+"The Honorable Regional Manager of the Northwestern Sales Territory"\r
+\t<alex@example.com>,\r
+\t"Bob Smith" <bob@example.com>
+"#
+    );
+    k9::assert_equal!(
+        Parser::parse_address_list_header(encoded.as_bytes()).unwrap(),
+        list
+    );
+}
+
+#[cfg(test)]
+#[test]
 fn test_obs_local_part_with_special_chars() {
     // obs-local-part where the quoted-string word contains characters
     // that require quoting (space, specials)
@@ -2579,15 +2704,44 @@ impl EncodeHeaderValue for Mailbox {
     fn encode_value(&self) -> SharedString<'static> {
         match &self.name {
             Some(name) => {
-                let mut value: Vec<u8> = if name.is_ascii() {
+                // The display name (a quoted-string, or an RFC 2047
+                // encoded-word that may itself already be multi-line) and the
+                // `<addr>` are joined by a fold when they would overflow the
+                // line, which is the only safe point: folding inside a quoted
+                // display name would rewrite the display name content (a space
+                // becomes a tab once unfolded). A name whose last line exceeds
+                // the width is left as-is rather than corrupted by folding
+                // inside its quoting or an encoded-word.
+                let phrase: Vec<u8> = if name.is_ascii() {
                     quote_string(name).into()
                 } else {
                     qp_encode(name.as_bytes()).into_bytes()
                 };
 
-                value.push_str(" <");
-                value.push_str(self.address.encode_value().as_bytes());
-                value.push(b'>');
+                let mut addr: Vec<u8> = vec![b'<'];
+                addr.push_str(self.address.encode_value().as_bytes());
+                addr.push(b'>');
+
+                // qp_encode may have already folded a long non-ASCII name into
+                // multiple encoded-words separated by `\r\n\t`. Only the last
+                // of those lines shares a line with `<addr>`, so measure from
+                // the final fold when deciding whether to fold before `<addr>`.
+                // This assumes `phrase` contains no raw `\n` other than such a
+                // fold; quote_string currently passes an embedded `\n` in
+                // `name` through unescaped (a known, separate issue), which
+                // would be misread here as a fold boundary.
+                let last_line_len = phrase
+                    .rfind_byte(b'\n')
+                    .map(|i| phrase.len() - (i + 1))
+                    .unwrap_or(phrase.len());
+
+                let mut value = phrase;
+                if last_line_len + 1 + addr.len() > kumo_wrap::SOFT_WIDTH {
+                    value.push_str("\r\n\t");
+                } else {
+                    value.push(b' ');
+                }
+                value.push_str(&addr);
                 value.into()
             }
             None => {

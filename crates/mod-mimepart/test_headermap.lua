@@ -187,13 +187,10 @@ utils.assert_eq(header_value('From', 'Someone <someone@example.com>'), {
     address = { local_part = 'someone', domain = 'example.com' },
   },
 })
-utils.assert_eq(
-  header_value('Sender', 'Someone <someone@example.com>'),
-  {
-    name = 'Someone',
-    address = { local_part = 'someone', domain = 'example.com' },
-  }
-)
+utils.assert_eq(header_value('Sender', 'Someone <someone@example.com>'), {
+  name = 'Someone',
+  address = { local_part = 'someone', domain = 'example.com' },
+})
 utils.assert_eq(header_value('To', '"John Smith" <john@example.com>'), {
   {
     name = 'John Smith',
