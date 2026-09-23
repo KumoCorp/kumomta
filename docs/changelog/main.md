@@ -55,3 +55,9 @@
    a privilege escalation, as both the injection API and Lua policy already compose
    arbitrary message content and headers anyway.  This is only applicable
    to code that directly or indirectly calls into the builder API.
+
+ * The HTTP injection API now encodes address headers correctly when the
+   display name is non-ASCII. Given `Cc: 山田 <user@example.com>`, it now emits
+   the name as an encoded-word and leaves the address untouched
+   (`=?UTF-8?q?...?= <user@example.com>`); previously it encoded the whole
+   value, address included, producing an invalid header. #598

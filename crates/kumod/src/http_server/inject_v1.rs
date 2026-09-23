@@ -19,7 +19,10 @@ use kumo_server_common::http_server::{AppError, AppState};
 use kumo_server_lifecycle::Activity;
 use kumo_server_runtime::{Runtime, RUNTIME};
 use kumo_template::{CompiledTemplates, TemplateDialect, TemplateEngine, TemplateList};
-use mailparsing::{AddrSpec, Address, EncodeHeaderValue, Mailbox, MessageBuilder, MimePart};
+use mailparsing::{
+    is_address_header_name, AddrSpec, Address, EncodeHeaderValue, Mailbox, MessageBuilder,
+    MimePart, ParsedHeader,
+};
 use message::Message;
 use mlua::{Lua, LuaSerdeExt};
 use reqwest::StatusCode;
@@ -572,6 +575,19 @@ impl<'a> Compiled<'a> {
                             address: address.clone(),
                         };
                         mailparsing::Header::new(name.to_string(), Address::Mailbox(mailbox))
+                    } else if is_address_header_name(name.as_bytes()) && !expanded.trim().is_empty()
+                    {
+                        // Emit a user-supplied address header through the
+                        // address grammar: a non-ASCII display name becomes an
+                        // encoded-word around only the name, leaving the
+                        // addr-spec bare. new_unstructured would qp-encode the
+                        // whole value, wrapping the addr-spec in an
+                        // encoded-word that no address parser accepts. A blank
+                        // value is left to new_unstructured below, since the
+                        // address grammar requires at least one address.
+                        let parsed = ParsedHeader::structured(name.as_bytes(), expanded.as_bytes())
+                            .with_context(|| format!("parsing {name} header value {expanded:?}"))?;
+                        mailparsing::Header::new(name.to_string(), parsed)
                     } else {
                         mailparsing::Header::new_unstructured(
                             name.to_string(),
@@ -2016,6 +2032,115 @@ Ok(
 )
 "#
         );
+    }
+
+    /// Generate the message for a recipient named `recip_name` with `header`
+    /// set to `value` in content.headers.
+    fn generate_with_header(
+        recip_name: Option<&str>,
+        header: &str,
+        value: &str,
+    ) -> anyhow::Result<String> {
+        let mut request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: recip_name.map(str::to_string),
+                substitutions: HashMap::new(),
+                metadata: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Builder {
+                text_body: Some("Hello".to_string()),
+                amp_html_body: None,
+                html_body: None,
+                subject: None,
+                from: None,
+                reply_to: None,
+                headers: [(header.to_string(), value.to_string())]
+                    .into_iter()
+                    .collect(),
+                attachments: vec![],
+            },
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+            template_dialect: Default::default(),
+        };
+        request.normalize()?;
+        let compiled = request.compile()?;
+        compiled.expand_for_recip(
+            &request.recipients[0],
+            &request.substitutions,
+            &request.content,
+        )
+    }
+
+    /// Verifies that a user-supplied address header in the generic headers map
+    /// is emitted through the address grammar: a non-ASCII display name is an
+    /// encoded-word around only the name, and the header re-parses as an
+    /// address list.
+    #[tokio::test]
+    async fn test_user_address_header_is_parseable() {
+        let generated = generate_with_header(
+            Some("\u{5c71}\u{7530}"),
+            "Cc",
+            "\"{{ name }}\" <cc@example.com>",
+        )
+        .unwrap();
+        let parsed = MimePart::parse(generated.as_str()).unwrap();
+        k9::snapshot!(
+            parsed.headers().cc(),
+            r#"
+Ok(
+    Some(
+        AddressList(
+            [
+                Mailbox(
+                    Mailbox {
+                        name: Some(
+                            "山田",
+                        ),
+                        address: AddrSpec {
+                            local_part: "cc",
+                            domain: "example.com",
+                        },
+                    },
+                ),
+            ],
+        ),
+    ),
+)
+"#
+        );
+    }
+
+    /// Verifies that a user-supplied address header whose rendered value is not
+    /// a valid address fails with a per-recipient error naming the header,
+    /// rather than being emitted as corrupt free text.
+    #[tokio::test]
+    async fn test_user_address_header_malformed_errors() {
+        let err = generate_with_header(None, "Cc", "this is not an address").unwrap_err();
+        k9::assert_equal!(
+            err.to_string(),
+            "parsing Cc header value \"this is not an address\""
+        );
+    }
+
+    /// Verifies that a user-supplied address header whose rendered value is
+    /// blank (e.g. a conditionally-empty substitution) does not fail
+    /// expand_for_recip.
+    #[tokio::test]
+    async fn test_user_address_header_empty_value_is_not_an_error() {
+        let generated = generate_with_header(None, "Cc", "").unwrap();
+        let parsed = MimePart::parse(generated.as_str()).unwrap();
+        let raw = parsed
+            .headers()
+            .get_first("Cc")
+            .expect("Cc header present")
+            .get_raw_value()
+            .to_string();
+        k9::assert_equal!(raw.trim(), "");
     }
 
     #[tokio::test]
