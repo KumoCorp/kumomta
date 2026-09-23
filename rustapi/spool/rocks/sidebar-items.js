@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DBCompressionTypeDef","LogLevelDef"],"struct":["RocksSpool","RocksSpoolParams"]};

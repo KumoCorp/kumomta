@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Command","CommandVerb","Domain","EnvelopeAddress","ForwardPath","MaybePartialCommand","PartialReason","ReversePath"],"struct":["EsmtpParameter","MailPath","Mailbox","XClientParameter"]};
