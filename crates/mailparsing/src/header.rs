@@ -2,8 +2,9 @@ use crate::headermap::{EncodeHeaderValue, HeaderMap};
 use crate::rfc5322_parser::Parser;
 use crate::strings::IntoSharedString;
 use crate::{
-    ARCAuthenticationResults, AddressList, AuthenticationResults, MailParsingError, Mailbox,
-    MailboxList, MessageID, MimeParameters, Result, SharedString,
+    canonical_header_name, ARCAuthenticationResults, AddressList, AuthenticationResults,
+    MailParsingError, Mailbox, MailboxList, MessageID, MimeParameters, ParsedHeader, Result,
+    SharedString,
 };
 use bstr::{BStr, BString};
 use chrono::{DateTime, FixedOffset};
@@ -122,12 +123,7 @@ impl<'a> Header<'a> {
     ) -> Self {
         let name = name.into();
         let value = value.into();
-
-        let value: SharedString = match value.to_str() {
-            Ok(value) if value.is_ascii() => kumo_wrap::wrap_bytes(value).into(),
-            Ok(value) => crate::rfc5322_parser::qp_encode(value.as_bytes()).into(),
-            Err(_) => kumo_wrap::wrap_bytes(value.as_bytes()).into(),
-        };
+        let value = crate::parsed_header::encode_unstructured_value(value.as_bytes());
 
         Self {
             name,
@@ -239,6 +235,11 @@ impl<'a> Header<'a> {
     pub fn as_date(&self) -> Result<DateTime<FixedOffset>> {
         crate::parse_rfc2822_date(self.get_raw_value_string()?)
             .map_err(MailParsingError::ChronoError)
+    }
+
+    /// Parse this header's value using the grammar implied by its name.
+    pub fn structured(&self) -> Result<ParsedHeader> {
+        ParsedHeader::structured(self.name.as_bytes(), self.value.as_bytes())
     }
 
     pub fn parse_headers<S>(header_block: S) -> Result<HeaderParseResult<'a>>
@@ -425,61 +426,16 @@ impl<'a> Header<'a> {
     /// out of spec elements in the rebuilt header
     pub fn rebuild(&self) -> Result<Self> {
         let name = self.get_name();
-
-        macro_rules! hdr {
-            ($header_name:literal, $func_name:ident, encode) => {
-                if name.eq_ignore_ascii_case($header_name.as_bytes()) {
-                    let value = self.$func_name().map_err(|err| {
-                        MailParsingError::HeaderParse(format!(
-                            "rebuilding '{name}' header: {err:#}"
-                        ))
-                    })?;
-                    return Ok(Self::with_name_value($header_name, value.encode_value()));
-                }
-            };
-            ($header_name:literal, unstructured) => {
-                if name.eq_ignore_ascii_case($header_name.as_bytes()) {
-                    let value = self.as_unstructured().map_err(|err| {
-                        MailParsingError::HeaderParse(format!(
-                            "rebuilding '{name}' header: {err:#}"
-                        ))
-                    })?;
-                    return Ok(Self::new_unstructured($header_name, value));
-                }
-            };
-        }
-
-        hdr!("From", as_mailbox_list, encode);
-        hdr!("Resent-From", as_mailbox_list, encode);
-        hdr!("Reply-To", as_address_list, encode);
-        hdr!("To", as_address_list, encode);
-        hdr!("Cc", as_address_list, encode);
-        hdr!("Bcc", as_address_list, encode);
-        hdr!("Resent-To", as_address_list, encode);
-        hdr!("Resent-Cc", as_address_list, encode);
-        hdr!("Resent-Bcc", as_address_list, encode);
-        hdr!("Date", as_date, encode);
-        hdr!("Sender", as_mailbox, encode);
-        hdr!("Resent-Sender", as_mailbox, encode);
-        hdr!("Message-ID", as_message_id, encode);
-        hdr!("Content-ID", as_content_id, encode);
-        hdr!("Content-Type", as_content_type, encode);
-        hdr!(
-            "Content-Transfer-Encoding",
-            as_content_transfer_encoding,
-            encode
-        );
-        hdr!("Content-Disposition", as_content_disposition, encode);
-        hdr!("References", as_message_id_list, encode);
-        hdr!("Subject", unstructured);
-        hdr!("Comments", unstructured);
-        hdr!("Mime-Version", unstructured);
-
-        // Assume unstructured
-        let value = self.as_unstructured().map_err(|err| {
+        let value = self.structured().map_err(|err| {
             MailParsingError::HeaderParse(format!("rebuilding '{name}' header: {err:#}"))
         })?;
-        Ok(Self::new_unstructured(name.to_string(), value))
+        match canonical_header_name(name) {
+            Some(canonical) => Ok(Self::with_name_value(canonical, value.encode_value())),
+            None => Ok(Self::with_name_value(
+                name.to_string(),
+                value.encode_value(),
+            )),
+        }
     }
 }
 
@@ -659,6 +615,25 @@ Ok(
     "تست یک دو سه",
 )
 "#
+        );
+    }
+
+    #[test]
+    fn test_rebuild_authentication_results() {
+        // Authentication-Results is parsed and re-encoded like other
+        // structured headers, which canonicalizes the name and drops the
+        // CFWS comment.
+        let header = Header::with_name_value(
+            "authentication-results",
+            "example.com;\n\tdkim=pass (good signature) header.d=example.com",
+        );
+        let rebuilt = header.rebuild().unwrap();
+        k9::assert_equal!(rebuilt.get_name(), "Authentication-Results");
+        rebuilt.as_authentication_results().unwrap();
+        assert!(
+            !rebuilt.get_raw_value().contains(&b'('),
+            "comment should be dropped by structured re-encode: {:?}",
+            rebuilt.get_raw_value()
         );
     }
 

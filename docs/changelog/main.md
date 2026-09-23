@@ -38,3 +38,7 @@
    `string.wrap()`. The over-long run was split byte by byte, which could
    cut a UTF-8 sequence in half and panic when the result was validated as
    UTF-8. It is now split on character boundaries.
+
+ * Rebuilding a message header now recognizes `Authentication-Results` as a
+   structured header, re-encoding it in canonical form rather than leaving it
+   untouched as free text.
