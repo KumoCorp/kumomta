@@ -1723,6 +1723,71 @@ Ok(
         );
     }
 
+    /// content.from and content.reply_to's display names undergo per-recipient
+    /// template substitution.
+    #[tokio::test]
+    async fn test_from_reply_to_are_templated() {
+        let mut request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: Some("James Smythe".to_string()),
+                substitutions: HashMap::new(),
+                metadata: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Builder {
+                text_body: Some("Hello".to_string()),
+                amp_html_body: None,
+                html_body: None,
+                subject: None,
+                from: Some(FromHeader {
+                    email: "from@example.com".to_string(),
+                    name: Some("Greetings {{ name }}".to_string()),
+                }),
+                reply_to: Some(FromHeader {
+                    email: "reply@example.com".to_string(),
+                    name: Some("{{ name }} Support".to_string()),
+                }),
+                headers: Default::default(),
+                attachments: vec![],
+            },
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+            template_dialect: Default::default(),
+        };
+
+        request.normalize().unwrap();
+        let compiled = request.compile().unwrap();
+        let generated = compiled
+            .expand_for_recip(
+                &request.recipients[0],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap();
+
+        let parsed = MimePart::parse(generated.as_str()).unwrap();
+
+        let from = parsed.headers().from().unwrap().expect("From present");
+        k9::assert_equal!(from[0].name.as_deref(), Some("Greetings James Smythe"));
+
+        let reply_to = parsed
+            .headers()
+            .reply_to()
+            .unwrap()
+            .expect("Reply-To present");
+        k9::assert_equal!(
+            reply_to
+                .extract_first_mailbox()
+                .expect("Reply-To mailbox")
+                .name
+                .as_deref(),
+            Some("James Smythe Support")
+        );
+    }
+
     #[tokio::test]
     async fn test_builder_static_dialect() {
         let mut request = InjectV1Request {
