@@ -49,7 +49,7 @@ KumoMTA version:
 |KumoMTA Version|`memory_usage` under a cgroup|
 |---------------|-----------------------------|
 |Earlier versions|raw `memory.current` (cgroup v2) / `memory.usage_in_bytes` (cgroup v1)|
-|{{since('dev', inline=True)}}|working set: `max(current - inactive_file, anon)`|
+|{{since('2026.09.22-a276d4a8', inline=True)}}|working set: `max(current - inactive_file, anon)`|
 
 The earlier raw counter includes cold, kernel-reclaimable file-backed page
 cache (`inactive_file`), which the kernel drops under memory pressure before it

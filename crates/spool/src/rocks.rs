@@ -976,7 +976,7 @@ declare_metric! {
 /// errors such as missing or corrupt SST files, ENOSPC, or permission
 /// problems).
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 ///
 /// This counter is **monotonic** for the lifetime of the process: it
 /// does not decrease when rocksdb auto-resumes from transient errors
@@ -1002,7 +1002,7 @@ declare_metric! {
 /// at the WriteController layer (memtable count or L0 file count
 /// reached the stop threshold), 0 otherwise.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 ///
 /// This reflects rocksdb's own `is-write-stopped` property and
 /// indicates backpressure rather than a fatal background error.
@@ -1020,7 +1020,7 @@ declare_metric! {
 /// SMTP and HTTP ingress reject traffic, and store/remove operations
 /// return an error immediately.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 ///
 /// A foreground operation returning `Corruption` or `IOError` immediately
 /// latches the gate, causing subsequent writes to return errors. These failures
@@ -1058,7 +1058,7 @@ declare_metric! {
 /// Number of background compactions currently running for this
 /// rocksdb instance.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 ///
 /// In a healthy, actively-written spool this is typically non-zero
 /// in bursts.  A value persistently stuck at 0 while
@@ -1077,7 +1077,7 @@ declare_metric! {
 /// Set to 1 when at least one compaction is pending for this rocksdb
 /// instance, 0 otherwise.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 ///
 /// Brief flapping is normal under write load.  A value of 1 that
 /// persists alongside `rocks_spool_num_running_compactions == 0` is
@@ -1093,7 +1093,7 @@ declare_metric! {
 /// Estimated total bytes that compaction needs to rewrite to bring
 /// all levels back under their target sizes.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 ///
 /// This is a backlog indicator.  Steady-state values depend heavily
 /// on write rate, compression, and the configured compaction style,
@@ -1115,7 +1115,7 @@ declare_metric! {
 /// Current delayed write rate (bytes/second) applied by rocksdb to
 /// throttle foreground writers.  0 means no slowdown is in effect.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 ///
 /// A non-zero value means rocksdb is intentionally slowing writers
 /// down because compaction or flush is falling behind.  This is the

@@ -10,7 +10,7 @@
 
 Response body for the resolve-egress-path endpoint.
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 This is an object value, with the following properties:
 
@@ -18,7 +18,7 @@ This is an object value, with the following properties:
   * `constraints` - required [EffectiveConstraints](EffectiveConstraints.md). Steady-state ceilings implied by an `EgressPathConfig`. Each
     ceiling carries a tag for which configuration term produced it.
     
-    {{since('dev')}}
+    {{since('2026.09.22-a276d4a8')}}
     
     These are per-queue ceilings; shared limits in `additional_*`
     maps are reported at their full value and may be tighter in

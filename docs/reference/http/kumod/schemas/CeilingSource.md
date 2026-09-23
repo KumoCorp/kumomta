@@ -10,7 +10,7 @@
 
 Which configuration term produced an `EffectiveCeiling`.
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 
 Can be one of the following shapes of data:

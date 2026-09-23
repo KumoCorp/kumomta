@@ -4,7 +4,7 @@
 local text = kumo.format_queue_config_toml(queue_config)
 ```
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Given a scheduled-queue configuration table (as returned by
 [kumo.invoke_get_queue_config](invoke_get_queue_config.md) or

@@ -80,14 +80,14 @@ local example = {
   is_mx = true,
 
   -- The applicable MTA-STS policy mode: 'None', 'Testing' or 'Enforce'
-  -- {{since('dev', inline=True)}}
+  -- {{since('2026.09.22-a276d4a8', inline=True)}}
   mta_sts = 'None',
 }
 
 assert(gmail_mx == example)
 ```
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 The optional `OPT_RESOLVER_NAME` parameter names an alternate resolver defined
 via [define_resolver](define_resolver.md). When omitted, the default resolver is

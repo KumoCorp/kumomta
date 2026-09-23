@@ -17,7 +17,7 @@ Resolve the effective egress path configuration and throughput
 ceilings for a destination domain and egress source.
 
 This API endpoint is used by the [kcli resolve-egress-path](../../kcli/resolve-egress-path.md) command.
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Mirrors the diagnostic that `kcli inspect-ready-q` provides for
 live ready queues, but operates from the configuration side: it
@@ -40,7 +40,7 @@ Resolved egress path
 
 Response body for the resolve-egress-path endpoint.
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 This is an object value, with the following properties:
 
@@ -48,7 +48,7 @@ This is an object value, with the following properties:
   * `constraints` - required [EffectiveConstraints](schemas/EffectiveConstraints.md). Steady-state ceilings implied by an `EgressPathConfig`. Each
     ceiling carries a tag for which configuration term produced it.
     
-    {{since('dev')}}
+    {{since('2026.09.22-a276d4a8')}}
     
     These are per-queue ceilings; shared limits in `additional_*`
     maps are reported at their full value and may be tighter in

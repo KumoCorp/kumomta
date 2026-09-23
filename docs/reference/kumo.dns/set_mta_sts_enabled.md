@@ -4,7 +4,7 @@
 kumo.dns.set_mta_sts_enabled(ENABLED)
 ```
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Controls whether MX resolution consults [MTA-STS](https://datatracker.ietf.org/doc/html/rfc8461)
 policies. `ENABLED` is a boolean. The default value is `true`.

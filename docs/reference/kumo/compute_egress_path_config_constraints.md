@@ -5,7 +5,7 @@ local constraints =
   kumo.compute_egress_path_config_constraints(path_config, additional)
 ```
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Given an egress path configuration table (as returned by
 [kumo.invoke_get_egress_path_config](invoke_get_egress_path_config.md)

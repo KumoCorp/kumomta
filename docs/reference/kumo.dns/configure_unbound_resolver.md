@@ -40,7 +40,7 @@ kumo.on('init', function()
 end)
 ```
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Configuration is now validated strictly against the kumomta resolver options
 schema. The unbound backend honors only the option fields that have a

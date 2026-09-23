@@ -11,7 +11,7 @@
 Steady-state ceiling for a single throughput axis, with a tag
 for which configuration term produced it.
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 This is an object value, with the following properties:
 
@@ -25,7 +25,7 @@ This is an object value, with the following properties:
 
   * `source` - required [CeilingSource](CeilingSource.md). Which configuration term produced an `EffectiveCeiling`.
     
-    {{since('dev')}}
+    {{since('2026.09.22-a276d4a8')}}
 
   * `value` - required `number` (`double`). Canonical value. For rate axes: events per second; useful
     for numeric comparison. For concurrency: a count.

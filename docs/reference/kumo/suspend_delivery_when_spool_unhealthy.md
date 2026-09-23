@@ -4,7 +4,7 @@
 kumo.suspend_delivery_when_spool_unhealthy(ENABLED)
 ```
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Controls whether KumoMTA pauses delivery while the spool is in an
 unhealthy state, as reflected by the

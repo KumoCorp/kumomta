@@ -10,7 +10,7 @@
 
 Request body for the abort-ready-q-conn endpoint.
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 This is an object value, with the following properties:
 

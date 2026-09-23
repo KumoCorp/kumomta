@@ -10,7 +10,7 @@
 
 Per-dispatcher summary returned by the inspect-ready-q endpoint.
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 This is an object value, with the following properties:
 
@@ -31,7 +31,7 @@ This is an object value, with the following properties:
 
   * `phase` - required [DispatcherPhase](DispatcherPhase.md). Phase of a dispatcher task within a ready queue.
     
-    {{since('dev')}}
+    {{since('2026.09.22-a276d4a8')}}
 
   * `session_id` - required `string` (`uuid`). 
 

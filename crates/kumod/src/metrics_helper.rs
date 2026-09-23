@@ -76,7 +76,7 @@ pub static TOTAL_MSGS_FAIL: PruningCounterRegistry<ServiceKey>("total_messages_f
 declare_metric! {
 /// total number of dispatcher tasks aborted by the progress watchdog
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 pub static DISPATCHER_WATCHDOG_ABORTED: PruningCounterRegistry<ServiceKey>(
         "dispatcher_watchdog_aborted_total");
 }

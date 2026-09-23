@@ -10,7 +10,7 @@
 
 Snapshot of the operational state of a ready queue.
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 This is an object value, with the following properties:
 

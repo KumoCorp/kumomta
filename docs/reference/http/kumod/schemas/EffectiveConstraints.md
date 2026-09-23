@@ -11,7 +11,7 @@
 Steady-state ceilings implied by an `EgressPathConfig`. Each
 ceiling carries a tag for which configuration term produced it.
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 These are per-queue ceilings; shared limits in `additional_*`
 maps are reported at their full value and may be tighter in
@@ -23,7 +23,7 @@ This is an object value, with the following properties:
   * `max_concurrent_dispatchers` - required [EffectiveCeiling](EffectiveCeiling.md). Steady-state ceiling for a single throughput axis, with a tag
     for which configuration term produced it.
     
-    {{since('dev')}}
+    {{since('2026.09.22-a276d4a8')}}
 
   * `max_connection_rate` - optional nullable [EffectiveCeiling](EffectiveCeiling.md). 
 

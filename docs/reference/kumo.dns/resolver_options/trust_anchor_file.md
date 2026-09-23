@@ -23,7 +23,7 @@ the hickory backend it replaces them.
 
 ## Managed anchor file (RFC 5011)
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 A table of the form `{ managed = "<path>" }` names a file that is automatically
 maintained according to [RFC 5011](https://www.rfc-editor.org/rfc/rfc5011): the

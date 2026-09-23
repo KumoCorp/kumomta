@@ -8,7 +8,7 @@ use reqwest::StatusCode;
 /// the dispatcher tasks that are currently handling connections on
 /// its behalf.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 #[utoipa::path(
     get,
     tags=["inspect", "kcli:inspect-ready-q"],

@@ -21,7 +21,7 @@ your system configuration.
 
 * `name_servers` - required; a list of name servers. Each entry can be either a
   simple string of the form `"IP:PORT"`, which is equivalent to specifying the
-  detailed form with `protocol = 'udp_then_tcp'` {{since('dev', inline=True)}}.
+  detailed form with `protocol = 'udp_then_tcp'` {{since('2026.09.22-a276d4a8', inline=True)}}.
   In earlier versions this simple string form configures UDP only.
   The detailed lua table form allows specifying the protocol and other
   per-server settings; see [Name server entries](#name-server-entries) below.
@@ -41,9 +41,9 @@ your system configuration.
 |---------------|------------------------|
 |2025.03.19-1d3f1f67|[hickory DNS 0.24](https://docs.rs/hickory-resolver/0.24.1/hickory_resolver/config/struct.ResolverOpts.html)|
 |2025.05.06-b29689af|[hickory DNS 0.25](https://docs.rs/hickory-resolver/0.25.1/hickory_resolver/config/struct.ResolverOpts.html)|
-|{{since('dev', inline=True)}}|[KumoMTA-defined](resolver_options/index.md)|
+|{{since('2026.09.22-a276d4a8', inline=True)}}|[KumoMTA-defined](resolver_options/index.md)|
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 KumoMTA now defines its own resolver options schema instead of forwarding
 raw hickory-DNS option names directly. Existing valid configs continue to
@@ -97,7 +97,7 @@ accepts the same structured resolver configurations as
 `HickorySystemConfig`, `Unbound`, `Test`, and `Aggregate` forms.
 
 The `Test` form provides fixed, locally-available zone data and is primarily
-intended for testing. {{since('dev', inline=True)}} each entry in its `zones`
+intended for testing. {{since('2026.09.22-a276d4a8', inline=True)}} each entry in its `zones`
 list may be either a plain zone string (an *insecure*, non-DNSSEC zone) or a
 table of the form `{ zone = "...", secure = true }` whose answers are reported
 as DNSSEC-validated; this is required to exercise features that only trust
@@ -146,7 +146,7 @@ Each entry in `name_servers` is one of:
 ### Simple string form
 
 The string is parsed as `IP:PORT`, which is equivalent to specifying the
-detailed form with `protocol = 'udp_then_tcp'` {{since('dev', inline=True)}}.
+detailed form with `protocol = 'udp_then_tcp'` {{since('2026.09.22-a276d4a8', inline=True)}}.
 In earlier versions this simple string form configures UDP only.
 
 ### Detailed table form
@@ -169,12 +169,12 @@ Fields:
   server. Accepted values are `'udp'` and `'tcp'`. An additional value
   `'udp_then_tcp'` configures both transports on the same server, allowing
   same-server TCP fallback for truncated UDP responses
-  {{since('dev', inline=True)}}. `'udp_then_tcp'` is also the default when
+  {{since('2026.09.22-a276d4a8', inline=True)}}. `'udp_then_tcp'` is also the default when
   `protocol` is omitted; earlier versions default to `'udp'`.
 * `trust_negative_responses` (bool, optional) — When `true`, an NXDOMAIN
   response from this server is accepted as truth and other servers in the
   list are not consulted. When `false`, negative responses are retried against
-  other configured servers. Defaults to `true` {{since('dev', inline=True)}};
+  other configured servers. Defaults to `true` {{since('2026.09.22-a276d4a8', inline=True)}};
   earlier versions default to `false`.
 * `bind_addr` (string, optional) — Local `IP:PORT` to bind outgoing queries
   to.

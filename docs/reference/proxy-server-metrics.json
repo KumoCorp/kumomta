@@ -71,6 +71,15 @@
     "pruning": "NonPruning"
   },
   {
+    "name": "dns_mx_resolve_mta_sts_impossible",
+    "help": "Total number of MailExchanger::resolve calls that failed because the  domain published an MTA-STS enforce policy that permits none of its own  MX hosts. Such domains are undeliverable until they fix their policy.",
+    "doc": null,
+    "metric_type": "Counter",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
     "name": "dns_mx_resolve_status_fail",
     "help": "Total number of failed `MailExchanger::resolve` calls.",
     "doc": "Spikes may indicate an issue with your DNS configuration\nor infrastructure, or may simply indicate that the traffic\nis destined for bogus addresses.",
@@ -352,7 +361,7 @@
   },
   {
     "name": "memory_usage",
-    "help": "number of bytes of used memory (Resident Set Size)",
+    "help": "number of bytes of used memory that drives memory limit decisions.  When sourced from a cgroup this is the working set  (memory.current - inactive_file, floored by anonymous memory);  otherwise it is the Resident Set Size from /proc/self/statm.",
     "doc": null,
     "metric_type": "Gauge",
     "label_names": [],

@@ -5,7 +5,7 @@ local config = kumo.dns.load_resolv_conf()
 local config = kumo.dns.load_resolv_conf '/path/to/resolv.conf'
 ```
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Reads a `/etc/resolv.conf`-format file and returns a mutable Lua table
 matching the shape accepted by

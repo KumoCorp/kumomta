@@ -61,7 +61,7 @@ stronger opinions about how you want to provision and manage these things.
 
 ## MAC Address Selection
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 The MAC address is used by the fallback Node ID above, and also identifies the
 node within the ids assigned to spooled messages. It must be distinct between

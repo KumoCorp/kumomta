@@ -1,6 +1,6 @@
 # suspend_when_unplumbed
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Optional table.
 

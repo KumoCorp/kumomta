@@ -1,6 +1,6 @@
 # Resolver Options
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 This section documents the fields accepted in the `options` table passed to
 [kumo.dns.configure_resolver](../configure_resolver.md),

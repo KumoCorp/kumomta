@@ -7,7 +7,7 @@ use reqwest::StatusCode;
 /// Abort the dispatcher task identified by `session_id` within the
 /// named ready queue.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 ///
 /// Returns 404 if either the queue or the session is unknown.
 #[utoipa::path(

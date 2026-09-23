@@ -1,6 +1,6 @@
 # allow_smtp_auth_plain_without_valid_certificate
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Optional boolean. Defaults to `false`.
 

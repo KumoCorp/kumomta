@@ -62,7 +62,7 @@ end)
 
 #### treat_mx_list_as_secure
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 When [enable_dane](../make_egress_path/enable_dane.md) is set, DANE requires
 that the *selection* of the destination host be trusted: normally this is

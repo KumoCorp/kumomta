@@ -51,7 +51,7 @@ not validate will treat every destination as not secure, and DANE will silently
 never engage (see the
 [dane_result_count](../../metrics/kumod/dane_result_count.md) metric).
 
-You can use either the `libunbound` resolver or, {{since('dev', inline=True)}},
+You can use either the `libunbound` resolver or, {{since('2026.09.22-a276d4a8', inline=True)}},
 the Hickory resolver with validation enabled.
 
 With `libunbound`:
@@ -72,7 +72,7 @@ kumo.on('init', function()
 end)
 ```
 
-With Hickory {{since('dev', inline=True)}}:
+With Hickory {{since('2026.09.22-a276d4a8', inline=True)}}:
 
 ```lua
 kumo.on('init', function()

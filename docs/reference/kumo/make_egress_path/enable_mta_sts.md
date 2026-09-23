@@ -8,7 +8,7 @@ destination domain will be used to adjust the effective value of `enable_tls`.
 You can set it to `false` to prevent a policy from raising the TLS posture for
 this egress path.
 
-{{since('dev', indent=True)}}
+{{since('2026.09.22-a276d4a8', indent=True)}}
     This option influences only whether the TLS portion of the MTA-STS policy
     is applied on this particular egress path.  It doesn't control whether the
     MTA-STS records are queried.  Since MTA-STS records can influence the

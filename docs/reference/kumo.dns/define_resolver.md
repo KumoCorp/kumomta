@@ -75,7 +75,7 @@ useful in other situations.
 
 ### DNSSEC `secure` zones and `servfail`
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Each entry in `zones` may be either a plain zone string (treated as an
 *insecure*, non-DNSSEC zone, which is the original behavior) or a table of the
@@ -130,7 +130,7 @@ resolver settings in kumomta.
 
 If you would like to start from the system upstreams and then layer your own
 resolver options on top, see [kumo.dns.load_resolv_conf](load_resolv_conf.md)
-{{since('dev', inline=True)}}.
+{{since('2026.09.22-a276d4a8', inline=True)}}.
 
 ## Unbound with an explicit upstream
 

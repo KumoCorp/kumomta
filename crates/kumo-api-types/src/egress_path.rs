@@ -256,7 +256,7 @@ pub struct EgressPathConfig {
     #[serde(default)]
     pub allow_smtp_auth_plain_without_tls: bool,
 
-    /// {{since('dev')}}
+    /// {{since('2026.09.22-a276d4a8')}}
     /// When false (the default), SMTP AUTH PLAIN will not be attempted over a
     /// TLS session whose peer certificate was not validated (for example, an
     /// `OpportunisticInsecure`/`RequiredInsecure` session, or a DANE host whose
@@ -637,7 +637,7 @@ fn throttle_ceiling(spec: &ThrottleSpec, source: CeilingSource) -> EffectiveCeil
 /// Steady-state ceiling for a single throughput axis, with a tag
 /// for which configuration term produced it.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema)]
 pub struct EffectiveCeiling {
     /// Canonical value. For rate axes: events per second; useful
@@ -655,7 +655,7 @@ pub struct EffectiveCeiling {
 
 /// Which configuration term produced an `EffectiveCeiling`.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CeilingSource {
@@ -682,7 +682,7 @@ pub enum CeilingSource {
 
 /// Summary of an MX resolution attempt for a destination.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema)]
 pub struct MxResolution {
     /// Canonical site name; the value used as the queue grouping
@@ -756,7 +756,7 @@ impl MxResolution {
 /// Steady-state ceilings implied by an `EgressPathConfig`. Each
 /// ceiling carries a tag for which configuration term produced it.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 ///
 /// These are per-queue ceilings; shared limits in `additional_*`
 /// maps are reported at their full value and may be tighter in

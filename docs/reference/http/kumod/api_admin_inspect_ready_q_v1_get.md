@@ -18,7 +18,7 @@ the dispatcher tasks that are currently handling connections on
 its behalf.
 
 This API endpoint is used by the [kcli inspect-ready-q](../../kcli/inspect-ready-q.md) command.
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 ## Query Parameters
   * `queue_name` - required `string`. The name of the ready queue to inspect.
@@ -36,7 +36,7 @@ Ready queue snapshot
 
 Response body for the inspect-ready-q endpoint.
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 This is an object value, with the following properties:
 
@@ -70,7 +70,7 @@ This is an object value, with the following properties:
 
   * `state` - required [ReadyQueueStateSnapshot](schemas/ReadyQueueStateSnapshot.md). Snapshot of the operational state of a ready queue.
     
-    {{since('dev')}}
+    {{since('2026.09.22-a276d4a8')}}
 
 ### Examples
 ```json

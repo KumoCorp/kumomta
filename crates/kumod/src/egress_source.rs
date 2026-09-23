@@ -56,7 +56,7 @@ pub struct EgressSource {
     pub remote_port: Option<u16>,
 
     /// The host:port of the haproxy that should be used.
-    /// May be an IP literal, or {{since('dev', inline=True)}} a DNS host
+    /// May be an IP literal, or {{since('2026.09.22-a276d4a8', inline=True)}} a DNS host
     /// name; DNS names are resolved at connection time and each returned
     /// address is tried in turn.
     pub ha_proxy_server: Option<ResolvableSocketAddr>,
@@ -66,7 +66,7 @@ pub struct EgressSource {
     pub ha_proxy_source_address: Option<IpAddr>,
 
     /// The host:port of the SOCKS5 server that should be used.
-    /// May be an IP literal, or {{since('dev', inline=True)}} a DNS host
+    /// May be an IP literal, or {{since('2026.09.22-a276d4a8', inline=True)}} a DNS host
     /// name; DNS names are resolved at connection time and each returned
     /// address is tried in turn.
     pub socks5_proxy_server: Option<ResolvableSocketAddr>,
@@ -78,7 +78,7 @@ pub struct EgressSource {
     pub socks5_proxy_username: Option<String>,
     pub socks5_proxy_password: Option<KeySource>,
 
-    /// {{since('dev', inline=True)}} Auto-suspend this source when its
+    /// {{since('2026.09.22-a276d4a8', inline=True)}} Auto-suspend this source when its
     /// local `source_address` appears to be unplumbed (bind returns
     /// `EADDRNOTAVAIL`). The source is skipped during pool selection
     /// for the configured `duration`; messages assigned to a pool whose
@@ -87,7 +87,7 @@ pub struct EgressSource {
     #[serde(default)]
     pub suspend_when_unplumbed: Option<SuspendOnFailure>,
 
-    /// {{since('dev', inline=True)}} Auto-suspend this source when its
+    /// {{since('2026.09.22-a276d4a8', inline=True)}} Auto-suspend this source when its
     /// configured proxy server appears unreachable (connect/handshake
     /// failures, or the proxy itself reporting a bind failure for the
     /// requested source address). See [`suspend_when_unplumbed`] for
@@ -1490,7 +1490,7 @@ pub(crate) mod source_health {
         /// operator can observe the underlying signal before opting in
         /// to auto-suspension.
         ///
-        /// {{since('dev')}}
+        /// {{since('2026.09.22-a276d4a8')}}
         ///
         /// Labels:
         /// * `source` is the operator-defined egress source name (the
@@ -1515,7 +1515,7 @@ pub(crate) mod source_health {
         /// suspension is already active does not increment this
         /// counter; it only counts state transitions.
         ///
-        /// {{since('dev')}}
+        /// {{since('2026.09.22-a276d4a8')}}
         ///
         /// Labels:
         /// * `source` is the operator-defined egress source name (the
@@ -1541,7 +1541,7 @@ pub(crate) mod source_health {
         /// rolling the remaining suspension duration into the per-pool
         /// `min_delay`.
         ///
-        /// {{since('dev')}}
+        /// {{since('2026.09.22-a276d4a8')}}
         ///
         /// Labels:
         /// * `source` is the operator-defined egress source name (the

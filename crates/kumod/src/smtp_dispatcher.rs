@@ -50,7 +50,7 @@ declare_metric! {
 /// Number of DANE policy decisions made on the SMTP delivery path, labelled by
 /// `result`.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 ///
 /// The `result` label is one of:
 ///

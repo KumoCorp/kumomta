@@ -655,7 +655,7 @@ pub struct ReadyQueueStateResponse {
 
 /// Phase of a dispatcher task within a ready queue.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub enum DispatcherPhase {
     Starting,
@@ -671,7 +671,7 @@ pub enum DispatcherPhase {
 
 /// Query parameters for the inspect-ready-q endpoint.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 #[derive(Serialize, Deserialize, Debug, IntoParams, ToSchema)]
 pub struct InspectReadyQV1Request {
     /// The name of the ready queue to inspect.
@@ -697,7 +697,7 @@ impl ApplyToUrl for InspectReadyQV1Request {
 
 /// Snapshot of the operational state of a ready queue.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 #[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
 pub struct ReadyQueueStateSnapshot {
     pub ready_count: usize,
@@ -713,7 +713,7 @@ pub struct ReadyQueueStateSnapshot {
 
 /// Per-dispatcher summary returned by the inspect-ready-q endpoint.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 #[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
 pub struct DispatcherSummary {
     pub session_id: Uuid,
@@ -733,7 +733,7 @@ pub struct DispatcherSummary {
 
 /// Response body for the inspect-ready-q endpoint.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 #[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
 pub struct InspectReadyQV1Response {
     pub queue_name: String,
@@ -768,7 +768,7 @@ pub struct InspectReadyQV1Response {
 
 /// Request body for the abort-ready-q-conn endpoint.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct AbortReadyQConnV1Request {
     pub queue_name: String,
@@ -777,7 +777,7 @@ pub struct AbortReadyQConnV1Request {
 
 /// Query parameters for the resolve-egress-path endpoint.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 #[derive(Serialize, Deserialize, Debug, IntoParams, ToSchema)]
 pub struct ResolveEgressPathV1Request {
     /// Destination domain. Drives the MX lookup and is passed
@@ -802,7 +802,7 @@ impl ApplyToUrl for ResolveEgressPathV1Request {
 
 /// Response body for the resolve-egress-path endpoint.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 #[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
 pub struct ResolveEgressPathV1Response {
     pub domain: String,

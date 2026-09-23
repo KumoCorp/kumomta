@@ -4,7 +4,7 @@
 local text = kumo.format_egress_path_config_constraints(constraints)
 ```
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Given a constraints table previously obtained from
 [kumo.compute_egress_path_config_constraints](compute_egress_path_config_constraints.md),

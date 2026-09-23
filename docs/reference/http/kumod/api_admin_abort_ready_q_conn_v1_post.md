@@ -17,7 +17,7 @@ Abort the dispatcher task identified by `session_id` within the
 named ready queue.
 
 This API endpoint is used by the [kcli abort-ready-q-conn](../../kcli/abort-ready-q-conn.md) command.
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Returns 404 if either the queue or the session is unknown.
 
@@ -29,7 +29,7 @@ The `Content-Type` header must be set to `application/json`.
 
 Request body for the abort-ready-q-conn endpoint.
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 This is an object value, with the following properties:
 

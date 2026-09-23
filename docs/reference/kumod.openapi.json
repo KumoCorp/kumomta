@@ -16,7 +16,7 @@
           "kcli:abort-ready-q-conn"
         ],
         "summary": "Abort the dispatcher task identified by `session_id` within the\nnamed ready queue.",
-        "description": "{{since('dev')}}\n\nReturns 404 if either the queue or the session is unknown.",
+        "description": "{{since('2026.09.22-a276d4a8')}}\n\nReturns 404 if either the queue or the session is unknown.",
         "operationId": "abort_v1",
         "requestBody": {
           "content": {
@@ -183,7 +183,7 @@
           "kcli:inspect-ready-q"
         ],
         "summary": "Retrieve a snapshot of a ready queue's state, configuration, and\nthe dispatcher tasks that are currently handling connections on\nits behalf.",
-        "description": "{{since('dev')}}",
+        "description": "{{since('2026.09.22-a276d4a8')}}",
         "operationId": "inspect_v1",
         "parameters": [
           {
@@ -366,7 +366,7 @@
           "kcli:resolve-egress-path"
         ],
         "summary": "Resolve the effective egress path configuration and throughput\nceilings for a destination domain and egress source.",
-        "description": "{{since('dev')}}\n\nMirrors the diagnostic that `kcli inspect-ready-q` provides for\nlive ready queues, but operates from the configuration side: it\ninvokes the `get_queue_config` and `get_egress_path_config` event\ncallbacks for the supplied `domain`/`source` pair, performs the\nassociated MX lookup, and returns the resulting configuration,\nderived ceilings and the ready-queue name that would be used.",
+        "description": "{{since('2026.09.22-a276d4a8')}}\n\nMirrors the diagnostic that `kcli inspect-ready-q` provides for\nlive ready queues, but operates from the configuration side: it\ninvokes the `get_queue_config` and `get_egress_path_config` event\ncallbacks for the supplied `domain`/`source` pair, performs the\nassociated MX lookup, and returns the resulting configuration,\nderived ceilings and the ready-queue name that would be used.",
         "operationId": "resolve_v1",
         "parameters": [
           {
@@ -854,7 +854,7 @@
     "schemas": {
       "AbortReadyQConnV1Request": {
         "type": "object",
-        "description": "Request body for the abort-ready-q-conn endpoint.\n\n{{since('dev')}}",
+        "description": "Request body for the abort-ready-q-conn endpoint.\n\n{{since('2026.09.22-a276d4a8')}}",
         "required": [
           "queue_name",
           "session_id"
@@ -1193,7 +1193,7 @@
             }
           }
         ],
-        "description": "Which configuration term produced an `EffectiveCeiling`.\n\n{{since('dev')}}"
+        "description": "Which configuration term produced an `EffectiveCeiling`.\n\n{{since('2026.09.22-a276d4a8')}}"
       },
       "Content": {
         "oneOf": [
@@ -1375,11 +1375,11 @@
             ]
           }
         ],
-        "description": "Phase of a dispatcher task within a ready queue.\n\n{{since('dev')}}"
+        "description": "Phase of a dispatcher task within a ready queue.\n\n{{since('2026.09.22-a276d4a8')}}"
       },
       "DispatcherSummary": {
         "type": "object",
-        "description": "Per-dispatcher summary returned by the inspect-ready-q endpoint.\n\n{{since('dev')}}",
+        "description": "Per-dispatcher summary returned by the inspect-ready-q endpoint.\n\n{{since('2026.09.22-a276d4a8')}}",
         "required": [
           "session_id",
           "started_at",
@@ -1444,7 +1444,7 @@
       },
       "EffectiveCeiling": {
         "type": "object",
-        "description": "Steady-state ceiling for a single throughput axis, with a tag\nfor which configuration term produced it.\n\n{{since('dev')}}",
+        "description": "Steady-state ceiling for a single throughput axis, with a tag\nfor which configuration term produced it.\n\n{{since('2026.09.22-a276d4a8')}}",
         "required": [
           "value",
           "source",
@@ -1467,7 +1467,7 @@
       },
       "EffectiveConstraints": {
         "type": "object",
-        "description": "Steady-state ceilings implied by an `EgressPathConfig`. Each\nceiling carries a tag for which configuration term produced it.\n\n{{since('dev')}}\n\nThese are per-queue ceilings; shared limits in `additional_*`\nmaps are reported at their full value and may be tighter in\npractice when the bucket is contended.",
+        "description": "Steady-state ceilings implied by an `EgressPathConfig`. Each\nceiling carries a tag for which configuration term produced it.\n\n{{since('2026.09.22-a276d4a8')}}\n\nThese are per-queue ceilings; shared limits in `additional_*`\nmaps are reported at their full value and may be tighter in\npractice when the bucket is contended.",
         "required": [
           "max_concurrent_dispatchers"
         ],
@@ -1698,7 +1698,7 @@
       },
       "InspectReadyQV1Response": {
         "type": "object",
-        "description": "Response body for the inspect-ready-q endpoint.\n\n{{since('dev')}}",
+        "description": "Response body for the inspect-ready-q endpoint.\n\n{{since('2026.09.22-a276d4a8')}}",
         "required": [
           "queue_name",
           "egress_source",
@@ -1928,7 +1928,7 @@
       },
       "MxResolution": {
         "type": "object",
-        "description": "Summary of an MX resolution attempt for a destination.\n\n{{since('dev')}}",
+        "description": "Summary of an MX resolution attempt for a destination.\n\n{{since('2026.09.22-a276d4a8')}}",
         "required": [
           "site_name",
           "by_preference",
@@ -2012,7 +2012,7 @@
       },
       "ReadyQueueStateSnapshot": {
         "type": "object",
-        "description": "Snapshot of the operational state of a ready queue.\n\n{{since('dev')}}",
+        "description": "Snapshot of the operational state of a ready queue.\n\n{{since('2026.09.22-a276d4a8')}}",
         "required": [
           "ready_count",
           "connection_count",
@@ -2175,7 +2175,7 @@
       },
       "ResolveEgressPathV1Response": {
         "type": "object",
-        "description": "Response body for the resolve-egress-path endpoint.\n\n{{since('dev')}}",
+        "description": "Response body for the resolve-egress-path endpoint.\n\n{{since('2026.09.22-a276d4a8')}}",
         "required": [
           "domain",
           "source",

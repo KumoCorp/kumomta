@@ -196,7 +196,7 @@ use; closed files are reopened on demand at a small per-read cost.
 
 ## write_buffer_size
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Size in bytes of the rocksdb memtable that buffers writes before
 being flushed to disk as a new SST file.
@@ -210,7 +210,7 @@ the rocksdb default.
 
 ## level0_stop_writes_trigger
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Number of level-0 SST files at which rocksdb will stop accepting
 writes.  Lower values transition the database into the
@@ -383,7 +383,7 @@ end)
 
 ## store_deadline
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Upper bound on the wait that `store()` and `remove()` will tolerate
 when rocksdb is applying backpressure.  Specified as a duration
@@ -404,7 +404,7 @@ operators can tell the two cases apart.
 
 ## error_latch_duration
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Delay from the first observed error in an incident before the load-shedding
 gate latches. Specified as a duration string. Defaults to 15 seconds.
@@ -423,7 +423,7 @@ can delay transitions further.
 
 ## error_unlatch_duration
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Minimum time both latched and without newly observed errors before the gate
 reopens for a retry. Specified as a duration string. Defaults to 5 minutes.
@@ -442,7 +442,7 @@ that existing message data is intact.
 
 ## allow_error_unlatch
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 When `true` (the default), writes resume automatically after
 [error_unlatch_duration](#error_unlatch_duration) has elapsed since the later

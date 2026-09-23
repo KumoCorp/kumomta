@@ -1,6 +1,6 @@
 # dispatcher_progress_watchdog_timeout
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Sets the maximum duration a connection-handling dispatcher task for
 this egress path may go without making any forward progress before the

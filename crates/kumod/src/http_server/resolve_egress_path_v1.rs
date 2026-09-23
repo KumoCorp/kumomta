@@ -10,7 +10,7 @@ use serde_json::Value;
 /// Resolve the effective egress path configuration and throughput
 /// ceilings for a destination domain and egress source.
 ///
-/// {{since('dev')}}
+/// {{since('2026.09.22-a276d4a8')}}
 ///
 /// Mirrors the diagnostic that `kcli inspect-ready-q` provides for
 /// live ready queues, but operates from the configuration side: it

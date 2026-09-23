@@ -4,7 +4,7 @@
 kumo.serde.toml_encode_pretty_compact(VALUE)
 ```
 
-{{since('dev')}}
+{{since('2026.09.22-a276d4a8')}}
 
 Attempts to encode VALUE as its TOML equivalent and returns that
 value serialized as a string, with two layout normalizations applied
