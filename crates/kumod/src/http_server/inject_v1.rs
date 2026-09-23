@@ -1627,6 +1627,66 @@ Some(
         k9::assert_equal!(structure.attachments.len(), 1);
     }
 
+    /// The HTTP inject API `recipients[].name` flows into
+    /// `builder.set_to(...)`. A stray CRLF in the name is rewritten to a space
+    /// during encoding, so it cannot split the header line and add a spurious
+    /// header to the generated message (no `Notes` header appears).
+    #[tokio::test]
+    async fn test_crlf_injection_via_recipient_name() {
+        let mut request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: Some("Ada Lovelace\r\nNotes: imported".to_string()),
+                substitutions: HashMap::new(),
+                metadata: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Builder {
+                text_body: Some("hi".to_string()),
+                amp_html_body: None,
+                html_body: None,
+                subject: None,
+                from: None,
+                reply_to: None,
+                headers: Default::default(),
+                attachments: vec![],
+            },
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+            template_dialect: Default::default(),
+        };
+
+        request.normalize().unwrap();
+        let compiled = request.compile().unwrap();
+        let generated = compiled
+            .expand_for_recip(
+                &request.recipients[0],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap();
+        println!("{generated}");
+        let parsed = MimePart::parse(generated.as_str()).unwrap();
+        let names: Vec<String> = parsed
+            .headers()
+            .iter()
+            .map(|h| h.get_name().to_string())
+            .collect();
+        k9::snapshot!(
+            names,
+            r#"
+[
+    "Content-Type",
+    "To",
+    "MIME-Version",
+    "Date",
+]
+"#
+        );
+    }
+
     #[tokio::test]
     async fn test_to_from_builder() {
         let mut request = InjectV1Request {

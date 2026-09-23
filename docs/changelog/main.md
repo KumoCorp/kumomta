@@ -47,3 +47,11 @@
    emit the `MIME-Version` header with its uppercase spelling rather than
    `Mime-Version`. Both are valid per RFC 2045, but some spam filters such as
    rspamd score the mixed-case form. #564
+
+ * Hardened display-name encoding when building messages: a CR or LF embedded
+   in an address header display name (such as `From`, `To`, etc.),
+   is now rewritten to a space to prevent it from splitting the header and
+   injected a spurious header.  This is a robustness fix rather than
+   a privilege escalation, as both the injection API and Lua policy already compose
+   arbitrary message content and headers anyway.  This is only applicable
+   to code that directly or indirectly calls into the builder API.

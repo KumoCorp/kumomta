@@ -632,6 +632,73 @@ fn test_encode_folds_long_mailbox_display_name() {
 
 #[cfg(test)]
 #[test]
+fn test_crlf_injection_via_display_name() {
+    // A display name may pick up a stray CR/LF, for example a value imported
+    // from another system with an embedded line break. Rewriting it to a space
+    // keeps it from terminating the header line: re-parsing the header block
+    // yields a single From header, not a spurious second one.
+    let mailbox = Mailbox {
+        name: Some("Ada Lovelace\r\nNotes: imported".to_string()),
+        address: AddrSpec::new("alex", "example.com"),
+    };
+    let encoded = mailbox.encode_value().to_string();
+    k9::snapshot!(
+        BString::from(encoded.clone()),
+        r#""Ada Lovelace  Notes: imported" <alex@example.com>"#
+    );
+
+    let header_block = format!("From: {encoded}\r\n\r\n");
+    let parsed = crate::Header::parse_headers(header_block).unwrap();
+    let names: Vec<String> = parsed
+        .headers
+        .iter()
+        .map(|h| h.get_name().to_string())
+        .collect();
+    k9::snapshot!(
+        names,
+        r#"
+[
+    "From",
+]
+"#
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn test_bare_lf_injection_via_display_name() {
+    // Same as test_crlf_injection_via_display_name, for a bare LF with no
+    // preceding CR: quote_string's fold check has a separate match arm for
+    // this case, so it needs its own regression coverage.
+    let mailbox = Mailbox {
+        name: Some("Ada Lovelace\nNotes: imported".to_string()),
+        address: AddrSpec::new("alex", "example.com"),
+    };
+    let encoded = mailbox.encode_value().to_string();
+    k9::snapshot!(
+        BString::from(encoded.clone()),
+        r#""Ada Lovelace Notes: imported" <alex@example.com>"#
+    );
+
+    let header_block = format!("From: {encoded}\r\n\r\n");
+    let parsed = crate::Header::parse_headers(header_block).unwrap();
+    let names: Vec<String> = parsed
+        .headers
+        .iter()
+        .map(|h| h.get_name().to_string())
+        .collect();
+    k9::snapshot!(
+        names,
+        r#"
+[
+    "From",
+]
+"#
+    );
+}
+
+#[cfg(test)]
+#[test]
 fn test_encode_folds_non_ascii_mailbox_display_name() {
     // Use a non-ASCII name long enough that qp_encode itself folds it into
     // multiple encoded-words joined by "\r\n\t". The addr-spec fold decision
@@ -2669,6 +2736,23 @@ fn quote_string(s: impl AsRef<[u8]>) -> BString {
             let c = c as u32;
             if c <= 0xff {
                 let c = c as u8;
+                if c == b'\r' || c == b'\n' {
+                    // A CR/LF that is part of a legal RFC 5322 fold (a CR?LF
+                    // immediately followed by WSP) is kept: it is valid header
+                    // structure, not injection. A bare CR/LF is rewritten to a
+                    // space so it cannot terminate the header line and let the
+                    // bytes after it be read as a separate, spurious header.
+                    let is_fold = match c {
+                        b'\r' => matches!(&s[end..], [b'\n', b' ' | b'\t', ..]),
+                        _ => matches!(&s[end..], [b' ' | b'\t', ..]),
+                    };
+                    if is_fold {
+                        result.push_str(&s[start..end]);
+                    } else {
+                        result.push(b' ');
+                    }
+                    continue;
+                }
                 if !c.is_ascii_whitespace() && !is_qtext(c) && !is_atext(c) {
                     result.push(b'\\');
                 }
@@ -2726,10 +2810,10 @@ impl EncodeHeaderValue for Mailbox {
                 // multiple encoded-words separated by `\r\n\t`. Only the last
                 // of those lines shares a line with `<addr>`, so measure from
                 // the final fold when deciding whether to fold before `<addr>`.
-                // This assumes `phrase` contains no raw `\n` other than such a
-                // fold; quote_string currently passes an embedded `\n` in
-                // `name` through unescaped (a known, separate issue), which
-                // would be misread here as a fold boundary.
+                // quote_string only lets a raw `\n` through when it is part of
+                // a legal fold (CR?LF followed by WSP), so any `\n` remaining
+                // in `phrase` here is guaranteed to be a fold boundary, not
+                // arbitrary content.
                 let last_line_len = phrase
                     .rfind_byte(b'\n')
                     .map(|i| phrase.len() - (i + 1))
