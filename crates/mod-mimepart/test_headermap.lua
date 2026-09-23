@@ -172,3 +172,76 @@ utils.assert_eq(
   'X-Long: hello there hello there hello there hello there hello there hello there\r\n'
     .. '\thello there hello there hello there hello there\r\n'
 )
+
+-- Verify `header.value` for each header grammar now that it routes through
+-- ParsedHeader.
+local vheaders = kumo.mimepart.new_text_plain('x').headers
+local function header_value(name, raw)
+  vheaders:prepend(name, raw)
+  return vheaders:get_first_named(name).value
+end
+
+utils.assert_eq(header_value('From', 'Someone <someone@example.com>'), {
+  {
+    name = 'Someone',
+    address = { local_part = 'someone', domain = 'example.com' },
+  },
+})
+utils.assert_eq(
+  header_value('Sender', 'Someone <someone@example.com>'),
+  {
+    name = 'Someone',
+    address = { local_part = 'someone', domain = 'example.com' },
+  }
+)
+utils.assert_eq(header_value('To', '"John Smith" <john@example.com>'), {
+  {
+    name = 'John Smith',
+    address = { local_part = 'john', domain = 'example.com' },
+  },
+})
+utils.assert_eq(
+  header_value('Message-ID', '<123@example.com>'),
+  '123@example.com'
+)
+utils.assert_eq(
+  header_value('Content-ID', '<abc@example.com>'),
+  'abc@example.com'
+)
+utils.assert_eq(
+  header_value('References', '<a@example.com> <b@example.com>'),
+  { 'a@example.com', 'b@example.com' }
+)
+utils.assert_eq(
+  header_value('Content-Transfer-Encoding', 'quoted-printable'),
+  { value = 'quoted-printable', parameters = {} }
+)
+utils.assert_eq(
+  header_value('Content-Disposition', 'attachment; filename="x.txt"'),
+  { value = 'attachment', parameters = { filename = 'x.txt' } }
+)
+utils.assert_eq(
+  header_value(
+    'Authentication-Results',
+    'example.com; dkim=pass header.d=example.com'
+  ),
+  {
+    serv_id = 'example.com',
+    results = {
+      {
+        props = { ['header.d'] = 'example.com' },
+        result = 'pass',
+        method = 'dkim',
+      },
+    },
+  }
+)
+utils.assert_eq(header_value('Subject', 'hello there'), 'hello there')
+utils.assert_eq(header_value('X-Custom', 'whatever'), 'whatever')
+
+-- Date is deliberately exempted from parsing (see header_value_to_lua): its
+-- value stays the raw string, which should be an RFC 2822 compatible date.
+utils.assert_eq(
+  header_value('Date', 'Tue, 1 Jul 2003 10:52:37 +0200'),
+  'Tue, 1 Jul 2003 10:52:37 +0200'
+)

@@ -3,7 +3,7 @@ use bstr::BString;
 use config::{SerdeWrappedValue, any_err};
 use mailparsing::{
     AddressList, BStringUtf8, Header, HeaderMap, MailParsingError, Mailbox, MailboxList, MessageID,
-    MimeParameters,
+    MimeParameters, ParsedHeader,
 };
 use mlua::{
     IntoLua, Lua, MetaMethod, MultiValue, UserData, UserDataFields, UserDataMethods, Value,
@@ -379,69 +379,36 @@ impl From<MimeParams> for MimeParameters {
 #[derive(Clone)]
 pub struct HeaderWrap(Header<'static>);
 
-fn get_mailbox_list(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    SerdeWrappedValue(header.as_mailbox_list().map_err(any_err)?).to_lua_value(lua)
-}
-fn get_address_list(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    SerdeWrappedValue(header.as_address_list().map_err(any_err)?).to_lua_value(lua)
-}
-fn get_mailbox(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    SerdeWrappedValue(header.as_mailbox().map_err(any_err)?).to_lua_value(lua)
-}
-fn get_message_id(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    SerdeWrappedValue(header.as_message_id().map_err(any_err)?).to_lua_value(lua)
-}
-fn get_content_id(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    SerdeWrappedValue(header.as_content_id().map_err(any_err)?).to_lua_value(lua)
-}
-fn get_message_id_list(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    SerdeWrappedValue(header.as_message_id_list().map_err(any_err)?).to_lua_value(lua)
-}
-fn get_unstructured(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    SerdeWrappedValue(header.as_unstructured().map_err(any_err)?).to_lua_value(lua)
-}
-fn get_content_transfer_encoding(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    let params: MimeParams = header
-        .as_content_transfer_encoding()
-        .map_err(any_err)?
-        .into();
-    SerdeWrappedValue(params).to_lua_value(lua)
-}
-fn get_content_disposition(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    let params: MimeParams = header.as_content_disposition().map_err(any_err)?.into();
-    SerdeWrappedValue(params).to_lua_value(lua)
-}
-fn get_content_type(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    let params: MimeParams = header.as_content_type().map_err(any_err)?.into();
-    SerdeWrappedValue(params).to_lua_value(lua)
-}
-fn get_authentication_results(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    SerdeWrappedValue(header.as_authentication_results().map_err(any_err)?).to_lua_value(lua)
-}
+/// Parse `header` according to the grammar implied by its name (see
+/// `mailparsing::ParsedHeader`) and convert the result to a Lua value.
+fn header_value_to_lua(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
+    // For backwards compatibility, Date is returned as its raw string rather
+    // than a parsed timestamp: `value` yields what should be an RFC 2822
+    // compatible string, whereas parsing would produce an RFC 3339 string or a
+    // kumo.time Time object. We return the value as-is, without parsing, which
+    // means that a non-conforming Date is not detected here.
+    if header.get_name().eq_ignore_ascii_case(b"Date") {
+        return SerdeWrappedValue(header.as_unstructured().map_err(any_err)?).to_lua_value(lua);
+    }
 
-const NAME_GETTER: &[(&str, fn(&Lua, &Header) -> mlua::Result<mlua::Value>)] = &[
-    ("From", get_mailbox_list),
-    ("Reply-To", get_address_list),
-    ("To", get_address_list),
-    ("Cc", get_address_list),
-    ("Bcc", get_address_list),
-    ("Message-ID", get_message_id),
-    ("Subject", get_unstructured),
-    ("MIME-Version", get_unstructured),
-    ("Content-Transfer-Encoding", get_content_transfer_encoding),
-    ("Content-Type", get_content_type),
-    ("Content-Disposition", get_content_disposition),
-    ("Authentication-Results", get_authentication_results),
-    ("Resent-From", get_mailbox_list),
-    ("Resent-To", get_address_list),
-    ("Resent-Cc", get_address_list),
-    ("Resent-Bcc", get_address_list),
-    ("Resent-Sender", get_mailbox),
-    ("Sender", get_mailbox),
-    ("Content-ID", get_content_id),
-    ("References", get_message_id_list),
-    ("Comments", get_unstructured),
-];
+    match header.structured().map_err(any_err)? {
+        ParsedHeader::MailboxList(v) => SerdeWrappedValue(v).to_lua_value(lua),
+        ParsedHeader::Mailbox(v) => SerdeWrappedValue(v).to_lua_value(lua),
+        ParsedHeader::AddressList(v) => SerdeWrappedValue(v).to_lua_value(lua),
+        ParsedHeader::MessageId(v) => SerdeWrappedValue(v).to_lua_value(lua),
+        ParsedHeader::MessageIdList(v) => SerdeWrappedValue(v).to_lua_value(lua),
+        ParsedHeader::MimeParameters(v) => SerdeWrappedValue(MimeParams::from(v)).to_lua_value(lua),
+        ParsedHeader::AuthenticationResults(v) => SerdeWrappedValue(v).to_lua_value(lua),
+        // The early return above intercepts every Date header before
+        // structured() runs, so this arm is not reached in practice; it keeps
+        // the match exhaustive and returns the same raw string rather than
+        // introduce a panic path.
+        ParsedHeader::Date(_) => {
+            SerdeWrappedValue(header.as_unstructured().map_err(any_err)?).to_lua_value(lua)
+        }
+        ParsedHeader::Unstructured(v) => SerdeWrappedValue(v).to_lua_value(lua),
+    }
+}
 
 impl UserData for HeaderWrap {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
@@ -453,15 +420,7 @@ impl UserData for HeaderWrap {
     fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("name", |lua, this| lua.create_string(this.0.get_name()));
 
-        fields.add_field_method_get("value", |lua, this| {
-            let name = this.0.get_name();
-            for (candidate, getter) in NAME_GETTER {
-                if candidate.as_bytes().eq_ignore_ascii_case(name) {
-                    return (getter)(lua, &this.0);
-                }
-            }
-            get_unstructured(lua, &this.0)
-        });
+        fields.add_field_method_get("value", |lua, this| header_value_to_lua(lua, &this.0));
 
         fields.add_field_method_get("raw_value", |lua, this| {
             lua.create_string(this.0.get_raw_value())
