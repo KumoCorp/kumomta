@@ -95,21 +95,30 @@ fn iter_lines(haystack: &'_ [u8]) -> IterLines<'_> {
     }
 }
 
-/// https://datatracker.ietf.org/doc/html/rfc6376#section-3.4.3
-/// Canonicalize body using the relaxed canonicalization algorithm.
-fn body_relaxed(mut body: &[u8], hasher: &mut LimitHasher) {
-    if body.is_empty() {
-        return;
-    }
-
-    // Ignore empty lines at the end of the message body
-    while body.ends_with(b"\r\n\r\n") {
-        body = &body[..body.len() - 2];
-    }
+/// Canonicalize a body using the relaxed canonicalization algorithm from
+/// RFC 6376 section 3.4.4. That section refers to section 3.4.3 only for
+/// the definition of an "empty line"; the relaxed algorithm itself is
+/// specified in section 3.4.4.
+/// https://datatracker.ietf.org/doc/html/rfc6376#section-3.4.4
+fn body_relaxed(body: &[u8], hasher: &mut LimitHasher) {
+    let mut pending_empty_lines = 0usize;
 
     for mut line in iter_lines(body) {
         // Ignore all whitespace at the end of the line
         line = trim_ws_end(line);
+
+        // Empty lines are only emitted if followed by a non-empty line. This
+        // drops all trailing empty lines, including a body consisting solely
+        // of CRLF, as required by RFC 6376 section 3.4.4.
+        if line.is_empty() {
+            pending_empty_lines += 1;
+            continue;
+        }
+
+        for _ in 0..pending_empty_lines {
+            hasher.hash(b"\r\n");
+        }
+        pending_empty_lines = 0;
 
         let mut prior = 0;
         // Reduce all sequences of WSP within a line to a single SP character.
@@ -220,13 +229,73 @@ mod tests {
     }
 
     fn body_relaxed(data: &[u8]) -> Vec<u8> {
+        body_relaxed_with_limit(data, usize::MAX)
+    }
+
+    fn body_relaxed_with_limit(data: &[u8], limit: usize) -> Vec<u8> {
         let mut hasher = LimitHasher {
             hasher: crate::hash::HashImpl::copy_data(),
-            limit: usize::MAX,
+            limit,
             hashed: 0,
         };
         super::body_relaxed(data, &mut hasher);
         hasher.finalize_bytes()
+    }
+
+    /// A deliberately non-streaming implementation of RFC 6376 section
+    /// 3.4.4 for checking the production streaming implementation.
+    fn reference_body_relaxed(body: &[u8]) -> Vec<u8> {
+        let mut lines = vec![];
+        let mut start = 0;
+
+        while let Some(offset) = body[start..]
+            .windows(2)
+            .position(|window| window == b"\r\n")
+        {
+            let end = start + offset;
+            lines.push(&body[start..end]);
+            start = end + 2;
+        }
+
+        if start < body.len() {
+            lines.push(&body[start..]);
+        }
+
+        let mut canonical_lines = lines
+            .into_iter()
+            .map(|line| {
+                let mut canonical = vec![];
+                let mut pending_wsp = false;
+
+                for &byte in line {
+                    match byte {
+                        b' ' | b'\t' => pending_wsp = true,
+                        _ => {
+                            if pending_wsp {
+                                canonical.push(b' ');
+                                pending_wsp = false;
+                            }
+                            canonical.push(byte);
+                        }
+                    }
+                }
+
+                canonical
+            })
+            .collect::<Vec<_>>();
+
+        while canonical_lines.last().is_some_and(Vec::is_empty) {
+            canonical_lines.pop();
+        }
+
+        let mut canonical = canonical_lines
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join(b"\r\n".as_slice());
+        if !canonical.is_empty() {
+            canonical.extend_from_slice(b"\r\n");
+        }
+        canonical
     }
 
     fn body_simple(data: &[u8]) -> Vec<u8> {
@@ -241,9 +310,75 @@ mod tests {
 
     #[test]
     fn test_canonicalize_body_relaxed() {
-        assert_eq!(body_relaxed(b"\r\n"), b"\r\n");
+        assert_eq!(body_relaxed(b""), b"");
+        assert_eq!(body_relaxed(b"\r\n"), b"");
+        assert_eq!(body_relaxed(b"\r\n\r\n"), b"");
+        assert_eq!(body_relaxed(b" \t\r\n\t\r\n"), b"");
         assert_eq!(body_relaxed(b"hey        \r\n"), b"hey\r\n");
         assert_eq!(body_relaxed(b" C \r\nD \t E\r\n\r\n\r\n"), b" C\r\nD E\r\n");
+        assert_eq!(body_relaxed(b"\r\nhey \t\r\n \t\r\n"), b"\r\nhey\r\n");
+        assert_eq!(
+            body_relaxed(b"hey\r\n \t\r\nthere"),
+            b"hey\r\n\r\nthere\r\n"
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_body_relaxed_against_reference() {
+        let line_variants: &[&[u8]] = &[
+            b"",
+            b"a",
+            b" ",
+            b"\t",
+            b" \t",
+            b"a ",
+            b" a",
+            b"a \t b",
+            b" a\t \tb ",
+        ];
+
+        for line_count in 0..=4u32 {
+            let combination_count = line_variants.len().pow(line_count);
+
+            for combination in 0..combination_count {
+                for terminated in [false, true] {
+                    let mut selected = combination;
+                    let mut body = vec![];
+
+                    for line_index in 0..line_count {
+                        if line_index > 0 {
+                            body.extend_from_slice(b"\r\n");
+                        }
+                        body.extend_from_slice(line_variants[selected % line_variants.len()]);
+                        selected /= line_variants.len();
+                    }
+
+                    if terminated {
+                        body.extend_from_slice(b"\r\n");
+                    }
+
+                    assert_eq!(
+                        body_relaxed(&body),
+                        reference_body_relaxed(&body),
+                        "body={body:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_canonicalize_body_relaxed_respects_length_limit() {
+        let body = b"\r\n C \t\r\n \t\r\nD \t E\r\n\r\n";
+        let canonical = reference_body_relaxed(body);
+
+        for limit in 0..=canonical.len() + 1 {
+            assert_eq!(
+                body_relaxed_with_limit(body, limit),
+                &canonical[..limit.min(canonical.len())],
+                "limit={limit}"
+            );
+        }
     }
 
     #[test]
