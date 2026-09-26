@@ -290,9 +290,10 @@ pub async fn verify_email_with_resolver<'a>(
     let mut dkim_headers = vec![];
 
     for h in email.get_headers().iter_named(DKIM_SIGNATURE_HEADER_NAME) {
-        if results.len() > 10 {
-            // Limit DoS impact if a malicious message is filled
-            // with signatures
+        // Limit DoS impact if a malicious message is filled with signatures.
+        // Both failed parses (results) and successful ones (dkim_headers, each
+        // of which drives a DNS lookup and a verification) count against the cap.
+        if results.len() + dkim_headers.len() > 10 {
             break;
         }
 
@@ -323,22 +324,27 @@ pub async fn verify_email_with_resolver<'a>(
     /// relayed, and MUST be long enough to be unique among the results being
     /// reported.
     fn compute_header_b(b_tag: &str, headers: &[DKIMHeader]) -> String {
-        let mut len = 8;
+        let total = b_tag.chars().count();
 
-        'bigger: while len < b_tag.len() {
-            for h in headers {
-                let candidate = h.get_required_tag("b");
-                if candidate == b_tag {
-                    continue;
-                }
-                if b_tag[0..len] == candidate[0..len] {
-                    len += 2;
-                    continue 'bigger;
-                }
+        // At least the first eight characters, and never more than the whole tag.
+        let mut needed = total.min(8);
+
+        for h in headers {
+            let candidate = h.get_required_tag("b");
+            if candidate == b_tag {
+                continue;
             }
-            return b_tag[0..len].to_string();
+            // One character past the shared leading run distinguishes b_tag from
+            // this candidate; extend to cover it, up to the whole tag.
+            let shared = b_tag
+                .chars()
+                .zip(candidate.chars())
+                .take_while(|(a, b)| a == b)
+                .count();
+            needed = needed.max((shared + 1).min(total));
         }
-        b_tag.to_string()
+
+        b_tag.chars().take(needed).collect()
     }
 
     for dkim_header in &dkim_headers {
@@ -477,6 +483,82 @@ b=dzdVyOfAKCdLXdJOc9G2q8LoXSlEniSbav+yuU4zGeeruD00lszZ
         assert_eq!(
             DKIMHeader::parse(&header).unwrap_err(),
             DKIMError::SignatureExpired
+        );
+    }
+
+    #[tokio::test]
+    async fn test_short_b_tag_does_not_panic() {
+        // Two signatures whose b= tags don't share a common prefix, where one
+        // b= is shorter than the 8 character minimum that compute_header_b
+        // starts from. The shorter value must not be sliced past its length.
+        let raw_email = concat!(
+            "DKIM-Signature: v=1; a=rsa-sha256; c=simple/simple; d=example.com; s=sel1; h=From; bh=AAAA; b=short\r\n",
+            "DKIM-Signature: v=1; a=rsa-sha256; c=simple/simple; d=example.com; s=sel2; h=From; bh=AAAA; b=alongerbase64valuethatexceedseightbytes\r\n",
+            "From: user@example.com\r\n\r\nhello",
+        );
+
+        let email = ParsedEmail::parse(raw_email).unwrap();
+        let resolver = TestResolver::default();
+
+        let res = verify_email_with_resolver(&email, &resolver).await.unwrap();
+        assert_eq!(res.len(), 2);
+
+        // The short tag is reported whole. The long tag is trimmed to the eight
+        // character minimum since it doesn't share a prefix with the short one.
+        assert_eq!(
+            res[0].props.get("header.b").unwrap().to_str().unwrap(),
+            "short"
+        );
+        assert_eq!(
+            res[1].props.get("header.b").unwrap().to_str().unwrap(),
+            "alongerb"
+        );
+    }
+
+    async fn header_b_values(raw_email: &str) -> Vec<String> {
+        let email = ParsedEmail::parse(raw_email).unwrap();
+        let resolver = TestResolver::default();
+        verify_email_with_resolver(&email, &resolver)
+            .await
+            .unwrap()
+            .iter()
+            .map(|r| {
+                r.props
+                    .get("header.b")
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn test_header_b_prefix_extension() {
+        // Two b= tags sharing exactly the eight character floor must each
+        // extend to nine to stay distinct, proving the floor is not a ceiling.
+        assert_eq!(
+            header_b_values(concat!(
+                "DKIM-Signature: v=1; a=rsa-sha256; c=simple/simple; d=example.com; s=s1; h=From; bh=AAAA; b=AAAAAAAAX\r\n",
+                "DKIM-Signature: v=1; a=rsa-sha256; c=simple/simple; d=example.com; s=s2; h=From; bh=AAAA; b=AAAAAAAAY\r\n",
+                "From: user@example.com\r\n\r\nhello",
+            ))
+            .await,
+            vec!["AAAAAAAAX", "AAAAAAAAY"]
+        );
+
+        // A long shared prefix drives the length past the floor. The length is
+        // the max across candidates (not the nearest one), capped at the tag
+        // itself when a tag is a strict prefix of another.
+        assert_eq!(
+            header_b_values(concat!(
+                "DKIM-Signature: v=1; a=rsa-sha256; c=simple/simple; d=example.com; s=s1; h=From; bh=AAAA; b=COMMONPREFIXAAAAAA\r\n",
+                "DKIM-Signature: v=1; a=rsa-sha256; c=simple/simple; d=example.com; s=s2; h=From; bh=AAAA; b=COMMONPREFIXAB\r\n",
+                "DKIM-Signature: v=1; a=rsa-sha256; c=simple/simple; d=example.com; s=s3; h=From; bh=AAAA; b=COMMONXYZ\r\n",
+                "From: user@example.com\r\n\r\nhello",
+            ))
+            .await,
+            vec!["COMMONPREFIXAA", "COMMONPREFIXAB", "COMMONXY"]
         );
     }
 

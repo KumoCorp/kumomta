@@ -33,6 +33,14 @@
    `max_line_size` (default 128 MiB). A record larger than that limit is dropped,
    and the rest of the segment is still read.
 
+ * Fixed a remotely triggerable panic in DKIM verification. A message with two
+   or more `DKIM-Signature` headers whose `b=` tags differed in length, one of
+   them shorter than eight characters, panicked with an out-of-bounds read while
+   computing the `header.b` authentication result. This was reachable on inbound
+   mail through `msg:dkim_verify()`. The signature-count limit that caps
+   verification work per message now also counts successfully parsed
+   signatures, not only signatures that failed to parse.
+
  * Fixed an integer underflow when re-encoding a MIME parameter (such as a
    `Content-Type` parameter) whose name was long enough that the fold framing
    exceeded the target line width. This panicked in debug builds and produced
