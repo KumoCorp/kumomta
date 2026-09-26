@@ -33,6 +33,12 @@
    `max_line_size` (default 128 MiB). A record larger than that limit is dropped,
    and the rest of the segment is still read.
 
+ * Fixed corruption of a multipart message whose body begins with a blank line
+   or other preamble text before the first boundary. Adding a missing `Date`,
+   `Message-ID`, or `MIME-Version` header via `msg:check_fix_conformance` wrote
+   the `\r\n` in front of the first boundary back as `\n\r`, so the boundary no
+   longer started a line and the altered bytes broke DKIM signatures. #607
+
  * Fixed a remotely triggerable panic in DKIM verification. A message with two
    or more `DKIM-Signature` headers whose `b=` tags differed in length, one of
    them shorter than eight characters, panicked with an out-of-bounds read while

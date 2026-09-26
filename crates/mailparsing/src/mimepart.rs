@@ -271,13 +271,23 @@ impl<'a> MimePart<'a> {
             .and_then(|ct| ct.get("boundary").map(|b| (b, info.is_multipart)))
         {
             let boundary = format!("\n--{boundary}");
-            let raw_body = self
-                .bytes
-                .slice(self.body_offset.saturating_sub(1)..self.bytes.len());
+            // Begin the boundary search one byte ahead of the body so that the
+            // leading \n of the `\n--boundary` needle can match a boundary that
+            // sits at the very start of the body.
+            let raw_body_start = self.body_offset.saturating_sub(1);
+            // Offset of the real body within raw_body: 1 when we stepped back
+            // over a preceding byte, 0 when the body starts the message.
+            let body_start_in_raw = self.body_offset - raw_body_start;
+            let raw_body = self.bytes.slice(raw_body_start..self.bytes.len());
 
             let mut iter = memchr::memmem::find_iter(raw_body.as_bytes(), &boundary);
             if let Some(first_boundary_pos) = iter.next() {
-                self.intro = raw_body.slice(0..first_boundary_pos);
+                // first_boundary_pos is the \n that ends the line before the
+                // boundary. The intro is the body up to and including that \n,
+                // excluding the synthetic byte we stepped back over. Keeping
+                // the \n preserves the line ending the boundary must start
+                // after.
+                self.intro = raw_body.slice(body_start_in_raw..first_boundary_pos + 1);
 
                 // When we create parts, we ignore the original body span in
                 // favor of what we're parsing out here now
@@ -1993,6 +2003,124 @@ s a really long line Hello this is a really long line Hello this is a reall=\r
 y long line=0A\r
 
 "#
+        );
+    }
+
+    // https://github.com/KumoCorp/kumomta/issues/607
+    // Adding a missing Date/Message-ID header to a multipart message whose
+    // body begins with a blank line before the first boundary must not
+    // disturb the body. Previously the leading `\r\n` was rewritten as
+    // `\n\r`, moving the boundary off the start of its line and altering
+    // the bytes covered by a DKIM signature.
+    #[test]
+    fn check_fix_missing_headers_preserves_leading_blank_line() {
+        const CONTENT: &str = concat!(
+            "From: sender@example.com\r\n",
+            "To: recipient@example.com\r\n",
+            "Subject: test\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/alternative; boundary=b1\r\n",
+            "\r\n",
+            "\r\n",
+            "--b1\r\n",
+            "Content-Type: text/plain\r\n",
+            "\r\n",
+            "hello\r\n",
+            "--b1--\r\n",
+        );
+        let msg = MimePart::parse(CONTENT).unwrap();
+        let rebuilt = BString::from(
+            msg.check_fix_conformance(
+                MessageConformance::default(),
+                MessageConformance::MISSING_DATE_HEADER
+                    | MessageConformance::MISSING_MESSAGE_ID_HEADER,
+                CheckFixSettings {
+                    message_id: Some("id@example.com".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .unwrap()
+            .to_message_bytes(),
+        );
+
+        // The header/body separator is followed by the untouched body: a
+        // blank line and then the boundary at the start of its own line.
+        k9::assert_equal!(
+            rebuilt.find("\r\n\r\n").map(|pos| &rebuilt[pos..]),
+            Some(&b"\r\n\r\n\r\n--b1\r\nContent-Type: text/plain\r\n\r\nhello\r\n--b1--\r\n"[..])
+        );
+    }
+
+    // The intro (the preamble before the first boundary) must survive a
+    // parse/serialize round-trip unchanged, whether it is a blank line or
+    // textual preamble text. The fixed slicing had previously shifted every
+    // nonempty intro by one byte; this covers the textual-preamble case,
+    // not just the blank-line variant checked above.
+    #[test]
+    fn multipart_preamble_round_trip() {
+        const CONTENT: &str = concat!(
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/alternative; boundary=b1\r\n",
+            "\r\n",
+            "This is a multi-part message in MIME format.\r\n",
+            "--b1\r\n",
+            "Content-Type: text/plain\r\n",
+            "\r\n",
+            "hello\r\n",
+            "--b1--\r\n",
+        );
+        let msg = MimePart::parse(CONTENT).unwrap();
+        k9::assert_equal!(
+            BString::from(msg.to_message_bytes()),
+            BString::from(CONTENT)
+        );
+    }
+
+    // The epilogue (the text after the closing boundary) must survive a
+    // parse/serialize round-trip unchanged, alongside a leading preamble.
+    #[test]
+    fn multipart_epilogue_round_trip() {
+        const CONTENT: &str = concat!(
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/alternative; boundary=b1\r\n",
+            "\r\n",
+            "This is a multi-part message in MIME format.\r\n",
+            "--b1\r\n",
+            "Content-Type: text/plain\r\n",
+            "\r\n",
+            "hello\r\n",
+            "--b1--\r\n",
+            "This is the epilogue, ignored by conformant readers.\r\n",
+        );
+        let msg = MimePart::parse(CONTENT).unwrap();
+        k9::assert_equal!(
+            BString::from(msg.to_message_bytes()),
+            BString::from(CONTENT)
+        );
+    }
+
+    // A message using bare LF line endings throughout, with a preamble and an
+    // epilogue, must round-trip byte-identical. The LF-only line ending is
+    // preserved rather than canonicalized to CRLF.
+    #[test]
+    fn multipart_lf_only_round_trip() {
+        const CONTENT: &str = concat!(
+            "MIME-Version: 1.0\n",
+            "Content-Type: multipart/alternative; boundary=b1\n",
+            "\n",
+            "This is a multi-part message in MIME format.\n",
+            "--b1\n",
+            "Content-Type: text/plain\n",
+            "\n",
+            "hello\n",
+            "--b1--\n",
+            "epilogue\n",
+        );
+        let msg = MimePart::parse(CONTENT).unwrap();
+        k9::assert_equal!(
+            BString::from(msg.to_message_bytes()),
+            BString::from(CONTENT)
         );
     }
 
