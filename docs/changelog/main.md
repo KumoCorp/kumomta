@@ -32,6 +32,12 @@
    The buffer now grows on demand to read records up to the new configurable
    `max_line_size` (default 128 MiB). A record larger than that limit is dropped,
    and the rest of the segment is still read.
+
+ * Fixed an integer underflow when re-encoding a MIME parameter (such as a
+   `Content-Type` parameter) whose name was long enough that the fold framing
+   exceeded the target line width. This panicked in debug builds and produced
+   a corrupt fold width in release builds. #608
+
  * Fixed a panic when folding a header line that contained a single run of
    text longer than the wrap limit with multi-byte (non-ASCII) characters,
    such as an internationalized address or a long UTF-8 word passed to

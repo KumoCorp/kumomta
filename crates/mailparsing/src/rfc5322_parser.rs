@@ -2517,11 +2517,16 @@ impl EncodeHeaderValue for MimeParameters {
                         } else {
                             ""
                         };
-                        let limit = 74 - (name.len() + 4 + prefix.len());
+                        // A parameter name longer than the fold target makes
+                        // the framing wider than the target. Saturate to zero
+                        // rather than underflow. The loop below always consumes
+                        // at least one character per line, keeping progress
+                        // even when the budget is zero.
+                        let limit = 74usize.saturating_sub(name.len() + 4 + prefix.len());
 
                         let mut encoded: Vec<u8> = vec![];
 
-                        while encoded.len() < limit {
+                        loop {
                             let Some((start, end, c)) = chars.next() else {
                                 break;
                             };
@@ -2543,6 +2548,10 @@ impl EncodeHeaderValue for MimeParameters {
                                     encoded.push(HEX_CHARS[(b as usize) >> 4]);
                                     encoded.push(HEX_CHARS[(b as usize) & 0x0f]);
                                 }
+                            }
+
+                            if encoded.len() >= limit {
+                                break;
                             }
                         }
 
@@ -3772,6 +3781,29 @@ application/x-stuff;\r
 \tlongernnamethananyoneshouldreallyuse*5="lines produced as a result of set";\r
 \tlongernnamethananyoneshouldreallyuse*6="ting this value in this way";\r
 \ttitle="This is even more ***fun*** isn't it!"
+"#
+        );
+    }
+
+    #[test]
+    fn content_type_long_parameter_name() {
+        // A parameter name long enough that the fold framing exceeds the target
+        // line width used to drive an integer underflow (issue 608). Encoding
+        // must not panic, and each line must contain at least one character of
+        // the value.
+        let name = "x".repeat(70);
+        let mut params = MimeParameters::new("text/plain");
+        params.set(&name, "value");
+
+        k9::snapshot!(
+            params.encode_value(),
+            r#"
+text/plain;\r
+\txxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx*0="v";\r
+\txxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx*1="a";\r
+\txxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx*2="l";\r
+\txxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx*3="u";\r
+\txxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx*4="e"
 "#
         );
     }
