@@ -39,6 +39,13 @@
 
 ## Other Changes and Enhancements
 
+ * New [kumo.purge_lruttl_cache](../reference/kumo/purge_lruttl_cache.md)
+   function and matching `POST /api/admin/purge-lruttl-cache` admin endpoint,
+   which invalidate a single named lruttl cache. Previously the only way to
+   force a cache refresh was a global config-epoch bump, which invalidates
+   every epoch-scoped cache at once; this lets a low-frequency cache be
+   refreshed on its own without disturbing the others. #603
+
  * The ESMTP command parser now tolerates a stray space between the colon and
    the address in `MAIL FROM:` and `RCPT TO:` commands (e.g. `MAIL FROM: <a@b>`).
    RFC 5321 does not permit this space, but a number of legacy clients emit it;

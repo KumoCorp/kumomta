@@ -329,6 +329,15 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "purge_lruttl_cache",
+        lua.create_function(move |_, name: String| {
+            // Returns the number of entries purged, or nil if there is no
+            // cache currently registered under `name`.
+            Ok(lruttl::purge_cache_by_name(&name))
+        })?,
+    )?;
+
+    kumo_mod.set(
         "set_config_monitor_globs",
         lua.create_function(move |_, globs: Vec<String>| {
             config::epoch::set_globs(globs).map_err(any_err)?;

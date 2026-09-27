@@ -196,6 +196,18 @@ pub struct SpoolCompactV1Request {
 }
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
+pub struct PurgeLruttlCacheV1Request {
+    /// Name of the lruttl cache to purge.
+    pub name: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
+pub struct PurgeLruttlCacheV1Response {
+    /// The number of entries that were removed from the cache.
+    pub purged: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct SuspendV1Request {
     /// The campaign name to match. If omitted, any campaign will match.
     #[serde(default)]

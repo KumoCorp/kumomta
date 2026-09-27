@@ -16,6 +16,7 @@ pub mod admin_trace_smtp_server_v1;
 pub mod check_liveness_v1;
 pub mod inject_v1;
 pub mod inspect_ready_q_v1;
+pub mod purge_lruttl_cache_v1;
 pub mod queue_name_multi_index;
 pub mod resolve_egress_path_v1;
 
@@ -46,6 +47,7 @@ pub fn make_router() -> RouterAndDocs {
             crate::xfer::inject_xfer_v1,
             crate::xfer::request::xfer_v1,
             inject_v1::inject_v1,
+            purge_lruttl_cache_v1::purge,
             resolve_egress_path_v1::resolve_v1,
         ]
     )

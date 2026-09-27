@@ -281,6 +281,14 @@ impl KumoApiClient {
         .await
     }
 
+    method!(
+        admin_purge_lruttl_cache_v1,
+        POST,
+        "/api/admin/purge-lruttl-cache",
+        PurgeLruttlCacheV1Request,
+        PurgeLruttlCacheV1Response
+    );
+
     /// Inject a message via the HTTP injection API.
     /// The body is the JSON payload conforming to the InjectV1Request schema.
     pub async fn inject_v1(
