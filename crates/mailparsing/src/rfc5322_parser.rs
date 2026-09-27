@@ -14,7 +14,7 @@ use nom_utils::{
 };
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DeserializeAs, SerializeAs};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 
 /// A `serde_with` adapter that serializes `BString` as a JSON string when
@@ -2362,27 +2362,58 @@ impl MimeParameters {
     /// Incorrectly encoded parameters are silently ignored
     /// and are not returned in the resulting map.
     pub fn parameter_map(&self) -> BTreeMap<BString, BString> {
-        let mut map = BTreeMap::new();
+        self.grouped_parameters().into_values().collect()
+    }
 
-        fn contains_key_ignore_case(map: &BTreeMap<BString, BString>, key: &[u8]) -> bool {
-            for k in map.keys() {
-                if k.eq_ignore_ascii_case(key) {
-                    return true;
-                }
-            }
-            false
-        }
-
+    /// Returns each distinct parameter name mapped to the original spelling
+    /// of its first occurrence and its decoded value. Keyed by the lowercased
+    /// name to fold case-insensitive duplicates together. Grouping in one pass
+    /// keeps this linearithmic rather than quadratic in the parameter count.
+    fn grouped_parameters(&self) -> BTreeMap<BString, (BString, BString)> {
+        let mut groups: BTreeMap<BString, (BString, Vec<&MimeParameter>)> = BTreeMap::new();
         for entry in &self.parameters {
-            let name = entry.name.as_bytes();
-            if !contains_key_ignore_case(&map, name) {
-                if let Some(value) = self.get(name) {
-                    map.insert(name.into(), value);
-                }
+            let folded: BString = entry.name.to_ascii_lowercase().into();
+            groups
+                .entry(folded)
+                .or_insert_with(|| (entry.name.clone(), vec![]))
+                .1
+                .push(entry);
+        }
+        groups
+            .into_iter()
+            .map(|(folded, (display_name, elements))| {
+                (
+                    folded,
+                    (display_name, Self::decode_parameter_elements(elements)),
+                )
+            })
+            .collect()
+    }
+
+    /// Insert each incoming parameter whose name is not already present
+    /// (case-insensitively), leaving existing parameters untouched. Incoming
+    /// values are stored verbatim with no encoding. The set of present names is
+    /// computed once, keeping the merge linearithmic rather than quadratic in
+    /// the combined parameter count.
+    pub fn merge_missing_parameters(&mut self, incoming: BTreeMap<BString, BString>) {
+        let mut present: BTreeSet<BString> = self
+            .parameters
+            .iter()
+            .map(|p| p.name.to_ascii_lowercase().into())
+            .collect();
+        for (name, value) in incoming {
+            let folded: BString = name.to_ascii_lowercase().into();
+            if present.insert(folded) {
+                self.parameters.push(MimeParameter {
+                    name,
+                    value,
+                    section: None,
+                    mime_charset: None,
+                    mime_language: None,
+                    encoding: MimeParameterEncoding::None,
+                });
             }
         }
-
-        map
     }
 
     /// Retrieve the value for a named parameter.
@@ -2392,15 +2423,37 @@ impl MimeParameters {
     /// Invalid charsets and encoding will be silently ignored.
     pub fn get(&self, name: impl AsRef<[u8]>) -> Option<BString> {
         let name = name.as_ref();
-        let mut elements: Vec<_> = self
+        let elements: Vec<_> = self
             .parameters
             .iter()
-            .filter(|p| p.name.eq_ignore_ascii_case(name.as_bytes()))
+            .filter(|p| p.name.eq_ignore_ascii_case(name))
             .collect();
         if elements.is_empty() {
             return None;
         }
-        elements.sort_by(|a, b| a.section.cmp(&b.section));
+        Some(Self::decode_parameter_elements(elements))
+    }
+
+    /// Decode a group of parameter elements that share a name into a value,
+    /// ordering multi-part (RFC 2231 sectioned) elements by section and
+    /// applying any %-encoding. Invalid charsets and encodings are silently
+    /// ignored.
+    ///
+    /// A well-formed parameter names each RFC 2231 continuation section at most
+    /// once (RFC 2231 s3), and a simple parameter (no section) appears once
+    /// (RFC 2045 s5.1). A repeated section, or a repeated simple parameter, is
+    /// malformed. The last occurrence wins. `elements` is taken in document
+    /// order so that last is the one appearing latest in the header.
+    fn decode_parameter_elements(elements: Vec<&MimeParameter>) -> BString {
+        // Deduplicate by section, keeping the last occurrence, and order by
+        // section. A BTreeMap keyed on Option<u32> orders None (the simple,
+        // unsectioned form) before the numerically-ordered sections.
+        let elements: Vec<&MimeParameter> = elements
+            .into_iter()
+            .map(|ele| (ele.section, ele))
+            .collect::<BTreeMap<_, _>>()
+            .into_values()
+            .collect();
 
         let mut mime_charset = None;
         let mut result: Vec<u8> = vec![];
@@ -2479,7 +2532,7 @@ impl MimeParameters {
             }
         }
 
-        Some(result.into())
+        result.into()
     }
 
     /// Remove the named parameter
@@ -2523,6 +2576,7 @@ impl MimeParameters {
 impl EncodeHeaderValue for MimeParameters {
     fn encode_value(&self) -> SharedString<'static> {
         let mut result = self.value.clone();
+        let grouped = self.grouped_parameters();
         let names: BTreeMap<&BStr, MimeParameterEncoding> = self
             .parameters
             .iter()
@@ -2530,7 +2584,11 @@ impl EncodeHeaderValue for MimeParameters {
             .collect();
 
         for (name, stated_encoding) in names {
-            let value = self.get(name).expect("name to be present");
+            let folded: BString = name.to_ascii_lowercase().into();
+            let value = grouped
+                .get(&folded)
+                .map(|(_display_name, value)| value.clone())
+                .expect("name to be present");
 
             match stated_encoding {
                 MimeParameterEncoding::UnquotedRfc2047 => {
@@ -3848,6 +3906,99 @@ text/plain;\r
 \txxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx*2="l";\r
 \txxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx*3="u";\r
 \txxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx*4="e"
+"#
+        );
+    }
+
+    #[test]
+    fn parameter_map_groups_case_insensitively() {
+        // Names differing only in case collapse to one entry keyed by the first
+        // spelling seen. A repeated simple parameter is malformed and the last
+        // occurrence wins.
+        let params =
+            Parser::parse_content_type_header(b"text/plain; Charset=utf-8; charset=latin-1")
+                .unwrap();
+        let map = params.parameter_map();
+        k9::assert_equal!(map.len(), 1);
+        k9::assert_equal!(map.get(BStr::new("Charset")).unwrap(), "latin-1");
+        k9::assert_equal!(params.get("CHARSET").unwrap(), "latin-1");
+    }
+
+    #[test]
+    fn parameter_map_many_distinct_parameters() {
+        // A header with many distinct parameters decodes to one map entry per
+        // parameter.
+        let mut value = b"text/plain".to_vec();
+        for i in 0..2000 {
+            value.extend_from_slice(format!("; p{i}=v{i}").as_bytes());
+        }
+        let params = Parser::parse_content_type_header(&value).unwrap();
+        let map = params.parameter_map();
+        k9::assert_equal!(map.len(), 2000);
+        k9::assert_equal!(map.get(BStr::new("p0")).unwrap(), "v0");
+        k9::assert_equal!(map.get(BStr::new("p1999")).unwrap(), "v1999");
+    }
+
+    #[test]
+    fn merge_missing_parameters_skips_present_names() {
+        let mut dest = Parser::parse_content_type_header(b"text/plain; charset=utf-8").unwrap();
+        let incoming =
+            Parser::parse_content_type_header(b"text/plain; CharSet=latin-1; name=file.txt")
+                .unwrap();
+        dest.merge_missing_parameters(incoming.parameter_map());
+        // charset is already present (case-insensitively) and keeps its value;
+        // name is new and is added.
+        k9::assert_equal!(dest.get("charset").unwrap(), "utf-8");
+        k9::assert_equal!(dest.get("name").unwrap(), "file.txt");
+    }
+
+    #[test]
+    fn duplicate_simple_parameter_last_wins() {
+        // A repeated simple (unsectioned) parameter keeps the last value.
+        let params =
+            Parser::parse_content_type_header(b"text/plain; charset=utf-8; charset=latin-1")
+                .unwrap();
+        k9::assert_equal!(params.get("charset").unwrap(), "latin-1");
+    }
+
+    #[test]
+    fn multi_section_parameter_orders_numerically() {
+        // Sections are compared as integers, not lexically. A lexical
+        // comparison would place *10 and *11 between *1 and *2. The sections
+        // are supplied out of order to prove the decode sorts them.
+        let mut header = b"text/plain".to_vec();
+        for section in [0u32, 10, 2, 11, 1, 3, 4, 5, 6, 7, 8, 9] {
+            header.extend_from_slice(format!("; title*{section}=v{section}x").as_bytes());
+        }
+        let params = Parser::parse_content_type_header(&header).unwrap();
+        k9::assert_equal!(
+            params.get("title").unwrap(),
+            "v0xv1xv2xv3xv4xv5xv6xv7xv8xv9xv10xv11x"
+        );
+    }
+
+    #[test]
+    fn merge_missing_parameters_reencodes_non_ascii() {
+        // A merged non-ASCII value round-trips through get, and encode_value
+        // renders it as RFC 2231 charset-tagged continuation sections.
+        let mut dest = MimeParameters::new("text/plain");
+        let mut incoming = BTreeMap::new();
+        incoming.insert(
+            BString::from("title"),
+            BString::from("\u{65e5}\u{672c}\u{8a9e} ".repeat(6).trim_end().as_bytes()),
+        );
+        dest.merge_missing_parameters(incoming);
+        k9::assert_equal!(
+            dest.get("title").unwrap(),
+            "\u{65e5}\u{672c}\u{8a9e} \u{65e5}\u{672c}\u{8a9e} \u{65e5}\u{672c}\u{8a9e} \u{65e5}\u{672c}\u{8a9e} \u{65e5}\u{672c}\u{8a9e} \u{65e5}\u{672c}\u{8a9e}"
+        );
+        k9::snapshot!(
+            dest.encode_value(),
+            r#"
+text/plain;\r
+\ttitle*0*=UTF-8''%E6%97%A5%E6%9C%AC%E8%AA%9E%20%E6%97%A5%E6%9C%AC%E8%AA%9E%20;\r
+\ttitle*1*=%E6%97%A5%E6%9C%AC%E8%AA%9E%20%E6%97%A5%E6%9C%AC%E8%AA%9E%20%E6%97%A5;\r
+\ttitle*2*=%E6%9C%AC%E8%AA%9E%20%E6%97%A5%E6%9C%AC%E8%AA%9E
 "#
         );
     }

@@ -40,6 +40,22 @@
    needed N such insertions, for O(N^2) work overall. The repair now builds the
    normalized copy in one linear pass.
 
+ * Fixed quadratic CPU cost when rebuilding a message whose `Content-Type` or
+   `Content-Disposition` header contains many parameters. Three steps each
+   rescanned the whole parameter list once per parameter, for O(N^2) work in the
+   parameter count N: decoding the parameter map and re-emitting the header,
+   then merging the original parameters back into the rebuilt header. A crafted
+   header with a large parameter count could pin a CPU for the duration. This is
+   reached whenever a message is rebuilt: through `msg:check_fix_conformance`
+   during reception, and through the `/api/inject/v1` HTTP endpoint when
+   submitting a full RFC822 message. The parameters are now grouped and merged
+   in single passes.
+
+ * A MIME header parameter that is specified more than once (a malformed header,
+   such as a `Content-Type` with two `charset` parameters) now takes the last
+   value rather than concatenating the values. RFC 2231 continuation sections
+   (`name*0`, `name*1`, ...) are unaffected and still combine in order.
+
  * Hardened `Authentication-Results` encoding against header injection. Several
    sources can put control characters into values reaching the encoder: a
    sender-controlled DMARC record whose tag values flow into `policy.*`

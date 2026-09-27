@@ -563,11 +563,7 @@ impl<'a> MimePart<'a> {
                         continue;
                     };
 
-                    for (k, v) in params.parameter_map() {
-                        if dest.get(&k).is_none() {
-                            dest.set(&k, &v);
-                        }
-                    }
+                    dest.merge_missing_parameters(params.parameter_map());
 
                     rebuilt.headers_mut().set_content_type(dest)?;
                 }
@@ -579,11 +575,7 @@ impl<'a> MimePart<'a> {
                         continue;
                     };
 
-                    for (k, v) in params.parameter_map() {
-                        if dest.get(&k).is_none() {
-                            dest.set(&k, &v);
-                        }
-                    }
+                    dest.merge_missing_parameters(params.parameter_map());
 
                     rebuilt.headers_mut().set_content_transfer_encoding(dest)?;
                 }
@@ -596,11 +588,7 @@ impl<'a> MimePart<'a> {
                     // Content-Disposition at all, use the original unchanged.
                     let dest = match rebuilt.headers_mut().content_disposition()? {
                         Some(mut dest) => {
-                            for (k, v) in params.parameter_map() {
-                                if dest.get(&k).is_none() {
-                                    dest.set(&k, &v);
-                                }
-                            }
+                            dest.merge_missing_parameters(params.parameter_map());
                             dest
                         }
                         None => params,
