@@ -2317,9 +2317,9 @@ dependencies = [
 
 [[package]]
 name = "filenamegen"
-version = "0.2.7"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b57c1f17080e8d88a15dc3040f324d4ada892f5bc5f0dc605017f26c85dd0303"
+checksum = "e18bb7df757e869b2ca379a7a73a31c7b915ab6a81d7732dd543ae9dcfe99020"
 dependencies = [
  "anyhow",
  "bstr",
@@ -5194,6 +5194,7 @@ dependencies = [
  "chrono",
  "config",
  "filenamegen",
+ "k9",
  "linkme",
  "lruttl",
  "mlua",

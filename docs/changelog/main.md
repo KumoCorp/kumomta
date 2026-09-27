@@ -33,6 +33,12 @@
    `max_line_size` (default 128 MiB). A record larger than that limit is dropped,
    and the rest of the segment is still read.
 
+ * Fixed a panic that aborted the process when `kumo.fs.glob` (or
+   `kumo.glob`) was passed an absolute pattern containing a `**` recursive
+   wildcard, such as `/opt/kumomta/etc/config/vmtas/**/*.toml`. Such patterns
+   now match as expected and return absolute paths. Fixed by upgrading the
+   `filenamegen` dependency to 0.2.8. #578
+
  * Fixed corruption of a multipart message whose body begins with a blank line
    or other preamble text before the first boundary. Adding a missing `Date`,
    `Message-ID`, or `MIME-Version` header via `msg:check_fix_conformance` wrote

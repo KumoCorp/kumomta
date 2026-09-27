@@ -5,6 +5,7 @@ edition = "2021"
 
 [dev-dependencies]
 tempfile = {workspace=true}
+k9 = {workspace=true}
 
 [dependencies]
 filenamegen = {workspace=true}

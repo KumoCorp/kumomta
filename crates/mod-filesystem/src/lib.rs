@@ -319,6 +319,23 @@ end
     }
 
     #[tokio::test]
+    async fn test_glob_absolute_recursive() -> anyhow::Result<()> {
+        // Reproduces issue #578: an absolute pattern with a `**` component used
+        // to panic filenamegen's recursive walker and abort the process.
+        let tmp_dir = tempfile::tempdir()?;
+        let sub = tmp_dir.path().join("vmtas").join("a");
+        std::fs::create_dir_all(&sub)?;
+        let toml = sub.join("one.toml");
+        std::fs::write(&toml, b"x = 1")?;
+        std::fs::write(tmp_dir.path().join("vmtas").join("skip.txt"), b"nope")?;
+
+        let pattern = format!("{}/vmtas/**/*.toml", tmp_dir.path().display());
+        let matches = glob(pattern, None).await?;
+        k9::assert_equal!(matches, vec![toml.to_str().unwrap().to_string()]);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_metadata_not_found() -> anyhow::Result<()> {
         let lua = Lua::new();
         register(&lua)?;
