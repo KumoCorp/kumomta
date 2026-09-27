@@ -33,6 +33,12 @@
    `max_line_size` (default 128 MiB). A record larger than that limit is dropped,
    and the rest of the segment is still read.
 
+ * Fixed a remotely triggerable panic in MTA-STS policy handling. A destination
+   domain could publish a policy with a `max_age` large enough that computing
+   its expiry overflowed and aborted the process; because the triggering message
+   stayed spooled and was retried, this crash looped on the outbound path. The
+   `max_age` value is now clamped to the RFC 8461 maximum of 31557600 seconds.
+
  * Fixed a panic that aborted the process when `kumo.fs.glob` (or
    `kumo.glob`) was passed an absolute pattern containing a `**` recursive
    wildcard, such as `/opt/kumomta/etc/config/vmtas/**/*.toml`. Such patterns

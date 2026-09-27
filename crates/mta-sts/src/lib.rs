@@ -139,7 +139,12 @@ async fn get_policy_for_domain_impl(
 
     let policy = Arc::new(policy::load_policy_for_domain(policy_domain, getter).await?);
 
-    let expires = Instant::now() + Duration::from_secs(policy.max_age);
+    // max_age is clamped on parse, but guard the addition anyway: a value that
+    // overflowed the monotonic clock would otherwise panic and take the process
+    // down. On overflow, expire immediately and re-fetch next lookup.
+    let expires = Instant::now()
+        .checked_add(Duration::from_secs(policy.max_age))
+        .unwrap_or_else(Instant::now);
 
     CACHE
         .insert(

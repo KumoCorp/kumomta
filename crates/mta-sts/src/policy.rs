@@ -1,6 +1,13 @@
 use futures::future::BoxFuture;
 use std::collections::BTreeMap;
 
+/// Upper bound RFC 8461 places on the max_age field, in seconds (roughly one
+/// year). Values above this are clamped on parse: honoring an arbitrarily large
+/// lifetime would allow a remote domain to pin a policy far longer than the
+/// spec permits, and the clamped value keeps expiry arithmetic well within
+/// range.
+pub const MAX_AGE_CAP: u64 = 31557600;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum PolicyMode {
     Enforce,
@@ -69,7 +76,13 @@ impl MtaStsPolicy {
             None => anyhow::bail!("STS policy {data} is missing required max_age"),
             Some(v) if v.len() == 1 => {
                 let max_age = &v[0];
-                max_age.parse().map_err(|err| anyhow::anyhow!("STS policy {data} has max_age {max_age} that is not a valid integer: {err:#}"))?
+                let max_age: u64 = max_age.parse().map_err(|err| {
+                    anyhow::anyhow!(
+                        "STS policy {data} has max_age {max_age} \
+                        that is not a valid integer: {err:#}"
+                    )
+                })?;
+                max_age.min(MAX_AGE_CAP)
             }
             _ => anyhow::bail!("STS policy {data} has invalid max_age"),
         };
@@ -202,6 +215,15 @@ MtaStsPolicy {
 }
 "#
         );
+    }
+
+    #[test]
+    fn parse_clamps_oversized_max_age() {
+        let policy = MtaStsPolicy::parse(
+            "version: STSv1\nmode: enforce\nmx: mail.example.com\nmax_age: 18446744073709551615",
+        )
+        .unwrap();
+        k9::assert_equal!(policy.max_age, MAX_AGE_CAP);
     }
 
     #[test]
