@@ -39,6 +39,10 @@
    the `\r\n` in front of the first boundary back as `\n\r`, so the boundary no
    longer started a line and the altered bytes broke DKIM signatures. #607
 
+ * Fixed `msg:check_fix_conformance` dropping the `Content-Disposition` header
+   of a text part (such as a `text/calendar` invitation) when rebuilding the
+   message. #604 #584
+
  * Fixed a remotely triggerable panic in DKIM verification. A message with two
    or more `DKIM-Signature` headers whose `b=` tags differed in length, one of
    them shorter than eight characters, panicked with an out-of-bounds read while

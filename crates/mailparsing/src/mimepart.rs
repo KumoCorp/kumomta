@@ -591,15 +591,20 @@ impl<'a> MimePart<'a> {
             }
             if name.eq_ignore_ascii_case(b"Content-Disposition") {
                 if let Ok(params) = hdr.as_content_disposition() {
-                    let Some(mut dest) = rebuilt.headers_mut().content_disposition()? else {
-                        continue;
-                    };
-
-                    for (k, v) in params.parameter_map() {
-                        if dest.get(&k).is_none() {
-                            dest.set(&k, &v);
+                    // Merge the original parameters into the rebuilt header,
+                    // or, when the rebuild doesn't produce a
+                    // Content-Disposition at all, use the original unchanged.
+                    let dest = match rebuilt.headers_mut().content_disposition()? {
+                        Some(mut dest) => {
+                            for (k, v) in params.parameter_map() {
+                                if dest.get(&k).is_none() {
+                                    dest.set(&k, &v);
+                                }
+                            }
+                            dest
                         }
-                    }
+                        None => params,
+                    };
 
                     rebuilt.headers_mut().set_content_disposition(dest)?;
                 }
@@ -1901,6 +1906,8 @@ Content-Type: text/calendar;\r
 \tcharset="us-ascii";\r
 \tmethod="REQUEST";\r
 \tname="Invitation.ics"\r
+Content-Disposition: inline;\r
+\tname="Invitation.ics"\r
 \r
 Invitation\r
 --8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3\r
@@ -1912,6 +1919,160 @@ Content-Transfer-Encoding: base64\r
 \r
 RXZlbnQNCg==\r
 --8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3--\r
+
+"#
+        );
+    }
+
+    /// Verify that a text part with an explicit
+    /// `Content-Disposition: attachment; filename="invite.ics"` retains that
+    /// disposition after a rebuild.
+    #[test]
+    fn rebuild_preserves_content_disposition_for_text_calendar_attachment() {
+        let long_description = format!("DESCRIPTION:{}", "x".repeat(1100));
+        let message = format!(
+            "Content-Type: multipart/mixed; boundary=cal-boundary\r\n\
+             \r\n\
+             --cal-boundary\r\n\
+             Content-Type: text/plain; charset=us-ascii\r\n\
+             \r\n\
+             Please confirm.\r\n\
+             --cal-boundary\r\n\
+             Content-Disposition: attachment; filename=\"invite.ics\"\r\n\
+             Content-Type: text/calendar; charset=utf-8; method=REQUEST\r\n\
+             \r\n\
+             BEGIN:VCALENDAR\r\n\
+             VERSION:2.0\r\n\
+             PRODID:-//Example//EN\r\n\
+             BEGIN:VEVENT\r\n\
+             UID:12345@example.com\r\n\
+             {long_description}\r\n\
+             END:VEVENT\r\n\
+             END:VCALENDAR\r\n\
+             --cal-boundary--\r\n"
+        );
+
+        let part = MimePart::parse(message.as_str()).unwrap();
+        let rebuilt = part.rebuild(None).unwrap();
+
+        k9::snapshot!(
+            BString::from(rebuilt.to_message_bytes()),
+            r#"
+Content-Type: multipart/mixed;\r
+\tboundary="cal-boundary"\r
+\r
+--cal-boundary\r
+Content-Type: text/plain;\r
+\tcharset="us-ascii"\r
+\r
+Please confirm.\r
+--cal-boundary\r
+Content-Type: text/calendar;\r
+\tcharset="us-ascii";\r
+\tmethod="REQUEST"\r
+Content-Transfer-Encoding: quoted-printable\r
+Content-Disposition: attachment;\r
+\tfilename="invite.ics"\r
+\r
+BEGIN:VCALENDAR\r
+VERSION:2.0\r
+PRODID:-//Example//EN\r
+BEGIN:VEVENT\r
+UID:12345@example.com\r
+DESCRIPTION:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\r
+END:VEVENT\r
+END:VCALENDAR\r
+--cal-boundary--\r
+
+"#
+        );
+    }
+
+    // https://github.com/KumoCorp/kumomta/issues/584
+    // A text/calendar part declares 7bit but contains a UTF-8 byte
+    // sequence (the `ä` in the DESCRIPTION). Fixing NEEDS_TRANSFER_ENCODING
+    // re-encodes the part, and its Content-Disposition must survive.
+    #[test]
+    fn check_fix_preserves_content_disposition_on_reencoded_calendar() {
+        let message = concat!(
+            "Content-Type: multipart/mixed; boundary=\"mixed-boundary\"\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Subject: Test\r\n",
+            "From: test-from@example.com\r\n",
+            "To: test-to@example.com\r\n",
+            "Date: Thu, 13 Aug 2026 14:46:19 -0000\r\n",
+            "Message-ID: <178601317973@localhost>\r\n",
+            "\r\n",
+            "--mixed-boundary\r\n",
+            "Content-Type: text/calendar; charset=\"utf-8\"\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Content-Transfer-Encoding: 7bit\r\n",
+            "Content-Disposition: attachment; filename=\"Calendar invite.ics\"\r\n",
+            "\r\n",
+            "BEGIN:VCALENDAR\r\n",
+            "VERSION:2.0\r\n",
+            "BEGIN:VEVENT\r\n",
+            "UID:test-uid@example.com\r\n",
+            "DESCRIPTION:Organizer: T\u{00e4}st\r\n",
+            "SUMMARY:Mailtest\r\n",
+            "END:VEVENT\r\n",
+            "END:VCALENDAR\r\n",
+            "--mixed-boundary--\r\n",
+        );
+
+        let msg = MimePart::parse(message).unwrap();
+        let rebuilt = msg
+            .check_fix_conformance(
+                MessageConformance::default(),
+                MessageConformance::NEEDS_TRANSFER_ENCODING,
+                CheckFixSettings::default(),
+            )
+            .unwrap()
+            .unwrap();
+
+        k9::snapshot!(
+            BString::from(rebuilt.to_message_bytes()),
+            r#"
+Content-Type: multipart/mixed;\r
+\tboundary="mixed-boundary"\r
+MIME-Version: 1.0\r
+Subject: Test\r
+From: <test-from@example.com>\r
+To: <test-to@example.com>\r
+Date: Thu, 13 Aug 2026 14:46:19 +0000\r
+Message-ID: <178601317973@localhost>\r
+\r
+--mixed-boundary\r
+Content-Type: text/calendar;\r
+\tcharset="utf-8"\r
+Content-Transfer-Encoding: quoted-printable\r
+MIME-Version: 1.0\r
+Content-Disposition: attachment;\r
+\tfilename="Calendar invite.ics"\r
+\r
+BEGIN:VCALENDAR\r
+VERSION:2.0\r
+BEGIN:VEVENT\r
+UID:test-uid@example.com\r
+DESCRIPTION:Organizer: T=C3=A4st\r
+SUMMARY:Mailtest\r
+END:VEVENT\r
+END:VCALENDAR\r
+--mixed-boundary--\r
 
 "#
         );
