@@ -33,6 +33,14 @@
    `max_line_size` (default 128 MiB). A record larger than that limit is dropped,
    and the rest of the segment is still read.
 
+ * RFC 3464 report parsing no longer embeds a copy of the entire message in its error
+   context on failure. In most cases this error context was discarded, but if your
+   policy script triggered an explicit parse, you might see the error context in
+   the lua error that it would trigger in that case.  Since it was not very useful
+   we now simply report the input message size for the context instead.  The
+   actual parse error is still the primary reason in the error chain, so this
+   is not a loss in information.
+
  * Fixed quadratic CPU cost when repairing the line endings of an inbound
    SMTP message under `invalid_line_endings="Fix"`. The repair inserted each missing
    CR or LF into the message buffer one at a time. Each insertion shifted every

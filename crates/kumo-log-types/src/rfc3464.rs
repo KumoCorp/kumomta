@@ -380,12 +380,13 @@ pub(crate) fn content_type(part: &MimePart) -> Option<BString> {
 
 impl Report {
     pub fn parse(input: &[u8]) -> anyhow::Result<Option<Self>> {
-        let mail = MimePart::parse(input).with_context(|| {
-            format!(
-                "Report::parse top; input is {:?}",
-                String::from_utf8_lossy(input)
-            )
-        })?;
+        // The chained MimePart::parse error states the parse-failure reason.
+        // This closure runs on every failed parse, including callers that then
+        // discard the error, and the input can be a whole received message.
+        // Record its size rather than building an escaped, message-sized copy
+        // each time.
+        let mail = MimePart::parse(input)
+            .with_context(|| format!("Report::parse top; input is {} bytes", input.len()))?;
 
         if content_type(&mail).as_ref().map(|b| b.as_bstr()) != Some(BStr::new("multipart/report"))
         {
