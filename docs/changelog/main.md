@@ -33,6 +33,20 @@
    `max_line_size` (default 128 MiB). A record larger than that limit is dropped,
    and the rest of the segment is still read.
 
+ * Hardened `Authentication-Results` encoding against header injection. Several
+   sources can put control characters into values reaching the encoder: a
+   sender-controlled DMARC record whose tag values flow into `policy.*`
+   properties, the multi-line diagnostic that a malformed inbound
+   `ARC-Authentication-Results` header (such as the non-standard `action=none`
+   token some providers emit) leaves in the ARC `reason`, and values parsed from
+   an existing header and re-emitted during ARC sealing. An embedded CR/LF could
+   split the trusted `Authentication-Results` header that kumod adds, forging a
+   result line or pushing real headers into the body against downstream systems.
+   The encoder now drops control characters from every value it emits and
+   reduces each property key to the characters a valid key may contain, closing
+   off header injection at the point where every value is serialized rather than
+   at each producer. #523. Thanks to @raphting!
+
  * Fixed a remotely triggerable panic in MTA-STS policy handling. A destination
    domain could publish a policy with a `max_age` large enough that computing
    its expiry overflowed and aborted the process; because the triggering message

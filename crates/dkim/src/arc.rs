@@ -583,4 +583,40 @@ mod test {
             email_content = sealed;
         }
     }
+
+    /// A malformed ARC-Authentication-Results header (e.g. the non-standard
+    /// `action=none` token Microsoft 365 emits) makes the parser fail, and the
+    /// nom diagnostic stored in the issue reason spans several lines. That
+    /// multi-line reason flows unmodified into the `reason=` field of the
+    /// Authentication-Results header we emit. Encoding must remove those
+    /// newlines before the value reaches the header.
+    #[tokio::test]
+    async fn arc_verify_malformed_aar_reason_does_not_split_header() {
+        let message = concat!(
+            "ARC-Authentication-Results: i=1; example.com;\r\n",
+            "\tdmarc=pass action=none header.from=example.com\r\n",
+            "\r\n",
+            "Body\r\n",
+        );
+
+        let email = ParsedEmail::parse(message).unwrap();
+        let resolver = TestResolver::default();
+        let arc = ARC::verify(&email, &resolver).await;
+
+        assert_eq!(arc.chain_validation_status(), ChainValidationStatus::Fail);
+        // The diagnostic that is merged into the reason is multi-line.
+        assert!(arc.issues[0].reason.contains('\n'));
+
+        let ar = AuthenticationResults {
+            serv_id: "mx.example.com".into(),
+            version: None,
+            results: vec![arc.authentication_result()],
+        };
+        let encoded = mailparsing::EncodeHeaderValue::encode_value(&ar).to_string();
+
+        // Remove the structural folds. No other CR/LF may remain.
+        let unfolded = encoded.replace("\r\n\t", "");
+        assert!(!unfolded.contains('\r'), "residual CR in {encoded:?}");
+        assert!(!unfolded.contains('\n'), "residual LF in {encoded:?}");
+    }
 }

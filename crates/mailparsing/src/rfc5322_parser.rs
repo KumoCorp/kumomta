@@ -2050,7 +2050,15 @@ impl EncodeHeaderValue for ARCAuthenticationResults {
                     emit_value_token(reason.as_bytes(), &mut result);
                 }
                 for (k, v) in &res.props {
-                    result.push_str(format!("\r\n\t{k}="));
+                    // Skip a key that sanitizes to nothing. Emitting `=value`
+                    // with no key would be a malformed (though not injectable)
+                    // value.
+                    if !k.chars().any(is_prop_key_char) {
+                        continue;
+                    }
+                    result.push_str("\r\n\t");
+                    emit_prop_key(k, &mut result);
+                    result.push(b'=');
                     emit_value_token(v.as_bytes(), &mut result);
                 }
             }
@@ -2072,13 +2080,24 @@ pub struct AuthenticationResults {
     pub results: Vec<AuthenticationResult>,
 }
 
-/// Emits a value that was parsed by `value`, into target
+/// Emits an Authentication-Results value into target, quoting it when it
+/// contains anything outside the mime-token set, and dropping control
+/// characters.
 fn emit_value_token(value: &[u8], target: &mut Vec<u8>) {
     // Allow '@' bare since the pvalue parser handles @domain and local@domain
     let use_quoted_string = !value.iter().all(|&c| is_mime_token(c) || c == b'@');
     if use_quoted_string {
         target.push(b'"');
         for (start, end, c) in value.char_indices() {
+            // Drop control characters other than HTAB: a bare CR or LF inside a
+            // quoted-string ends the header line, and a sender-controlled value
+            // could use that to inject further lines beneath ours. HTAB is
+            // legal FWS inside a quoted-string, so it is preserved. A raw
+            // control byte decodes via char_indices to its own ASCII character,
+            // so it is caught here rather than as invalid UTF-8.
+            if c.is_control() && c != '\t' {
+                continue;
+            }
             if c == '"' || c == '\\' {
                 target.push(b'\\');
             }
@@ -2087,6 +2106,23 @@ fn emit_value_token(value: &[u8], target: &mut Vec<u8>) {
         target.push(b'"');
     } else {
         target.push_str(value);
+    }
+}
+
+/// Returns true when the character is one an RFC 8601 property key may contain:
+/// ASCII alphanumerics, `-`, and `.`.
+fn is_prop_key_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '-' || c == '.'
+}
+
+/// Emits a property key (`ptype.property`) into target, keeping only the
+/// characters a key may contain. A key is always emitted unquoted. Any other
+/// byte is dropped, including a control character from a Lua-supplied key.
+fn emit_prop_key(key: &str, target: &mut Vec<u8>) {
+    for c in key.chars() {
+        if is_prop_key_char(c) {
+            target.push(c as u8);
+        }
     }
 }
 
@@ -2113,7 +2149,15 @@ impl EncodeHeaderValue for AuthenticationResults {
                     emit_value_token(reason.as_bytes(), &mut result);
                 }
                 for (k, v) in &res.props {
-                    result.push_str(format!("\r\n\t{k}="));
+                    // Skip a key that sanitizes to nothing. Emitting `=value`
+                    // with no key would be a malformed (though not injectable)
+                    // value.
+                    if !k.chars().any(is_prop_key_char) {
+                        continue;
+                    }
+                    result.push_str("\r\n\t");
+                    emit_prop_key(k, &mut result);
+                    result.push(b'=');
                     emit_value_token(v.as_bytes(), &mut result);
                 }
             }
@@ -4387,6 +4431,125 @@ ARCAuthenticationResults {
         let parsed = Parser::parse_authentication_results_header(encoded2.as_bytes()).unwrap();
         k9::assert_equal!(parsed.serv_id, ar2.serv_id);
         k9::assert_equal!(parsed.version, Some(1));
+    }
+
+    #[test]
+    fn authentication_results_encode_drops_injected_control_chars() {
+        // Sender-influenced values (here a DMARC policy prop and a reason)
+        // containing CR/LF must not split the emitted header.
+        let mut props = std::collections::BTreeMap::new();
+        props.insert(
+            "policy.rua".to_string(),
+            BString::from(&b"a\r\nX-Injected: y"[..]),
+        );
+        let ar = AuthenticationResults {
+            serv_id: BString::from(&b"mx.ex\r\nX-Serv: z.com"[..]),
+            version: None,
+            results: vec![AuthenticationResult {
+                method: "dmarc".into(),
+                method_version: None,
+                result: "pass".into(),
+                reason: Some(BString::from(&b"ok\r\nX-Evil: yes"[..])),
+                props,
+            }],
+        };
+        let encoded = ar.encode_value().to_string();
+
+        // The injected content is preserved minus its control characters. The
+        // only CRLFs left are the structural folds this encoder inserts. A new
+        // header line cannot appear beneath ours.
+        k9::assert_equal!(
+            encoded,
+            "\"mx.exX-Serv: z.com\";\r\n\tdmarc=pass reason=\"okX-Evil: yes\"\
+             \r\n\tpolicy.rua=\"aX-Injected: y\""
+        );
+
+        // After removing the structural folds, nothing survives that a header
+        // parser would treat as a line break.
+        let unfolded = encoded.replace("\r\n\t", "");
+        assert!(!unfolded.contains('\r'), "residual CR in {encoded:?}");
+        assert!(!unfolded.contains('\n'), "residual LF in {encoded:?}");
+    }
+
+    #[test]
+    fn authentication_results_encode_drops_controls_in_keys_and_arc() {
+        // A property key sourced from Lua policy can contain structural bytes;
+        // they must not survive into the header.
+        let mut props = std::collections::BTreeMap::new();
+        props.insert("policy; x=evil".to_string(), BString::from("v"));
+        let arc = ARCAuthenticationResults {
+            instance: 1,
+            serv_id: BString::from(&b"mx\x00.ex"[..]),
+            version: None,
+            results: vec![AuthenticationResult {
+                method: "dmarc".into(),
+                method_version: None,
+                result: "pass".into(),
+                reason: None,
+                props,
+            }],
+        };
+        let encoded = arc.encode_value().to_string();
+        // The key is reduced to its mime-token characters. The NUL in the
+        // serv_id is dropped.
+        k9::assert_equal!(
+            encoded,
+            "i=1; \"mx.ex\";\r\n\tdmarc=pass\r\n\tpolicyxevil=v"
+        );
+    }
+
+    #[test]
+    fn authentication_results_encode_omits_prop_with_empty_key() {
+        // A key with no valid characters sanitizes to nothing. The whole prop
+        // is dropped rather than emitting a keyless `=value`.
+        let mut props = std::collections::BTreeMap::new();
+        props.insert(";;".to_string(), BString::from("v"));
+        let ar = AuthenticationResults {
+            serv_id: BString::from("mx.example.com"),
+            version: None,
+            results: vec![AuthenticationResult {
+                method: "dmarc".into(),
+                method_version: None,
+                result: "pass".into(),
+                reason: None,
+                props,
+            }],
+        };
+        k9::assert_equal!(
+            ar.encode_value().to_string(),
+            "mx.example.com;\r\n\tdmarc=pass"
+        );
+    }
+
+    #[test]
+    fn authentication_results_encode_preserves_unicode() {
+        // U+010D (\u{10d}) has low byte 0x0D (CR). A byte-truncating control
+        // check would drop it. It must survive byte-for-byte.
+        let ar = AuthenticationResults {
+            serv_id: BString::from("m\u{10d}.example.com"),
+            version: None,
+            results: vec![],
+        };
+        let encoded = ar.encode_value();
+        k9::assert_equal!(encoded, "\"m\u{10d}.example.com\"; none");
+    }
+
+    #[test]
+    fn authentication_results_encode_drops_obs_qp_control_from_parsed_header() {
+        // The parser accepts obs-qp escapes of CR/LF/NUL inside quoted
+        // strings and stores the literal control byte in the parsed value.
+        // Re-encoding that value (as ARC sealing does) must not emit the
+        // control character.
+        let header = b"\"mx.ex\\\rX-Serv: z.com\"; none";
+        let parsed = Parser::parse_authentication_results_header(header).unwrap();
+        assert!(
+            parsed.serv_id.as_bytes().contains(&b'\r'),
+            "parser should retain the raw CR"
+        );
+        let encoded = parsed.encode_value().to_string();
+        let unfolded = encoded.replace("\r\n\t", "");
+        assert!(!unfolded.contains('\r'), "residual CR in {encoded:?}");
+        assert!(!unfolded.contains('\n'), "residual LF in {encoded:?}");
     }
 
     #[test]
