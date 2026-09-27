@@ -8,6 +8,7 @@ pub mod writer;
 
 pub use batch::LogBatch;
 pub use checkpoint::CheckpointData;
+pub use decompress::DEFAULT_MAX_LINE_SIZE;
 pub use tailer::{
     CloseHandle, ConsumerConfig, LogTailer, LogTailerConfig, MultiConsumerTailer,
     MultiConsumerTailerConfig,

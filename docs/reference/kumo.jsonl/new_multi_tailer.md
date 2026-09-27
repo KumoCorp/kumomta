@@ -64,6 +64,24 @@ filesystem notification mechanism.
 *Boolean.* Optional. When `true`, ignores any existing checkpoints and starts
 reading from the most recent segment only. Defaults to `false`.
 
+### max_line_size
+
+{{since('dev')}}
+
+*Integer.* Optional. The number of bytes a record and its newline separator may
+occupy while being read. A record is treated as corrupt and causes its segment
+to be skipped when it fills this without a terminating newline. Defaults to
+`134217728` (128 MiB), the same size a writer's `max_record_size` defaults to.
+A writer rejects any record whose content reaches its `max_record_size`, so a
+record it accepts is always at least one byte under that limit, leaving room
+for the trailing newline a reader needs within the matching `max_line_size`.
+Setting it too low causes ordinary large records to be rejected as corrupt once
+encountered.
+
+Before this option existed the buffer was fixed at roughly 128 KiB (a zstd
+output block) and could not be adjusted. A record larger than that stalled
+decompression and caused the rest of the segment to be skipped.
+
 ### consumers
 
 *Array of consumer config tables.* Required. Each entry defines one consumer.

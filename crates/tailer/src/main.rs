@@ -34,6 +34,13 @@ struct Opt {
     #[arg(long)]
     tail: bool,
 
+    /// Largest a decompressed record may be, in bytes. A record exceeding this
+    /// is treated as corrupt and its segment is skipped. Setting it too low
+    /// makes ordinary records look corrupt. Defaults to the library default of
+    /// 128 MiB when unset.
+    #[arg(long)]
+    max_line_size: Option<usize>,
+
     /// The directory which contains the logs
     directory: Utf8PathBuf,
 }
@@ -47,6 +54,10 @@ async fn main() -> anyhow::Result<()> {
         .max_batch_size(opts.batch_size)
         .max_batch_latency(opts.batch_latency)
         .tail(opts.tail);
+
+    if let Some(size) = opts.max_line_size {
+        config = config.max_line_size(size);
+    }
 
     // When not tailing, enable checkpoint persistence
     if !opts.tail {

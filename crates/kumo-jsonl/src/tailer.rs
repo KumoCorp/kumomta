@@ -1,6 +1,6 @@
 use crate::batch::LogBatch;
 use crate::checkpoint::CheckpointData;
-use crate::decompress::FileDecompressor;
+use crate::decompress::{FileDecompressor, DEFAULT_MAX_LINE_SIZE};
 use camino::Utf8PathBuf;
 use filenamegen::Glob;
 use futures::Stream;
@@ -28,6 +28,10 @@ fn default_max_batch_size() -> usize {
 
 fn default_max_batch_latency() -> Duration {
     Duration::from_secs(1)
+}
+
+fn default_max_line_size() -> usize {
+    DEFAULT_MAX_LINE_SIZE
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +104,10 @@ pub struct MultiConsumerTailerConfig {
     pub poll_watcher: Option<Duration>,
     /// If true, ignore checkpoints and start from the most recent segment.
     pub tail: bool,
+    /// Largest a decompressed record may be before the segment is treated as
+    /// corrupt. Bounds the transient memory used to decompress an unusually
+    /// large record.
+    pub max_line_size: usize,
     /// The set of consumers that receive records.
     pub consumers: Vec<ConsumerConfig>,
 }
@@ -111,6 +119,7 @@ impl MultiConsumerTailerConfig {
             pattern: default_pattern(),
             poll_watcher: None,
             tail: false,
+            max_line_size: default_max_line_size(),
             consumers,
         }
     }
@@ -127,6 +136,11 @@ impl MultiConsumerTailerConfig {
 
     pub fn tail(mut self, enable: bool) -> Self {
         self.tail = enable;
+        self
+    }
+
+    pub fn max_line_size(mut self, size: usize) -> Self {
+        self.max_line_size = size;
         self
     }
 
@@ -210,6 +224,7 @@ impl MultiConsumerTailerConfig {
         let stream = make_multi_stream(
             self.directory,
             self.pattern,
+            self.max_line_size,
             self.consumers,
             earliest_checkpoint,
             consumer_checkpoints,
@@ -309,6 +324,8 @@ pub struct LogTailerConfig {
     pub poll_watcher: Option<Duration>,
     #[serde(default)]
     pub tail: bool,
+    #[serde(default = "default_max_line_size")]
+    pub max_line_size: usize,
 }
 
 impl LogTailerConfig {
@@ -321,6 +338,7 @@ impl LogTailerConfig {
             checkpoint_name: None,
             poll_watcher: None,
             tail: false,
+            max_line_size: default_max_line_size(),
         }
     }
 
@@ -331,6 +349,11 @@ impl LogTailerConfig {
 
     pub fn max_batch_size(mut self, size: usize) -> Self {
         self.max_batch_size = size;
+        self
+    }
+
+    pub fn max_line_size(mut self, size: usize) -> Self {
+        self.max_line_size = size;
         self
     }
 
@@ -380,6 +403,7 @@ impl LogTailerConfig {
             pattern: self.pattern,
             poll_watcher: self.poll_watcher,
             tail: self.tail,
+            max_line_size: self.max_line_size,
             consumers: vec![consumer],
         };
 
@@ -506,6 +530,7 @@ fn is_file_done(path: &Utf8PathBuf) -> bool {
 fn make_multi_stream(
     directory: Utf8PathBuf,
     pattern: String,
+    max_line_size: usize,
     consumers: Vec<ConsumerConfig>,
     earliest_checkpoint: Option<CheckpointData>,
     mut consumer_checkpoints: Vec<Option<CheckpointData>>,
@@ -602,7 +627,10 @@ fn make_multi_stream(
 
             if let Some(path) = plan.get(plan_index) {
                 let path_std = path.as_std_path().to_owned();
-                decomp = Some(FileDecompressor::open(&path_std)?);
+                decomp = Some(FileDecompressor::open_with_max_line_size(
+                    &path_std,
+                    max_line_size,
+                )?);
                 current_path = Some(path);
             }
 
@@ -769,7 +797,10 @@ fn make_multi_stream(
                         plan_index += 1;
                         if let Some(next_path) = plan.get(plan_index) {
                             let path_std = next_path.as_std_path().to_owned();
-                            decomp = Some(FileDecompressor::open(&path_std)?);
+                            decomp = Some(FileDecompressor::open_with_max_line_size(
+                                &path_std,
+                                max_line_size,
+                            )?);
                             current_path = Some(next_path);
                             continue 'fill;
                         } else {

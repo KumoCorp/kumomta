@@ -218,6 +218,8 @@ struct LuaMultiConsumerTailerConfig {
     poll_watcher: Option<Duration>,
     #[serde(default)]
     tail: bool,
+    #[serde(default = "default_max_line_size")]
+    max_line_size: usize,
     // consumers is extracted manually from the lua table so that
     // we can handle the filter function field which serde can't
     // deserialize.
@@ -225,6 +227,10 @@ struct LuaMultiConsumerTailerConfig {
 
 fn default_pattern() -> String {
     "*".to_string()
+}
+
+fn default_max_line_size() -> usize {
+    crate::decompress::DEFAULT_MAX_LINE_SIZE
 }
 
 /// Helper to build a Rust filter closure from a lua function.
@@ -332,7 +338,8 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             let multi_cfg = MultiConsumerTailerConfig::new(cfg.directory.into(), consumers)
                 .pattern(cfg.pattern)
-                .tail(cfg.tail);
+                .tail(cfg.tail)
+                .max_line_size(cfg.max_line_size);
             let multi_cfg = match cfg.poll_watcher {
                 Some(interval) => multi_cfg.poll_watcher(interval),
                 None => multi_cfg,

@@ -76,6 +76,21 @@ environments where native watchers are unreliable.
 reading from the most recent segment only, skipping all older segments.
 Defaults to `false`.
 
+### max_line_size
+
+{{since('dev')}}
+
+*Integer.* Optional. The number of bytes a record and its newline separator may
+occupy while being read. A record that fills this without a terminating newline
+is treated as corrupt and causes its segment to be skipped. Defaults to
+`134217728` (128 MiB), the same size a writer's `max_record_size` defaults to:
+a record within that default is guaranteed to fit here too. Setting it too low
+causes ordinary large records to be rejected as corrupt once encountered.
+
+Before this option existed the buffer was fixed at roughly 128 KiB (a zstd
+output block) and could not be adjusted. A record larger than that stalled
+decompression and caused the rest of the segment to be skipped.
+
 ## Filter function
 
 An optional second argument can be a function that receives each parsed record

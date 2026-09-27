@@ -270,6 +270,8 @@ impl Logger {
                 receiver,
                 template_engine,
                 file_map: HashMap::new(),
+                oversize_dropped: 0,
+                last_oversize_warning: None,
             };
             state.logger_thread().await
         })?;

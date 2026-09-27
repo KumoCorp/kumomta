@@ -18,6 +18,11 @@ pub struct LogWriterConfig {
     /// Zstd compression level.
     #[serde(default = "default_compression_level")]
     pub compression_level: i32,
+    /// The largest a record and its newline separator may be, in bytes. A
+    /// record that does not fit within it is rejected with an error. Defaults
+    /// to [`DEFAULT_MAX_LINE_SIZE`](crate::DEFAULT_MAX_LINE_SIZE).
+    #[serde(default = "default_max_record_size")]
+    pub max_record_size: usize,
     /// If set, the segment will be closed after this duration
     /// even if max_file_size has not been reached.
     #[serde(
@@ -43,12 +48,17 @@ fn default_compression_level() -> i32 {
     3
 }
 
+fn default_max_record_size() -> usize {
+    crate::decompress::DEFAULT_MAX_LINE_SIZE
+}
+
 impl LogWriterConfig {
     pub fn new(log_dir: Utf8PathBuf) -> Self {
         Self {
             log_dir,
             max_file_size: default_max_file_size(),
             compression_level: default_compression_level(),
+            max_record_size: default_max_record_size(),
             max_segment_duration: None,
             suffix: None,
             tz: None,
@@ -62,6 +72,11 @@ impl LogWriterConfig {
 
     pub fn compression_level(mut self, level: i32) -> Self {
         self.compression_level = level;
+        self
+    }
+
+    pub fn max_record_size(mut self, size: usize) -> Self {
+        self.max_record_size = size;
         self
     }
 
@@ -86,6 +101,7 @@ impl LogWriterConfig {
             log_dir: self.log_dir,
             max_file_size: self.max_file_size,
             compression_level: self.compression_level,
+            max_record_size: self.max_record_size,
             max_segment_duration: self.max_segment_duration,
             suffix: self.suffix,
             tz: self.tz,
@@ -108,6 +124,7 @@ pub struct LogWriter {
     log_dir: Utf8PathBuf,
     max_file_size: u64,
     compression_level: i32,
+    max_record_size: usize,
     max_segment_duration: Option<Duration>,
     suffix: Option<String>,
     tz: Option<Tz>,
@@ -122,6 +139,19 @@ impl LogWriter {
     /// `max_segment_duration` it will be closed and a new segment
     /// will be opened on the next write.
     pub fn write_line(&mut self, line: &str) -> anyhow::Result<()> {
+        // A reader buffer holds at most `max_record_size` bytes, but a complete
+        // line needs the record content plus a one-byte newline separator.
+        // Content of exactly `max_record_size` bytes doesn't leave room for
+        // that newline, so it is refused along with anything larger.
+        let max = self.max_record_size;
+        let len = line.strip_suffix('\n').unwrap_or(line).len();
+        if len >= max {
+            anyhow::bail!(
+                "record of {len} bytes plus its newline separator does not fit \
+                 within max_record_size of {max} bytes"
+            );
+        }
+
         if self.current.is_none() {
             self.open_segment()?;
         }
@@ -253,4 +283,78 @@ fn mark_segment_done(path: &Utf8PathBuf) -> std::io::Result<()> {
     let mut perms = meta.permissions();
     perms.set_readonly(true);
     std::fs::set_permissions(path.as_std_path(), perms)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn writer(dir: &tempfile::TempDir, max_record_size: usize) -> LogWriter {
+        LogWriterConfig::new(Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap())
+            .max_record_size(max_record_size)
+            .build()
+    }
+
+    #[test]
+    fn record_within_limit_is_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut w = writer(&dir, 32);
+        w.write_line("small").unwrap();
+        w.close().unwrap();
+    }
+
+    /// Verifies the writer and a tailer configured with the same limit agree at
+    /// the boundary: a record one byte inside the limit is written and read
+    /// back unchanged, and a record at the limit is refused by the writer
+    /// before it can produce a segment the tailer would reject as corrupt.
+    #[test]
+    fn writer_and_tailer_limits_match() {
+        use crate::decompress::FileDecompressor;
+
+        let max = 64 * 1024;
+        let dir = tempfile::tempdir().unwrap();
+
+        let mut w = writer(&dir, max);
+        let largest = "z".repeat(max - 1);
+        w.write_line(&largest).unwrap();
+        w.write_line(&"z".repeat(max)).unwrap_err();
+        w.close().unwrap();
+
+        let seg = std::fs::read_dir(dir.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let mut d = FileDecompressor::open_with_max_line_size(&seg, max).unwrap();
+        let line = d.next_line(0).unwrap().unwrap();
+        k9::assert_equal!(line.text, largest);
+        assert!(d.next_line(0).unwrap().is_none());
+    }
+
+    /// Rejects a record whose content reaches the limit (its newline would not
+    /// fit): nothing is written, and the segment is not left open.
+    #[test]
+    fn record_at_limit_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut w = writer(&dir, 8);
+        let err = w.write_line(&"x".repeat(8)).unwrap_err();
+        k9::assert_equal!(
+            err.to_string(),
+            "record of 8 bytes plus its newline separator does not fit \
+             within max_record_size of 8 bytes"
+        );
+        assert!(w.current.is_none());
+    }
+
+    /// The trailing newline of the record is not counted against the limit: a
+    /// record whose content is below the limit is accepted even when the input
+    /// already ends in a newline.
+    #[test]
+    fn trailing_newline_excluded_from_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut w = writer(&dir, 8);
+        w.write_line(&format!("{}\n", "x".repeat(7))).unwrap();
+        w.close().unwrap();
+    }
 }

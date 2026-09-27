@@ -45,6 +45,19 @@ rolling to a new segment file. Defaults to `134217728` (128 MiB).
 *Integer.* Optional. The zstd compression level to use. `0` selects the zstd
 library default. Valid explicit levels are `1`–`21`. Defaults to `3`.
 
+### max_record_size
+
+{{since('dev')}}
+
+*Integer.* Optional. The largest a record and its newline separator may be, in
+bytes. `:write_line` and `:write_record` raise an error and write nothing for a
+record that would not fit. Because the record plus its separator must fit, a
+record must be smaller than this value. Defaults to `134217728` (128 MiB), the
+same default [`new_tailer`](new_tailer.md) uses for `max_line_size`: a record
+accepted here is guaranteed to fit in a tailer's buffer at that default. Raise
+both together if you raise one, since a tailer's buffer must be at least as
+large as the biggest record a writer can produce.
+
 ### max_segment_duration
 
 *Duration string* (e.g., `"1h"`, `"30m"`, `"90s"`). Optional. Maximum time a
