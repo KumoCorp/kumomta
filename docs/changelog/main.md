@@ -51,6 +51,12 @@
    submitting a full RFC822 message. The parameters are now grouped and merged
    in single passes.
 
+ * Capped the number of headers accepted from a header block at 1000, putting
+   an upper bound on the memory a crafted message can consume when parsed. A
+   block that exceeds the cap is rejected by the parser as malformed.
+   Real mail messages are far below this limit, so this should not inhibit
+   real messages.
+
  * A MIME header parameter that is specified more than once (a malformed header,
    such as a `Content-Type` with two `charset` parameters) now takes the last
    value rather than concatenating the values. RFC 2231 continuation sections

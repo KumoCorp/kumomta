@@ -11,6 +11,15 @@ use chrono::{DateTime, FixedOffset};
 use std::borrow::Cow;
 use std::str::FromStr;
 
+/// Upper bound on the number of headers accepted from a header block. A parsed
+/// header borrows its name and value from the input rather than copying them,
+/// but each still occupies a fixed-size `Header` struct (~100 bytes) in the
+/// returned list. A block of many minimal lines (`A:\n` is three bytes) expands
+/// to far more resident memory than its size on the wire. The cap bounds that
+/// expansion per block. Real mail stays far below it. A block that exceeds it
+/// is rejected as malformed.
+const MAX_HEADER_COUNT: usize = 1000;
+
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
     pub struct MessageConformance: u16 {
@@ -76,6 +85,7 @@ pub struct Header<'a> {
 }
 
 /// Holds the result of parsing a block of headers
+#[derive(Debug)]
 pub struct HeaderParseResult<'a> {
     pub headers: HeaderMap<'a>,
     pub body_offset: usize,
@@ -273,6 +283,11 @@ impl<'a> Header<'a> {
                     "header block must not start with spaces".to_string(),
                 ));
             }
+            if headers.len() >= MAX_HEADER_COUNT {
+                return Err(MailParsingError::HeaderParse(format!(
+                    "header block has more than {MAX_HEADER_COUNT} headers"
+                )));
+            }
             let (header, next) = Self::parse(header_block.slice(idx..header_block.len()))?;
             overall_conformance |= header.conformance;
             headers.push(header);
@@ -446,6 +461,21 @@ mod test {
 
     fn assert_static_lifetime(_header: Header<'static>) {
         assert!(true, "I wouldn't compile if this wasn't true");
+    }
+
+    #[test]
+    fn header_count_cap() {
+        // A block at the cap parses. One header beyond it is rejected.
+        let at_cap = "X: y\r\n".repeat(MAX_HEADER_COUNT) + "\r\n";
+        let parsed = Header::parse_headers(at_cap.as_str()).unwrap();
+        k9::assert_equal!(parsed.headers.iter().count(), MAX_HEADER_COUNT);
+
+        let over_cap = "X: y\r\n".repeat(MAX_HEADER_COUNT + 1) + "\r\n";
+        let err = Header::parse_headers(over_cap.as_str()).unwrap_err();
+        k9::assert_equal!(
+            err.to_string(),
+            "invalid header: header block has more than 1000 headers"
+        );
     }
 
     #[test]
