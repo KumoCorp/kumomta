@@ -2857,7 +2857,7 @@ impl SmtpServerSession {
                         when: Utc::now(),
                     });
 
-                    mailparsing::normalize_crlf_in_place(&mut data);
+                    data = mailparsing::normalize_crlf(&data);
                 }
             }
         }

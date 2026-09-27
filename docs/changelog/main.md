@@ -33,6 +33,13 @@
    `max_line_size` (default 128 MiB). A record larger than that limit is dropped,
    and the rest of the segment is still read.
 
+ * Fixed quadratic CPU cost when repairing the line endings of an inbound
+   SMTP message under `invalid_line_endings="Fix"`. The repair inserted each missing
+   CR or LF into the message buffer one at a time. Each insertion shifted every
+   byte after it down the buffer, an O(N) cost. A message of N bare newlines
+   needed N such insertions, for O(N^2) work overall. The repair now builds the
+   normalized copy in one linear pass.
+
  * Hardened `Authentication-Results` encoding against header injection. Several
    sources can put control characters into values reaching the encoder: a
    sender-controlled DMARC record whose tag values flow into `policy.*`
