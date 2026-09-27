@@ -15,6 +15,7 @@ local BATCH_HANDLING = (os.getenv 'KUMOD_BATCH_HANDLING') or 'BifurcateAlways'
 local MAX_RECIPIENTS_PER_BATCH = (os.getenv 'KUMOD_MAX_RECIPIENTS_PER_BATCH')
   or 100
 local USE_SPLIT_TXN = os.getenv 'KUMOD_USE_SPLIT_TXN'
+local INVALID_LINE_ENDINGS = os.getenv 'KUMOD_INVALID_LINE_ENDINGS'
 
 kumo.on('init', function()
   kumo.configure_accounting_db_path(TEST_DIR .. '/accounting.db')
@@ -44,6 +45,7 @@ kumo.on('init', function()
       },
     },
     batch_handling = BATCH_HANDLING,
+    invalid_line_endings = INVALID_LINE_ENDINGS,
   }
 
   kumo.start_http_listener {

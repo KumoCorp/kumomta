@@ -33,6 +33,11 @@
    `max_line_size` (default 128 MiB). A record larger than that limit is dropped,
    and the rest of the segment is still read.
 
+ * Fixed line-length enforcement for messages that use bare LF (or CR) line
+   endings under `invalid_line_endings="Fix"` or `"Allow"`. Such a message was
+   rejected as having an over-long line even when its lines were within the
+   limit. It is now measured and accepted correctly.
+
  * RFC 3464 report parsing no longer embeds a copy of the entire message in its error
    context on failure. In most cases this error context was discarded, but if your
    policy script triggered an explicit parse, you might see the error context in

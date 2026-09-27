@@ -4,6 +4,7 @@ mod auth_deliver;
 mod auth_deliver_invalid_password;
 #[cfg(target_os = "linux")]
 mod bad_source_address;
+mod bare_lf_line_length;
 mod broken_first_choice_mx;
 mod dane;
 mod disconnect_in_data;
