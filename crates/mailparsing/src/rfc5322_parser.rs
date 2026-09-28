@@ -1079,11 +1079,37 @@ fn cfws(input: Span) -> IResult<Span, Span> {
     .parse(input)
 }
 
-// comment = { "(" ~ (fws? ~ ccontent)* ~ fws? ~ ")" }
+// comment = { "(" ~ (fws? ~ (ccontent_atom | comment))* ~ fws? ~ ")" }
 fn comment(input: Span) -> IResult<Span, Span> {
+    // Track nesting depth explicitly instead of recursing to prevent a deeply
+    // nested comment from exhausting the stack.
     context(
         "comment",
-        recognize((tag("("), many0((opt(fws), ccontent)), opt(fws), tag(")"))),
+        recognize(|input| {
+            let (mut input, _) = tag("(").parse(input)?;
+            let mut depth = 1usize;
+
+            while depth > 0 {
+                let (remaining, _) = opt(fws).parse(input)?;
+                input = remaining;
+
+                match input.fragment().first() {
+                    Some(b'(') => {
+                        (input, _) = tag("(").parse(input)?;
+                        depth += 1;
+                    }
+                    Some(b')') => {
+                        (input, _) = tag(")").parse(input)?;
+                        depth -= 1;
+                    }
+                    _ => {
+                        (input, _) = ccontent_atom.parse(input)?;
+                    }
+                }
+            }
+
+            Ok((input, ()))
+        }),
     )
     .parse(input)
 }
@@ -1097,14 +1123,34 @@ fn test_comment() {
     );
 }
 
-// ccontent = { ctext | quoted_pair | comment | encoded_word }
-fn ccontent(input: Span) -> IResult<Span, Span> {
+#[cfg(test)]
+#[test]
+fn deeply_nested_comment_does_not_overflow_the_stack() {
+    let input = format!(
+        "probe@example.invalid {}{}",
+        "(".repeat(10_000),
+        ")".repeat(10_000)
+    );
+
+    k9::assert_equal!(
+        parse_with(input.as_bytes(), mailbox).unwrap(),
+        Mailbox {
+            name: None,
+            address: AddrSpec {
+                local_part: "probe".to_string(),
+                domain: "example.invalid".to_string(),
+            },
+        }
+    );
+}
+
+// ccontent = { ctext | quoted_pair | encoded_word }
+fn ccontent_atom(input: Span) -> IResult<Span, Span> {
     context(
-        "ccontent",
+        "ccontent_atom",
         recognize(alt((
             recognize(alt((take_while_m_n(1, 1, is_ctext_ascii), utf8_non_ascii))),
             recognize(quoted_pair),
-            comment,
             recognize(encoded_word),
         ))),
     )

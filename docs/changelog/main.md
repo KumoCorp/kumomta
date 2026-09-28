@@ -153,3 +153,6 @@
    the name as an encoded-word and leaves the address untouched
    (`=?UTF-8?q?...?= <user@example.com>`); previously it encoded the whole
    value, address included, producing an invalid header. #598
+
+ * Fixed a process-terminating stack overflow when parsing deeply nested
+   comments in structured message headers.
