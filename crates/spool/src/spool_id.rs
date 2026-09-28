@@ -5,6 +5,9 @@ use std::sync::LazyLock;
 use uuid::{ClockSequence, ContextV1, Timestamp, Uuid};
 
 /// Identifies a message within the spool of its host node.
+// Always a v1 UUID. Every construction path rejects other UUID
+// versions, guaranteeing the embedded timestamp used for expiry,
+// spool path layout, and xfer id derivation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(into = "String", try_from = "String")]
 #[derive(utoipa::ToSchema)]
@@ -17,24 +20,27 @@ impl std::fmt::Display for SpoolId {
     }
 }
 
-impl From<Uuid> for SpoolId {
-    fn from(uuid: Uuid) -> Self {
-        Self(uuid)
-    }
-}
-
 impl From<SpoolId> for String {
     fn from(id: SpoolId) -> String {
         id.to_string()
     }
 }
 
+/// Error raised when a string cannot be interpreted as a SpoolId.
+#[derive(thiserror::Error, Debug)]
+pub enum SpoolIdParseError {
+    #[error(transparent)]
+    Parse(#[from] uuid::Error),
+    #[error("spool id {0} is not a v1 UUID")]
+    NotV1(String),
+}
+
 impl TryFrom<String> for SpoolId {
-    type Error = uuid::Error;
+    type Error = SpoolIdParseError;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
         let uuid = Uuid::parse_str(&s)?;
-        Ok(Self(uuid))
+        Self::checked(uuid).ok_or(SpoolIdParseError::NotV1(s))
     }
 }
 
@@ -68,18 +74,12 @@ impl SpoolId {
 
     pub fn from_slice(s: &[u8]) -> Option<Self> {
         let uuid = Uuid::from_slice(s).ok()?;
-        Some(Self(uuid))
+        Self::checked(uuid)
     }
 
     pub fn from_ascii_bytes(s: &[u8]) -> Option<Self> {
         let uuid = Uuid::try_parse_ascii(s).ok()?;
-        Some(Self(uuid))
-    }
-
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Option<Self> {
-        let uuid = Uuid::parse_str(s).ok()?;
-        Some(Self(uuid))
+        Self::checked(uuid)
     }
 
     pub fn from_path(mut path: &Path) -> Option<Self> {
@@ -91,7 +91,12 @@ impl SpoolId {
         }
 
         components.reverse();
-        Some(Self(Uuid::parse_str(&components.join("")).ok()?))
+        Self::checked(Uuid::parse_str(&components.join("")).ok()?)
+    }
+
+    /// Rejects any UUID that is not v1.
+    fn checked(uuid: Uuid) -> Option<Self> {
+        (uuid.get_version_num() == 1).then_some(Self(uuid))
     }
 
     /// Returns time elapsed since the id was created,
@@ -115,7 +120,10 @@ impl SpoolId {
     /// messages with the same spool id live on a system in the
     /// case of a misconfiguration that produces a loop.
     pub fn derive_new_with_cloned_timestamp(&self) -> Self {
-        let ts = self.0.get_timestamp().unwrap();
+        let ts = self
+            .0
+            .get_timestamp()
+            .expect("SpoolId is always v1, and v1 UUIDs always have a timestamp");
 
         let candidate = Self(uuid_helper::new_v1(ts));
 
@@ -176,6 +184,28 @@ mod test {
         let bytes = id.as_bytes();
         let id2 = SpoolId::from_slice(bytes.as_slice()).unwrap();
         assert_eq!(id, id2);
+    }
+
+    #[test]
+    fn non_v1_id_is_rejected() {
+        // Spool ids are v1 UUIDs. A well-formed but non-v1 id must be rejected
+        // at every construction path, not just the string boundary.
+        let v4 = "6ba7b810-9dad-41d1-80b4-00c04fd430c8";
+        let err = SpoolId::try_from(v4.to_string()).unwrap_err();
+        assert!(matches!(err, SpoolIdParseError::NotV1(_)), "got: {err:#}");
+        k9::assert_equal!(
+            err.to_string(),
+            "spool id 6ba7b810-9dad-41d1-80b4-00c04fd430c8 is not a v1 UUID"
+        );
+        let err = SpoolId::try_from("not-a-uuid".to_string()).unwrap_err();
+        assert!(matches!(err, SpoolIdParseError::Parse(_)), "got: {err:#}");
+        let v4_uuid = uuid::Uuid::parse_str(v4).unwrap();
+        assert!(SpoolId::from_slice(v4_uuid.as_bytes()).is_none());
+        assert!(SpoolId::from_ascii_bytes(v4.as_bytes()).is_none());
+        // Path layout: a1/a2/a3/a4/rest, where a1..a4 are the bytes of the
+        // first field of the UUID.
+        let path = Path::new("6b/a7/b8/10/9dad41d180b400c04fd430c8");
+        assert!(SpoolId::from_path(path).is_none());
     }
 
     #[test]

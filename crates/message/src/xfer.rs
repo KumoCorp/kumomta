@@ -118,4 +118,27 @@ mod test {
             "simple message"
         );
     }
+
+    #[test]
+    fn xfer_deserialization_malformed_id() {
+        // A forged wire payload with a non-uuid id must be rejected
+        // rather than panicking.
+        let payload = b"{\"id\": \"not-a-uuid\", \"sender\": \"a@b\", \"recipient\": [\"c@d\"], \"meta\": {}}\nbody";
+        let err = Message::deserialize_from_xfer(payload).unwrap_err();
+        k9::assert_equal!(
+            err.to_string(),
+            "invalid character: found `n` at 0 at line 1 column 19"
+        );
+
+        // A well-formed but non-v1 id is rejected at deserialization
+        // rather than panicking.
+        let payload =
+            "{\"id\": \"6ba7b810-9dad-41d1-80b4-00c04fd430c8\", \"sender\": \"a@b\", \"recipient\": [\"c@d\"], \"meta\": {}}\nbody";
+        let err = Message::deserialize_from_xfer(payload.as_bytes()).unwrap_err();
+        k9::assert_equal!(
+            err.to_string(),
+            "spool id 6ba7b810-9dad-41d1-80b4-00c04fd430c8 is not a v1 UUID \
+             at line 1 column 45"
+        );
+    }
 }

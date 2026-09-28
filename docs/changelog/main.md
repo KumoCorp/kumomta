@@ -161,3 +161,6 @@
    levels instead of overflowing the process stack. See the
    [`MIME_NESTING_LIMIT_EXCEEDED`](../reference/message/check_fix_conformance.md#overly-deep-mime-trees)
    conformance flag.
+
+ * An improperly formed `id` parameter in an XFER payload could cause kumod
+   to panic.  It now reports an error back to the injecting peer instead.
