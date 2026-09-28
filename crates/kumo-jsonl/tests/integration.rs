@@ -1023,3 +1023,36 @@ async fn test_bad_file_sorting_after_future_segments_does_not_block() {
     let batch = next_batch_with_timeout(&mut tailer).await;
     k9::assert_equal!(batch.records(), &[json!({"n": 42})]);
 }
+
+/// A record larger than the `max_line_size` of the tailer is discarded, but the
+/// records around it in the same segment are still delivered rather than the
+/// whole segment being dropped.
+#[tokio::test]
+async fn test_oversized_record_skipped_rest_of_segment_read() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    // The writer uses its default (large) max_record_size and writes the big
+    // record unmodified. Only this tailer is configured with a small
+    // max_line_size, which is what rejects the record.
+    let big = "x".repeat(256 * 1024);
+    write_segment(
+        dir.path(),
+        &[r#"{"id":"before"}"#, &big, r#"{"id":"after"}"#],
+    );
+
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .max_batch_size(10)
+        .max_batch_latency(Duration::from_millis(50))
+        .max_line_size(64 * 1024)
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+
+    let batch = next_batch_with_timeout(&mut tailer).await;
+    k9::assert_equal!(
+        batch.records(),
+        &[json!({"id": "before"}), json!({"id": "after"})]
+    );
+}

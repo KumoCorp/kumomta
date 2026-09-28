@@ -68,19 +68,16 @@ reading from the most recent segment only. Defaults to `false`.
 
 {{since('dev')}}
 
-*Integer.* Optional. The number of bytes a record and its newline separator may
-occupy while being read. A record is treated as corrupt and causes its segment
-to be skipped when it fills this without a terminating newline. Defaults to
-`134217728` (128 MiB), the same size a writer's `max_record_size` defaults to.
-A writer rejects any record whose content reaches its `max_record_size`, so a
-record it accepts is always at least one byte under that limit, leaving room
-for the trailing newline a reader needs within the matching `max_line_size`.
-Setting it too low causes ordinary large records to be rejected as corrupt once
-encountered.
+*Integer.* Optional. The largest a record may be, in bytes. A record larger
+than this is dropped, and the following records in the same segment continue to
+be read. Defaults to `134217728` (128 MiB), which matches the writers' default
+`max_record_size`, so any record they write can be read back. Setting it too
+low drops ordinary records.
 
 Before this option existed the buffer was fixed at roughly 128 KiB (a zstd
 output block) and could not be adjusted. A record larger than that stalled
-decompression and caused the rest of the segment to be skipped.
+decompression and caused the rest of the segment to be skipped. Now only the
+oversized record itself is skipped.
 
 ### consumers
 

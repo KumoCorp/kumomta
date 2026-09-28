@@ -30,5 +30,5 @@
   that block size (roughly 128 KiB) with no way to adjust it, so any larger
   record stalled decompression and the tailer skipped the rest of the segment.
   The buffer now grows on demand to read records up to the new configurable
-  `max_line_size` (default 128 MiB). Only a record above that cap skips the
-  remainder of its segment.
+  `max_line_size` (default 128 MiB). A record larger than that limit is dropped,
+  and the rest of the segment is still read.

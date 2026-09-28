@@ -8,9 +8,9 @@ use zstd_safe::{DCtx, InBuffer, OutBuffer};
 pub struct ZStdError(pub usize);
 
 /// Default limit, in bytes, on how large a decompressed record may be. A record
-/// that reaches it without a newline is treated as corruption. Large enough
-/// that legitimate records are not expected to approach it, while still
-/// catching a stream that never produces a newline.
+/// that reaches it without a newline is discarded and the following records are
+/// still read. Large enough that legitimate records are not expected to
+/// approach it, while still bounding how much is buffered for one line.
 pub const DEFAULT_MAX_LINE_SIZE: usize = 128 * 1024 * 1024;
 
 /// A line extracted from the decompressed stream, along with its
@@ -18,6 +18,58 @@ pub const DEFAULT_MAX_LINE_SIZE: usize = 128 * 1024 * 1024;
 pub struct DecompressedLine {
     pub text: String,
     pub byte_offset: u64,
+}
+
+impl std::fmt::Debug for DecompressedLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // A line may be as large as the configured maximum (128 MiB by
+        // default). Truncate to a leading fragment to keep debug output, and
+        // anything that logs it, bounded regardless of line length.
+        const MAX: usize = 64;
+        let mut dbg = f.debug_struct("DecompressedLine");
+        dbg.field("byte_offset", &self.byte_offset)
+            .field("len", &self.text.len());
+        if self.text.len() <= MAX {
+            dbg.field("text", &self.text);
+        } else {
+            dbg.field(
+                "text_prefix",
+                &&self.text[..self.text.floor_char_boundary(MAX)],
+            );
+        }
+        dbg.finish()
+    }
+}
+
+/// The outcome of a call to [`FileDecompressor::next_line`].
+#[derive(Debug)]
+pub enum NextLine {
+    /// A complete line was extracted.
+    Line(DecompressedLine),
+    /// A record longer than the configured maximum was discarded and the
+    /// stream continues with the following record. Reports where the discarded
+    /// record began in the decompressed stream and how many bytes were dropped
+    /// (excluding the terminating newline).
+    Skipped { byte_offset: u64, bytes: u64 },
+    /// No line is available right now. The caller should check whether the file
+    /// is done or retry later.
+    None,
+}
+
+/// Bookkeeping for a record being discarded because it exceeds the maximum line
+/// size. Scanning continues across decompress calls until the record's
+/// terminating newline is found. Discarding only consumes bytes from the
+/// output buffer; the zstd stream itself is never put in an error state, so
+/// the segment's later records decode normally once the newline is reached.
+struct Skip {
+    /// Byte offset in the decompressed stream where the discarded record began.
+    byte_offset: u64,
+    /// Bytes of the record discarded so far, excluding the terminating newline.
+    discarded: u64,
+    /// Whether the record is at or after `skip_before` and should be reported
+    /// to the caller. A record before the checkpoint was consumed on an earlier
+    /// run and is dropped silently.
+    surface: bool,
 }
 
 /// State for incremental zstd decompression and line extraction from a single file.
@@ -28,13 +80,17 @@ pub struct FileDecompressor {
     /// Steady-state size of `out_buffer`. The buffer grows past this to hold an
     /// oversized record and is shrunk back to it once the record is emitted.
     base_out_buffer: usize,
-    /// Largest `out_buffer` may grow to before a record is treated as
-    /// unterminated corruption rather than a legitimately large line.
+    /// The maximum size `out_buffer` may grow to. A record that fills it
+    /// without a newline is discarded (reported as `NextLine::Skipped`) rather
+    /// than buffered further.
     max_out_buffer: usize,
     /// Start of the next unprocessed line in `out_buffer`.
     line_start: usize,
     /// Number of valid bytes in `out_buffer`.
     out_pos: usize,
+    /// When discarding a record that exceeds `max_out_buffer`, the state of
+    /// that in-progress skip. `None` during normal line extraction.
+    skipping: Option<Skip>,
     /// Total number of lines decompressed so far.
     lines_decompressed: usize,
     /// Global line index up to which lines have been consumed or skipped.
@@ -58,7 +114,8 @@ impl FileDecompressor {
     }
 
     /// Open a file, capping the output buffer at `max_out_buffer` bytes. A
-    /// record that fills the cap without a newline is rejected as corrupt.
+    /// record that fills the cap without a newline is discarded and reading
+    /// continues with the next record (see [`NextLine::Skipped`]).
     pub fn open_with_max_line_size(
         path: &std::path::Path,
         max_out_buffer: usize,
@@ -78,7 +135,7 @@ impl FileDecompressor {
             .map_err(|e| anyhow::anyhow!("load empty dictionary: {e}"))?;
 
         // Keep at least one byte so the growth check has a non-empty buffer to
-        // fill. A misconfigured tiny cap simply rejects records as corrupt.
+        // fill. A misconfigured tiny cap simply discards records as oversized.
         let max_out_buffer = max_out_buffer.max(1);
         let base_out_buffer = DCtx::out_size().min(max_out_buffer);
         Ok(Self {
@@ -89,6 +146,7 @@ impl FileDecompressor {
             max_out_buffer,
             line_start: 0,
             out_pos: 0,
+            skipping: None,
             lines_decompressed: 0,
             lines_consumed: 0,
             pending_lines: VecDeque::new(),
@@ -97,24 +155,26 @@ impl FileDecompressor {
         })
     }
 
-    /// Get the next line from this file.
+    /// Returns the next line from this file.
     ///
     /// `skip_before`: lines with index < skip_before are discarded.
     ///
     /// Returns:
-    /// - `Ok(Some(line))` — a complete line was extracted.
-    /// - `Ok(None)` — no more data available right now. The caller should check
-    ///   if the file is done or retry later.
-    pub fn next_line(&mut self, skip_before: usize) -> anyhow::Result<Option<DecompressedLine>> {
+    /// - `Ok(NextLine::Line(line))` -- a complete line was extracted.
+    /// - `Ok(NextLine::Skipped { .. })` -- a record exceeding the maximum line
+    ///   size was discarded. Reading continues with the next record.
+    /// - `Ok(NextLine::None)` -- there isn't any more data available right now.
+    ///   The caller should check if the file is done or retry later.
+    pub fn next_line(&mut self, skip_before: usize) -> anyhow::Result<NextLine> {
         // Return a buffered line if available
         if let Some(line) = self.pending_lines.pop_front() {
             self.lines_consumed += 1;
-            return Ok(Some(line));
+            return Ok(NextLine::Line(line));
         }
 
         // If we previously saw EOF and have no buffered lines, signal EOF
         if self.saw_eof {
-            return Ok(None);
+            return Ok(NextLine::None);
         }
 
         // Account for skipped lines in lines_consumed
@@ -127,12 +187,17 @@ impl FileDecompressor {
             let in_buffer = self.file.fill_buf()?;
             if in_buffer.is_empty() {
                 self.saw_eof = true;
-                // Return any buffered line
+                // A skip in progress is left intact. If the file is still
+                // being written, the caller resets EOF and we resume discarding
+                // when more data arrives. If the file is done, has_partial_data
+                // returns true while a skip is in progress, which is how the
+                // caller recognizes that the trailing partial record should be
+                // dropped.
                 if let Some(line) = self.pending_lines.pop_front() {
                     self.lines_consumed += 1;
-                    return Ok(Some(line));
+                    return Ok(NextLine::Line(line));
                 }
-                return Ok(None);
+                return Ok(NextLine::None);
             }
 
             let mut src = InBuffer::around(in_buffer);
@@ -150,6 +215,56 @@ impl FileDecompressor {
             };
             self.file.consume(bytes_read);
             self.out_pos = dest.pos();
+
+            // Set when this iteration finishes discarding an oversized record
+            // that should be reported. Extraction below queues any lines found
+            // after the skip into pending_lines first. The code further down
+            // deliberately checks for a pending just_skipped report ahead of
+            // pending_lines, reversing the detection order: the skip is
+            // reported to the caller before the lines that follow it, even
+            // though those lines were extracted first.
+            let mut just_skipped: Option<(u64, u64)> = None;
+
+            // While discarding an oversized record, consume its bytes up to and
+            // including its terminating newline before resuming extraction.
+            if self.skipping.is_some() {
+                match memchr::memchr(b'\n', &self.out_buffer[..self.out_pos]) {
+                    None => {
+                        // The whole buffer is more of the record. Drop it and
+                        // read more. `self.skipping.is_some()` guards this
+                        // whole match, and the code that enlarges `out_buffer`
+                        // runs only when `self.skipping` is `None`. The
+                        // conditions cannot both hold, so entering this branch
+                        // guarantees the resize code does not run this
+                        // iteration. `out_buffer` holds at `base_out_buffer`
+                        // bytes for every iteration of a skip, whatever the
+                        // size of the discarded record.
+                        let skip = self.skipping.as_mut().expect("checked skipping");
+                        skip.discarded += self.out_pos as u64;
+                        self.decompressed_offset += self.out_pos as u64;
+                        self.out_pos = 0;
+                        self.line_start = 0;
+                        continue;
+                    }
+                    Some(idx) => {
+                        // The record ends at the newline. Discard through it
+                        // and resume normal extraction on whatever follows.
+                        let mut skip = self.skipping.take().expect("checked skipping");
+                        skip.discarded += idx as u64;
+                        let consumed = idx + 1;
+                        self.decompressed_offset += consumed as u64;
+                        self.lines_decompressed += 1;
+                        self.out_buffer.copy_within(consumed..self.out_pos, 0);
+                        self.out_pos -= consumed;
+                        self.line_start = 0;
+                        if skip.surface {
+                            just_skipped = Some((skip.byte_offset, skip.discarded));
+                        }
+                        // Fall through to extract the remainder. A surfaced
+                        // skip is returned below, ahead of those lines.
+                    }
+                }
+            }
 
             // Extract complete lines
             while let Some(idx) =
@@ -191,24 +306,47 @@ impl FileDecompressor {
                 self.out_buffer.shrink_to_fit();
             }
 
+            // Report a just-finished oversized-record skip ahead of any lines
+            // that followed it in the same buffer (already queued above).
+            if let Some((byte_offset, bytes)) = just_skipped {
+                self.lines_consumed += 1;
+                return Ok(NextLine::Skipped { byte_offset, bytes });
+            }
+
             // If we extracted any lines, return the first one
             if let Some(line) = self.pending_lines.pop_front() {
                 self.lines_consumed += 1;
-                return Ok(Some(line));
+                return Ok(NextLine::Line(line));
             }
 
             // A full buffer that doesn't hold any complete lines (compaction
             // always leaves line_start at 0) means the current record is larger
             // than the buffer. Grow it (up to max_out_buffer) to let the next
             // decompress call make progress; otherwise zstd stalls with "no
-            // progress ... output buffer full" and the caller discards the
-            // whole segment.
+            // progress ... output buffer full".
             if self.out_pos == self.out_buffer.len() {
                 if self.out_buffer.len() >= self.max_out_buffer {
-                    anyhow::bail!(
-                        "record exceeds maximum line size of {} bytes",
-                        self.max_out_buffer
-                    );
+                    // If a record exceeds the buffer cap, we discard just that
+                    // record rather than failing the whole segment, since the
+                    // zstd stream is intact (this is our own cap, not a decode
+                    // error). We scan forward for its terminating newline and
+                    // resume with the next record. The current buffer is
+                    // dropped and the buffer shrinks back to base, since while
+                    // skipping we only need room to scan.
+                    let surface = self.lines_decompressed >= skip_before;
+                    self.skipping = Some(Skip {
+                        byte_offset: self.decompressed_offset,
+                        discarded: self.out_pos as u64,
+                        surface,
+                    });
+                    self.decompressed_offset += self.out_pos as u64;
+                    self.out_pos = 0;
+                    self.line_start = 0;
+                    if self.out_buffer.len() > self.base_out_buffer {
+                        self.out_buffer.truncate(self.base_out_buffer);
+                        self.out_buffer.shrink_to_fit();
+                    }
+                    continue;
                 }
                 let new_len = self
                     .out_buffer
@@ -236,10 +374,19 @@ impl FileDecompressor {
         self.saw_eof = false;
     }
 
-    /// Returns true if there is partial (incomplete line) data remaining
-    /// in the output buffer.
+    /// Returns true if there is partial (incomplete line) data remaining: either
+    /// buffered bytes with no terminating newline yet, or a record still being
+    /// discarded for exceeding the maximum line size. When a done file ends in
+    /// this state the trailing record is incomplete and is dropped.
     pub fn has_partial_data(&self) -> bool {
-        self.out_pos > 0
+        self.out_pos > 0 || self.skipping.is_some()
+    }
+
+    /// Returns true if the trailing partial data is a record being discarded
+    /// for exceeding the maximum line size, as opposed to an unterminated line
+    /// left behind by a writer that exited without flushing.
+    pub fn is_discarding_oversized_record(&self) -> bool {
+        self.skipping.is_some()
     }
 }
 
@@ -265,10 +412,21 @@ mod test {
     fn read_all(path: &std::path::Path) -> anyhow::Result<Vec<String>> {
         let mut decompressor = FileDecompressor::open(path)?;
         let mut lines = vec![];
-        while let Some(line) = decompressor.next_line(0)? {
-            lines.push(line.text);
+        loop {
+            match decompressor.next_line(0)? {
+                NextLine::Line(line) => lines.push(line.text),
+                NextLine::Skipped { .. } => panic!("unexpected skip"),
+                NextLine::None => break,
+            }
         }
         Ok(lines)
+    }
+
+    fn expect_line(decompressor: &mut FileDecompressor) -> DecompressedLine {
+        match decompressor.next_line(0).unwrap() {
+            NextLine::Line(line) => line,
+            other => panic!("expected a line, got {other:?}"),
+        }
     }
 
     #[test]
@@ -310,31 +468,31 @@ mod test {
         // Recovering the oversized record forces the buffer past its base size
         // (proven by record_larger_than_output_buffer). By the time it is
         // emitted the buffer has already been reclaimed.
-        let first = decompressor.next_line(0).unwrap().unwrap();
+        let first = expect_line(&mut decompressor);
         k9::assert_equal!(first.text, input[0]);
         k9::assert_equal!(decompressor.out_buffer.len(), decompressor.base_out_buffer);
 
-        let second = decompressor.next_line(0).unwrap().unwrap();
+        let second = expect_line(&mut decompressor);
         k9::assert_equal!(second.text, input[1]);
         k9::assert_equal!(decompressor.out_buffer.len(), decompressor.base_out_buffer);
     }
 
-    /// With the output buffer capped, a record that never terminates within the
-    /// cap is reported as an error.
+    /// Discards a record exceeding the cap and reports it as skipped, with its
+    /// start offset and byte count, rather than failing the whole segment.
     #[test]
-    fn record_exceeding_cap_is_rejected() {
+    fn record_exceeding_cap_is_skipped() {
         let cap = 64 * 1024;
-        let input = vec![format!(r#"{{"big":"{}"}}"#, "x".repeat(cap * 2))];
-        let seg = write_segment(&input);
+        let content = "x".repeat(cap * 2);
+        let seg = write_segment(&[content.clone()]);
         let mut decompressor = FileDecompressor::open_with_max_line_size(seg.path(), cap).unwrap();
-        let err = match decompressor.next_line(0) {
-            Err(err) => err,
-            Ok(_) => panic!("expected an error for the oversized record"),
-        };
-        k9::assert_equal!(
-            err.to_string(),
-            format!("record exceeds maximum line size of {cap} bytes")
-        );
+        match decompressor.next_line(0).unwrap() {
+            NextLine::Skipped { byte_offset, bytes } => {
+                k9::assert_equal!(byte_offset, 0);
+                k9::assert_equal!(bytes, content.len() as u64);
+            }
+            other => panic!("expected the oversized record to be skipped, got {other:?}"),
+        }
+        assert!(matches!(decompressor.next_line(0).unwrap(), NextLine::None));
     }
 
     /// Reads a record one byte below the cap: its content plus the newline
@@ -345,24 +503,128 @@ mod test {
         let content = "x".repeat(cap - 1);
         let seg = write_segment(&[content.clone()]);
         let mut decompressor = FileDecompressor::open_with_max_line_size(seg.path(), cap).unwrap();
-        let line = decompressor.next_line(0).unwrap().unwrap();
-        k9::assert_equal!(line.text, content);
+        k9::assert_equal!(expect_line(&mut decompressor).text, content);
     }
 
-    /// Rejects a record whose content is exactly `cap` bytes, one byte too long
+    /// Skips a record whose content is exactly `cap` bytes: one byte too long
     /// for its trailing newline to also fit in the buffer.
     #[test]
-    fn record_at_cap_is_rejected() {
+    fn record_at_cap_is_skipped() {
         let cap = 64 * 1024;
         let content = "y".repeat(cap);
         let seg = write_segment(&[content]);
         let mut decompressor = FileDecompressor::open_with_max_line_size(seg.path(), cap).unwrap();
-        match decompressor.next_line(0) {
-            Err(_) => {}
-            Ok(other) => panic!(
-                "expected an error for a record whose content equals the cap, got {:?}",
-                other.map(|l| l.text.len())
-            ),
+        assert!(matches!(
+            decompressor.next_line(0).unwrap(),
+            NextLine::Skipped { .. }
+        ));
+    }
+
+    /// Discards an oversized record between two ordinary records while the
+    /// records around it are still read, and the checkpoint line count keeps
+    /// advancing across the skip.
+    #[test]
+    fn oversized_record_skipped_rest_recovered() {
+        let cap = 64 * 1024;
+        let input = vec![
+            "before".to_string(),
+            "y".repeat(cap * 2),
+            "after".to_string(),
+        ];
+        let seg = write_segment(&input);
+        let mut decompressor = FileDecompressor::open_with_max_line_size(seg.path(), cap).unwrap();
+
+        let before = expect_line(&mut decompressor);
+        k9::assert_equal!(before.text, "before".to_string());
+
+        match decompressor.next_line(0).unwrap() {
+            NextLine::Skipped { bytes, .. } => {
+                k9::assert_equal!(bytes, (cap * 2) as u64);
+            }
+            other => panic!("expected the oversized record to be skipped, got {other:?}"),
         }
+
+        let after = expect_line(&mut decompressor);
+        k9::assert_equal!(after.text, "after".to_string());
+        // before + skipped record + after = three lines consumed.
+        k9::assert_equal!(decompressor.lines_consumed, 3);
+
+        assert!(matches!(decompressor.next_line(0).unwrap(), NextLine::None));
+    }
+
+    /// A record that exceeds the cap but sits before `skip_before` (already
+    /// consumed on an earlier run) is dropped silently. Decompression always
+    /// restarts from the head of a segment. This keeps an oversized record
+    /// before the checkpoint from being reported again on every restart.
+    #[test]
+    fn oversized_record_before_checkpoint_dropped_silently() {
+        let cap = 64 * 1024;
+        let input = vec!["y".repeat(cap * 2), "after".to_string()];
+        let seg = write_segment(&input);
+        let mut decompressor = FileDecompressor::open_with_max_line_size(seg.path(), cap).unwrap();
+
+        // skip_before = 1 marks the oversized first record as already consumed;
+        // it must not surface as a skip, and the next call yields "after".
+        match decompressor.next_line(1).unwrap() {
+            NextLine::Line(line) => {
+                k9::assert_equal!(line.text, "after".to_string());
+            }
+            other => panic!("expected the record after the skipped one, got {other:?}"),
+        }
+        assert!(matches!(decompressor.next_line(1).unwrap(), NextLine::None));
+    }
+
+    /// Verifies that a skip reaching EOF before the newline of the record
+    /// arrives (the record is still being written) is preserved: after more
+    /// data is appended and `reset_eof` is called, the skip completes with the
+    /// full byte count and the following record is read with its correct
+    /// offset, rather than the appended suffix being mistaken for a new record.
+    #[test]
+    fn skip_resumes_across_eof_when_tailing() {
+        let cap = 64 * 1024;
+        let content = "y".repeat(cap * 2);
+
+        // Compress incrementally: first the content of the oversized record
+        // with no newline yet (flushed to decode on its own), then its newline
+        // and a following record.
+        let mut encoder = Encoder::new(Vec::new(), 3).unwrap();
+        encoder.write_all(content.as_bytes()).unwrap();
+        encoder.flush().unwrap();
+        let prefix_len = encoder.get_ref().len();
+        encoder.write_all(b"\nafter\n").unwrap();
+        let all = encoder.finish().unwrap();
+        let (prefix, suffix) = all.split_at(prefix_len);
+
+        let seg = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(seg.path(), prefix).unwrap();
+
+        let mut d = FileDecompressor::open_with_max_line_size(seg.path(), cap).unwrap();
+        // The record is missing its terminating newline: reading scans for one
+        // and finds none before the input runs out, then stops at EOF mid-skip.
+        assert!(matches!(d.next_line(0).unwrap(), NextLine::None));
+        assert!(d.has_partial_data());
+
+        // The rest of the record and a following record arrive.
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(seg.path())
+            .unwrap();
+        f.write_all(suffix).unwrap();
+        f.flush().unwrap();
+        drop(f);
+        d.reset_eof();
+
+        match d.next_line(0).unwrap() {
+            NextLine::Skipped { byte_offset, bytes } => {
+                k9::assert_equal!(byte_offset, 0);
+                k9::assert_equal!(bytes, content.len() as u64);
+            }
+            other => panic!("expected the oversized record to be skipped, got {other:?}"),
+        }
+        let after = expect_line(&mut d);
+        k9::assert_equal!(after.text, "after".to_string());
+        k9::assert_equal!(after.byte_offset, content.len() as u64 + 1);
+        k9::assert_equal!(d.lines_consumed, 2);
+        assert!(matches!(d.next_line(0).unwrap(), NextLine::None));
     }
 }

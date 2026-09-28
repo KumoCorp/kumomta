@@ -309,7 +309,7 @@ mod test {
     /// before it can produce a segment the tailer would reject as corrupt.
     #[test]
     fn writer_and_tailer_limits_match() {
-        use crate::decompress::FileDecompressor;
+        use crate::decompress::{FileDecompressor, NextLine};
 
         let max = 64 * 1024;
         let dir = tempfile::tempdir().unwrap();
@@ -327,9 +327,13 @@ mod test {
             .unwrap()
             .path();
         let mut d = FileDecompressor::open_with_max_line_size(&seg, max).unwrap();
-        let line = d.next_line(0).unwrap().unwrap();
-        k9::assert_equal!(line.text, largest);
-        assert!(d.next_line(0).unwrap().is_none());
+        match d.next_line(0).unwrap() {
+            NextLine::Line(line) => {
+                k9::assert_equal!(line.text, largest);
+            }
+            other => panic!("expected a line, got {other:?}"),
+        }
+        assert!(matches!(d.next_line(0).unwrap(), NextLine::None));
     }
 
     /// Rejects a record whose content reaches the limit (its newline would not

@@ -1,6 +1,6 @@
 use crate::batch::LogBatch;
 use crate::checkpoint::CheckpointData;
-use crate::decompress::{FileDecompressor, DEFAULT_MAX_LINE_SIZE};
+use crate::decompress::{FileDecompressor, NextLine, DEFAULT_MAX_LINE_SIZE};
 use camino::Utf8PathBuf;
 use filenamegen::Glob;
 use futures::Stream;
@@ -678,7 +678,7 @@ fn make_multi_stream(
                     let mut advance_file: Option<bool> = None;
 
                     match d.next_line(skip_lines) {
-                        Ok(Some(line)) => {
+                        Ok(NextLine::Line(line)) => {
                             match serde_json::from_str::<serde_json::Value>(&line.text) {
                                 Ok(value) => {
                                     for i in 0..num_consumers {
@@ -715,10 +715,34 @@ fn make_multi_stream(
                                 }
                             }
                         }
-                        Ok(None) => {
+                        Ok(NextLine::Skipped { byte_offset, bytes }) => {
+                            // A record exceeded max_line_size and was
+                            // discarded, but the stream is intact, so the rest
+                            // of the segment is still readable. Count it as a
+                            // consumed line (the decompressor already advanced
+                            // its checkpoint) and keep going.
+                            warn!(
+                                "Skipping a record from {path} at byte offset {byte_offset} \
+                                 ({bytes} bytes) that exceeds max_line_size; the rest of the \
+                                 segment is still processed."
+                            );
+                            global_line_in_file += 1;
+                        }
+                        Ok(NextLine::None) => {
                             // EOF on current file
                             if is_file_done(path) {
-                                if d.has_partial_data() {
+                                if d.is_discarding_oversized_record() {
+                                    // The final record was still being
+                                    // discarded for exceeding max_line_size
+                                    // when the segment ended, without ever
+                                    // reaching its terminating newline. Drop
+                                    // it and treat the file as complete.
+                                    warn!(
+                                        "segment {path} ended while discarding a trailing record \
+                                         that exceeds max_line_size; the record is dropped and \
+                                         the segment is treated as complete."
+                                    );
+                                } else if d.has_partial_data() {
                                     // The writer was killed before it
                                     // could finish the zstd stream and the
                                     // segment was later marked done by the
