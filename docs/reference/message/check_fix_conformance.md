@@ -54,6 +54,7 @@ The set of supported conformance issues is:
 |MISSING_DATE_HEADER|The `"Date:"` header is not present|
 |MISSING_MESSAGE_ID_HEADER|The `"Message-ID:"` header is not present|
 |MISSING_MIME_VERSION|The `"MIME-Version:"` header is either not present or is set to some other value than `"1.0"`|
+|MIME_NESTING_LIMIT_EXCEEDED|The MIME structure is nested beyond 100 levels|
 
 The way this method works is that it will attempt to parse the data associated
 with the message into a MIME tree. The parsing stage will accumulate the set of
@@ -179,4 +180,27 @@ The set of encodings supported by the detector are:
  * utf-16be
  * utf-16le
  * utf-8
+
+## Overly deep MIME trees
+
+{{since('dev')}}
+
+MIME parsing stops after 100 nested levels to prevent deeply nested content
+from exhausting the process stack. When we reach the point of overflow,
+the parser will stop the recursive parse and return an opaque part that
+represents that portion of the MIME tree.  That opaque part parses the
+headers, but not the body content.  `MIME_NESTING_LIMIT_EXCEEDED` is
+recorded as the non-conformance issue.
+
+Top-level headers and the parsed portion of the MIME tree remain available to
+policy. Parts within the opaque body are not available through MIME traversal
+APIs. Converting the parsed tree back to a message preserves the opaque body.
+
+Add `MIME_NESTING_LIMIT_EXCEEDED` to `CHECKS` to reject messages that exceed
+the limit. There is no "fix" for this condition that can be applied by
+`check_fix_conformance`, as there is no way to repair this class of message
+short of simply pruning the overly deep part of the MIME tree.  You could
+implement that in your own policy if you wished, but since this category of
+message is highly likely to be abusive, simply rejecting the content is almost
+always the most pragmatic solution.
 

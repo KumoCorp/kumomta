@@ -15,6 +15,8 @@ use std::borrow::Cow;
 use std::str::FromStr;
 use std::sync::Arc;
 
+const MAX_MIME_NESTING_DEPTH: usize = 100;
+
 /// Define our own because data_encoding::BASE64_MIME, despite its name,
 /// is not RFC2045 compliant, and will not ignore spaces.
 /// check_trailing_bits is disabled because real-world MIME producers emit
@@ -176,7 +178,7 @@ impl<'a> MimePart<'a> {
         S: IntoSharedString<'a>,
     {
         let (bytes, base_conformance) = bytes.into_shared_string();
-        Self::parse_impl(bytes, base_conformance, true)
+        Self::parse_impl(bytes, base_conformance, true, 0)
     }
 
     /// Obtain a version of self that has a static lifetime
@@ -197,6 +199,7 @@ impl<'a> MimePart<'a> {
         bytes: SharedString<'a>,
         base_conformance: MessageConformance,
         is_top_level: bool,
+        nesting_depth: usize,
     ) -> Result<Self> {
         let HeaderParseResult {
             headers,
@@ -255,12 +258,12 @@ impl<'a> MimePart<'a> {
             outro: SharedString::Borrowed(b""),
         };
 
-        part.recursive_parse()?;
+        part.recursive_parse(nesting_depth)?;
 
         Ok(part)
     }
 
-    fn recursive_parse(&mut self) -> Result<()> {
+    fn recursive_parse(&mut self, nesting_depth: usize) -> Result<()> {
         let info = Rfc2045Info::new(&self.headers);
         if info.invalid_mime_headers {
             self.conformance |= MessageConformance::INVALID_MIME_HEADERS;
@@ -282,6 +285,11 @@ impl<'a> MimePart<'a> {
 
             let mut iter = memchr::memmem::find_iter(raw_body.as_bytes(), &boundary);
             if let Some(first_boundary_pos) = iter.next() {
+                if nesting_depth >= MAX_MIME_NESTING_DEPTH {
+                    self.conformance |= MessageConformance::MIME_NESTING_LIMIT_EXCEEDED;
+                    return Ok(());
+                }
+
                 // first_boundary_pos is the \n that ends the line before the
                 // boundary. The intro is the body up to and including that \n,
                 // excluding the synthetic byte we stepped back over. Keeping
@@ -312,6 +320,7 @@ impl<'a> MimePart<'a> {
                         raw_body.slice(part_start..part_end),
                         MessageConformance::default(),
                         false,
+                        nesting_depth + 1,
                     )?;
                     self.conformance |= child.conformance;
                     self.parts.push(child);
@@ -511,12 +520,23 @@ impl<'a> MimePart<'a> {
     pub fn rebuild(&self, settings: Option<&CheckFixSettings>) -> Result<Self> {
         let info = Rfc2045Info::new(&self.headers);
 
+        // A cutoff body is raw multipart content rather than a leaf payload.
+        // Preserve it instead of decoding and reconstructing it below.
+        let is_nesting_cutoff = self.parts.is_empty()
+            && self
+                .conformance
+                .contains(MessageConformance::MIME_NESTING_LIMIT_EXCEEDED);
+
         let mut children = vec![];
         for part in &self.parts {
             children.push(part.rebuild(settings)?);
         }
 
-        let mut rebuilt = if children.is_empty() {
+        let mut rebuilt = if is_nesting_cutoff {
+            let mut rebuilt = self.clone();
+            rebuilt.headers = HeaderMap::default();
+            rebuilt
+        } else if children.is_empty() {
             let (body, _conformance) = self.extract_body(settings)?;
             match body {
                 DecodedBody::Text(text) => {
@@ -552,6 +572,13 @@ impl<'a> MimePart<'a> {
         for hdr in self.headers.iter() {
             let name = hdr.get_name();
             if name.eq_ignore_ascii_case(b"Content-ID") {
+                continue;
+            }
+
+            if is_nesting_cutoff {
+                if let Ok(hdr) = hdr.rebuild() {
+                    rebuilt.headers_mut().push(hdr);
+                }
                 continue;
             }
 
@@ -1311,6 +1338,113 @@ impl<'a> DecodedBody<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::fmt::Write;
+
+    fn nested_multipart(depth: usize) -> String {
+        let mut message = "Subject: outer header\r\n".to_string();
+
+        for level in 0..depth {
+            write!(
+                message,
+                "Content-Type: multipart/mixed; boundary=\"boundary-{level:04}\"\r\nX-Level: {level}\r\nContent-ID: <part-{level:04}>\r\n\r\n--boundary-{level:04}\r\n"
+            )
+            .expect("writing to a String cannot fail");
+        }
+
+        message.push_str("Content-Type: text/plain\r\n\r\nleaf");
+        for level in (0..depth).rev() {
+            write!(message, "\r\n--boundary-{level:04}--\r\n")
+                .expect("writing to a String cannot fail");
+        }
+
+        message
+    }
+
+    #[test]
+    fn deeply_nested_multipart_becomes_an_opaque_part() {
+        let message = nested_multipart(5_000);
+        let root = MimePart::parse(message.as_bytes()).unwrap();
+
+        k9::assert_equal!(root.headers().subject().unwrap().unwrap(), "outer header");
+        k9::assert_equal!(
+            root.conformance(),
+            MessageConformance::MIME_NESTING_LIMIT_EXCEEDED
+                | MessageConformance::MISSING_DATE_HEADER
+                | MessageConformance::MISSING_MESSAGE_ID_HEADER
+                | MessageConformance::MISSING_MIME_VERSION
+        );
+
+        let mut cutoff = &root;
+        let mut parsed_depth = 0;
+        while let [child] = cutoff.child_parts() {
+            cutoff = child;
+            parsed_depth += 1;
+        }
+
+        k9::assert_equal!(parsed_depth, MAX_MIME_NESTING_DEPTH);
+        k9::assert_equal!(cutoff.child_parts().len(), 0);
+        k9::assert_equal!(
+            cutoff.conformance(),
+            MessageConformance::MIME_NESTING_LIMIT_EXCEEDED
+        );
+        k9::assert_equal!(message.as_bytes(), root.to_message_bytes());
+
+        let rebuilt = root.rebuild(None).unwrap();
+        let mut rebuilt_cutoff = &rebuilt;
+        while let [child] = rebuilt_cutoff.child_parts() {
+            rebuilt_cutoff = child;
+        }
+        k9::assert_equal!(rebuilt_cutoff.child_parts().len(), 0);
+        k9::assert_equal!(
+            rebuilt_cutoff.conformance(),
+            MessageConformance::MIME_NESTING_LIMIT_EXCEEDED
+        );
+        // Header formatting changes during rebuild, but the opaque body must not.
+        k9::assert_equal!(cutoff.raw_body(), rebuilt_cutoff.raw_body());
+        // Content-ID is omitted when rebuilding every other kind of part.
+        k9::assert_equal!(rebuilt_cutoff.headers().content_id().unwrap(), None);
+        // Other headers must appear exactly once.
+        k9::assert_equal!(
+            rebuilt_cutoff.headers().iter().count(),
+            cutoff.headers().iter().count() - 1
+        );
+    }
+
+    fn max_tree_depth(part: &MimePart) -> usize {
+        part.child_parts()
+            .iter()
+            .map(|child| 1 + max_tree_depth(child))
+            .max()
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn multipart_nesting_at_the_limit_parses_in_full() {
+        let message = nested_multipart(MAX_MIME_NESTING_DEPTH);
+        let root = MimePart::parse(message.as_bytes()).unwrap();
+
+        k9::assert_equal!(
+            root.conformance()
+                .contains(MessageConformance::MIME_NESTING_LIMIT_EXCEEDED),
+            false
+        );
+        k9::assert_equal!(max_tree_depth(&root), MAX_MIME_NESTING_DEPTH);
+        k9::assert_equal!(message.as_bytes(), root.to_message_bytes());
+    }
+
+    #[test]
+    fn multipart_nesting_one_over_the_limit_cuts_off_at_the_limit() {
+        let message = nested_multipart(MAX_MIME_NESTING_DEPTH + 1);
+        let root = MimePart::parse(message.as_bytes()).unwrap();
+
+        k9::assert_equal!(
+            root.conformance()
+                .contains(MessageConformance::MIME_NESTING_LIMIT_EXCEEDED),
+            true
+        );
+        k9::assert_equal!(max_tree_depth(&root), MAX_MIME_NESTING_DEPTH);
+        k9::assert_equal!(message.as_bytes(), root.to_message_bytes());
+    }
 
     #[test]
     fn msg_parsing() {

@@ -156,3 +156,8 @@
 
  * Fixed a process-terminating stack overflow when parsing deeply nested
    comments in structured message headers.
+
+ * Deeply nested MIME content is now retained as an opaque part after 100
+   levels instead of overflowing the process stack. See the
+   [`MIME_NESTING_LIMIT_EXCEEDED`](../reference/message/check_fix_conformance.md#overly-deep-mime-trees)
+   conformance flag.
