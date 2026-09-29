@@ -1754,6 +1754,19 @@ regex="fake_rollup"
 action = {SetConfig={name="connection_limit", value=2}}
 duration = "1hr"
 
+["((a|b).x|c.y).targets.test"]
+_treat_domain_name_as_site_name = true
+connection_limit = 11
+
+[["((a|b).x|c.y).targets.test".automation]]
+regex="nested_rollup"
+action = {SetConfig={name="connection_limit", value=3}}
+duration = "1hr"
+
+["((a|c).x|b.y).targets.test"]
+_treat_domain_name_as_site_name = true
+connection_limit = 22
+
 ["woot.provider"]
 mx_rollup = false
 
@@ -1856,6 +1869,36 @@ match_internal = true
             "fake_rollup",
             "matches against domain rule with mx_rollup=true"
         );
+
+        let nested_a = "((a|b).x|c.y).targets.test";
+        let nested_b = "((a|c).x|b.y).targets.test";
+        for (site, expected) in [(nested_a, 11), (nested_b, 22)] {
+            let config = shaping
+                .get_egress_path_config("example.test", "unspecified", site)
+                .await
+                .finish()
+                .unwrap();
+            assert_eq!(config.params.connection_limit.limit, expected);
+        }
+        let matches = shaping
+            .match_rules(&make_record(
+                "nested_rollup",
+                "user@example.test",
+                &format!("unspecified->{nested_a}@smtp_client"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].regex[0].to_string(), "nested_rollup");
+        assert!(shaping
+            .match_rules(&make_record(
+                "nested_rollup",
+                "user@example.test",
+                &format!("unspecified->{nested_b}@smtp_client")
+            ))
+            .await
+            .unwrap()
+            .is_empty());
 
         let matches = shaping
             .match_rules(&make_record("provider", "user@woot.provider", "dummy_site"))

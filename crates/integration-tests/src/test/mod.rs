@@ -40,6 +40,7 @@ mod maildir_batch_split_hook;
 mod max_line_length;
 mod mta_sts_enforce;
 mod mx_list_refresh;
+mod mx_site_names;
 mod nats;
 mod no_ports_in_rcpt_domain;
 mod perm_fail;
