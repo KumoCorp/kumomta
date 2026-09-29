@@ -24,6 +24,17 @@
 
 ## Fixes
 
+ * Fixed incorrect matching when evaluating an SPF record with a `/0`
+   prefix, or a CIDR length wider than the address family allows (for
+   example `ip4:0.0.0.0/33`). A `/0` prefix now correctly matches every address,
+   and an out-of-range CIDR length is rejected when the record is parsed.
+   Previously such records matched the wrong (sometimes broader) range of
+   addresses without any error, yielding an incorrect SPF result.  While SPF
+   records are fetched from DNS (and thus remotely controlled), the sending
+   domain owns that DNS record chain and could already authorize arbitrary
+   senders, so this issue didn't allow an unrelated party to subvert the
+   SPF authorization check.
+
  * [kumo.jsonl.new_tailer](../reference/kumo.jsonl/new_tailer.md) no longer
    discards the rest of a log segment when it meets a record larger than the
    fixed zstd output block. Previously the decompression buffer was fixed at

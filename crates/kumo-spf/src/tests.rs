@@ -296,6 +296,45 @@ async fn ip6() {
     );
 }
 
+// A /0 prefix authorizes every address. Confirm it evaluates to Pass end to end
+// for an arbitrary client, for both address families.
+#[tokio::test]
+async fn cidr_zero_matches_all() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt("example.com", "v=spf1 ip4:0.0.0.0/0 -all".to_string());
+
+    let result = evaluate_ip(Ipv4Addr::from([203, 0, 113, 200]), &resolver).await;
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::Pass,
+            context: "matched 'ip4:0.0.0.0/0' directive".to_owned(),
+        },
+        "{result:?}"
+    );
+
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt("example.com", "v=spf1 ip6:::/0 -all".to_string());
+
+    let result = evaluate_ip(
+        Ipv6Addr::from([0x2001, 0xdb8, 0, 0, 0, 0, 0, 0x1]),
+        &resolver,
+    )
+    .await;
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::Pass,
+            context: "matched 'ip6:::/0' directive".to_owned(),
+        },
+        "{result:?}"
+    );
+}
+
 // Ensure that a split spf record is joined and parsed correctly
 // <https://datatracker.ietf.org/doc/html/rfc7208#section-3.3>
 #[tokio::test]

@@ -360,13 +360,13 @@ impl DualCidrLength {
     fn matches(&self, observed: IpAddr, specified: IpAddr) -> bool {
         match (observed, specified, self) {
             (IpAddr::V4(observed), IpAddr::V4(specified), DualCidrLength { v4, .. }) => {
-                let mask = u32::MAX << (32 - v4);
+                let mask = ipv4_prefix_mask(*v4);
                 let specified_masked = Ipv4Addr::from_bits(specified.to_bits() & mask);
                 let observed_masked = Ipv4Addr::from(observed.to_bits() & mask);
                 specified_masked == observed_masked
             }
             (IpAddr::V6(observed), IpAddr::V6(specified), DualCidrLength { v6, .. }) => {
-                let mask = u128::MAX << (128 - v6);
+                let mask = ipv6_prefix_mask(*v6);
                 let specified_masked = Ipv6Addr::from_bits(specified.to_bits() & mask);
                 let observed_masked = Ipv6Addr::from(observed.to_bits() & mask);
                 specified_masked == observed_masked
@@ -376,41 +376,61 @@ impl DualCidrLength {
     }
 }
 
+/// Build the network mask for an IPv4 prefix length. A `/0` prefix yields the
+/// all-zero mask, matching every address.
+fn ipv4_prefix_mask(prefix: u8) -> u32 {
+    u32::MAX
+        .checked_shl((32 - prefix.min(32)) as u32)
+        .unwrap_or(0)
+}
+
+/// Build the network mask for an IPv6 prefix length. See [`ipv4_prefix_mask`].
+fn ipv6_prefix_mask(prefix: u8) -> u128 {
+    u128::MAX
+        .checked_shl((128 - prefix.min(128)) as u32)
+        .unwrap_or(0)
+}
+
 impl Default for DualCidrLength {
     fn default() -> Self {
         Self { v4: 32, v6: 128 }
     }
 }
 
+/// Parse a CIDR prefix length, rejecting values that exceed `max` bits for the
+/// address family (32 for IPv4, 128 for IPv6). RFC 7208 treats an out-of-range
+/// length as a syntax error.
+fn parse_cidr_length(s: &str, max: u8) -> Result<u8, String> {
+    let len: u8 = s.parse().map_err(|err| format!("{err}"))?;
+    if len > max {
+        return Err(format!("CIDR length /{len} exceeds maximum of /{max}"));
+    }
+    Ok(len)
+}
+
 impl DualCidrLength {
     fn parse_from_end(s: &str) -> Result<(&str, Self), String> {
         match s.rsplit_once('/') {
             Some((left, right)) => {
-                let right_cidr: u8 = right
-                    .parse()
-                    .map_err(|err| format!("invalid dual-cidr-length in {s}: {err}"))?;
-
                 if left.ends_with('/') {
                     // we have another cidr length
                     if let Some((prefix, v4cidr)) = left[0..left.len() - 1].rsplit_once('/') {
-                        let left_cidr: u8 = v4cidr.parse().map_err(|err| {
+                        let v4 = parse_cidr_length(v4cidr, 32).map_err(|err| {
                             format!(
                                 "invalid dual-cidr-length in {s}: parsing v4 cidr portion: {err}"
                             )
                         })?;
-                        return Ok((
-                            prefix,
-                            Self {
-                                v4: left_cidr,
-                                v6: right_cidr,
-                            },
-                        ));
+                        let v6 = parse_cidr_length(right, 128)
+                            .map_err(|err| format!("invalid dual-cidr-length in {s}: {err}"))?;
+                        return Ok((prefix, Self { v4, v6 }));
                     }
                 }
+                let v4 = parse_cidr_length(right, 32)
+                    .map_err(|err| format!("invalid dual-cidr-length in {s}: {err}"))?;
                 Ok((
                     left,
                     Self {
-                        v4: right_cidr,
+                        v4,
                         ..Self::default()
                     },
                 ))
@@ -575,8 +595,7 @@ impl Mechanism {
             let ip4_network = addr
                 .parse()
                 .map_err(|err| format!("invalid 'ip4' mechanism: {s}: {err}"))?;
-            let cidr_len = len
-                .parse()
+            let cidr_len = parse_cidr_length(len, 32)
                 .map_err(|err| format!("invalid 'ip4' mechanism: {s}: {err}"))?;
 
             return Ok(Self::Ip4 {
@@ -594,8 +613,7 @@ impl Mechanism {
             let ip6_network = addr
                 .parse()
                 .map_err(|err| format!("invalid 'ip6' mechanism: {s}: {err}"))?;
-            let cidr_len = len
-                .parse()
+            let cidr_len = parse_cidr_length(len, 128)
                 .map_err(|err| format!("invalid 'ip6' mechanism: {s}: {err}"))?;
 
             return Ok(Self::Ip6 {
@@ -656,6 +674,73 @@ mod test {
             Ok(r) => r,
             Err(err) => panic!("{err}: {s}"),
         }
+    }
+
+    #[test]
+    fn test_cidr_zero_matches_all() {
+        // A /0 prefix masks off every bit, so any address matches. The mask
+        // computation must not overflow the 32- or 128-bit shift.
+        let all_v4 = DualCidrLength { v4: 0, v6: 128 };
+        assert!(all_v4.matches("192.0.2.1".parse().unwrap(), "0.0.0.0".parse().unwrap()));
+        let all_v6 = DualCidrLength { v4: 32, v6: 0 };
+        assert!(all_v6.matches("2001:db8::1".parse().unwrap(), "::".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_cidr_boundary_accepted() {
+        // The maximum prefix for each family, and /0, must parse. A `>=`
+        // instead of `>` range check would reject valid records and silently
+        // change SPF results for real senders.
+        assert!(matches!(
+            Mechanism::parse("ip4:0.0.0.0/0").unwrap(),
+            Mechanism::Ip4 { cidr_len: 0, .. }
+        ));
+        assert!(matches!(
+            Mechanism::parse("ip4:192.0.2.1/32").unwrap(),
+            Mechanism::Ip4 { cidr_len: 32, .. }
+        ));
+        assert!(matches!(
+            Mechanism::parse("ip6:::/0").unwrap(),
+            Mechanism::Ip6 { cidr_len: 0, .. }
+        ));
+        assert!(matches!(
+            Mechanism::parse("ip6:2001:db8::/128").unwrap(),
+            Mechanism::Ip6 { cidr_len: 128, .. }
+        ));
+        assert!(matches!(
+            Mechanism::parse("a/0").unwrap(),
+            Mechanism::A {
+                cidr_len: DualCidrLength { v4: 0, .. },
+                ..
+            }
+        ));
+        assert!(matches!(
+            Mechanism::parse("mx/24//64").unwrap(),
+            Mechanism::Mx {
+                cidr_len: DualCidrLength { v4: 24, v6: 64 },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_cidr_out_of_range_rejected() {
+        k9::snapshot!(
+            Record::parse("v=spf1 ip4:0.0.0.0/33 -all").unwrap_err(),
+            "invalid token 'ip4:0.0.0.0/33'"
+        );
+        k9::snapshot!(
+            Record::parse("v=spf1 ip6:::/129 -all").unwrap_err(),
+            "invalid token 'ip6:::/129'"
+        );
+        k9::snapshot!(
+            Record::parse("v=spf1 a/33 -all").unwrap_err(),
+            "invalid token 'a/33'"
+        );
+        k9::snapshot!(
+            Record::parse("v=spf1 mx/0//129 -all").unwrap_err(),
+            "invalid token 'mx/0//129'"
+        );
     }
 
     #[test]
