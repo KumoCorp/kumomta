@@ -33,6 +33,7 @@ bitflags::bitflags! {
         const MISSING_MIME_VERSION = 0b1000_0000;
         const INVALID_MIME_HEADERS = 0b0001_0000_0000;
         const MIME_NESTING_LIMIT_EXCEEDED = 0b0010_0000_0000;
+        const MIME_INVALID_BOUNDARY = 0b0100_0000_0000;
     }
 }
 
@@ -800,8 +801,9 @@ Some(
         k9::assert_equal!(
             MessageConformance::from_str("LINE_TOO_LONG|spoon").unwrap_err(),
             "invalid MessageConformance flag 'spoon', possible values are \
-            'INVALID_MIME_HEADERS', 'LINE_TOO_LONG', 'MIME_NESTING_LIMIT_EXCEEDED', \
-            'MISSING_COLON_VALUE', 'MISSING_DATE_HEADER', 'MISSING_MESSAGE_ID_HEADER', \
+            'INVALID_MIME_HEADERS', 'LINE_TOO_LONG', 'MIME_INVALID_BOUNDARY', \
+            'MIME_NESTING_LIMIT_EXCEEDED', 'MISSING_COLON_VALUE', 'MISSING_DATE_HEADER', \
+            'MISSING_MESSAGE_ID_HEADER', \
             'MISSING_MIME_VERSION', 'NAME_ENDS_WITH_SPACE', 'NEEDS_TRANSFER_ENCODING', \
             'NON_CANONICAL_LINE_ENDINGS'"
         );

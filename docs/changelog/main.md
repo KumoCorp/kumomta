@@ -26,11 +26,14 @@
 
  * Fixed a panic when re-serializing a message whose multipart `Content-Type`
    doesn't declare a usable boundary. A crafted message passing through
-   `check_fix_conformance` or the HTTP injection API could trigger this
-   issue.  We now return an error result for these cases.
-   Another path leading to this is if you had configured DSN generation
-   and the message to be included in the report was similarly malformed.
-   In this case, we'll simply omit the offending message from the report.
+   `check_fix_conformance` or the HTTP injection API could trigger this issue.
+   We now treat an empty or whitespace boundary as invalid, record the
+   `MIME_INVALID_BOUNDARY` conformance issue, and preserve the part verbatim
+   instead of splitting it into nonsensical parts. Another path leading to this
+   is if you had configured DSN generation and the message to be included in the
+   report was malformed. That message is now preserved verbatim in the report. A
+   message that cannot be serialized is omitted rather than failing report
+   generation.
 
  * Fixed incorrect matching when evaluating an SPF record with a `/0`
    prefix, or a CIDR length wider than the address family allows (for

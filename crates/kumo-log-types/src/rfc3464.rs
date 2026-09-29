@@ -673,6 +673,7 @@ pub struct ReportGenerationParams {
 mod test {
     use super::*;
     use crate::ResolvedAddress;
+    use mailparsing::MessageConformance;
     use rfc5321::{EnhancedStatusCode, Response};
 
     #[test]
@@ -1236,6 +1237,42 @@ hello there
     ),
 }
 "#
+        );
+    }
+
+    // Asserts that we can successfully generate a report when the original
+    // message has malformed and unsuable boundary lines.
+    #[test]
+    fn generate_bounce_with_invalid_boundary_message() {
+        let params = ReportGenerationParams {
+            reporting_mta: RemoteMta {
+                mta_type: "dns".to_string(),
+                name: "mta1.example.com".to_string(),
+            },
+            enable_bounce: true,
+            enable_expiration: true,
+            include_original_message: IncludeOriginalMessage::FullContent,
+            stable_content: true,
+        };
+
+        const ORIGINAL: &[u8] =
+            b"Subject: Broken\r\nContent-Type: multipart/mixed; boundary=\r\n\r\n--\r\nbody\r\n";
+        let original_msg = MimePart::parse(ORIGINAL).unwrap();
+        assert!(original_msg
+            .conformance()
+            .contains(MessageConformance::MIME_INVALID_BOUNDARY));
+
+        let log = make_bounce();
+
+        let report_msg = Report::generate(&params, Some(&original_msg), &log)
+            .unwrap()
+            .unwrap();
+        let report_eml = BString::from(report_msg.to_message_bytes().unwrap());
+
+        let embedded = format!("message/rfc822\r\n\r\n{}", BString::from(ORIGINAL.to_vec()));
+        assert!(
+            report_eml.contains_str(&embedded),
+            "report should embed the original verbatim; got:\n{report_eml}"
         );
     }
 

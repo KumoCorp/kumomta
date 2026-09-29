@@ -55,6 +55,7 @@ The set of supported conformance issues is:
 |MISSING_MESSAGE_ID_HEADER|The `"Message-ID:"` header is not present|
 |MISSING_MIME_VERSION|The `"MIME-Version:"` header is either not present or is set to some other value than `"1.0"`|
 |MIME_NESTING_LIMIT_EXCEEDED|The MIME structure is nested beyond 100 levels|
+|MIME_INVALID_BOUNDARY|A multipart part declares an invalid boundary, such as an empty boundary or one containing whitespace. Detection only; impossible to fix automatically. {{since('dev', inline=True)}}|
 
 The way this method works is that it will attempt to parse the data associated
 with the message into a MIME tree. The parsing stage will accumulate the set of
@@ -203,4 +204,3 @@ short of simply pruning the overly deep part of the MIME tree.  You could
 implement that in your own policy if you wished, but since this category of
 message is highly likely to be abusive, simply rejecting the content is almost
 always the most pragmatic solution.
-

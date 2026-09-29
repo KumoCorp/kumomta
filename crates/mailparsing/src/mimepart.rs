@@ -17,6 +17,18 @@ use std::sync::Arc;
 
 const MAX_MIME_NESTING_DEPTH: usize = 100;
 
+/// Returns true if `boundary` is usable as a multipart delimiter. Only the obviously
+/// broken forms are rejected:
+///
+///  * an empty boundary matches everywhere
+///  * one containing whitespace cannot be written back as a `--boundary` line
+///
+/// This is deliberately permissive to avoid reclassifying otherwise splittable,
+/// if non-conforming, real-world boundaries.
+fn is_valid_boundary(boundary: &[u8]) -> bool {
+    !boundary.is_empty() && !boundary.iter().any(|b| b.is_ascii_whitespace())
+}
+
 /// Define our own because data_encoding::BASE64_MIME, despite its name,
 /// is not RFC2045 compliant, and will not ignore spaces.
 /// check_trailing_bits is disabled because real-world MIME producers emit
@@ -268,11 +280,19 @@ impl<'a> MimePart<'a> {
         if info.invalid_mime_headers {
             self.conformance |= MessageConformance::INVALID_MIME_HEADERS;
         }
-        if let Some((boundary, true)) = info
-            .content_type
-            .as_ref()
-            .and_then(|ct| ct.get("boundary").map(|b| (b, info.is_multipart)))
-        {
+        if info.is_multipart {
+            let boundary = info.content_type.as_ref().and_then(|ct| ct.get("boundary"));
+
+            let boundary = match boundary {
+                Some(b) if is_valid_boundary(b.as_bytes()) => b,
+                _ => {
+                    // Retain the part as an opaque leaf, because it has an
+                    // invalid boundary.
+                    self.conformance |= MessageConformance::MIME_INVALID_BOUNDARY;
+                    return Ok(());
+                }
+            };
+
             let boundary = format!("\n--{boundary}");
             // Begin the boundary search one byte ahead of the body so that the
             // leading \n of the `\n--boundary` needle can match a boundary that
@@ -520,19 +540,22 @@ impl<'a> MimePart<'a> {
     pub fn rebuild(&self, settings: Option<&CheckFixSettings>) -> Result<Self> {
         let info = Rfc2045Info::new(&self.headers);
 
-        // A cutoff body is raw multipart content rather than a leaf payload.
-        // Preserve it instead of decoding and reconstructing it below.
-        let is_nesting_cutoff = self.parts.is_empty()
-            && self
-                .conformance
-                .contains(MessageConformance::MIME_NESTING_LIMIT_EXCEEDED);
+        // When we declined to split a multipart part (nesting limit reached, or
+        // an invalid boundary), its body is still the original raw multipart
+        // content. Copy it through unchanged rather than trying to decode and
+        // reconstruct it as a leaf below.
+        let is_opaque_multipart = self.parts.is_empty()
+            && self.conformance.intersects(
+                MessageConformance::MIME_NESTING_LIMIT_EXCEEDED
+                    | MessageConformance::MIME_INVALID_BOUNDARY,
+            );
 
         let mut children = vec![];
         for part in &self.parts {
             children.push(part.rebuild(settings)?);
         }
 
-        let mut rebuilt = if is_nesting_cutoff {
+        let mut rebuilt = if is_opaque_multipart {
             let mut rebuilt = self.clone();
             rebuilt.headers = HeaderMap::default();
             rebuilt
@@ -575,7 +598,7 @@ impl<'a> MimePart<'a> {
                 continue;
             }
 
-            if is_nesting_cutoff {
+            if is_opaque_multipart {
                 if let Ok(hdr) = hdr.rebuild() {
                     rebuilt.headers_mut().push(hdr);
                 }
@@ -818,8 +841,11 @@ impl<'a> MimePart<'a> {
 
         let mut ct = MimeParameters::new(content_type);
         match boundary {
-            Some(b) => {
+            Some(b) if is_valid_boundary(b) => {
                 ct.set("boundary", b);
+            }
+            Some(_) => {
+                return Err(MailParsingError::BuildError("invalid multipart boundary"));
             }
             None => {
                 // Generate a random boundary
@@ -2715,19 +2741,54 @@ Body\r
         assert_eq!(decoded, b"html>\r\n");
     }
 
-    // A multipart part whose Content-Type declares an empty boundary has child
-    // parts but lacks a usable delimiter to separate them, so it cannot be
-    // serialized. to_message_bytes must report that as an error rather than
-    // panicking.
+    // Assert that an empty boundary doesn't parse into nonsense parts and
+    // instead is represented as an opaque leaf that can be successfully
+    // rendered and rebuilt.
     #[test]
-    fn multipart_empty_boundary_is_not_serializable() {
+    fn multipart_empty_boundary_becomes_opaque_leaf() {
         const CONTENT: &[u8] = b"Content-Type:multipart/0 boundary=\n\n--\n\n";
 
-        let rebuilt = MimePart::parse(CONTENT).unwrap().rebuild(None).unwrap();
-        let err = rebuilt.to_message_bytes().unwrap_err();
+        let part = MimePart::parse(CONTENT).unwrap();
+        assert!(part
+            .conformance()
+            .contains(MessageConformance::MIME_INVALID_BOUNDARY));
+        assert!(part.child_parts().is_empty());
+        k9::assert_equal!(part.to_message_bytes().unwrap(), CONTENT.to_vec());
+
+        let rebuilt = part.rebuild(None).unwrap();
+        rebuilt.to_message_bytes().unwrap();
+    }
+
+    // Assert that a boundary containing whitespace is represented as
+    // an opaque leaf.
+    #[test]
+    fn multipart_whitespace_boundary_becomes_opaque_leaf() {
+        const CONTENT: &[u8] = concat!(
+            "Content-Type: multipart/mixed; boundary=\"bad boundary\"\r\n",
+            "\r\n",
+            "--bad boundary\r\n",
+            "Content-Type: text/plain\r\n",
+            "\r\n",
+            "hi\r\n",
+            "--bad boundary--\r\n",
+        )
+        .as_bytes();
+
+        let part = MimePart::parse(CONTENT).unwrap();
+        assert!(part
+            .conformance()
+            .contains(MessageConformance::MIME_INVALID_BOUNDARY));
+        assert!(part.child_parts().is_empty());
+        k9::assert_equal!(part.to_message_bytes().unwrap(), CONTENT.to_vec());
+    }
+
+    #[test]
+    fn new_multipart_rejects_invalid_boundary() {
+        let child = MimePart::new_text_plain("hi\r\n").unwrap();
+        let err = MimePart::new_multipart("multipart/mixed", vec![child], Some(b"")).unwrap_err();
         k9::assert_equal!(
             err.to_string(),
-            "Unexpected MimePart structure during write_message: expected Content-Type to have a boundary"
+            "Error building message: invalid multipart boundary"
         );
     }
 }
