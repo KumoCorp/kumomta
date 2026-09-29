@@ -527,7 +527,7 @@ impl<'a> Compiled<'a> {
                     msg.headers_mut().set_mime_version("1.0")?;
                 }
 
-                Ok(String::from_utf8(msg.to_message_bytes())?)
+                Ok(String::from_utf8(msg.to_message_bytes()?)?)
             }
             Content::Builder {
                 text_body,
@@ -605,7 +605,7 @@ impl<'a> Compiled<'a> {
                     builder.attach_part(part.clone());
                 }
 
-                Ok(String::from_utf8(builder.build()?.to_message_bytes())?)
+                Ok(String::from_utf8(builder.build()?.to_message_bytes()?)?)
             }
         }
     }

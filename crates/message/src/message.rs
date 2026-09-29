@@ -1332,7 +1332,7 @@ impl Message {
                     text.push_str(content);
                     p.replace_text_body("text/plain", &*text)?;
 
-                    let new_data = msg.to_message_bytes();
+                    let new_data = msg.to_message_bytes()?;
                     self.assign_data(new_data);
                     Ok(true)
                 }
@@ -1368,7 +1368,7 @@ impl Message {
 
                     p.replace_text_body("text/html", &*text)?;
 
-                    let new_data = msg.to_message_bytes();
+                    let new_data = msg.to_message_bytes()?;
                     self.assign_data(new_data);
                     Ok(true)
                 }
@@ -1410,7 +1410,7 @@ impl Message {
         let opt_msg = msg.check_fix_conformance(check, fix, settings)?;
 
         if let Some(msg) = opt_msg {
-            let new_data = msg.to_message_bytes();
+            let new_data = msg.to_message_bytes()?;
             self.assign_data(new_data);
         }
 

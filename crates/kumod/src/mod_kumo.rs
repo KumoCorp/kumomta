@@ -329,7 +329,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             Some(report) => {
                 let recip = EnvelopeAddress::parse(&log_record.sender)
                     .context("log_record is somehow an invalid EnvelopeAddress")?;
-                let body = report.to_message_bytes();
+                let body = report.to_message_bytes()?;
 
                 let msg = Message::new_dirty(
                     SpoolId::new(),

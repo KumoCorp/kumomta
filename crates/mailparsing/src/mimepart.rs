@@ -682,10 +682,10 @@ impl<'a> MimePart<'a> {
 
     /// Convenience method wrapping write_message that returns
     /// the formatted message as a standalone string
-    pub fn to_message_bytes(&self) -> Vec<u8> {
+    pub fn to_message_bytes(&self) -> Result<Vec<u8>> {
         let mut out = vec![];
-        self.write_message(&mut out).unwrap();
-        out
+        self.write_message(&mut out)?;
+        Ok(out)
     }
 
     pub fn replace_text_body(
@@ -1387,7 +1387,7 @@ mod test {
             cutoff.conformance(),
             MessageConformance::MIME_NESTING_LIMIT_EXCEEDED
         );
-        k9::assert_equal!(message.as_bytes(), root.to_message_bytes());
+        k9::assert_equal!(message.as_bytes(), root.to_message_bytes().unwrap());
 
         let rebuilt = root.rebuild(None).unwrap();
         let mut rebuilt_cutoff = &rebuilt;
@@ -1429,7 +1429,7 @@ mod test {
             false
         );
         k9::assert_equal!(max_tree_depth(&root), MAX_MIME_NESTING_DEPTH);
-        k9::assert_equal!(message.as_bytes(), root.to_message_bytes());
+        k9::assert_equal!(message.as_bytes(), root.to_message_bytes().unwrap());
     }
 
     #[test]
@@ -1443,7 +1443,7 @@ mod test {
             true
         );
         k9::assert_equal!(max_tree_depth(&root), MAX_MIME_NESTING_DEPTH);
-        k9::assert_equal!(message.as_bytes(), root.to_message_bytes());
+        k9::assert_equal!(message.as_bytes(), root.to_message_bytes().unwrap());
     }
 
     #[test]
@@ -1456,7 +1456,7 @@ mod test {
         );
 
         let part = MimePart::parse(message).unwrap();
-        k9::assert_equal!(message.as_bytes(), part.to_message_bytes());
+        k9::assert_equal!(message.as_bytes(), part.to_message_bytes().unwrap());
         assert_eq!(part.raw_body(), "I am the body");
         k9::snapshot!(
             part.body(),
@@ -1470,7 +1470,7 @@ Ok(
         );
 
         k9::snapshot!(
-            BString::from(part.rebuild(None).unwrap().to_message_bytes()),
+            BString::from(part.rebuild(None).unwrap().to_message_bytes().unwrap()),
             r#"
 Content-Type: text/plain;\r
 \tcharset="us-ascii"\r
@@ -1517,7 +1517,7 @@ I am the body\r
         );
 
         let part = MimePart::parse(message).unwrap();
-        k9::assert_equal!(message.as_bytes(), part.to_message_bytes());
+        k9::assert_equal!(message.as_bytes(), part.to_message_bytes().unwrap());
         assert_eq!(part.raw_body(), "aGVsbG8K\n");
         k9::snapshot!(
             part.body(),
@@ -1532,7 +1532,7 @@ Ok(
         );
 
         k9::snapshot!(
-            BString::from(part.rebuild(None).unwrap().to_message_bytes()),
+            BString::from(part.rebuild(None).unwrap().to_message_bytes().unwrap()),
             r#"
 Content-Type: text/plain;\r
 \tcharset="us-ascii"\r
@@ -1572,7 +1572,7 @@ hello=0A\r
 
         let part = MimePart::parse(message).unwrap();
 
-        k9::assert_equal!(message.as_bytes(), part.to_message_bytes());
+        k9::assert_equal!(message.as_bytes(), part.to_message_bytes().unwrap());
 
         let children = part.child_parts();
         k9::assert_equal!(children.len(), 2);
@@ -1625,7 +1625,7 @@ Ok(
         );
 
         let mut part = MimePart::parse(message).unwrap();
-        k9::assert_equal!(message.as_bytes(), part.to_message_bytes());
+        k9::assert_equal!(message.as_bytes(), part.to_message_bytes().unwrap());
         fn munge(part: &mut MimePart) {
             let headers = part.headers_mut();
             headers.push(Header::with_name_value("X-Woot", "Hello"));
@@ -1634,7 +1634,7 @@ Ok(
         }
         munge(&mut part);
 
-        let re_encoded = BString::from(part.to_message_bytes());
+        let re_encoded = BString::from(part.to_message_bytes().unwrap());
         k9::snapshot!(
             re_encoded,
             r#"
@@ -1670,7 +1670,7 @@ After the final boundary stuff gets ignored.\r
 
         eprintln!("part with html removed is:\n{part:#?}");
 
-        let re_encoded = BString::from(part.to_message_bytes());
+        let re_encoded = BString::from(part.to_message_bytes().unwrap());
         k9::snapshot!(
             re_encoded,
             r#"
@@ -1696,7 +1696,7 @@ After the final boundary stuff gets ignored.\r
     #[test]
     fn replace_text_body() {
         let mut part = MimePart::new_text_plain("Hello 👻\r\n").unwrap();
-        let encoded = BString::from(part.to_message_bytes());
+        let encoded = BString::from(part.to_message_bytes().unwrap());
         k9::snapshot!(
             &encoded,
             r#"
@@ -1711,7 +1711,7 @@ SGVsbG8g8J+Ruw0K\r
 
         part.replace_text_body("text/plain", "Hello 🚀\r\n")
             .unwrap();
-        let encoded = BString::from(part.to_message_bytes());
+        let encoded = BString::from(part.to_message_bytes().unwrap());
         k9::snapshot!(
             &encoded,
             r#"
@@ -1731,7 +1731,7 @@ SGVsbG8g8J+agA0K\r
 
         let part = MimePart::new_text_plain(input_text).unwrap();
 
-        let encoded = BString::from(part.to_message_bytes());
+        let encoded = BString::from(part.to_message_bytes().unwrap());
         k9::snapshot!(
             &encoded,
             r#"
@@ -1748,7 +1748,7 @@ t's see how that turns out!\r
         );
 
         let parsed_part = MimePart::parse(encoded.clone()).unwrap();
-        k9::assert_equal!(encoded, parsed_part.to_message_bytes());
+        k9::assert_equal!(encoded, parsed_part.to_message_bytes().unwrap());
         k9::assert_equal!(part.body().unwrap(), DecodedBody::Text(input_text.into()));
         k9::snapshot!(
             parsed_part.simplified_structure_pointers(),
@@ -1794,7 +1794,7 @@ Ok(
         )
         .unwrap();
         k9::snapshot!(
-            BString::from(msg.to_message_bytes()),
+            BString::from(msg.to_message_bytes().unwrap()),
             r#"
 Content-Type: multipart/mixed;\r
 \tboundary="my-boundary"\r
@@ -2002,7 +2002,7 @@ Ok(
         let rebuilt = part.rebuild(None).unwrap();
 
         k9::snapshot!(
-            BString::from(rebuilt.to_message_bytes()),
+            BString::from(rebuilt.to_message_bytes().unwrap()),
             r#"
 Content-Type: multipart/mixed;\r
 \tboundary="8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3"\r
@@ -2078,7 +2078,7 @@ RXZlbnQNCg==\r
         let rebuilt = part.rebuild(None).unwrap();
 
         k9::snapshot!(
-            BString::from(rebuilt.to_message_bytes()),
+            BString::from(rebuilt.to_message_bytes().unwrap()),
             r#"
 Content-Type: multipart/mixed;\r
 \tboundary="cal-boundary"\r
@@ -2167,7 +2167,7 @@ END:VCALENDAR\r
             .unwrap();
 
         k9::snapshot!(
-            BString::from(rebuilt.to_message_bytes()),
+            BString::from(rebuilt.to_message_bytes().unwrap()),
             r#"
 Content-Type: multipart/mixed;\r
 \tboundary="mixed-boundary"\r
@@ -2229,7 +2229,8 @@ Hello";
             )
             .unwrap()
             .unwrap()
-            .to_message_bytes(),
+            .to_message_bytes()
+            .unwrap(),
         );
 
         k9::snapshot!(
@@ -2265,7 +2266,8 @@ Hello this is a really long line Hello this is a really long line
             )
             .unwrap()
             .unwrap()
-            .to_message_bytes(),
+            .to_message_bytes()
+            .unwrap(),
         );
 
         k9::snapshot!(
@@ -2324,7 +2326,8 @@ y long line=0A\r
             )
             .unwrap()
             .unwrap()
-            .to_message_bytes(),
+            .to_message_bytes()
+            .unwrap(),
         );
 
         // The header/body separator is followed by the untouched body: a
@@ -2355,7 +2358,7 @@ y long line=0A\r
         );
         let msg = MimePart::parse(CONTENT).unwrap();
         k9::assert_equal!(
-            BString::from(msg.to_message_bytes()),
+            BString::from(msg.to_message_bytes().unwrap()),
             BString::from(CONTENT)
         );
     }
@@ -2378,7 +2381,7 @@ y long line=0A\r
         );
         let msg = MimePart::parse(CONTENT).unwrap();
         k9::assert_equal!(
-            BString::from(msg.to_message_bytes()),
+            BString::from(msg.to_message_bytes().unwrap()),
             BString::from(CONTENT)
         );
     }
@@ -2402,7 +2405,7 @@ y long line=0A\r
         );
         let msg = MimePart::parse(CONTENT).unwrap();
         k9::assert_equal!(
-            BString::from(msg.to_message_bytes()),
+            BString::from(msg.to_message_bytes().unwrap()),
             BString::from(CONTENT)
         );
     }
@@ -2421,7 +2424,8 @@ y long line=0A\r
             )
             .unwrap()
             .unwrap()
-            .to_message_bytes(),
+            .to_message_bytes()
+            .unwrap(),
         );
         k9::snapshot!(
             rebuilt,
@@ -2446,7 +2450,8 @@ Body
             )
             .unwrap()
             .unwrap()
-            .to_message_bytes(),
+            .to_message_bytes()
+            .unwrap(),
         );
         k9::snapshot!(
             rebuilt,
@@ -2708,5 +2713,21 @@ Body\r
         // With check_trailing_bits=false we should still accept and decode it.
         let decoded = BASE64_RFC2045.decode(b"aHRtbD4NCi==").unwrap();
         assert_eq!(decoded, b"html>\r\n");
+    }
+
+    // A multipart part whose Content-Type declares an empty boundary has child
+    // parts but lacks a usable delimiter to separate them, so it cannot be
+    // serialized. to_message_bytes must report that as an error rather than
+    // panicking.
+    #[test]
+    fn multipart_empty_boundary_is_not_serializable() {
+        const CONTENT: &[u8] = b"Content-Type:multipart/0 boundary=\n\n--\n\n";
+
+        let rebuilt = MimePart::parse(CONTENT).unwrap().rebuild(None).unwrap();
+        let err = rebuilt.to_message_bytes().unwrap_err();
+        k9::assert_equal!(
+            err.to_string(),
+            "Unexpected MimePart structure during write_message: expected Content-Type to have a boundary"
+        );
     }
 }

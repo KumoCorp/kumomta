@@ -570,12 +570,16 @@ impl Report {
                 );
             }
             (IncludeOriginalMessage::FullContent, Some(msg)) => {
+                // A message that cannot be re-serialized (such as a multipart
+                // missing a usable boundary) is omitted from the report rather
+                // than failing the whole report generation.
                 let mut data = vec![];
-                msg.write_message(&mut data).ok();
-                parts.push(
-                    MimePart::new_no_transfer_encoding("message/rfc822", &data)
-                        .context("new_no_transfer_encoding")?,
-                );
+                if msg.write_message(&mut data).is_ok() {
+                    parts.push(
+                        MimePart::new_no_transfer_encoding("message/rfc822", &data)
+                            .context("new_no_transfer_encoding")?,
+                    );
+                }
             }
         };
 
@@ -853,7 +857,7 @@ Report {
         let report_msg = Report::generate(&params, Some(&original_msg), &log)
             .unwrap()
             .unwrap();
-        let report_eml = BString::from(report_msg.to_message_bytes());
+        let report_eml = BString::from(report_msg.to_message_bytes().unwrap());
         k9::snapshot!(
             &report_eml,
             r#"
@@ -984,7 +988,7 @@ Subject: Hello!
         let report_msg = Report::generate(&params, Some(&original_msg), &log)
             .unwrap()
             .unwrap();
-        let report_eml = BString::from(report_msg.to_message_bytes());
+        let report_eml = BString::from(report_msg.to_message_bytes().unwrap());
         k9::snapshot!(
             &report_eml,
             r#"
@@ -1117,7 +1121,7 @@ Subject: Hello!
         let report_msg = Report::generate(&params, Some(&original_msg), &log)
             .unwrap()
             .unwrap();
-        let report_eml = BString::from(report_msg.to_message_bytes());
+        let report_eml = BString::from(report_msg.to_message_bytes().unwrap());
         k9::snapshot!(
             &report_eml,
             r#"
@@ -1255,7 +1259,7 @@ hello there
         let report_msg = Report::generate(&params, Some(&original_msg), &log)
             .unwrap()
             .unwrap();
-        let report_eml = BString::from(report_msg.to_message_bytes());
+        let report_eml = BString::from(report_msg.to_message_bytes().unwrap());
         k9::snapshot!(
             &report_eml,
             r#"
@@ -1380,7 +1384,7 @@ Report {
         log.created = chrono::Utc.with_ymd_and_hms(60123, 1, 1, 0, 0, 0).unwrap();
 
         let report_msg = Report::generate(&params, None, &log).unwrap().unwrap();
-        let report_eml = BString::from(report_msg.to_message_bytes());
+        let report_eml = BString::from(report_msg.to_message_bytes().unwrap());
         k9::snapshot!(
             &report_eml,
             r#"

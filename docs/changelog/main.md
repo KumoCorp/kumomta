@@ -24,6 +24,14 @@
 
 ## Fixes
 
+ * Fixed a panic when re-serializing a message whose multipart `Content-Type`
+   doesn't declare a usable boundary. A crafted message passing through
+   `check_fix_conformance` or the HTTP injection API could trigger this
+   issue.  We now return an error result for these cases.
+   Another path leading to this is if you had configured DSN generation
+   and the message to be included in the report was similarly malformed.
+   In this case, we'll simply omit the offending message from the report.
+
  * Fixed incorrect matching when evaluating an SPF record with a `/0`
    prefix, or a CIDR length wider than the address family allows (for
    example `ip4:0.0.0.0/33`). A `/0` prefix now correctly matches every address,

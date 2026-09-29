@@ -161,7 +161,7 @@ impl MailGenParams<'_> {
         message.prepend("X-Test1", "Test1");
         message.prepend("X-Another", "Another");
         message.set_stable_content(true);
-        Ok(String::from_utf8(message.build()?.to_message_bytes())?)
+        Ok(String::from_utf8(message.build()?.to_message_bytes()?)?)
     }
 }
 

@@ -202,7 +202,7 @@ mod test {
         b.text_html("<b>this is html 🚀</b>");
         let msg = b.build().unwrap();
         k9::snapshot!(
-            BString::from(msg.to_message_bytes()),
+            BString::from(msg.to_message_bytes().unwrap()),
             r#"
 Content-Type: multipart/alternative;\r
 \tboundary="ma-boundary"\r
@@ -252,7 +252,7 @@ Hello World in AMP!
         );
         let msg = b.build().unwrap();
         k9::snapshot!(
-            BString::from(msg.to_message_bytes()),
+            BString::from(msg.to_message_bytes().unwrap()),
             r#"
 Content-Type: multipart/alternative;\r
 \tboundary="ma-boundary"\r
@@ -312,7 +312,7 @@ Content-Transfer-Encoding: quoted-printable\r
         .unwrap();
         let msg = b.build().unwrap();
         k9::snapshot!(
-            BString::from(msg.to_message_bytes()),
+            BString::from(msg.to_message_bytes().unwrap()),
             r#"
 Content-Type: multipart/mixed;\r
 \tboundary="mm-boundary"\r
