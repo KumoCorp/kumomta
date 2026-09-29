@@ -310,4 +310,33 @@ second_file = ["bbb", "ccc"]
             );
         }
     }
+
+    #[test]
+    fn test_bounce_classify_community() {
+        let mut builder = BounceClassifierBuilder::new();
+        builder
+            .merge_toml_file("../../assets/community/bounces.toml")
+            .unwrap();
+        let classifier = builder.build().unwrap();
+
+        let corpus = &[
+            // Yahoo! Mail dormant account, verbatim from a production log
+            // (Response::to_single_line(): code + content; no enhanced code
+            // was present). The parentheses are literal text in the response,
+            // so they must be escaped in the rule.
+            (
+                "554 30 Sorry, your message to user@yahoo.com cannot be \
+                 delivered. This mailbox is disabled (554.30).",
+                PreDefinedBounceClass::InactiveMailbox,
+            ),
+        ];
+
+        for &(input, output) in corpus {
+            assert_eq!(
+                classifier.classify_str(input),
+                output.into(),
+                "expected {input} -> {output:?}"
+            );
+        }
+    }
 }

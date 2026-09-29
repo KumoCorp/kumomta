@@ -62,7 +62,7 @@ BadDomain = [
   "^556.+Recipient address has a null MX"
 ]
 InactiveMailbox = [
-  "This mailbox is disabled (554\\.30)", # Yahoo! Mail
+  "This mailbox is disabled \\(554\\.30\\)", # Yahoo! Mail
   "^550.+Account is not active",
   "^550.+User account not activated",
   "^550.+Account Closed, Please Remove", # comcast.net
@@ -80,7 +80,7 @@ QuotaIssues = [
   "^552.+user's mailbox quota exceeded",
   "^550.+Mailbox is full / Blocks limit exceeded / Inode limit exceeded",
   "^552.+Mailbox full",
-  "^554.+Quota exceeded (mailbox for user is full)",
+  "^554.+Quota exceeded \\(mailbox for user is full\\)",
   "^552.+extended quota violation",
   "^552.+OverQuotaPerm",
   "^550.+account is overquota",
