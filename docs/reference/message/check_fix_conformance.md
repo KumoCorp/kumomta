@@ -55,7 +55,7 @@ The set of supported conformance issues is:
 |MISSING_MESSAGE_ID_HEADER|The `"Message-ID:"` header is not present|
 |MISSING_MIME_VERSION|The `"MIME-Version:"` header is either not present or is set to some other value than `"1.0"`|
 |MIME_NESTING_LIMIT_EXCEEDED|The MIME structure is nested beyond 100 levels|
-|MIME_INVALID_BOUNDARY|A multipart part declares an invalid boundary, such as an empty boundary or one containing whitespace. Detection only; impossible to fix automatically. {{since('dev', inline=True)}}|
+|MIME_INVALID_BOUNDARY|A multipart part declares an invalid boundary, such as an empty boundary or one containing whitespace. Detection only; impossible to fix automatically. {{since('2026.09.29-b90d8bc1', inline=True)}}|
 
 The way this method works is that it will attempt to parse the data associated
 with the message into a MIME tree. The parsing stage will accumulate the set of
@@ -184,7 +184,7 @@ The set of encodings supported by the detector are:
 
 ## Overly deep MIME trees
 
-{{since('dev')}}
+{{since('2026.09.29-b90d8bc1')}}
 
 MIME parsing stops after 100 nested levels to prevent deeply nested content
 from exhausting the process stack. When we reach the point of overflow,

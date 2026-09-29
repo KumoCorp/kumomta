@@ -425,6 +425,17 @@
     "pruning": "NonPruning"
   },
   {
+    "name": "log_record_dropped_too_large",
+    "help": "how many log records were dropped for exceeding max_record_size",
+    "doc": null,
+    "metric_type": "Counter",
+    "label_names": [
+      "log_dir"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
     "name": "log_submit_full",
     "help": "how many times submission of a log event hit the back_pressure",
     "doc": null,

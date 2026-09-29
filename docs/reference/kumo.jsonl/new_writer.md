@@ -47,7 +47,7 @@ library default. Valid explicit levels are `1`–`21`. Defaults to `3`.
 
 ### max_record_size
 
-{{since('dev')}}
+{{since('2026.09.29-b90d8bc1')}}
 
 *Integer.* Optional. The largest a record and its newline separator may be, in
 bytes. `:write_line` and `:write_record` raise an error and write nothing for a

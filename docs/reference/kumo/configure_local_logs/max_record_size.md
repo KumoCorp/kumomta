@@ -5,7 +5,7 @@ tags:
 
 # max_record_size
 
-{{since('dev')}}
+{{since('2026.09.29-b90d8bc1')}}
 
 Specify the largest a log record and its newline separator may be, in bytes. A
 record that would not fit is dropped rather than written, which keeps segments

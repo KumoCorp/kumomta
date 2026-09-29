@@ -66,7 +66,7 @@ reading from the most recent segment only. Defaults to `false`.
 
 ### max_line_size
 
-{{since('dev')}}
+{{since('2026.09.29-b90d8bc1')}}
 
 *Integer.* Optional. The largest a record may be, in bytes. A record larger
 than this is dropped, and the following records in the same segment continue to
