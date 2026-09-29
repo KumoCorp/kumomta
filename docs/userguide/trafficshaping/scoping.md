@@ -27,6 +27,10 @@ For example: if a sender wanted to limit connections to 10 per domain, and Googl
 
 Messages in the Ready Queue are grouped into separate queues based on the combination of `egress_source` and `site_name`. The `routing_domain` is provided for convenience when working out what parameters to use.
 
+DNS-MX site names identify the complete accepted hostname/port set, not independent combinations of hostname labels. Record order and MX preference values do not distinguish sites. Domains with different preferences for the same destinations therefore share a queue and its creator's preference-aware connection plan. Egress-path settings, connection limits and failure backoff are also shared by that queue.
+
+The name is a derived identifier, not a permanent domain ID. Changed destination sets or name representations can change exact-name configuration matches, metric series and TSA state. See [lookup_mx](../../reference/kumo.dns/lookup_mx.md#site-names) for the naming rules.
+
 !!! note
     It is important to understand that while KumoMTA will build queues based on a `site_name`, it is not expected that the end user will configure traffic shaping using a `site_name`. Instead, configuration is done using a domain identifier that belongs to a given `site_name`, and the generated `site_name` is compared to it, as is done in the `shaping.lua` helper.
 
