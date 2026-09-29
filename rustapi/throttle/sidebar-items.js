@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Error"],"fn":["use_redis"],"mod":["limit"],"struct":["LimitSpec","ThrottleResult","ThrottleSpec"]};
