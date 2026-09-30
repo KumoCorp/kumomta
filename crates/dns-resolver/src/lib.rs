@@ -642,12 +642,39 @@ pub async fn ip_lookup(
     });
     let exp = expires.unwrap_or_else(Instant::now);
 
-    if resolver.is_none() {
+    // Keep successful per-family caches, but retry failed families on the next
+    // aggregate lookup rather than masking recovery for the surviving TTL.
+    if resolver.is_none() && errors.is_empty() {
         IP_CACHE
             .insert((key_fq, strategy), result.clone(), exp.into())
             .await;
     }
     Ok((result, exp))
+}
+
+// Resolver backends can return DNS errors inside Ok(Answer). Do not cache
+// those as unsigned addresses or as an ordinary empty address set.
+fn addresses_from_answer(name: &str, answer: &Answer) -> anyhow::Result<IpAddresses> {
+    anyhow::ensure!(
+        !answer.bogus,
+        "address lookup for {name} is bogus: {}",
+        answer
+            .why_bogus
+            .as_deref()
+            .unwrap_or("DNSSEC validation failed")
+    );
+    anyhow::ensure!(
+        matches!(
+            answer.response_code,
+            ResponseCode::NoError | ResponseCode::NXDomain
+        ),
+        "address lookup for {name} returned {}",
+        answer.response_code
+    );
+    Ok(IpAddresses {
+        addrs: answer.as_addr(),
+        secure: answer.secure,
+    })
 }
 
 pub async fn ipv4_lookup(
@@ -670,10 +697,7 @@ pub async fn ipv4_lookup(
                 .await?
         }
     };
-    let result = Arc::new(IpAddresses {
-        addrs: answer.as_addr(),
-        secure: answer.secure,
-    });
+    let result = Arc::new(addresses_from_answer(key, &answer)?);
     let expires = answer.expires;
     if resolver.is_none() {
         IPV4_CACHE
@@ -703,10 +727,7 @@ pub async fn ipv6_lookup(
                 .await?
         }
     };
-    let result = Arc::new(IpAddresses {
-        addrs: answer.as_addr(),
-        secure: answer.secure,
-    });
+    let result = Arc::new(addresses_from_answer(key, &answer)?);
     let expires = answer.expires;
     if resolver.is_none() {
         IPV6_CACHE
@@ -796,6 +817,160 @@ mod test {
             ),
             SecureCnameStatus::TempFail(_)
         ));
+    }
+
+    #[test]
+    fn address_answer_security() {
+        let records = vec![RData::A("127.0.0.1".parse().unwrap())];
+        for secure in [false, true] {
+            let result = addresses_from_answer(
+                "mx.example.com",
+                &answer(records.clone(), secure, ResponseCode::NoError),
+            )
+            .unwrap();
+            assert_eq!(result.secure, secure);
+            assert_eq!(result.addrs, vec!["127.0.0.1".parse::<IpAddr>().unwrap()]);
+        }
+        for code in [ResponseCode::NoError, ResponseCode::NXDomain] {
+            let result =
+                addresses_from_answer("mx.example.com", &answer(vec![], true, code)).unwrap();
+            assert!(result.addrs.is_empty());
+        }
+        for code in [ResponseCode::ServFail, ResponseCode::Refused] {
+            assert!(addresses_from_answer("mx.example.com", &answer(vec![], false, code)).is_err());
+        }
+        // Bogus answers can still carry address records; neither those nor an
+        // empty bogus answer may become an apparently usable unsigned result.
+        for records in [vec![], records] {
+            let mut bogus = answer(records, false, ResponseCode::NoError);
+            bogus.bogus = true;
+            bogus.why_bogus = Some("invalid signature".into());
+            let err = addresses_from_answer("mx.example.com", &bogus).unwrap_err();
+            assert!(err.to_string().contains("invalid signature"));
+        }
+    }
+
+    #[tokio::test]
+    async fn address_lookup_propagates_response_errors() {
+        let resolver = TestResolver::default().with_servfail("mx.example.com");
+        for strategy in [
+            IpLookupStrategy::Ipv4Only,
+            IpLookupStrategy::Ipv6Only,
+            IpLookupStrategy::Ipv4AndIpv6,
+        ] {
+            let err = ip_lookup("mx.example.com", Some(&resolver), strategy)
+                .await
+                .unwrap_err();
+            assert!(
+                err.to_string()
+                    .contains(&ResponseCode::ServFail.to_string()),
+                "{err:#}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn ip_lookup_retries_failed_families() {
+        // Explicit resolvers bypass Kumo's caches. This is the only test that
+        // replaces the default resolver; other tests pass a resolver directly.
+        struct RestoreResolver(Arc<Box<dyn Resolver>>);
+        impl Drop for RestoreResolver {
+            fn drop(&mut self) {
+                RESOLVER.store(self.0.clone());
+            }
+        }
+        let _restore = RestoreResolver(get_resolver());
+
+        for (index, (strategy, failed_family)) in [
+            (IpLookupStrategy::Ipv4AndIpv6, RecordType::A),
+            (IpLookupStrategy::Ipv4AndIpv6, RecordType::AAAA),
+            (IpLookupStrategy::Ipv4ThenIpv6, RecordType::A),
+            (IpLookupStrategy::Ipv6ThenIpv4, RecordType::AAAA),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let host = format!("family-recovery-{index}.example.test");
+            let zone = format!("$ORIGIN {host}.\n@ 600 A 192.0.2.1\n@ 600 AAAA 2001:db8::1\n");
+            reconfigure_resolver(TestResolver::default().with_secure_zone(&zone).unwrap());
+            // Warm only the successful family. The resolver can then fail all
+            // queries for this name while that family's cached answer survives.
+            let (cached, expiration) = if failed_family == RecordType::A {
+                ipv6_lookup(&host, None).await.unwrap()
+            } else {
+                ipv4_lookup(&host, None).await.unwrap()
+            };
+            reconfigure_resolver(TestResolver::default().with_servfail(&host));
+            let (partial, _) = ip_lookup(&host, None, strategy).await.unwrap();
+            assert_eq!(partial.addrs, cached.addrs);
+            assert!(partial.secure);
+
+            // Change both DNS answers. Only the recovered family should be
+            // queried again; the successful family's original cache must remain.
+            let recovered_zone =
+                format!("$ORIGIN {host}.\n@ 600 A 192.0.2.2\n@ 600 AAAA 2001:db8::2\n");
+            reconfigure_resolver(
+                TestResolver::default()
+                    .with_secure_zone(&recovered_zone)
+                    .unwrap(),
+            );
+            let recovered: IpAddr = if failed_family == RecordType::A {
+                "192.0.2.2".parse().unwrap()
+            } else {
+                "2001:db8::2".parse().unwrap()
+            };
+            let (complete, _) = ip_lookup(&host, None, strategy).await.unwrap();
+            assert!(
+                complete.addrs.contains(&recovered),
+                "{strategy:?}: {complete:?}"
+            );
+            assert!(complete.secure);
+            if strategy == IpLookupStrategy::Ipv4AndIpv6 {
+                assert_eq!(complete.addrs.len(), 2);
+                assert!(complete.addrs.contains(&cached.addrs[0]));
+            } else {
+                // Recovery restores the preferred family, not a combined result.
+                assert_eq!(complete.addrs, vec![recovered]);
+            }
+            let (still_cached, _) = if failed_family == RecordType::A {
+                ipv6_lookup(&host, None).await.unwrap()
+            } else {
+                ipv4_lookup(&host, None).await.unwrap()
+            };
+            assert!(Arc::ptr_eq(&cached, &still_cached));
+            assert!(
+                expiration > Instant::now(),
+                "test outlived the family cache"
+            );
+            let key = (fully_qualify(&host).unwrap(), strategy);
+            assert!(Arc::ptr_eq(&IP_CACHE.lookup(&key).unwrap().item, &complete));
+        }
+
+        // Successful empty answers are cacheable, unlike failures. Exercise
+        // NODATA, NXDOMAIN, and a single queried family with no fallback needed.
+        for (index, (zone, strategy)) in [
+            ("@ 600 A 192.0.2.1\n", IpLookupStrategy::Ipv4AndIpv6),
+            ("", IpLookupStrategy::Ipv4AndIpv6),
+            ("@ 600 A 192.0.2.1\n", IpLookupStrategy::Ipv4ThenIpv6),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let host = format!("family-cacheable-{index}.example.test");
+            let resolver = if zone.is_empty() {
+                TestResolver::default()
+            } else {
+                TestResolver::default()
+                    .with_zone(&format!("$ORIGIN {host}.\n{zone}"))
+                    .unwrap()
+            };
+            reconfigure_resolver(resolver);
+            let (first, _) = ip_lookup(&host, None, strategy).await.unwrap();
+            assert_eq!(first.addrs.is_empty(), zone.is_empty());
+            reconfigure_resolver(TestResolver::default().with_servfail(&host));
+            let (second, _) = ip_lookup(&host, None, strategy).await.unwrap();
+            assert!(Arc::ptr_eq(&first, &second));
+        }
     }
 
     #[test]

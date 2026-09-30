@@ -8,11 +8,21 @@ kumo.dns.lookup_addr(NAME, OPT_RESOLVER_NAME, OPT_STRATEGY)
 
 Resolve the `A` and `AAAA` records for the requested `NAME`.
 
-Raises an error if the name doesn't exist in DNS.
-
 Returns an array style table listing the IPv4 and IPv6 addresses as strings.
+An ordinary no-address result (NODATA or NXDOMAIN) returns an empty table.
 
-DNS results are cached according to the TTL specified by the DNS record itself.
+Bogus DNSSEC answers and failure responses such as `SERVFAIL` are rejected,
+not interpreted as unsigned addresses or an ordinary empty result. Depending
+on the lookup strategy, addresses from another successful family may still be
+returned. An error is raised if no addresses are available and a lookup failed.
+
+With the default resolver, address results are cached according to their DNS
+TTL. DNS errors and bogus answers are not stored in Kumo's address caches as
+empty or unsigned results. If one queried address family fails, the incomplete
+combined result is not cached, but successful per-family answers retain their
+normal TTLs. A later lookup can retry the failed family without waiting for those
+TTLs to expire. Specifying `OPT_RESOLVER_NAME` bypasses these caches; resolver
+backends may also maintain their own DNS caches.
 
 ```lua
 print(kumo.json_encode(kumo.dns.lookup_addr 'localhost'))

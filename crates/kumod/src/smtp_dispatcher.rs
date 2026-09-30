@@ -222,6 +222,7 @@ impl SmtpDispatcher {
             },
         };
 
+        let mut resolution_errors = vec![];
         let addresses = if proto_config.mx_list.is_empty() {
             dispatcher
                 .mx
@@ -232,8 +233,15 @@ impl SmtpDispatcher {
         } else {
             let mut addresses = vec![];
             for a in proto_config.mx_list.iter() {
-                a.resolve_into(&mut addresses, path_config.ip_lookup_strategy)
-                    .await?;
+                if let Err(err) = a
+                    .resolve_into(&mut addresses, path_config.ip_lookup_strategy)
+                    .await
+                {
+                    // As with DNS MX resolution, one failed name must not
+                    // prevent trying the other authorized entries in the list.
+                    tracing::error!("failed to resolve mx_list entry {a:?}: {err:#}");
+                    resolution_errors.push(format!("{err:#}"));
+                }
             }
             // Note that ResolvedMxAddresses::Addresses is in LIFO
             // order, and we have FIFO order.  Reverse it!
@@ -274,6 +282,11 @@ impl SmtpDispatcher {
         };
 
         if addresses.is_empty() {
+            let mut content = "MX didn't resolve to any hosts".to_string();
+            if !resolution_errors.is_empty() {
+                content.push_str(": ");
+                content.push_str(&resolution_errors.join(", "));
+            }
             dispatcher
                 .bulk_ready_queue_operation(
                     Response {
@@ -283,7 +296,7 @@ impl SmtpDispatcher {
                             subject: 4,
                             detail: 4,
                         }),
-                        content: "MX didn't resolve to any hosts".to_string(),
+                        content,
                         command: None,
                     },
                     InsertReason::MxResolvedToZeroHosts.into(),
