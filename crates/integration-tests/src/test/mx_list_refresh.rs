@@ -178,6 +178,8 @@ DeliverySummary {
             _ => None,
         })
         .collect();
+    // Delivery logs can be emitted in completion order; stabilize the snapshot.
+    deliv_and_site.sort_by(|a, b| a.2.cmp(&b.2).then_with(|| a.0.cmp(&b.0)));
 
     // Within each round the two messages race through their dispatchers,
     // so the file order of their Delivery records is non-deterministic.

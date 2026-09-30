@@ -15,6 +15,7 @@ local QueueConfig = Record('QueueConfig', {
 
 local DispHookOptions = Record('DispHookOptions', {
   name = String,
+  log_parameters = Option(Map(String, Any)),
   hook = typing.Function,
 })
 
@@ -35,12 +36,99 @@ function mod:new_disposition_hook(options)
     local log_parameters = {
       name = options.name,
     }
-    -- utils.merge_into(options.log_parameters, log_parameters)
+    utils.merge_into(options.log_parameters, log_parameters)
     kumo.configure_log_disposition_hook(log_parameters)
   end)
 
   local hook_name = 'log_disposition_' .. options.name
   kumo.on(hook_name, options.hook)
+end
+
+function mod:test()
+  local handlers = {}
+  local configured_params
+
+  local function with_test_kumo_functions(overrides, callback)
+    local original = {}
+    for name, replacement in pairs(overrides) do
+      original[name] = kumo[name]
+      kumo[name] = replacement
+    end
+
+    local ok, result = pcall(callback)
+
+    for name, original_value in pairs(original) do
+      kumo[name] = original_value
+    end
+
+    if not ok then
+      error(result, 2)
+    end
+  end
+
+  local function with_test_configured(callback)
+    local original_configured = mod.CONFIGURED
+    mod.CONFIGURED = {}
+
+    local ok, result = pcall(callback)
+    mod.CONFIGURED = original_configured
+
+    if not ok then
+      error(result, 2)
+    end
+  end
+
+  with_test_configured(function()
+    with_test_kumo_functions({
+      on = function(name, callback)
+        handlers[name] = callback
+      end,
+      configure_log_disposition_hook = function(params)
+        configured_params = params
+      end,
+    }, function()
+      local hook = function() end
+
+      mod:new_disposition_hook {
+        name = 'test_disposition_hook',
+        log_parameters = {
+          per_record = {
+            Any = {
+              enable = false,
+            },
+            Bounce = {
+              enable = true,
+            },
+          },
+        },
+        hook = hook,
+      }
+
+      assert(
+        handlers.log_disposition_test_disposition_hook == hook,
+        'new_disposition_hook should register the disposition callback'
+      )
+
+      assert(
+        handlers.pre_init,
+        'new_disposition_hook should register a pre_init callback'
+      )
+
+      handlers.pre_init()
+
+      utils.assert_eq(configured_params, {
+        name = 'test_disposition_hook',
+        per_record = {
+          Any = {
+            enable = false,
+          },
+          Bounce = {
+            enable = true,
+          },
+        },
+      })
+    end)
+  end)
 end
 
 local LogHookOptions = Record('LogHookOptions', {
