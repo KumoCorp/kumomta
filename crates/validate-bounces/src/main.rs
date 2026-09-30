@@ -1,5 +1,7 @@
 use anyhow::anyhow;
-use bounce_classify::{BounceClassifierBuilder, BounceClassifierFile};
+use bounce_classify::{BounceClassifierBuilder, BounceClass};
+use ordermap::OrderMap;
+use serde::{Deserialize, Serialize};
 use clap::Parser;
 
 /// KumoMTA bounce classification configuration validator
@@ -8,11 +10,15 @@ use clap::Parser;
 #[derive(Debug, Parser)]
 #[command(about)]
 struct Opt {
-    #[arg(long)]
     files: Vec<String>,
 
     #[arg(long)]
     samples: Vec<String>,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+struct SampleFile {
+    pub rules: OrderMap<BounceClass, Vec<String>>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -41,7 +47,7 @@ fn main() -> anyhow::Result<()> {
     for samples_file in &opts.samples {
         let data = std::fs::read_to_string(samples_file)
             .map_err(|err| anyhow!("reading file: {samples_file}: {err:#}"))?;
-        let samples: BounceClassifierFile = toml::from_str(&data)
+        let samples: SampleFile = toml::from_str(&data)
             .map_err(|err| anyhow!("decoding {samples_file} as BounceClassifierFile: {err:#}"))?;
 
         for (class, inputs) in samples.rules {
