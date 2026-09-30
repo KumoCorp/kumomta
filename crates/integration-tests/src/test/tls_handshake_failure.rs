@@ -1,6 +1,6 @@
 use crate::kumod::{DaemonWithMaildirOptions, MailGenParams};
 use anyhow::Context;
-use kumo_log_types::RecordType::{Delivery, TransientFailure};
+use kumo_log_types::RecordType::{Bounce, Delivery, TransientFailure};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
@@ -293,6 +293,176 @@ async fn tls_starttls_errors_do_not_retry_openssl() -> anyhow::Result<()> {
 #[tokio::test]
 async fn tls_starttls_errors_do_not_retry_rustls() -> anyhow::Result<()> {
     starttls_errors_do_not_retry(false).await
+}
+
+async fn refuse_plaintext(
+    stream: TcpStream,
+    rejection: &str,
+    reject_mail: bool,
+) -> anyhow::Result<()> {
+    let mut peer = BufReader::new(stream);
+    peer.write_all(b"220 fallback.example.com\r\n").await?;
+    let mut command = String::new();
+    peer.read_line(&mut command).await?;
+    anyhow::ensure!(command.starts_with("EHLO "), "{command:?}");
+    peer.write_all(b"250-fallback.example.com\r\n250 STARTTLS\r\n")
+        .await?;
+    for prefix in ["MAIL FROM:", "RCPT TO:", "DATA"] {
+        command.clear();
+        peer.read_line(&mut command).await?;
+        anyhow::ensure!(command.starts_with(prefix), "{command:?}");
+        let reply = match prefix {
+            "MAIL FROM:" if reject_mail => rejection,
+            "MAIL FROM:" => "250 OK\r\n",
+            "RCPT TO:" if !reject_mail => rejection,
+            _ => "503 Bad sequence of commands\r\n",
+        };
+        peer.write_all(reply.as_bytes()).await?;
+    }
+    // Candidate failover closes immediately. Normal message rejection may
+    // leave the session open until the test shuts the sender down.
+    command.clear();
+    if peer.read_line(&mut command).await? != 0 {
+        anyhow::ensure!(command == "QUIT\r\n", "{command:?}");
+        peer.write_all(b"221 Bye\r\n").await?;
+    }
+    Ok(())
+}
+
+async fn plaintext_retry_refusal(prefer_openssl: bool) -> anyhow::Result<()> {
+    for (reconnect, rejection, reject_mail, expected) in [
+        (
+            false,
+            "530 5.7.0 Must issue a STARTTLS command first\r\n",
+            true,
+            Delivery,
+        ),
+        (
+            false,
+            "530 5.7.0 Must issue a STARTTLS command first\r\n",
+            true,
+            TransientFailure,
+        ),
+        (
+            false,
+            "550 5.7.0 Must issue a STARTTLS command first\r\n",
+            true,
+            Bounce,
+        ),
+        (false, "530 5.7.0 Authentication required\r\n", true, Bounce),
+        (
+            false,
+            "530 5.7.0 Must issue a STARTTLS command first\r\n",
+            false,
+            Bounce,
+        ),
+        (
+            true,
+            "530 5.7.0 Must issue a STARTTLS command first\r\n",
+            true,
+            Bounce,
+        ),
+    ] {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let mut options = DaemonWithMaildirOptions::new()
+            .env("KUMOD_ENABLE_TLS", "OpportunisticInsecure")
+            .env("KUMOD_RECONNECT_STRATEGY", "ReconnectSameHost")
+            .env(
+                "KUMOD_TEST_SMTP_PEER_PORT",
+                listener.local_addr()?.port().to_string(),
+            )
+            .env("KUMOD_RETRY_INTERVAL", "1h");
+        if prefer_openssl {
+            options = options.env("KUMOD_PREFER_OPENSSL", "1");
+        }
+        if reconnect {
+            options = options.env("KUMOD_OPPORTUNISTIC_TLS_RECONNECT", "1");
+        }
+        let mut daemon = options.start().await?;
+        let sink = daemon.sink.listener("smtp");
+        let peer = async {
+            for last in [false, true] {
+                let (mut stream, _) = listener.accept().await?;
+                if last && expected == Delivery {
+                    // The next candidate must negotiate TLS normally, rather
+                    // than inherit the failed address's plaintext retry state.
+                    let mut backend = TcpStream::connect(sink).await?;
+                    tokio::io::copy_bidirectional(&mut stream, &mut backend).await?;
+                    break;
+                }
+                fail_handshake_and_expect_close(stream).await?;
+                let (stream, _) = listener.accept().await?;
+                refuse_plaintext(stream, rejection, reject_mail).await?;
+                if expected == Bounce {
+                    break;
+                }
+            }
+            Ok::<_, anyhow::Error>(())
+        };
+        let exercise = async {
+            let mut client = daemon.smtp_client().await?;
+            let response = MailGenParams {
+                recip: Some("recip@two-hosts.example.com"),
+                ..Default::default()
+            }
+            .send(&mut client)
+            .await?;
+            anyhow::ensure!(response.code == 250, "{response:?}");
+            anyhow::ensure!(
+                daemon
+                    .wait_for_source_summary(
+                        |s| [Delivery, TransientFailure, Bounce].iter().any(|kind| s
+                            .get(kind)
+                            .copied()
+                            .unwrap_or(0)
+                            > 0),
+                        Duration::from_secs(10),
+                    )
+                    .await
+            );
+            daemon.source.stop().await?;
+            daemon.sink.stop().await?;
+            let records = daemon.source.collect_logs().await?;
+            let outcome = records
+                .iter()
+                .find(|r| matches!(r.kind, Delivery | TransientFailure | Bounce))
+                .context("message disposition")?;
+            anyhow::ensure!(outcome.kind == expected, "{outcome:?}");
+            if expected == Delivery {
+                anyhow::ensure!(outcome.tls_cipher.is_some(), "{outcome:?}");
+            }
+            if expected == TransientFailure {
+                anyhow::ensure!(outcome.response.content.contains("STARTTLS"), "{outcome:?}");
+            }
+            Ok::<_, anyhow::Error>(())
+        };
+        tokio::time::timeout(Duration::from_secs(45), async {
+            tokio::try_join!(peer, exercise)
+        })
+        .await?
+        .with_context(|| {
+            format!("reconnect={reconnect}, reject_mail={reject_mail}, expected={expected:?}")
+        })?;
+        anyhow::ensure!(
+            tokio::time::timeout(Duration::from_millis(100), listener.accept())
+                .await
+                .is_err()
+        );
+        anyhow::ensure!(
+            daemon.extract_maildir_messages()?.len() == usize::from(expected == Delivery)
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn tls_plaintext_retry_refusal_openssl() -> anyhow::Result<()> {
+    plaintext_retry_refusal(true).await
+}
+
+#[tokio::test]
+async fn tls_plaintext_retry_refusal_rustls() -> anyhow::Result<()> {
+    plaintext_retry_refusal(false).await
 }
 
 /// A successful TLS handshake followed by failed EHLO must not leave TLS

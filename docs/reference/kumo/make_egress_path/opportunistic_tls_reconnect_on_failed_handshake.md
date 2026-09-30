@@ -13,7 +13,12 @@ to the next address in the connection plan. An effective `Required` or
 after a handshake failure, even when this option is `false`. This option also
 permits its retry after a failed post-handshake EHLO, and supplies broken-TLS
 memory when [remember_broken_tls](remember_broken_tls.md) is unset. The implicit
-`OpportunisticInsecure` handshake retry alone does not enable that memory.
+`OpportunisticInsecure` handshake retry alone does not enable that memory. With
+this option disabled, a `530` reply mentioning STARTTLS at MAIL FROM on the
+implicit retry causes KumoMTA to close the connection and try the next address in
+the connection plan, rather than bounce the message. If there are no remaining
+addresses, the message defers. Enabling this option preserves normal SMTP
+transaction rejection handling.
 
 A rejected STARTTLS command, handshake timeout, or TLS setup error is not a
 trigger for this option.

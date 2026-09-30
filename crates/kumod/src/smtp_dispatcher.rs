@@ -185,6 +185,8 @@ pub struct SmtpDispatcher {
     addresses: Vec<ResolvedAddress>,
     /// One-shot plaintext retry for the address at the end of the connection plan.
     retry_without_tls: bool,
+    /// The current connection is a plaintext retry without explicit reconnect opt-in.
+    is_implicit_plaintext_retry: bool,
     client: Option<MetricsWrappedConnection<SmtpClient>>,
     client_address: Option<ResolvedAddress>,
     source_address: Option<MaybeProxiedSourceAddress>,
@@ -340,6 +342,7 @@ impl SmtpDispatcher {
         Ok(Some(Self {
             addresses,
             retry_without_tls: false,
+            is_implicit_plaintext_retry: false,
             client: None,
             client_address: None,
             ehlo_name,
@@ -973,6 +976,9 @@ impl SmtpDispatcher {
                 })?;
         }
 
+        self.is_implicit_plaintext_retry = retry_without_tls
+            && enable_tls == Tls::OpportunisticInsecure
+            && !path_config.opportunistic_tls_reconnect_on_failed_handshake;
         self.client
             .replace(connection_wrapper.map_connection(client));
         self.client_address.replace(address);
@@ -1256,6 +1262,34 @@ impl QueueDispatcher for SmtpDispatcher {
         let mut overall_response = None;
 
         match send_result {
+            Err(ClientError::Rejected(response))
+                if self.is_implicit_plaintext_retry
+                    && response.code == 530
+                    && response
+                        .command
+                        .as_deref()
+                        .is_some_and(|cmd| cmd.starts_with("MAIL FROM:"))
+                    && response.content.to_ascii_uppercase().contains("STARTTLS") =>
+            {
+                // The automatic fallback reached a host that requires STARTTLS.
+                // No envelope was accepted: retain the message for the remaining
+                // candidates rather than turning a TLS failure into a bounce.
+                let reason = format!(
+                    "plaintext retry to {:?} rejected at MAIL FROM: {}",
+                    self.client_address,
+                    response.to_single_line()
+                );
+                self.tracer.diagnostic(Level::INFO, || reason.clone());
+                self.client.take();
+                self.is_implicit_plaintext_retry = false;
+                // Do not apply reconnect_strategy: retrying this address again
+                // would repeat the same TLS failure and plaintext refusal.
+                if self.addresses.is_empty() {
+                    self.terminated_ok = true;
+                    anyhow::bail!("{reason}");
+                }
+                return Ok(());
+            }
             Err(ClientError::RejectedBatch(responses)) => {
                 rewrite_eligible = true;
                 for resp in responses {

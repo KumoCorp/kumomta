@@ -40,6 +40,13 @@ is `false`. That retry does not by itself remember the site as having broken TLS
 or make other candidates skip STARTTLS. If establishing that connection fails,
 delivery proceeds to the remaining addresses in the connection plan.
 
+When the reconnect option is disabled, a `530` reply mentioning STARTTLS at
+MAIL FROM on this implicit plaintext retry causes KumoMTA to close the connection
+and try the next address in the connection plan, rather than bounce the message.
+If there are no remaining addresses, the message defers. This does not retry the
+refused address again, even with `reconnect_strategy = "ReconnectSameHost"`.
+Other SMTP transaction rejections retain their normal defer or bounce handling.
+
 `Opportunistic` requires the reconnect option for immediate plaintext retry.
 [remember_broken_tls](remember_broken_tls.md) can make subsequent opportunistic
 connections skip STARTTLS. Neither mechanism permits plaintext when the effective
