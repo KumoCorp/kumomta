@@ -6,11 +6,13 @@ on:
     paths:
       - "assets/community/bounces.toml"
       - ".github/workflows/bounce.yml"
+      - "crates/validate-bounces/**"
   pull_request:
     branches: [ "main" ]
     paths:
       - "assets/community/shaping.toml"
       - "assets/community/bounces.toml"
+      - "crates/validate-bounces/**"
 
 env:
   CARGO_TERM_COLOR: always
