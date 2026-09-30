@@ -783,21 +783,32 @@ impl SmtpClient {
         Ok(())
     }
 
-    /// Attempt TLS handshake.
-    /// Returns Err for IO errors.
-    /// On completion, return an option that will be:
-    /// * Some(handshake_error) - if the handshake failed
-    /// * None - if the handshake succeeded
+    /// Attempt a TLS handshake. A rejected STARTTLS command leaves the SMTP
+    /// connection intact. Once STARTTLS is accepted, a handshake or setup
+    /// failure closes the connection; it cannot be reused for plaintext SMTP.
+    /// Returns handshake failures as TlsStatus::FailedHandshake and other
+    /// setup or IO errors as Err.
     pub async fn starttls(&mut self, options: TlsOptions) -> Result<TlsStatus, ClientError> {
         let resp = self.send_command(&Command::StartTls).await?;
         if resp.code != 220 {
             return Err(ClientError::Rejected(resp));
         }
 
+        let result = self.starttls_handshake(options).await;
+        if self.socket.is_none() {
+            if let Some(tracer) = &self.tracer {
+                tracer.trace_event(SmtpClientTraceEvent::Closed);
+            }
+        }
+        result
+    }
+
+    async fn starttls_handshake(&mut self, options: TlsOptions) -> Result<TlsStatus, ClientError> {
+        let socket = self.socket.take().ok_or(ClientError::NotConnected)?;
         let mut handshake_error = None;
         let mut tls_info = TlsInformation::default();
 
-        let stream: BoxedAsyncReadAndWrite = if options.prefer_openssl
+        let stream: Option<BoxedAsyncReadAndWrite> = if options.prefer_openssl
             || !options.dane_tlsa.is_empty()
         {
             let connector = options
@@ -807,15 +818,7 @@ impl SmtpClient {
                 })?;
             let ssl = connector.into_ssl(self.hostname.as_str())?;
 
-            let (stream, dup_stream) = match self.socket.take() {
-                Some(s) => {
-                    let d = s.try_dup();
-                    (s, d)
-                }
-                None => return Err(ClientError::NotConnected),
-            };
-
-            let mut ssl_stream = tokio_openssl::SslStream::new(ssl, stream)?;
+            let mut ssl_stream = tokio_openssl::SslStream::new(ssl, socket)?;
 
             match timeout(
                 self.timeouts.starttls_timeout,
@@ -828,9 +831,6 @@ impl SmtpClient {
                     handshake_error.replace(format!("{err:#}"));
                 }
                 Err(_elapsed) => {
-                    // The plaintext fallback below cannot succeed against
-                    // a peer whose TLS state is mid-handshake; hard-fail
-                    // like the rustls path does.
                     if let Some(tracer) = &self.tracer {
                         tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
                             level: Level::ERROR,
@@ -839,7 +839,6 @@ impl SmtpClient {
                                 self.timeouts.starttls_timeout
                             ),
                         });
-                        tracer.trace_event(SmtpClientTraceEvent::Closed);
                     }
                     return Err(ClientError::TimeOutResponse {
                         command: Some(Command::StartTls),
@@ -864,17 +863,7 @@ impl SmtpClient {
                 }
             }
 
-            match (&handshake_error, dup_stream) {
-                (Some(_), Some(dup_stream)) if !ssl_stream.ssl().is_init_finished() => {
-                    // Try falling back to clear text on the duplicate stream.
-                    // This is imperfect: in a failed validation scenario we will
-                    // end up trying to read binary data as a string and get a UTF-8
-                    // error if the peer thinks the session is encrypted.
-                    drop(ssl_stream);
-                    Box::new(dup_stream)
-                }
-                _ => Box::new(ssl_stream),
-            }
+            Some(Box::new(ssl_stream))
         } else {
             tls_info.provider_name = "rustls".to_string();
             let connector = options.build_tls_connector().await.map_err(|error| {
@@ -884,12 +873,7 @@ impl SmtpClient {
             })?;
             let server_name = parse_server_name(self.hostname.as_str())?;
 
-            let socket = match self.socket.take() {
-                Some(s) => s,
-                None => return Err(ClientError::NotConnected),
-            };
-
-            let connect_future = connector.connect(server_name, socket).into_fallible();
+            let connect_future = connector.connect(server_name, socket);
             match timeout(self.timeouts.starttls_timeout, connect_future).await {
                 Ok(Ok(stream)) => {
                     let (_, conn) = stream.get_ref();
@@ -909,11 +893,11 @@ impl SmtpClient {
                         }
                     }
 
-                    Box::new(stream)
+                    Some(Box::new(stream))
                 }
-                Ok(Err((err, stream))) => {
+                Ok(Err(err)) => {
                     handshake_error.replace(format!("{err:#}"));
-                    stream
+                    None
                 }
                 Err(_elapsed) => {
                     if let Some(tracer) = &self.tracer {
@@ -924,7 +908,6 @@ impl SmtpClient {
                                 self.timeouts.starttls_timeout
                             ),
                         });
-                        tracer.trace_event(SmtpClientTraceEvent::Closed);
                     }
                     return Err(ClientError::TimeOutResponse {
                         command: Some(Command::StartTls),
@@ -949,10 +932,15 @@ impl SmtpClient {
             });
         }
 
-        self.socket.replace(stream);
         Ok(match handshake_error {
-            Some(error) => TlsStatus::FailedHandshake(error),
-            None => TlsStatus::Info(tls_info),
+            Some(error) => {
+                drop(stream);
+                TlsStatus::FailedHandshake(error)
+            }
+            None => {
+                self.socket = stream;
+                TlsStatus::Info(tls_info)
+            }
         })
     }
 
@@ -1283,6 +1271,191 @@ fn parse_server_name(input: &str) -> Result<ServerName<'static>, ClientError> {
 mod test {
     use super::*;
     use crate::parser::{EnvelopeAddress, ReversePath};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Debug, Default)]
+    struct ClosureTracer(AtomicUsize);
+
+    impl SmtpClientTracer for ClosureTracer {
+        fn trace_event(&self, event: SmtpClientTraceEvent) {
+            if matches!(event, SmtpClientTraceEvent::Closed) {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        fn lazy_trace(&self, deferred: &dyn DeferredTracer) {
+            self.trace_event(deferred.trace());
+        }
+    }
+
+    async fn starttls_setup_error_traces_close(prefer_openssl: bool) -> anyhow::Result<()> {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let peer = async {
+            let (socket, _) = listener.accept().await?;
+            let mut socket = BufReader::new(socket);
+            let mut command = String::new();
+            socket.read_line(&mut command).await?;
+            assert_eq!(command, "STARTTLS\r\n");
+            socket.write_all(b"220 Ready for TLS\r\n").await?;
+            assert_eq!(socket.read(&mut [0; 1]).await?, 0);
+            Ok::<_, anyhow::Error>(())
+        };
+        let exercise = async {
+            let socket = TcpStream::connect(address).await?;
+            let mut client =
+                SmtpClient::with_stream(socket, "mx.example.com", SmtpClientTimeouts::default());
+            let tracer = Arc::new(ClosureTracer::default());
+            client.set_tracer(tracer.clone());
+            let error = client
+                .starttls(TlsOptions {
+                    insecure: true,
+                    prefer_openssl,
+                    certificate_from_pem: Some(Arc::new(
+                        b"invalid PEM".to_vec().into_boxed_slice(),
+                    )),
+                    private_key_from_pem: Some(Arc::new(
+                        b"invalid PEM".to_vec().into_boxed_slice(),
+                    )),
+                    ..Default::default()
+                })
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(error, ClientError::FailedToBuildConnector { .. }),
+                "{error:?}"
+            );
+            assert!(!client.is_connected());
+            assert_eq!(tracer.0.load(Ordering::Relaxed), 1);
+            drop(client);
+            assert_eq!(tracer.0.load(Ordering::Relaxed), 1);
+            Ok::<_, anyhow::Error>(())
+        };
+        timeout(Duration::from_secs(10), async {
+            tokio::try_join!(peer, exercise)
+        })
+        .await??;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn starttls_setup_error_traces_close_openssl() -> anyhow::Result<()> {
+        starttls_setup_error_traces_close(true).await
+    }
+
+    #[tokio::test]
+    async fn starttls_setup_error_traces_close_rustls() -> anyhow::Result<()> {
+        starttls_setup_error_traces_close(false).await
+    }
+
+    async fn starttls_failure_closes_connection(prefer_openssl: bool) -> anyhow::Result<()> {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let peer = async {
+            let (socket, _) = listener.accept().await?;
+            let mut socket = BufReader::new(socket);
+            let mut command = String::new();
+            socket.read_line(&mut command).await?;
+            assert_eq!(command, "STARTTLS\r\n");
+            socket.write_all(b"220 Ready for TLS\r\n").await?;
+            let mut header = [0; 5];
+            socket.read_exact(&mut header).await?;
+            assert_eq!(header[0], 22, "expected a TLS handshake record");
+            let mut hello = vec![0; u16::from_be_bytes([header[3], header[4]]) as usize];
+            socket.read_exact(&mut hello).await?;
+            assert_eq!(hello.first(), Some(&1), "expected ClientHello");
+            // Fatal handshake_failure alert; keep TCP open to observe the client close.
+            socket.write_all(&[21, 3, 3, 0, 2, 2, 40]).await?;
+            assert_eq!(socket.read(&mut [0; 1]).await?, 0);
+            Ok::<_, anyhow::Error>(())
+        };
+        let exercise = async {
+            let socket = TcpStream::connect(address).await?;
+            let mut client =
+                SmtpClient::with_stream(socket, "mx.example.com", SmtpClientTimeouts::default());
+            let tracer = Arc::new(ClosureTracer::default());
+            client.set_tracer(tracer.clone());
+            let status = client
+                .starttls(TlsOptions {
+                    insecure: true,
+                    prefer_openssl,
+                    ..Default::default()
+                })
+                .await?;
+            assert!(
+                matches!(status, TlsStatus::FailedHandshake(_)),
+                "{status:?}"
+            );
+            assert!(!client.is_connected());
+            assert!(client.send_command(&Command::Quit).await.is_err());
+            assert_eq!(tracer.0.load(Ordering::Relaxed), 1);
+            drop(client);
+            assert_eq!(tracer.0.load(Ordering::Relaxed), 1);
+            Ok::<_, anyhow::Error>(())
+        };
+        timeout(Duration::from_secs(10), async {
+            tokio::try_join!(peer, exercise)
+        })
+        .await??;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn starttls_failure_closes_openssl_connection() -> anyhow::Result<()> {
+        starttls_failure_closes_connection(true).await
+    }
+
+    #[tokio::test]
+    async fn starttls_failure_closes_rustls_connection() -> anyhow::Result<()> {
+        starttls_failure_closes_connection(false).await
+    }
+
+    #[tokio::test]
+    async fn starttls_rejection_preserves_smtp_connection() -> anyhow::Result<()> {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let peer = async {
+            let (socket, _) = listener.accept().await?;
+            let mut socket = BufReader::new(socket);
+            let mut command = String::new();
+            socket.read_line(&mut command).await?;
+            assert_eq!(command, "STARTTLS\r\n");
+            socket
+                .write_all(b"454 TLS temporarily unavailable\r\n")
+                .await?;
+            command.clear();
+            socket.read_line(&mut command).await?;
+            assert!(command.starts_with("EHLO "));
+            socket.write_all(b"250 mx.example.com\r\n").await?;
+            Ok::<_, anyhow::Error>(())
+        };
+        let exercise = async {
+            let socket = TcpStream::connect(address).await?;
+            let mut client =
+                SmtpClient::with_stream(socket, "mx.example.com", SmtpClientTimeouts::default());
+            assert!(matches!(
+                client.starttls(TlsOptions::default()).await,
+                Err(ClientError::Rejected(Response { code: 454, .. }))
+            ));
+            assert!(client.is_connected());
+            client.ehlo("client.example.com").await?;
+            Ok::<_, anyhow::Error>(())
+        };
+        timeout(Duration::from_secs(10), async {
+            tokio::try_join!(peer, exercise)
+        })
+        .await??;
+        Ok(())
+    }
 
     #[test]
     fn test_stuffing() {
