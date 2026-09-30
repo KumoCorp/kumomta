@@ -295,6 +295,121 @@ async fn tls_starttls_errors_do_not_retry_rustls() -> anyhow::Result<()> {
     starttls_errors_do_not_retry(false).await
 }
 
+/// A successful TLS handshake followed by failed EHLO must not leave TLS
+/// metadata on a later plaintext connection in the same dispatcher session.
+async fn reconnect_clears_tls_info(prefer_openssl: bool) -> anyhow::Result<()> {
+    use rfc5321::client::tokio_rustls::{rustls, TlsAcceptor};
+    use std::sync::Arc;
+
+    let key = rcgen::KeyPair::generate()?;
+    let cert = rcgen::CertificateParams::new(vec!["fallback.example.com".to_string()])?
+        .self_signed(&key)?;
+    let server_config = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::aws_lc_rs::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()?
+    .with_no_client_auth()
+    .with_single_cert(
+        vec![cert.der().clone()],
+        rustls::pki_types::PrivatePkcs8KeyDer::from(key.serialize_der()).into(),
+    )?;
+    let acceptor = TlsAcceptor::from(Arc::new(server_config));
+
+    for reconnect in [false, true] {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let mut options = DaemonWithMaildirOptions::new()
+            .env("KUMOD_ENABLE_TLS", "OpportunisticInsecure")
+            .env(
+                "KUMOD_TEST_SMTP_PEER_PORT",
+                listener.local_addr()?.port().to_string(),
+            )
+            .env("KUMOD_RETRY_INTERVAL", "1h");
+        if prefer_openssl {
+            options = options.env("KUMOD_PREFER_OPENSSL", "1");
+        }
+        if reconnect {
+            options = options.env("KUMOD_OPPORTUNISTIC_TLS_RECONNECT", "1");
+        }
+        let mut daemon = options.start().await?;
+        let sink = daemon.sink.listener("smtp");
+        let peer = async {
+            let (stream, _) = listener.accept().await?;
+            let mut peer = receive_starttls(stream).await?;
+            peer.write_all(b"220 Ready for TLS\r\n").await?;
+            let mut tls = BufReader::new(acceptor.accept(peer.into_inner()).await?);
+            let mut command = String::new();
+            tls.read_line(&mut command).await?;
+            anyhow::ensure!(command.starts_with("EHLO "), "{command:?}");
+            tls.write_all(b"421 Post-handshake EHLO rejected\r\n")
+                .await?;
+            drop(tls);
+
+            if !reconnect {
+                // Without explicit reconnect, EHLO failure moves to the next MX.
+                // Its handshake failure then exercises the implicit plaintext retry.
+                let (stream, _) = listener.accept().await?;
+                fail_handshake_and_expect_close(stream).await?;
+            }
+            let (mut plain, _) = listener.accept().await?;
+            let mut backend = TcpStream::connect(sink).await?;
+            tokio::io::copy_bidirectional(&mut plain, &mut backend).await?;
+            Ok::<_, anyhow::Error>(())
+        };
+        let exercise = async {
+            let mut client = daemon.smtp_client().await?;
+            let response = MailGenParams {
+                recip: Some("recip@two-hosts.example.com"),
+                ..Default::default()
+            }
+            .send(&mut client)
+            .await?;
+            anyhow::ensure!(response.code == 250, "{response:?}");
+            anyhow::ensure!(
+                daemon
+                    .wait_for_source_summary(
+                        |s| s.get(&Delivery).copied().unwrap_or(0) > 0,
+                        Duration::from_secs(10),
+                    )
+                    .await
+            );
+            daemon.source.stop().await?;
+            daemon.sink.stop().await?;
+            Ok::<_, anyhow::Error>(())
+        };
+        tokio::time::timeout(Duration::from_secs(45), async {
+            tokio::try_join!(peer, exercise)
+        })
+        .await?
+        .with_context(|| format!("reconnect={reconnect}"))?;
+        let records = daemon.source.collect_logs().await?;
+        let delivery = records
+            .iter()
+            .find(|r| r.kind == Delivery)
+            .context("plaintext delivery")?;
+        anyhow::ensure!(delivery.tls_cipher.is_none(), "{delivery:?}");
+        anyhow::ensure!(delivery.tls_protocol_version.is_none(), "{delivery:?}");
+        anyhow::ensure!(delivery.tls_peer_subject_name.is_none(), "{delivery:?}");
+        let records = daemon.sink.collect_logs().await?;
+        let reception = records
+            .iter()
+            .find(|r| r.kind == kumo_log_types::RecordType::Reception)
+            .context("plaintext reception")?;
+        anyhow::ensure!(reception.tls_cipher.is_none(), "{reception:?}");
+        anyhow::ensure!(daemon.extract_maildir_messages()?.len() == 1);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn tls_reconnect_clears_tls_info_openssl() -> anyhow::Result<()> {
+    reconnect_clears_tls_info(true).await
+}
+
+#[tokio::test]
+async fn tls_reconnect_clears_tls_info_rustls() -> anyhow::Result<()> {
+    reconnect_clears_tls_info(false).await
+}
+
 #[tokio::test]
 async fn tls_handshake_failure_openssl() -> anyhow::Result<()> {
     handshake_failure_reconnect(true).await
