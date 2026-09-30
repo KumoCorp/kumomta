@@ -16,7 +16,10 @@ custom lua code to process a message
 
 Rather than relying on MX resolution, you can provide an explicit list
 of MX host names or IP addresses to which the queue should deliver.
-The addresses will be tried in the order specified.
+The addresses will be tried in the order specified. A hostname that fails to
+resolve is logged and skipped without discarding the other entries. If no
+addresses resolve, messages are deferred with any lookup errors included in the
+diagnostic.
 
 ```lua
 kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)

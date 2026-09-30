@@ -7,6 +7,31 @@ local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 local SINK_PORT = tonumber(os.getenv 'KUMOD_SMTP_SINK_PORT')
 
 kumo.on('init', function()
+  if os.getenv 'KUMOD_MX_LIST_DNS_FAILURE' then
+    local zone = '$ORIGIN example.test.\nhealthy 600 A 127.0.0.1\n'
+    kumo.dns.configure_test_resolver {
+      zones = { zone },
+      servfail = { 'recovering.example.test' },
+    }
+    local ok = pcall(kumo.dns.lookup_addr, 'recovering.example.test')
+    assert(
+      not ok,
+      'a failed address lookup must raise, not return an empty list'
+    )
+
+    kumo.dns.configure_test_resolver {
+      zones = { zone .. 'recovering 600 A 127.0.0.1\n' },
+      servfail = { 'unavailable.example.test' },
+    }
+    -- The failed response had a nonzero TTL, but must not remain in Kumo's
+    -- address caches after the resolver recovers.
+    local recovered = kumo.dns.lookup_addr 'recovering.example.test'
+    assert(
+      #recovered == 1 and recovered[1] == '127.0.0.1',
+      'cached DNS failure'
+    )
+    assert(#kumo.dns.lookup_addr 'empty.example.test' == 0)
+  end
   kumo.configure_accounting_db_path(TEST_DIR .. '/accounting.db')
   kumo.aaa.configure_acct_log {
     log_dir = TEST_DIR .. '/acct',
@@ -66,6 +91,7 @@ kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   return kumo.make_queue_config {
     protocol = protocol,
     refresh_strategy = 'Epoch',
+    retry_interval = os.getenv 'KUMOD_MX_LIST_DNS_FAILURE' and '1h' or nil,
   }
 end)
 
