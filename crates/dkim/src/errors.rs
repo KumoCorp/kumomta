@@ -39,6 +39,11 @@ pub enum DKIMError {
     NoKeyForSignature,
     #[error("key syntax error")]
     KeySyntaxError,
+    #[error("{context}: {detail}")]
+    KeyParseError {
+        context: &'static str,
+        detail: String,
+    },
     #[error("key incompatible version")]
     KeyIncompatibleVersion,
     #[error("inappropriate key algorithm")]
@@ -85,6 +90,7 @@ impl DKIMError {
             | UnsupportedQueryMethod
             | NoKeyForSignature
             | KeySyntaxError
+            | KeyParseError { .. }
             | KeyIncompatibleVersion
             | InappropriateKeyAlgorithm
             | SignatureDidNotVerify
