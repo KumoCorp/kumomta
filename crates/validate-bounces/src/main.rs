@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use bounce_classify::{BounceClassifierBuilder, BounceClass};
 use ordermap::OrderMap;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize};
 use clap::Parser;
 
 /// KumoMTA bounce classification configuration validator
@@ -16,7 +16,7 @@ struct Opt {
     samples: Vec<String>,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Debug)]
 struct SampleFile {
     pub rules: OrderMap<BounceClass, Vec<String>>,
 }

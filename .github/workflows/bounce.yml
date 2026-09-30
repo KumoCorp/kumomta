@@ -27,5 +27,5 @@ jobs:
       with:
         toolchain: stable
     - name: validate bounces
-      run: cargo run -p validate-bounces -- --files assets/community/bounces.toml --samples crates/validate-bounces/sample_bounces.toml
+      run: cargo run -p validate-bounces -- assets/community/bounces.toml --samples crates/validate-bounces/sample_bounces.toml
 
