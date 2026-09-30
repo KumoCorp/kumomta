@@ -183,6 +183,8 @@ impl MxListEntry {
 #[derive(Debug)]
 pub struct SmtpDispatcher {
     addresses: Vec<ResolvedAddress>,
+    /// One-shot plaintext retry for the address at the end of the connection plan.
+    retry_without_tls: bool,
     client: Option<MetricsWrappedConnection<SmtpClient>>,
     client_address: Option<ResolvedAddress>,
     source_address: Option<MaybeProxiedSourceAddress>,
@@ -194,15 +196,6 @@ pub struct SmtpDispatcher {
     attempted_message_send: bool,
     treat_mx_list_as_secure: bool,
     recips_last_txn: HashMap<(SpoolId, ForwardPath), u8>,
-}
-
-#[derive(thiserror::Error, Debug)]
-#[error("{address}: EHLO after OpportunisticInsecure STARTTLS handshake status: {label}")]
-#[must_use]
-pub struct OpportunisticInsecureTlsHandshakeError {
-    pub error: ClientError,
-    pub address: String,
-    pub label: String,
 }
 
 impl SmtpDispatcher {
@@ -346,6 +339,7 @@ impl SmtpDispatcher {
 
         Ok(Some(Self {
             addresses,
+            retry_without_tls: false,
             client: None,
             client_address: None,
             ehlo_name,
@@ -501,15 +495,14 @@ impl SmtpDispatcher {
 
         let connection_wrapper = dispatcher.metrics.wrap_connection(());
 
-        // This pops the next address (which is at the end) from the
-        // list of candidate addresses.
-        // Be aware that in the failed TLS handshake case below,
-        // the current address is put back before we recurse to
-        // try again.
+        // A failed handshake can put the current address back at the end of
+        // the plan for a fresh plaintext connection. Consume its one-shot
+        // retry flag even if that connection fails before TLS is considered.
         let address = self
             .addresses
             .pop()
             .ok_or_else(|| anyhow::anyhow!("no more addresses to try!"))?;
+        let retry_without_tls = std::mem::take(&mut self.retry_without_tls);
 
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.name.to_string();
@@ -823,11 +816,14 @@ impl SmtpDispatcher {
 
         let has_tls = if has_tls { AdvTls::Yes } else { AdvTls::No };
 
-        let broken_tls = if broken_tls {
-            BrokenTls::Yes
-        } else {
-            BrokenTls::No
-        };
+        // An implicit retry is scoped to this attempt and must not bypass a
+        // stronger effective policy or mark unrelated candidates as broken.
+        let broken_tls =
+            if broken_tls || (retry_without_tls && enable_tls == Tls::OpportunisticInsecure) {
+                BrokenTls::Yes
+            } else {
+                BrokenTls::No
+            };
 
         let tls_enabled = match (enable_tls, has_tls, broken_tls) {
             (Tls::Required | Tls::RequiredInsecure, AdvTls::No, _) => {
@@ -845,85 +841,12 @@ impl SmtpDispatcher {
                 // TLS is not advertised, don't try to use it
                 false
             }
-            (Tls::OpportunisticInsecure, AdvTls::Yes, BrokenTls::No) => {
-                dispatcher.set_detail("STARTTLS");
-                let (enabled, label) = match client
-                    .starttls(TlsOptions {
-                        insecure: enable_tls.allow_insecure(),
-                        prefer_openssl,
-                        alt_name: None,
-                        dane_tlsa,
-                        certificate_from_pem,
-                        private_key_from_pem,
-                        openssl_options,
-                        openssl_cipher_list,
-                        openssl_cipher_suites,
-                        rustls_cipher_suites,
-                    })
-                    .await?
-                {
-                    TlsStatus::FailedHandshake(handshake_error) => {
-                        tracing::debug!(
-                            "TLS handshake with {address}:{port} failed: \
-                        {handshake_error}, but continuing in clear text because \
-                        we are in OpportunisticInsecure mode"
-                        );
-
-                        self.remember_broken_tls(&dispatcher.name, &path_config)
-                            .await;
-
-                        if path_config.opportunistic_tls_reconnect_on_failed_handshake {
-                            self.addresses.push(address);
-                            anyhow::bail!(
-                                "TLS handshake failed: {handshake_error}, \
-                                will re-connect in the clear because \
-                                opportunistic_tls_reconnect_on_failed_handshake=true"
-                            );
-                        }
-
-                        // We did not enable TLS
-                        (false, format!("failed: {handshake_error}"))
-                    }
-                    TlsStatus::Info(info) => {
-                        // TLS is available
-                        tracing::trace!("TLS: {info:?}");
-                        self.tls_info.replace(info);
-                        (true, "OK".to_string())
-                    }
-                };
-                // Re-EHLO even if we didn't enable TLS, as some implementations
-                // incorrectly roll over failed TLS into the following command,
-                // and we want to consider those as connection errors rather than
-                // having them show up per-message in MAIL FROM
-                match client.ehlo_lhlo(&ehlo_name, path_config.use_lmtp).await {
-                    Ok(_) => enabled,
-                    Err(error) => {
-                        self.remember_broken_tls(&dispatcher.name, &path_config)
-                            .await;
-                        if path_config.opportunistic_tls_reconnect_on_failed_handshake {
-                            self.addresses.push(address);
-                            anyhow::bail!(
-                                "{helo_verb} after STARTLS failed: {error:#}, \
-                                will re-connect in the clear because \
-                                opportunistic_tls_reconnect_on_failed_handshake=true"
-                            );
-                        }
-
-                        return Err(OpportunisticInsecureTlsHandshakeError {
-                            error,
-                            address: format!("{address}:{port}"),
-                            label,
-                        }
-                        .into());
-                    }
-                }
-            }
             (
                 Tls::Required | Tls::RequiredInsecure,
                 AdvTls::Yes,
                 _, /* don't care if we think tls is broken when policy is required */
             )
-            | (Tls::Opportunistic, AdvTls::Yes, BrokenTls::No) => {
+            | (Tls::Opportunistic | Tls::OpportunisticInsecure, AdvTls::Yes, BrokenTls::No) => {
                 dispatcher.set_detail("STARTTLS");
                 match client
                     .starttls(TlsOptions {
@@ -944,14 +867,15 @@ impl SmtpDispatcher {
                         self.remember_broken_tls(&dispatcher.name, &path_config)
                             .await;
 
-                        // Don't try too hard to send the quit here; the connection may
-                        // be busted by the failed handshake and never succeed
-                        tokio::time::timeout(
-                            tokio::time::Duration::from_secs(2),
-                            client.send_command(&rfc5321::parser::Command::Quit),
-                        )
-                        .await
-                        .ok();
+                        if enable_tls == Tls::OpportunisticInsecure && !retry_without_tls {
+                            self.retry_without_tls = true;
+                            self.addresses.push(address);
+                            anyhow::bail!(
+                                "TLS handshake failed: {handshake_error}, will \
+                                 re-connect in the clear because \
+                                 enable_tls=OpportunisticInsecure"
+                            );
+                        }
 
                         if enable_tls.is_opportunistic()
                             && path_config.opportunistic_tls_reconnect_on_failed_handshake

@@ -4,7 +4,9 @@ package.path = '../../assets/?.lua;' .. package.path
 log_hooks = require 'policy-extras.log_hooks'
 
 local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
-local SINK_PORT = tonumber(os.getenv 'KUMOD_SMTP_SINK_PORT')
+local SINK_PORT = tonumber(
+  os.getenv 'KUMOD_TEST_SMTP_PEER_PORT' or os.getenv 'KUMOD_SMTP_SINK_PORT'
+)
 local WEBHOOK_PORT = os.getenv 'KUMOD_WEBHOOK_PORT'
 local AMQPHOOK_URL = os.getenv 'KUMOD_AMQPHOOK_URL'
 local AMQP_HOST_PORT = os.getenv 'KUMOD_AMQP_HOST_PORT'
