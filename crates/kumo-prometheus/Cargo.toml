@@ -17,5 +17,8 @@ serde.workspace = true
 serde_json = {workspace=true}
 tokio = {workspace=true, features=["rt", "time"]}
 
+[dev-dependencies]
+k9 = {workspace=true}
+
 [lints]
 workspace = true

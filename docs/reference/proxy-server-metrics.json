@@ -72,7 +72,7 @@
   },
   {
     "name": "dns_mx_resolve_mta_sts_impossible",
-    "help": "Total number of MailExchanger::resolve calls that failed because the  domain published an MTA-STS enforce policy that permits none of its own  MX hosts. Such domains are undeliverable until they fix their policy.",
+    "help": "Total number of MailExchanger::resolve calls that failed because the\ndomain published an MTA-STS enforce policy that permits none of its own\nMX hosts. Such domains are undeliverable until they fix their policy.",
     "doc": null,
     "metric_type": "Counter",
     "label_names": [],
@@ -361,7 +361,7 @@
   },
   {
     "name": "memory_usage",
-    "help": "number of bytes of used memory that drives memory limit decisions.  When sourced from a cgroup this is the working set  (memory.current - inactive_file, floored by anonymous memory);  otherwise it is the Resident Set Size from /proc/self/statm.",
+    "help": "number of bytes of used memory that drives memory limit decisions.\nWhen sourced from a cgroup this is the working set\n(memory.current - inactive_file, floored by anonymous memory);\notherwise it is the Resident Set Size from /proc/self/statm.",
     "doc": null,
     "metric_type": "Gauge",
     "label_names": [],

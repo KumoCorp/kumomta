@@ -22,6 +22,15 @@ fn doc_dir_for_service(service: &str) -> String {
     format!("docs/reference/http/{service}")
 }
 
+// Split the marker token across two literals. One literal here would make
+// tooling treat this source as a generated file.
+fn generated_note(source: &str) -> String {
+    format!(
+        "{} by jsonschematodocs from {source}",
+        concat!("@", "generated")
+    )
+}
+
 fn rewrap(text: &str, line_sep: &str) -> String {
     text.replace("\n", line_sep)
 }
@@ -154,6 +163,7 @@ fn fixup_absolute_doc_links_on_path_page(text: &str) -> String {
 fn generate_path_op(
     api: &OpenApi,
     service: &str,
+    source: &str,
     path: &str,
     verb: &str,
     op: &Operation,
@@ -172,6 +182,7 @@ fn generate_path_op(
     let schema_dir = Some("schemas/");
 
     writeln!(&mut output, "---")?;
+    writeln!(&mut output, "# {}", generated_note(source))?;
     if op
         .deprecated
         .as_ref()
@@ -313,7 +324,13 @@ fn generate_path_op(
     Ok(())
 }
 
-fn generate_path(api: &OpenApi, service: &str, path: &str, item: &PathItem) -> anyhow::Result<()> {
+fn generate_path(
+    api: &OpenApi,
+    service: &str,
+    source: &str,
+    path: &str,
+    item: &PathItem,
+) -> anyhow::Result<()> {
     for (verb, op) in &[
         ("GET", &item.get),
         ("PUT", &item.put),
@@ -325,7 +342,7 @@ fn generate_path(api: &OpenApi, service: &str, path: &str, item: &PathItem) -> a
         ("TRACE", &item.trace),
     ] {
         if let Some(op) = op {
-            generate_path_op(api, service, path, verb, op)?;
+            generate_path_op(api, service, source, path, verb, op)?;
         }
     }
     Ok(())
@@ -559,7 +576,7 @@ fn emit_object(
     Ok(())
 }
 
-/// Try to avoid using `null` as the example if we can use anything else
+/// Try to avoid using `null` as the example when another value is available
 fn interesting_example(examples: &[Value]) -> Option<Value> {
     if let Some(v) = examples.iter().find(|v| **v != Value::Null) {
         return Some(v.clone());
@@ -772,12 +789,14 @@ fn emit_examples(output: &mut impl Write, examples: &mut Vec<Value>) -> anyhow::
 fn generate_component(
     api: &OpenApi,
     service: &str,
+    source: &str,
     type_name: &str,
     schema: &RefOr<Schema>,
 ) -> anyhow::Result<()> {
     let output_path = format!("{}/schemas/{type_name}.md", doc_dir_for_service(service));
 
     let mut output = std::fs::File::create(&output_path)?;
+    writeln!(&mut output, "<!-- {} -->", generated_note(source))?;
     writeln!(&mut output, "# {type_name}")?;
     writeln!(&mut output, "{DISCLAIMER}")?;
 
@@ -800,22 +819,23 @@ fn generate_component(
     }
 }
 
-fn generate(api: &OpenApi) -> anyhow::Result<()> {
+fn generate(api: &OpenApi, source: &str) -> anyhow::Result<()> {
     let service = &api.info.title;
 
     std::fs::create_dir_all(doc_dir_for_service(service))?;
 
     for (path, item) in &api.paths.paths {
-        generate_path(api, service, path, item)?;
+        generate_path(api, service, source, path, item)?;
     }
 
     if let Some(components) = &api.components {
         let schema_dir = format!("{}/schemas", doc_dir_for_service(service));
         std::fs::create_dir_all(&schema_dir)?;
+        let marker = generated_note(source);
         std::fs::write(
             format!("{schema_dir}/_index.md"),
             format!(
-                r#"
+                r#"<!-- {marker} -->
 # API Types for {service} service
 
 The following types are defined for the {service} service:
@@ -827,7 +847,7 @@ The following types are defined for the {service} service:
         )?;
 
         for (name, schema) in &components.schemas {
-            generate_component(api, service, name, schema)?;
+            generate_component(api, service, source, name, schema)?;
         }
     }
 
@@ -841,7 +861,7 @@ fn main() -> anyhow::Result<()> {
     ] {
         let data = std::fs::read_to_string(path)?;
         let api: OpenApi = serde_json::from_str(&data)?;
-        generate(&api)?;
+        generate(&api, path)?;
     }
     Ok(())
 }

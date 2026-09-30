@@ -232,10 +232,9 @@ pub enum MetricPrune {
 pub struct CounterDescription {
     /// The name of the counter, as it appears in the metric export
     pub name: String,
-    /// one-line help description that is included in the metric export
+    /// Help description, preserving the author's line wrapping.
     pub help: String,
-    /// If multi-line comments are present, this will hold the comments
-    /// after the first help line.
+    /// Any documentation paragraphs following the first, preserved verbatim.
     pub doc: Option<String>,
     /// What sort of metric this is
     pub metric_type: MetricType,
@@ -299,24 +298,24 @@ macro_rules! mandatory_doc {
     };
 }
 
-/// Utility function for dealing with doc comment metadata.
-/// Look for two successive line breaks; if they are present
-/// they denote the break between the short first-logical-line
-/// and a longer descriptive exposition.  Returns that first
-/// logical line and the optional exposition.
+/// Collapse a multi-line string into a space-separated line.
+pub fn one_line(s: &str) -> String {
+    s.replace("\n", " ").trim().to_string()
+}
+
+/// Splits doc comment metadata. Look for two successive line breaks. If they
+/// are present, they denote the break between the first paragraph and a longer
+/// descriptive exposition. Returns that first paragraph, preserving the
+/// author's line wrapping, and the optional exposition.
 pub fn split_help(help: &str) -> (String, Option<String>) {
     // The input will be a series of lines each with a space
     // at the start because "/// something" -> " something".
     // Normalize those away.
     let normalized = help.trim().replace("\n ", "\n");
 
-    fn one_line(s: &str) -> String {
-        s.replace("\n", " ").trim().to_string()
-    }
-
     match normalized.split_once("\n\n") {
-        Some((a, b)) => (one_line(a), Some(b.to_string())),
-        None => (one_line(help), None),
+        Some((a, b)) => (a.to_string(), Some(b.to_string())),
+        None => (normalized, None),
     }
 }
 
@@ -413,6 +412,7 @@ macro_rules! declare_metric {
             ::std::sync::LazyLock::new(
                 || {
                     let (help, _doc) = $crate::split_help($crate::mandatory_doc!($($doc)*));
+                    let help = $crate::one_line(&help);
                     $crate::CounterRegistry::register($name, help)
                 });
 
@@ -435,6 +435,7 @@ macro_rules! declare_metric {
             ::std::sync::LazyLock::new(
                 || {
                     let (help, _doc) = $crate::split_help($crate::mandatory_doc!($($doc)*));
+                    let help = $crate::one_line(&help);
                     $crate::PruningCounterRegistry::register($name, help)
                 });
 
@@ -457,6 +458,7 @@ macro_rules! declare_metric {
             ::std::sync::LazyLock::new(
                 || {
                     let (help, _doc) = $crate::split_help($crate::mandatory_doc!($($doc)*));
+                    let help = $crate::one_line(&help);
                     $crate::PruningCounterRegistry::register_gauge($name, help)
                 });
 
@@ -481,6 +483,7 @@ macro_rules! declare_metric {
             ::std::sync::LazyLock::new(
                 || {
                     let (help, _doc) = $crate::split_help($crate::mandatory_doc!($($doc)*));
+                    let help = $crate::one_line(&help);
 
                     $crate::prometheus::register_int_gauge_vec!(
                         $name,
@@ -506,6 +509,7 @@ macro_rules! declare_metric {
             ::std::sync::LazyLock::new(
                 || {
                     let (help, _doc) = $crate::split_help($crate::mandatory_doc!($($doc)*));
+                    let help = $crate::one_line(&help);
 
                     $crate::prometheus::register_int_counter_vec!(
                         $name,
@@ -531,6 +535,7 @@ macro_rules! declare_metric {
             ::std::sync::LazyLock::new(
                 || {
                     let (help, _doc) = $crate::split_help($crate::mandatory_doc!($($doc)*));
+                    let help = $crate::one_line(&help);
 
                     $crate::prometheus::register_counter_vec!(
                         $name,
@@ -558,6 +563,7 @@ macro_rules! declare_metric {
             ::std::sync::LazyLock::new(
                 || {
                     let (help, _doc) = $crate::split_help($crate::mandatory_doc!($($doc)*));
+                    let help = $crate::one_line(&help);
 
                     $crate::prometheus::register_histogram_vec!(
                         $name,
@@ -585,6 +591,7 @@ macro_rules! declare_metric {
             ::std::sync::LazyLock::new(
                 || {
                     let (help, _doc) = $crate::split_help($crate::mandatory_doc!($($doc)*));
+                    let help = $crate::one_line(&help);
 
                     $crate::prometheus::register_histogram!(
                         $name,
@@ -610,6 +617,7 @@ macro_rules! declare_metric {
             ::std::sync::LazyLock::new(
                 || {
                     let (help, _doc) = $crate::split_help($crate::mandatory_doc!($($doc)*));
+                    let help = $crate::one_line(&help);
 
                     $crate::prometheus::register_int_counter!(
                         $name,
@@ -632,6 +640,7 @@ macro_rules! declare_metric {
             ::std::sync::LazyLock::new(
                 || {
                     let (help, _doc) = $crate::split_help($crate::mandatory_doc!($($doc)*));
+                    let help = $crate::one_line(&help);
 
                     $crate::prometheus::register_int_gauge!(
                         $name,
@@ -653,6 +662,7 @@ macro_rules! declare_metric {
             ::std::sync::LazyLock::new(
                 || {
                     let (help, _doc) = $crate::split_help($crate::mandatory_doc!($($doc)*));
+                    let help = $crate::one_line(&help);
 
                     $crate::prometheus::register_gauge!(
                         $name,
@@ -746,5 +756,44 @@ where
         map.insert(key.into(), V::make_storable(&result));
 
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_help_single_line() {
+        let (help, doc) = split_help(" A single line of help.");
+        k9::assert_equal!(help, "A single line of help.");
+        k9::assert_equal!(doc, None);
+    }
+
+    #[test]
+    fn split_help_multi_line_first_paragraph() {
+        let (help, doc) = split_help(" First line,\n second line.");
+        k9::assert_equal!(help, "First line,\nsecond line.");
+        k9::assert_equal!(doc, None);
+        k9::assert_equal!(one_line(&help), "First line, second line.");
+    }
+
+    #[test]
+    fn split_help_with_exposition() {
+        let (help, doc) = split_help(
+            " First line,\n second line.\n\n Exposition line one.\n Exposition line two.",
+        );
+        k9::assert_equal!(help, "First line,\nsecond line.");
+        k9::assert_equal!(
+            doc,
+            Some("Exposition line one.\nExposition line two.".to_string())
+        );
+    }
+
+    #[test]
+    fn split_help_preserves_internal_blank_lines_in_doc() {
+        let (help, doc) = split_help(" Help.\n\n Para one.\n\n Para two.");
+        k9::assert_equal!(help, "Help.");
+        k9::assert_equal!(doc, Some("Para one.\n\nPara two.".to_string()));
     }
 }
