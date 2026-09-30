@@ -414,6 +414,42 @@
     "pruning": "NonPruning"
   },
   {
+    "name": "log_consumer_bytes_behind",
+    "help": "The compressed size, in bytes, of whole log segments awaiting processing by\na consumer.",
+    "doc": "This counts whole unread segments only, not the remainder of the segment\nthat the consumer is partway through processing.\n\nLabelled by:\n* `log_dir` - the log directory being scanned\n* `checkpoint_name` - the name set by the tailer of the consumer for its\n  checkpoint.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "log_dir",
+      "checkpoint_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "log_consumer_lag_seconds",
+    "help": "Age in seconds of the oldest log segment not yet started by a consumer,\ncounted from the modification time of that segment.",
+    "doc": "Such a segment does not exist once the consumer has reached the newest log\nsegment. The gauge reports 0 in that case.\n\nLabelled by:\n\n* `log_dir` - the log directory being scanned\n* `checkpoint_name` - the name set by the tailer of the consumer for its\n  checkpoint.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "log_dir",
+      "checkpoint_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "log_consumer_segments_behind",
+    "help": "The number of whole log segments not yet processed by a consumer.",
+    "doc": "Labelled by:\n* `log_dir` - the log directory being scanned\n* `checkpoint_name` - the name set by the tailer of the consumer for its\n  checkpoint.\n\nA sample value is\n`log_consumer_segments_behind{log_dir=\"/var/log/kumomta\",checkpoint_name=\"cp\"} 3`.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "log_dir",
+      "checkpoint_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
     "name": "log_hook_backlog_count",
     "help": "how many times processing of a log event hit the back_pressure in a hook",
     "doc": null,

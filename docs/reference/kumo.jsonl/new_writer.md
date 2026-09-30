@@ -35,6 +35,10 @@ read-only so that a tailer can detect that it is complete.
 *String.* Required. The directory in which segment files will be created.
 The directory is created automatically if it does not already exist.
 
+!!! note
+    A `log_dir` must hold one log stream. Use a separate directory for
+    each writer.
+
 ### max_file_size
 
 *Integer.* Optional. Maximum number of **uncompressed** bytes to write before

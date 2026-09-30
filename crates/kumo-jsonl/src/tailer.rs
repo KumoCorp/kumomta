@@ -1,5 +1,7 @@
 use crate::batch::LogBatch;
-use crate::checkpoint::CheckpointData;
+use crate::checkpoint::{
+    is_reserved_checkpoint_name, sweep_orphaned_temp_files, CheckpointData, CHECKPOINT_TEMP_MAX_AGE,
+};
 use crate::decompress::{FileDecompressor, NextLine, DEFAULT_MAX_LINE_SIZE};
 use anyhow::Context;
 use camino::Utf8PathBuf;
@@ -147,6 +149,27 @@ impl MultiConsumerTailerConfig {
 
     /// Build the multi-consumer tailer.
     pub async fn build(self) -> anyhow::Result<MultiConsumerTailer> {
+        for c in &self.consumers {
+            if let Some(name) = &c.checkpoint_name {
+                if is_reserved_checkpoint_name(name) {
+                    anyhow::bail!(
+                        "checkpoint_name {name:?} is not allowed because \
+                         it would collide with temporary file names \
+                         created during checkpoint writes"
+                    );
+                }
+            }
+        }
+
+        // We run the sweep on the blocking pool because its synchronous std::fs
+        // calls would block an async worker thread.
+        let sweep_dir = self.directory.clone();
+        tokio::task::spawn_blocking(move || {
+            sweep_orphaned_temp_files(&sweep_dir, CHECKPOINT_TEMP_MAX_AGE)
+        })
+        .await
+        .ok();
+
         // Collect checkpoint paths without borrowing consumers across
         // an await (consumers contains non-Sync filter closures).
         let cp_paths: Vec<Option<Utf8PathBuf>> = self

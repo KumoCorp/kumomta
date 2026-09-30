@@ -1,14 +1,18 @@
+pub mod backlog;
 pub mod batch;
 pub mod checkpoint;
 pub mod decompress;
 #[cfg(feature = "lua")]
 pub mod lua;
+pub mod registry;
 pub mod tailer;
 pub mod writer;
 
+pub use backlog::{scan_backlog, ConsumerBacklog};
 pub use batch::LogBatch;
 pub use checkpoint::CheckpointData;
 pub use decompress::DEFAULT_MAX_LINE_SIZE;
+pub use registry::{active_writer_locations, WriterLocation};
 pub use tailer::{
     CloseHandle, ConsumerConfig, LogTailer, LogTailerConfig, MultiConsumerTailer,
     MultiConsumerTailerConfig,

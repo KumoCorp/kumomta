@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2026.03.11-17b80530"
+    "version": "2026.09.09-369de2cf"
   },
   "paths": {
     "/api/admin/bump-config-epoch": {
