@@ -1,6 +1,8 @@
 use anyhow::anyhow;
-use bounce_classify::BounceClassifierBuilder;
+use bounce_classify::{BounceClass, BounceClassifierBuilder};
 use clap::Parser;
+use ordermap::OrderMap;
+use serde::Deserialize;
 
 /// KumoMTA bounce classification configuration validator
 ///
@@ -9,6 +11,14 @@ use clap::Parser;
 #[command(about)]
 struct Opt {
     files: Vec<String>,
+
+    #[arg(long)]
+    samples: Vec<String>,
+}
+
+#[derive(Deserialize, Debug)]
+struct SampleFile {
+    pub rules: OrderMap<BounceClass, Vec<String>>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -31,7 +41,33 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    let _classifier = builder.build().map_err(|err| anyhow!("{err}"))?;
+    let classifier = builder.build().map_err(|err| anyhow!("{err}"))?;
+
+    let mut failures = vec![];
+    for samples_file in &opts.samples {
+        let data = std::fs::read_to_string(samples_file)
+            .map_err(|err| anyhow!("reading file: {samples_file}: {err:#}"))?;
+        let samples: SampleFile = toml::from_str(&data)
+            .map_err(|err| anyhow!("decoding {samples_file} as BounceClassifierFile: {err:#}"))?;
+
+        for (class, inputs) in samples.rules {
+            for input in inputs {
+                let got = classifier.classify_str(&input);
+                if got != class {
+                    let expected = String::from(class.clone());
+                    let got = String::from(got);
+                    failures.push(format!("{input:?}: expected {expected} but got {got}"));
+                }
+            }
+        }
+    }
+    if !failures.is_empty() {
+        anyhow::bail!(
+            "{} test case(s) failed:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
 
     println!("OK");
 
