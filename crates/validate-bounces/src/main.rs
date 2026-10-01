@@ -1,8 +1,8 @@
 use anyhow::anyhow;
-use bounce_classify::{BounceClassifierBuilder, BounceClass};
-use ordermap::OrderMap;
-use serde::{Deserialize};
+use bounce_classify::{BounceClass, BounceClassifierBuilder};
 use clap::Parser;
+use ordermap::OrderMap;
+use serde::Deserialize;
 
 /// KumoMTA bounce classification configuration validator
 ///
