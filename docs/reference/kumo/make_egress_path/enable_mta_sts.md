@@ -41,11 +41,21 @@ connection will be made with `enable_tls="Required"`. Candidate MX hosts that do
 not match the `mx` fields are removed during resolution, so by the time a
 connection is attempted the candidate set already satisfies the policy.
 
-If the `mode` is set to `"testing"`, then the connection will be made
-with `enable_tls="OpportunisticInsecure"`.
+If the `mode` is set to `"testing"` and `enable_tls` is `"Opportunistic"`, then
+the connection will be made with `enable_tls="OpportunisticInsecure"`, so that
+certificate problems don't prevent delivery.
+
+{{since('dev', indent=True)}}
+    A `testing` policy leaves `"Required"`, `"RequiredInsecure"` and
+    `"Disabled"` unchanged. In earlier versions, it replaced them with
+    `"OpportunisticInsecure"` as well, unless unusable TLSA records required
+    STARTTLS.
 
 If the `mode` is set to `"none"`, then your configured value for `enable_tls`
 will be used.
 
-If `enable_dane=true` and `TLSA` records are present, then any MTA-STS policy
-will be ignored.
+With [enable_dane](enable_dane.md) enabled, usable TLSA records for a
+DANE-eligible MX host take precedence over MTA-STS. If TLSA records are
+published for that host but none are usable, STARTTLS is still required: an
+MTA-STS `enforce` policy can add certificate validation, and a `testing`
+policy doesn't relax the requirement.
