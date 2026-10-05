@@ -5,6 +5,9 @@ use std::time::Duration;
 
 #[tokio::test]
 async fn mx_site_names_share_exact_destinations_not_label_combinations() -> anyhow::Result<()> {
+    // Maildir polling may outlast the sink's default idle timeout. Keep the
+    // connection alive for the reuse assertion; the test stops both daemons
+    // explicitly rather than waiting for this timeout.
     let mut daemon = DaemonWithMaildirOptions::new()
         .policy_file("mx-site-names.lua")
         .env("KUMOD_TEST_SINK_CLIENT_TIMEOUT", "1m")
