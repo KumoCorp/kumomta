@@ -87,34 +87,9 @@ local example = {
 assert(gmail_mx == example)
 ```
 
-## Site names
-
-{{since('dev')}}
-
-`site_name` is a canonical representation of the accepted MX hostname/port set.
-It normalizes hostname case and trailing dots and ignores duplicate destinations,
-MX preference values and record ordering. MTA-STS host filtering takes place
-before the name is computed. The `hosts` and `by_pref` fields retain their
-preference information; name generation does not reorder the connection plan.
-
-Common hostname components are factored out without combining labels from
-unrelated hosts. For example, `a.x.example`, `b.x.example` and `c.y.example`
-produce `((a|b).x|c.y).example`, not `(a|b|c).(x|y).example`. The `|` notation
-lists alternatives and `?` marks an optional component or group. Literal label
-bytes outside ASCII letters, digits, hyphens, underscores and `*` are percent-encoded
-using two hexadecimal digits. For example, a dot within a label becomes `%2E`,
-distinguishing it from a label separator. The result is an identifier, not a DNS
-name or a regular expression to use for host authorization.
-
-Domains with the same accepted destinations share a site name even when their
-preferred or backup MX arrangements differ. A shared ready queue uses the MX
-preference plan from the domain that created it; site naming does not enforce
-per-message preference selection. A preference-only DNS update does not create
-a new site identity or replace an existing queue's plan.
-
-Site names also scope shaping configuration, queue limits and backoff. Obtain
-them through `lookup_mx` rather than hard-coding their representation; see
-[traffic shaping scopes](../../userguide/trafficshaping/scoping.md).
+The `site_name` field identifies the destination group used for ready queues and
+traffic shaping. See [Site Names](../queues.md#site-names) for its meaning and
+sharing behavior.
 
 ## Named resolvers
 

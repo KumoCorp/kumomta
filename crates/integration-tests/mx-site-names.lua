@@ -17,10 +17,32 @@ kumo.on('init', function()
   kumo.define_spool { name = 'meta', path = TEST_DIR .. '/meta-spool' }
   kumo.dns.set_mta_sts_enabled(false)
   kumo.dns.configure_test_resolver {
-    '$ORIGIN route-a.example.\n@ 600 MX 10 a.x.targets.test.\n@ 600 MX 20 b.x.targets.test.\n@ 600 MX 30 c.y.targets.test.\n',
-    '$ORIGIN route-b.example.\n@ 600 MX 5 c.y.targets.test.\n@ 600 MX 10 b.x.targets.test.\n@ 600 MX 20 a.x.targets.test.\n',
-    '$ORIGIN route-c.example.\n@ 600 MX 10 a.x.targets.test.\n@ 600 MX 20 b.y.targets.test.\n@ 600 MX 30 c.x.targets.test.\n',
-    '$ORIGIN targets.test.\na.x 600 A 127.0.0.1\nb.x 600 A 127.0.0.1\nc.y 600 A 127.0.0.1\nb.y 600 A 127.0.0.1\nc.x 600 A 127.0.0.1\n',
+    [[
+$ORIGIN route-a.example.
+@ 600 MX 10 a.x.targets.test.
+@ 600 MX 20 b.x.targets.test.
+@ 600 MX 30 c.y.targets.test.
+]],
+    [[
+$ORIGIN route-b.example.
+@ 600 MX 5 c.y.targets.test.
+@ 600 MX 10 b.x.targets.test.
+@ 600 MX 20 a.x.targets.test.
+]],
+    [[
+$ORIGIN route-c.example.
+@ 600 MX 10 a.x.targets.test.
+@ 600 MX 20 b.y.targets.test.
+@ 600 MX 30 c.x.targets.test.
+]],
+    [[
+$ORIGIN targets.test.
+a.x 600 A 127.0.0.1
+b.x 600 A 127.0.0.1
+c.y 600 A 127.0.0.1
+b.y 600 A 127.0.0.1
+c.x 600 A 127.0.0.1
+]],
   }
 end)
 

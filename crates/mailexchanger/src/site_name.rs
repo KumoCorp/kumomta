@@ -49,9 +49,16 @@ pub(crate) fn factor_names<S: AsRef<str>>(names: &[S]) -> String {
 
 /// Preserve the familiar per-label alternations only when their Cartesian
 /// product describes exactly the input set. Stop expanding as soon as there are
-/// more distinct paths than inputs; ambiguous names must not cause exponential
-/// work just to decide that the compact form is unsuitable.
+/// more distinct paths than inputs: alternatives from unrelated hosts can
+/// multiply into an enormous product (see `wide_label_product_is_bounded`).
+///
+/// ```text
+/// a.x.test, a.y.test, b.x.test, b.y.test -> (a|b).(x|y).test
+/// a.x.test, b.y.test -> None (that form would also include a.y.test and b.x.test)
+/// ```
 fn compact_columns(paths: &[&[String]]) -> Option<String> {
+    // Align labels from the right; None represents a missing leading label
+    // that would become an optional component in the compact form.
     let width = paths.iter().map(|path| path.len()).max()?;
     let mut columns: Vec<Vec<Option<&str>>> = vec![vec![]; width];
     for path in paths {
@@ -67,6 +74,7 @@ fn compact_columns(paths: &[&[String]]) -> Option<String> {
         }
     }
 
+    // Expand the proposed columns only far enough to disprove an exact match.
     let mut expanded = BTreeSet::from([vec![]]);
     for column in columns.iter().rev() {
         let mut next = BTreeSet::new();
@@ -92,6 +100,7 @@ fn compact_columns(paths: &[&[String]]) -> Option<String> {
         return None;
     }
 
+    // Render the proven-safe alternatives, marking missing labels as optional.
     Some(
         columns
             .iter()
@@ -115,11 +124,18 @@ fn compact_columns(paths: &[&[String]]) -> Option<String> {
 /// Factor only complete branches: common ends, then adjacent suffix groups.
 /// Unlike independent label alternations, this cannot invent new combinations
 /// of labels from different hosts.
+///
+/// ```text
+/// a.x.test, b.x.test, c.y.test -> ((a|b).x|c.y).test
+/// mx.a.x.test, mx.b.y.test -> mx.(a.x|b.y).test
+/// ```
 fn factor_branches(paths: &[&[String]]) -> String {
     if let [one] = paths {
         return one.join(".");
     }
     let mut paths = paths.to_vec();
+    // Save the shared prefix, then consume it from each path's remaining slice:
+    // [mx.a.x.test, mx.b.y.test] -> prefix [mx], paths [a.x.test, b.y.test].
     let mut prefix = vec![];
     while let Some(first) = paths[0].first() {
         if !paths.iter().all(|path| path.first() == Some(first)) {
@@ -130,6 +146,7 @@ fn factor_branches(paths: &[&[String]]) -> String {
             *path = &path[1..];
         }
     }
+    // Peel off the common suffix in the same way, collecting it right-to-left.
     let mut suffix = vec![];
     while let Some(last) = paths[0].last() {
         if !paths.iter().all(|path| path.last() == Some(last)) {
@@ -142,8 +159,12 @@ fn factor_branches(paths: &[&[String]]) -> String {
     }
     suffix.reverse();
 
+    // A path consisting only of the common ends makes the middle optional:
+    // test, a.x.test, b.y.test -> (a.x|b.y)?.test
     let optional = paths.iter().any(|path| path.is_empty());
     paths.retain(|path| !path.is_empty());
+    // Suffix-first sorting keeps equal endings adjacent. Recurse on shared
+    // endings; otherwise join complete branches without further factoring.
     let groups: Vec<_> = paths.chunk_by(|a, b| a.last() == b.last()).collect();
     let pieces: Vec<_> = if groups.iter().any(|group| group.len() > 1) {
         groups.iter().map(|group| factor_branches(group)).collect()
@@ -306,6 +327,8 @@ mod test {
 
     #[test]
     fn ports_stay_with_their_hosts() {
+        // A domain or routing_domain written as name:port applies that port to
+        // every resolved MX host, so mixed ports are synthetic association checks.
         let a = [
             "mx1.example.com:25",
             "mx2.example.com:2525",
@@ -345,6 +368,8 @@ mod test {
 
     #[test]
     fn embedded_dots_are_not_label_separators() {
+        // DNS labels are length-delimited and may contain a literal dot.
+        // These synthetic inputs must not alias names where dots separate labels.
         let name = factor_names(&[r"mx\.backup.example.com"]);
         assert_eq!(name, "mx%2Ebackup.example.com");
         assert_eq!(name, factor_names(&[r"MX\056BACKUP.EXAMPLE.COM."]));
@@ -403,8 +428,9 @@ mod test {
 
     #[test]
     fn wide_label_product_is_bounded() {
-        // Independent per-label alternatives would allow combinations such as
-        // a0.b1.c2.d3; only these complete paths may appear in the result.
+        // Independent alternatives at the four varying positions describe 128^4
+        // hosts, including a0.b1.c2.d3. The compact-form check must stop before
+        // expanding that product and fall back to these complete paths.
         let hosts: Vec<_> = (0..128)
             .map(|i| format!("a{i}.b{i}.c{i}.d{i}.example.com"))
             .collect();
