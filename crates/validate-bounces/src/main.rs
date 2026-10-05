@@ -3,6 +3,8 @@ use bounce_classify::{BounceClass, BounceClassifierBuilder};
 use clap::Parser;
 use ordermap::OrderMap;
 use serde::Deserialize;
+use std::convert::TryFrom;
+use rfc5321::parse_response_line;
 
 /// KumoMTA bounce classification configuration validator
 ///
@@ -17,8 +19,24 @@ struct Opt {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(try_from="String")]
+struct ResponseLineWrapper(String);
+
+impl TryFrom<String> for ResponseLineWrapper {
+    type Error = String;
+    fn try_from(line: String) -> Result<Self, String> {
+        let _resp = parse_response_line(&line).map_err(|e| format!("{e}"))?;
+        Ok(Self(line))
+    }
+}
+
+impl From<ResponseLineWrapper> for String {
+    fn from(resp: ResponseLineWrapper) -> String { resp.0 }
+}
+
+#[derive(Deserialize, Debug)]
 struct SampleFile {
-    pub rules: OrderMap<BounceClass, Vec<String>>,
+    pub rules: OrderMap<BounceClass, Vec<ResponseLineWrapper>>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -52,11 +70,12 @@ fn main() -> anyhow::Result<()> {
 
         for (class, inputs) in samples.rules {
             for input in inputs {
-                let got = classifier.classify_str(&input);
+                let input_str: String = input.into();
+                let got = classifier.classify_str(&input_str);
                 if got != class {
                     let expected = String::from(class.clone());
                     let got = String::from(got);
-                    failures.push(format!("{input:?}: expected {expected} but got {got}"));
+                    failures.push(format!("{input_str:?}: expected {expected} but got {got}"));
                 }
             }
         }

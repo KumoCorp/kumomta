@@ -9560,6 +9560,7 @@ dependencies = [
  "bounce-classify",
  "clap",
  "ordermap",
+ "rfc5321",
  "serde",
  "toml",
 ]

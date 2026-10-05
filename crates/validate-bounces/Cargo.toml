@@ -10,6 +10,7 @@ ordermap = {workspace=true}
 serde = {workspace=true}
 toml = {workspace=true}
 bounce-classify = {path="../bounce-classify"}
+rfc5321 = {path="../rfc5321"}
 
 [lints]
 workspace = true
