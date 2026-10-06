@@ -15,6 +15,13 @@
    [log_consumer_lag_seconds](../reference/metrics/kumod/log_consumer_lag_seconds.md)
    metrics expose this information.
 
+ * The systemd unit now launches kumod directly as the `kumod` user, with
+   `CAP_NET_BIND_SERVICE` granted ambiently, matching the configuration that
+   kumod would establish for itself when spawned as root, but doing so without
+   ever having full root privilege.  If you deploy your own unit file, add
+   `User=kumod`, `Group=kumod`, `AmbientCapabilities=CAP_NET_BIND_SERVICE` and
+   `CapabilityBoundingSet=CAP_NET_BIND_SERVICE` to adopt the same model.
+
 ## Fixes
 
  * When started as root with `--user`, kumod now sets the real, effective and
@@ -24,7 +31,7 @@
    and regain full root privilege.  No such code exists in kumod itself, but
    it presented a potential avenue for an attacker, if they could contrive
    for kumod to execute arbitrary code through some other vulerability.
-   to remote code execution vulnerabilities are known to exist.
+   No remote code execution vulnerabilities are known to exist.
    kumod now retains only `CAP_NET_BIND_SERVICE`, which it needs to bind
    privileged ports.
 

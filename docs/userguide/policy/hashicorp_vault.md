@@ -57,6 +57,10 @@ Conflicts=sendmail.service exim.service postfix.service
 Type=simple
 Restart=always
 ExecStart=/opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/init.lua --user kumod
+User=kumod
+Group=kumod
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 # Allow sufficient time to wrap up in-flight tasks and safely
 # write out pending data
 TimeoutStopSec=300

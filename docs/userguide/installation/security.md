@@ -12,11 +12,12 @@ The `.deb` and `.rpm` packages that we provide are preconfigured to create a
 service account named `kumod` and grant that user write access to the
 suggested default spool and log locations.
 
-The service is launched as the root user in order to bind to the privileged
-SMTP (port 25). The service immediately on startup, before taking any other
-action, drops all of the root privileges except for `CAP_NET_BIND_SERVICE`
-(which is required to bind to port 25) and then switches its user id to the
-`kumod` user.
+The service packaging is designed to run as the `kumod` user.  The systemd unit
+grants it the `CAP_NET_BIND_SERVICE` capability ambiently, which enables the
+service to bind the privileged SMTP port (25) without retaining full root
+privilege.  Older versions of kumomta spawned with root privileges and then
+internally established the same configuration; retaining `CAP_NET_BIND_SERVICE`
+and dropping root privileges.
 
 ## Spool, Log and DKIM Directory Permissions
 
