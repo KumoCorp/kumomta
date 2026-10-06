@@ -561,11 +561,16 @@ impl<'a> Compiled<'a> {
         }
 
         let subst = serde_json::Value::Object(subst);
+        let template_ctx = self
+            .env_and_templates
+            .borrow_owner()
+            .create_context(&subst)?;
 
         let mut id = 0;
         match content {
             Content::Rfc822(_) => {
-                let content = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
+                let content = self.env_and_templates.borrow_dependent()[id]
+                    .render_with_context(&template_ctx)?;
                 let mut msg = MimePart::parse(&*content)
                     .with_context(|| format!("failed to parse content: {content}"))?
                     .rebuild(None)
@@ -587,19 +592,24 @@ impl<'a> Compiled<'a> {
                 let mut builder = MessageBuilder::new();
 
                 if text_body.is_some() {
-                    builder
-                        .text_plain(&self.env_and_templates.borrow_dependent()[id].render(&subst)?);
+                    builder.text_plain(
+                        &self.env_and_templates.borrow_dependent()[id]
+                            .render_with_context(&template_ctx)?,
+                    );
                     id += 1;
                 }
 
                 if html_body.is_some() {
-                    builder
-                        .text_html(&self.env_and_templates.borrow_dependent()[id].render(&subst)?);
+                    builder.text_html(
+                        &self.env_and_templates.borrow_dependent()[id]
+                            .render_with_context(&template_ctx)?,
+                    );
                     id += 1;
                 }
                 if amp_html_body.is_some() {
                     builder.text_amp_html(
-                        &self.env_and_templates.borrow_dependent()[id].render(&subst)?,
+                        &self.env_and_templates.borrow_dependent()[id]
+                            .render_with_context(&template_ctx)?,
                     );
                     id += 1;
                 }
@@ -618,8 +628,8 @@ impl<'a> Compiled<'a> {
                             if need_to && name.eq_ignore_ascii_case("to") {
                                 need_to = false;
                             }
-                            let expanded =
-                                self.env_and_templates.borrow_dependent()[id].render(&subst)?;
+                            let expanded = self.env_and_templates.borrow_dependent()[id]
+                                .render_with_context(&template_ctx)?;
                             id += 1;
                             let header = make_header(name, &expanded, &self.constructed_addresses)?;
                             builder.push(header);

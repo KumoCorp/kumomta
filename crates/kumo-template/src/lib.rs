@@ -15,6 +15,13 @@ pub enum TemplateDialect {
     Handlebars,
 }
 
+#[derive(Debug, Clone)]
+pub enum TemplateContext {
+    Jinja(minijinja::Value),
+    Static,
+    Handlebars(handlebars::Context),
+}
+
 enum Engine {
     Jinja {
         env: Environment<'static>,
@@ -39,13 +46,12 @@ pub enum Template<'env, 'source> {
 
 impl<'env, 'source> Template<'env, 'source> {
     pub fn render<S: Serialize>(&self, ctx: S) -> anyhow::Result<String> {
-        match &self {
+        match self {
             Self::Jinja(t) => Ok(t.render(ctx)?),
             Self::Static(s) => Ok(s.to_string()),
-            Self::Handlebars { .. } => {
-                let mut output: Vec<u8> = vec![];
-                self.render_to_write(&ctx, &mut output)?;
-                Ok(String::from_utf8(output)?)
+            Self::Handlebars { engine, .. } => {
+                let context = engine.create_context(ctx)?;
+                self.render_with_context(&context)
             }
         }
     }
@@ -53,25 +59,56 @@ impl<'env, 'source> Template<'env, 'source> {
     pub fn render_to_write<S: Serialize, W: std::io::Write>(
         &self,
         ctx: S,
-        mut w: W,
+        w: W,
     ) -> anyhow::Result<()> {
-        match &self {
+        match self {
             Self::Jinja(t) => {
                 t.render_captured_to(ctx, w)?;
                 Ok(())
             }
             Self::Static(s) => {
+                let mut w = w;
                 w.write_all(s.as_bytes())?;
                 Ok(())
             }
-            Self::Handlebars { engine, template } => {
-                let Engine::Handlebars { registry, globals } = &engine.engine else {
+            Self::Handlebars { engine, .. } => {
+                let context = engine.create_context(ctx)?;
+                self.render_with_context_to_write(&context, w)
+            }
+        }
+    }
+
+    pub fn render_with_context(&self, ctx: &TemplateContext) -> anyhow::Result<String> {
+        match (self, ctx) {
+            (Self::Jinja(t), TemplateContext::Jinja(v)) => Ok(t.render(v)?),
+            (Self::Static(s), TemplateContext::Static) => Ok(s.to_string()),
+            (Self::Handlebars { .. }, TemplateContext::Handlebars(_)) => {
+                let mut output: Vec<u8> = vec![];
+                self.render_with_context_to_write(ctx, &mut output)?;
+                Ok(String::from_utf8(output)?)
+            }
+            _ => anyhow::bail!("mismatched template dialect and TemplateContext"),
+        }
+    }
+
+    pub fn render_with_context_to_write<W: std::io::Write>(
+        &self,
+        ctx: &TemplateContext,
+        mut w: W,
+    ) -> anyhow::Result<()> {
+        match (self, ctx) {
+            (Self::Jinja(t), TemplateContext::Jinja(v)) => {
+                t.render_captured_to(v, w)?;
+                Ok(())
+            }
+            (Self::Static(s), TemplateContext::Static) => {
+                w.write_all(s.as_bytes())?;
+                Ok(())
+            }
+            (Self::Handlebars { engine, template }, TemplateContext::Handlebars(context)) => {
+                let Engine::Handlebars { registry, .. } = &engine.engine else {
                     anyhow::bail!("impossible Handlebars Template vs. TemplateEngine state")
                 };
-
-                let context = serde_json::to_value(ctx)?;
-                let context = merge_contexts(globals, context);
-                let context = handlebars::Context::wraps(context)?;
 
                 let mut render_context = handlebars::RenderContext::new(None);
                 render_context.set_recursive_lookup(true);
@@ -82,10 +119,11 @@ impl<'env, 'source> Template<'env, 'source> {
                     .unwrap_or(false);
                 render_context.set_disable_escape(!is_html);
 
-                let output = template.renders(registry, &context, &mut render_context)?;
+                let output = template.renders(registry, context, &mut render_context)?;
                 w.write_all(output.as_bytes())?;
                 Ok(())
             }
+            _ => anyhow::bail!("mismatched template dialect and TemplateContext"),
         }
     }
 }
@@ -236,6 +274,21 @@ impl TemplateEngine {
         Ok(())
     }
 
+    pub fn create_context<S: Serialize>(&self, ctx: S) -> anyhow::Result<TemplateContext> {
+        match &self.engine {
+            Engine::Jinja { .. } => Ok(TemplateContext::Jinja(minijinja::Value::from_serialize(
+                ctx,
+            ))),
+            Engine::Static { .. } => Ok(TemplateContext::Static),
+            Engine::Handlebars { globals, .. } => {
+                let context = serde_json::to_value(ctx)?;
+                let context = merge_contexts(globals, context);
+                let context = handlebars::Context::wraps(context)?;
+                Ok(TemplateContext::Handlebars(context))
+            }
+        }
+    }
+
     pub fn render<CTX>(&self, name: &str, source: &str, context: CTX) -> anyhow::Result<String>
     where
         CTX: serde::Serialize,
@@ -283,6 +336,8 @@ self_cell!(
     /// constructed like this:
     ///
     /// ```rust
+    /// use kumo_template::{CompiledTemplates, TemplateEngine, TemplateList};
+    ///
     /// fn get_templates<'b>(
     ///   engine: &'b TemplateEngine
     /// ) -> anyhow::Result<TemplateList<'b>> {
@@ -291,11 +346,12 @@ self_cell!(
     ///   Ok(templates)
     /// }
     ///
-    /// let engine = TemplateEngine::new();
+    /// let mut engine = TemplateEngine::new();
     /// engine.add_template("something", "some text")?;
     /// let compiled = CompiledTemplates::try_new(engine, |engine| {
     ///   get_templates(engine)
-    /// });
+    /// })?;
+    /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub struct CompiledTemplates {
         owner: TemplateEngine,
@@ -303,3 +359,61 @@ self_cell!(
         dependent: TemplateList,
     }
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_template_context_jinja() {
+        let mut engine = TemplateEngine::with_dialect(TemplateDialect::Jinja);
+        engine.add_template("t1", "Hello, {{ name }}!").unwrap();
+        engine.add_template("t2", "Goodbye, {{ name }}!").unwrap();
+
+        let ctx = engine.create_context(json!({"name": "World"})).unwrap();
+        let t1 = engine.get_template("t1").unwrap();
+        let t2 = engine.get_template("t2").unwrap();
+
+        assert_eq!(t1.render_with_context(&ctx).unwrap(), "Hello, World!");
+        assert_eq!(t2.render_with_context(&ctx).unwrap(), "Goodbye, World!");
+    }
+
+    #[test]
+    fn test_template_context_handlebars() {
+        let mut engine = TemplateEngine::with_dialect(TemplateDialect::Handlebars);
+        engine
+            .add_template("html_part.html", "<b>Hello, {{ name }}</b>")
+            .unwrap();
+        engine
+            .add_template("text_part.txt", "Hello, {{ name }}")
+            .unwrap();
+
+        let ctx = engine
+            .create_context(json!({"name": "Alice & Bob"}))
+            .unwrap();
+        let html_tmpl = engine.get_template("html_part.html").unwrap();
+        let text_tmpl = engine.get_template("text_part.txt").unwrap();
+
+        // html_part.html auto-escapes HTML entities
+        assert_eq!(
+            html_tmpl.render_with_context(&ctx).unwrap(),
+            "<b>Hello, Alice &amp; Bob</b>"
+        );
+        // text_part.txt does not escape
+        assert_eq!(
+            text_tmpl.render_with_context(&ctx).unwrap(),
+            "Hello, Alice & Bob"
+        );
+    }
+
+    #[test]
+    fn test_template_context_static() {
+        let mut engine = TemplateEngine::with_dialect(TemplateDialect::Static);
+        engine.add_template("s1", "Static text").unwrap();
+
+        let ctx = engine.create_context(json!({})).unwrap();
+        let tmpl = engine.get_template("s1").unwrap();
+        assert_eq!(tmpl.render_with_context(&ctx).unwrap(), "Static text");
+    }
+}
