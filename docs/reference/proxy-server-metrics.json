@@ -432,6 +432,17 @@
     "pruning": "NonPruning"
   },
   {
+    "name": "proxy_accept_errors_total",
+    "help": "Total number of accept() errors that caused the listener to pause before\nretrying, such as file-descriptor exhaustion.",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Counter",
+    "label_names": [
+      "listener"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
     "name": "proxy_active_connections",
     "help": "Current number of active proxy connections.",
     "doc": "This gauge shows the number of connections currently being proxied.\nIt increments when a connection is accepted and decrements when\nthe connection closes (successfully or with error).",
@@ -479,6 +490,17 @@
     "name": "proxy_connections_completed_total",
     "help": "Total number of proxy sessions that completed successfully.",
     "doc": "This counter increments when a proxy session completes without error,\nmeaning the client connected, was proxied to the destination, and\nboth sides closed cleanly.",
+    "metric_type": "Counter",
+    "label_names": [
+      "listener"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "proxy_connections_denied_total",
+    "help": "Total number of connections closed immediately for exceeding the\n`max_connections` limit of the listener.",
+    "doc": "{{since('dev')}}",
     "metric_type": "Counter",
     "label_names": [
       "listener"

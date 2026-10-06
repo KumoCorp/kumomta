@@ -1427,6 +1427,17 @@
     "pruning": "NonPruning"
   },
   {
+    "name": "total_accept_errors",
+    "help": "total number of accept() errors that caused the listener to pause before\nretrying, such as file-descriptor exhaustion",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Counter",
+    "label_names": [
+      "service"
+    ],
+    "buckets": [],
+    "pruning": "Pruning"
+  },
+  {
     "name": "total_connection_count",
     "help": "total number of active connections ever made",
     "doc": null,

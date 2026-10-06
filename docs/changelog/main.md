@@ -4,6 +4,14 @@
 
 ## Other Changes and Enhancements
 
+ * The SOCKS5 proxy listener now accepts a
+   [max_connections](../reference/proxy/start_proxy_listener/max_connections.md)
+   parameter (default `32768`) that bounds the number of concurrent client
+   connections. Connections above the limit are closed immediately and counted
+   by the new
+   [proxy_connections_denied_total](../reference/metrics/proxy-server/proxy_connections_denied_total.md)
+   metric.
+
  * You may now monitor the status of your log consumers via kumod metrics. For
    [configure_local_logs](../reference/kumo/configure_local_logs/index.md) and
    [kumo.jsonl.new_writer](../reference/kumo.jsonl/new_writer.md), the status of
@@ -23,6 +31,15 @@
    `CapabilityBoundingSet=CAP_NET_BIND_SERVICE` to adopt the same model.
 
 ## Fixes
+
+ * SMTP and SOCKS5 proxy listeners no longer stop serving when `accept` returns
+   an error. Previously a transient error such as file-descriptor exhaustion
+   (`EMFILE`/`ENFILE`) propagated out of the accept loop and permanently halted
+   the listener while the process kept running. Because the process itself
+   stayed up, a supervisor such as systemd's `Restart=always` saw a healthy
+   process and would not restart it, leaving only a manual service restart to
+   recover the listener. The listeners now log and continue, pausing briefly on
+   resource-exhaustion errors to avoid spinning.
 
  * When started as root with `--user`, kumod now sets the real, effective and
    saved user and group ids to the target user, rather than lowering only the

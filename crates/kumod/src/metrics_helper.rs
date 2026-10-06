@@ -54,6 +54,14 @@ pub static CONN_DENIED: PruningCounterRegistry<ServiceKey>("total_connections_de
 }
 
 declare_metric! {
+/// total number of accept() errors that caused the listener to pause before
+/// retrying, such as file-descriptor exhaustion
+///
+/// {{since('dev')}}
+pub static ACCEPT_ERRORS: PruningCounterRegistry<ServiceKey>("total_accept_errors");
+}
+
+declare_metric! {
 /// total number of active connections ever made
 pub static TOTAL_CONN: PruningCounterRegistry<ServiceKey>("total_connection_count");
 }
@@ -179,6 +187,11 @@ pub fn smtp_rejected_for_service(service: &str) -> AtomicCounter {
 pub fn connection_denied_for_service(service: &str) -> AtomicCounter {
     let service = BorrowedServiceKey { service };
     CONN_DENIED.get_or_create(&service as &dyn ServiceKeyTrait)
+}
+
+pub fn accept_errors_for_service(service: &str) -> AtomicCounter {
+    let service = BorrowedServiceKey { service };
+    ACCEPT_ERRORS.get_or_create(&service as &dyn ServiceKeyTrait)
 }
 
 pub fn ready_full_counter_for_service(service: &str) -> AtomicCounter {

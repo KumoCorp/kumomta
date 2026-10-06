@@ -4216,6 +4216,7 @@ dependencies = [
  "anyhow",
  "kumo-prometheus",
  "kumo-server-memory",
+ "libc",
  "linkme",
  "parking_lot",
  "prometheus",

@@ -313,3 +313,35 @@ pub fn available_parallelism() -> anyhow::Result<usize> {
             .get()),
     }
 }
+
+/// Decide how long to wait, if at all, before retrying after an error from
+/// `accept()`.
+///
+/// Returns `None` for connection-level errors (the peer went away between the
+/// kernel queuing the connection and our accepting it): retry these
+/// immediately. Returns a pause for everything else, such as file-descriptor
+/// exhaustion (EMFILE/ENFILE): wait out the returned duration before
+/// retrying these, since they persist across calls until some other
+/// connection closes or a resource frees up.
+pub fn accept_error_pause(err: &std::io::Error) -> Option<Duration> {
+    use std::io::ErrorKind;
+    match err.kind() {
+        ErrorKind::ConnectionRefused
+        | ErrorKind::ConnectionAborted
+        | ErrorKind::ConnectionReset => None,
+        _ => Some(Duration::from_secs(1)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accept_error_pause_backs_off_on_fd_exhaustion() {
+        // EMFILE maps to an uncategorized ErrorKind on most platforms. The
+        // classifier must still pause rather than spin.
+        let emfile = std::io::Error::from_raw_os_error(libc::EMFILE);
+        assert_eq!(accept_error_pause(&emfile), Some(Duration::from_secs(1)));
+    }
+}
