@@ -17,3 +17,14 @@
 
 ## Fixes
 
+ * When started as root with `--user`, kumod now sets the real, effective and
+   saved user and group ids to the target user, rather than lowering only the
+   effective user id. Previously the real and saved ids remained `0`, which
+   could potentially allow code running inside kumod to call `setresuid(0,0,0)`
+   and regain full root privilege.  No such code exists in kumod itself, but
+   it presented a potential avenue for an attacker, if they could contrive
+   for kumod to execute arbitrary code through some other vulerability.
+   to remote code execution vulnerabilities are known to exist.
+   kumod now retains only `CAP_NET_BIND_SERVICE`, which it needs to bind
+   privileged ports.
+

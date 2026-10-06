@@ -10,6 +10,7 @@ use kumo_server_lifecycle::LifeCycle;
 use kumo_server_runtime::{available_parallelism, rt_spawn};
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use nix::unistd::{Uid, User};
+use std::ffi::CString;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -141,29 +142,66 @@ impl Opt {
         let user = User::from_name(&user_name)?
             .ok_or_else(|| anyhow::anyhow!("Invalid user {user_name}"))?;
 
-        nix::unistd::setgid(user.gid).context("setgid")?;
-        // We set the euid only so that we can retain CAP_NET_BIND_SERVICE
-        // below. We'll still show up in the process listing as the target
-        // user, but because we're dropping all the other caps, we lose all
-        // other parts of our root-ness.
-        nix::unistd::seteuid(user.uid).context("setuid")?;
+        let account_name =
+            CString::new(user.name.as_str()).context("user name contains an embedded NUL")?;
+        nix::unistd::initgroups(&account_name, user.gid)
+            .with_context(|| format!("initializing groups for {}", user.name))?;
 
         #[cfg(target_os = "linux")]
         {
-            // eprintln!("permitted: {:?}", caps::read(None, CapSet::Permitted)?);
-            // eprintln!("effective: {:?}", caps::read(None, CapSet::Effective)?);
-
-            // Want to drop all capabilities except the ability to
-            // bind to privileged ports, so that we can reload the
-            // config and still bind to port 25
             use caps::{CapSet, Capability, CapsHashSet};
+            use nix::unistd::{getresgid, getresuid, setresgid, setresuid};
+
             let mut target_set = CapsHashSet::new();
             target_set.insert(Capability::CAP_NET_BIND_SERVICE);
 
+            setresgid(user.gid, user.gid, user.gid).context("setresgid")?;
+
+            // The kernel drops the permitted capability set as soon as none of
+            // the uids of a process is still 0. Keepcaps retains it across the
+            // setresuid call until we can reduce it to CAP_NET_BIND_SERVICE.
+            caps::securebits::set_keepcaps(true).context("enabling keepcaps")?;
+            setresuid(user.uid, user.uid, user.uid).context("setresuid")?;
+            caps::securebits::set_keepcaps(false).context("disabling keepcaps")?;
+
+            // Clearing the inheritable set also empties ambient, which is
+            // constrained to be a subset of inheritable.
+            caps::clear(None, CapSet::Inheritable).context("clearing inheritable capabilities")?;
             caps::set(None, CapSet::Effective, &target_set)
                 .with_context(|| format!("setting effective caps to {target_set:?}"))?;
             caps::set(None, CapSet::Permitted, &target_set)
                 .with_context(|| format!("setting permitted caps to {target_set:?}"))?;
+
+            let uids = getresuid().context("getresuid")?;
+            anyhow::ensure!(
+                uids.real == user.uid && uids.effective == user.uid && uids.saved == user.uid,
+                "privilege drop left unexpected UIDs: {uids:?}"
+            );
+
+            let gids = getresgid().context("getresgid")?;
+            anyhow::ensure!(
+                gids.real == user.gid && gids.effective == user.gid && gids.saved == user.gid,
+                "privilege drop left unexpected GIDs: {gids:?}"
+            );
+
+            anyhow::ensure!(
+                caps::read(None, CapSet::Permitted)? == target_set,
+                "privilege drop left unexpected permitted capabilities"
+            );
+            anyhow::ensure!(
+                caps::read(None, CapSet::Effective)? == target_set,
+                "privilege drop left unexpected effective capabilities"
+            );
+            anyhow::ensure!(
+                caps::read(None, CapSet::Inheritable)?.is_empty(),
+                "privilege drop left inheritable capabilities"
+            );
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            nix::unistd::setgid(user.gid).context("setgid")?;
+            nix::unistd::setuid(user.uid).context("setuid")?;
         }
 
         Ok(())
