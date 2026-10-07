@@ -63,3 +63,9 @@
    headers or body. The returned copy of the original is encoded to keep the
    report 7-bit clean, and downgrades to just the headers, or is omitted, when
    its content cannot be represented that way.
+
+ * The [mail_auth](../reference/policy-extras.mail_auth/index.md) iprev check now
+   follows at most 10 of the connecting IP's PTR names with forward A/AAAA
+   lookups, as required by RFC 8601 section 3. Previously it followed every
+   name, letting the owner of the reverse zone drive an unbounded number of DNS
+   lookups per connection. #623
