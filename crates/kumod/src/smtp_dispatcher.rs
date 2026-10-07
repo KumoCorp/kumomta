@@ -134,12 +134,15 @@ pub enum MxListEntry {
 }
 
 impl MxListEntry {
-    /// Resolve self into 1 or more `ResolvedAddress` and append to the
-    /// supplied `addresses` vector.
+    /// Resolve self into 1 or more `ResolvedAddress` and append to the supplied
+    /// `addresses` vector. At most `max_addresses_per_host` addresses are
+    /// appended for a name that resolves to an `A`/`AAAA` RRset, bounding the
+    /// contribution of one entry.
     pub async fn resolve_into(
         &self,
         addresses: &mut Vec<ResolvedAddress>,
         strategy: IpLookupStrategy,
+        max_addresses_per_host: usize,
     ) -> anyhow::Result<()> {
         match self {
             Self::Name(a) => {
@@ -147,7 +150,7 @@ impl MxListEntry {
                     let resolved = resolve_a_or_aaaa(label, None, strategy)
                         .await
                         .with_context(|| format!("resolving mx_list entry {a}"))?;
-                    for mut r in resolved {
+                    for mut r in resolved.into_iter().take(max_addresses_per_host) {
                         r.addr.set_port(port);
                         addresses.push(r);
                     }
@@ -155,11 +158,11 @@ impl MxListEntry {
                     return Ok(());
                 }
 
-                addresses.append(
-                    &mut resolve_a_or_aaaa(a, None, strategy)
-                        .await
-                        .with_context(|| format!("resolving mx_list entry {a}"))?,
-                );
+                let mut resolved = resolve_a_or_aaaa(a, None, strategy)
+                    .await
+                    .with_context(|| format!("resolving mx_list entry {a}"))?;
+                resolved.truncate(max_addresses_per_host);
+                addresses.append(&mut resolved);
             }
             Self::Resolved(addr) => {
                 addresses.push(addr.clone());
@@ -227,14 +230,26 @@ impl SmtpDispatcher {
                 .mx
                 .as_ref()
                 .expect("to have mx when doing smtp")
-                .resolve_addresses(None, path_config.ip_lookup_strategy)
+                .resolve_addresses(
+                    None,
+                    path_config.ip_lookup_strategy,
+                    path_config.max_mx_plan_size,
+                    path_config.max_mx_addresses_per_host,
+                )
                 .await
         } else {
             let mut addresses = vec![];
             for a in proto_config.mx_list.iter() {
-                a.resolve_into(&mut addresses, path_config.ip_lookup_strategy)
-                    .await?;
+                a.resolve_into(
+                    &mut addresses,
+                    path_config.ip_lookup_strategy,
+                    path_config.max_mx_addresses_per_host,
+                )
+                .await?;
             }
+            // The list is still in most-preferred-first order here. `truncate`
+            // drops entries off the least-preferred end.
+            addresses.truncate(path_config.max_mx_plan_size);
             // Note that ResolvedMxAddresses::Addresses is in LIFO
             // order, and we have FIFO order.  Reverse it!
             addresses.reverse();

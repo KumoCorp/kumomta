@@ -69,3 +69,12 @@
    lookups, as required by RFC 8601 section 3. Previously it followed every
    name, letting the owner of the reverse zone drive an unbounded number of DNS
    lookups per connection. #623
+
+ * The SMTP connection plan built for a delivery attempt is now bounded by two
+   new [make_egress_path](../reference/kumo/make_egress_path/index.md) options,
+   [max_mx_addresses_per_host](../reference/kumo/make_egress_path/max_mx_addresses_per_host.md)
+   (default `10`) and
+   [max_mx_plan_size](../reference/kumo/make_egress_path/max_mx_plan_size.md)
+   (default `50`). Previously MX resolution retained every address of every MX
+   host with no cap, which meant that the connection plan could be arbitrarily
+   large. #622
