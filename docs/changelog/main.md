@@ -98,3 +98,7 @@
    (default `50`). Previously MX resolution retained every address of every MX
    host with no cap, which meant that the connection plan could be arbitrarily
    large. #622
+
+ * Fixed a DANE downgrade that could occur when an A or AAAA lookup returned a
+   bogus (DNSSEC validation failure) result. Such a result now defers delivery
+   rather than being treated as ordinary unsigned addresses. #612

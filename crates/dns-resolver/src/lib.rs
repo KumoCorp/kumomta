@@ -650,6 +650,26 @@ pub async fn ip_lookup(
     Ok((result, exp))
 }
 
+// A validating resolver can mark an answer bogus (its records are forged or
+// tampered, or the zone is misconfigured) while still returning the addresses
+// from that forged RRset. Without this check, ipv4_lookup and ipv6_lookup
+// would hand those addresses back with secure=false, indistinguishable from
+// an ordinary unsigned answer. classify_tlsa_answer and classify_cname_answer
+// in this file reject bogus the same way, because a caller that decides DANE
+// eligibility from the secure bit would otherwise treat a forged address as
+// merely unauthenticated and connect to it without DANE (RFC 7672 2.1.1-2.1.2).
+fn reject_bogus_answer(name: &str, answer: &Answer) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !answer.bogus,
+        "address lookup for {name} is bogus: {}",
+        answer
+            .why_bogus
+            .as_deref()
+            .unwrap_or("DNSSEC validation failed")
+    );
+    Ok(())
+}
+
 pub async fn ipv4_lookup(
     key: &str,
     resolver: Option<&dyn Resolver>,
@@ -670,6 +690,7 @@ pub async fn ipv4_lookup(
                 .await?
         }
     };
+    reject_bogus_answer(key, &answer)?;
     let result = Arc::new(IpAddresses {
         addrs: answer.as_addr(),
         secure: answer.secure,
@@ -703,6 +724,7 @@ pub async fn ipv6_lookup(
                 .await?
         }
     };
+    reject_bogus_answer(key, &answer)?;
     let result = Arc::new(IpAddresses {
         addrs: answer.as_addr(),
         secure: answer.secure,
@@ -735,6 +757,98 @@ mod test {
 
     fn sha256_tlsa(usage: CertUsage, selector: Selector) -> TLSA {
         TLSA::new(usage, selector, Matching::Sha256, vec![0u8; 32])
+    }
+
+    fn bogus_answer(records: Vec<RData>) -> Answer {
+        let mut answer = answer(records, false, ResponseCode::NoError);
+        answer.bogus = true;
+        answer.why_bogus = Some("invalid signature".into());
+        answer
+    }
+
+    #[test]
+    fn reject_bogus_rejects_only_bogus() {
+        let a = RData::A("192.0.2.1".parse().unwrap());
+        // A bogus answer is rejected whether or not it contains addresses: the
+        // addresses are forged, and an empty bogus answer must not pass as an
+        // ordinary empty result either.
+        for records in [vec![], vec![a.clone()]] {
+            let err = reject_bogus_answer("mx.example.com", &bogus_answer(records)).unwrap_err();
+            k9::assert_equal!(
+                err.to_string(),
+                "address lookup for mx.example.com is bogus: invalid signature"
+            );
+        }
+        // Non-bogus answers pass, regardless of secure status or response code;
+        // their addresses (or absence) are the caller's to interpret.
+        for secure in [false, true] {
+            for code in [ResponseCode::NoError, ResponseCode::NXDomain] {
+                reject_bogus_answer("mx.example.com", &answer(vec![a.clone()], secure, code))
+                    .unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn bogus_family_does_not_downgrade_sibling() {
+        // Models a validating resolver that returns a DNSSEC-validated A RRset
+        // and a bogus AAAA RRset that still contains an address, per the family
+        // controlled by `all_bogus`.
+        struct SplitResolver {
+            all_bogus: bool,
+        }
+        #[async_trait::async_trait]
+        impl Resolver for SplitResolver {
+            async fn resolve_ip(&self, _: &str) -> Result<Vec<IpAddr>, DnsError> {
+                unimplemented!("ip_lookup only calls resolve")
+            }
+            async fn resolve_mx(&self, _: &str) -> Result<Vec<Name>, DnsError> {
+                unimplemented!("ip_lookup only calls resolve")
+            }
+            async fn resolve_ptr(&self, _: IpAddr) -> Result<Vec<Name>, DnsError> {
+                unimplemented!("ip_lookup only calls resolve")
+            }
+            async fn resolve(&self, _: Name, rrtype: RecordType) -> Result<Answer, DnsError> {
+                Ok(match rrtype {
+                    RecordType::A if !self.all_bogus => answer(
+                        vec![RData::A("192.0.2.1".parse().unwrap())],
+                        true,
+                        ResponseCode::NoError,
+                    ),
+                    RecordType::A => bogus_answer(vec![RData::A("192.0.2.9".parse().unwrap())]),
+                    _ => bogus_answer(vec![RData::AAAA("2001:db8::1".parse().unwrap())]),
+                })
+            }
+        }
+
+        // Secure A, bogus AAAA: ip_lookup excludes the bogus AAAA family from
+        // both the address list and the secure computation, the same as it
+        // excludes a family that errored. The surviving A keeps its own secure
+        // bit rather than being dragged insecure by its bogus sibling.
+        let (result, _) = ip_lookup(
+            "mx.example.com",
+            Some(&SplitResolver { all_bogus: false }),
+            IpLookupStrategy::Ipv4AndIpv6,
+        )
+        .await
+        .unwrap();
+        k9::assert_equal!(result.addrs, vec!["192.0.2.1".parse::<IpAddr>().unwrap()]);
+        k9::assert_equal!(result.secure, true);
+
+        // Every family bogus: both per-family lookups error, the address list
+        // stays empty, and ip_lookup raises the first of those errors rather
+        // than returning an empty or unsigned result.
+        let err = ip_lookup(
+            "mx.example.com",
+            Some(&SplitResolver { all_bogus: true }),
+            IpLookupStrategy::Ipv4AndIpv6,
+        )
+        .await
+        .unwrap_err();
+        k9::assert_equal!(
+            err.to_string(),
+            "address lookup for mx.example.com is bogus: invalid signature"
+        );
     }
 
     fn dane_ee_record() -> TLSA {
