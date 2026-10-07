@@ -1,7 +1,7 @@
+use crate::site_name::factor_names;
 use anyhow::Context;
 use dns_resolver::{
-    fully_qualify, get_resolver, has_colon_port, ip_lookup, DomainClassification, IpLookupStrategy,
-    Name, Resolver,
+    get_resolver, has_colon_port, ip_lookup, DomainClassification, IpLookupStrategy, Name, Resolver,
 };
 use hickory_resolver::proto::rr::{RData, RecordType};
 use kumo_address::host_or_socket::HostOrSocketAddress;
@@ -19,6 +19,8 @@ use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use tokio::time::timeout;
+
+mod site_name;
 
 /// Whether MX resolution consults MTA-STS policies. Defaults to true because
 /// honoring a destination's published MTA-STS policy is the correct default.
@@ -154,84 +156,6 @@ async fn lookup_mx_record(
     }
 
     Ok((records, mx_lookup.expires))
-}
-
-/// Given a list of host names, produce a pseudo-regex style alternation list
-/// of the different elements of the hostnames.
-/// The goal is to produce a more compact representation of the name list
-/// with the common components factored out.
-fn factor_names<S: AsRef<str>>(name_strings: &[S]) -> String {
-    let mut max_element_count = 0;
-
-    let mut names = vec![];
-
-    for name in name_strings {
-        let (name, opt_port) = match has_colon_port(name.as_ref()) {
-            Some((name, port)) => (name, Some(port)),
-            None => (name.as_ref(), None),
-        };
-        if let Ok(name) = fully_qualify(name) {
-            names.push((name.to_lowercase(), opt_port));
-        }
-    }
-
-    let mut elements: Vec<Vec<&str>> = vec![];
-
-    let mut split_names = vec![];
-    for (name, opt_port) in names {
-        let mut fields: Vec<_> = name
-            .iter()
-            .map(|s| String::from_utf8_lossy(s).to_string())
-            .collect();
-        if let Some(port) = opt_port {
-            fields.last_mut().map(|s| {
-                s.push_str(&format!(":{port}"));
-            });
-        }
-        fields.reverse();
-        max_element_count = max_element_count.max(fields.len());
-        split_names.push(fields);
-    }
-
-    fn add_element<'a>(elements: &mut Vec<Vec<&'a str>>, field: &'a str, i: usize) {
-        match elements.get_mut(i) {
-            Some(ele) => {
-                if !ele.contains(&field) {
-                    ele.push(field);
-                }
-            }
-            None => {
-                elements.push(vec![field]);
-            }
-        }
-    }
-
-    for fields in &split_names {
-        for (i, field) in fields.iter().enumerate() {
-            add_element(&mut elements, field, i);
-        }
-        for i in fields.len()..max_element_count {
-            add_element(&mut elements, "?", i);
-        }
-    }
-
-    let mut result = vec![];
-    for mut ele in elements {
-        let has_q = ele.contains(&"?");
-        ele.retain(|&e| e != "?");
-        let mut item_text = if ele.len() == 1 {
-            ele[0].to_string()
-        } else {
-            format!("({})", ele.join("|"))
-        };
-        if has_q {
-            item_text.push('?');
-        }
-        result.push(item_text);
-    }
-    result.reverse();
-
-    result.join(".")
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -586,18 +510,26 @@ impl MailExchanger {
         }
     }
 
-    /// Returns the list of resolve MX hosts in *reverse* preference
-    /// order; the first one to try is the last element.
-    /// smtp_dispatcher.rs relies on this ordering, as it will pop
-    /// off candidates until it has exhausted its connection plan.
+    /// Returns the list of resolved MX hosts in *reverse* preference order.
+    ///
+    /// `max_addresses_per_host` caps the `A`/`AAAA` addresses kept from any
+    /// single MX host, and `max_plan_size` caps the total across all hosts.
+    /// Both bound the plan: a destination publishing a very large number of
+    /// addresses cannot force an unbounded plan. When a cap truncates the
+    /// list, the addresses that are dropped are from the least-preferred
+    /// hosts.
     pub async fn resolve_addresses(
         &self,
         resolver: Option<&dyn Resolver>,
         strategy: IpLookupStrategy,
+        max_plan_size: usize,
+        max_addresses_per_host: usize,
     ) -> ResolvedMxAddresses {
         let mut result = vec![];
 
-        for hosts in self.by_pref.values().rev() {
+        // `by_pref` is a BTreeMap keyed by MX preference (lowest first);
+        // iterating it in key order visits the most-preferred hosts first.
+        'by_pref: for hosts in self.by_pref.values() {
             let mut by_pref = vec![];
 
             for mx_host in hosts {
@@ -629,8 +561,8 @@ impl MailExchanger {
                         tracing::error!("failed to resolve {mx_host}: {err:#}");
                         continue;
                     }
-                    Ok((result, _expires)) => {
-                        for addr in result.addrs.iter() {
+                    Ok((lookup, _expires)) => {
+                        for addr in lookup.addrs.iter().take(max_addresses_per_host) {
                             let mut addr: HostOrSocketAddress = (*addr).into();
                             if let Some(port) = opt_port {
                                 addr.set_port(port);
@@ -638,7 +570,7 @@ impl MailExchanger {
                             by_pref.push(ResolvedAddress {
                                 name: mx_host.to_string(),
                                 addr,
-                                is_secure: result.secure,
+                                is_secure: lookup.secure,
                             });
                         }
                     }
@@ -648,10 +580,24 @@ impl MailExchanger {
             // Randomize the list of addresses within this preference
             // level. This probablistically "load balances" outgoing
             // traffic across MX hosts with equal preference value.
-            let mut rng = rand::thread_rng();
-            by_pref.shuffle(&mut rng);
-            result.append(&mut by_pref);
+            {
+                let mut rng = rand::thread_rng();
+                by_pref.shuffle(&mut rng);
+            }
+
+            for addr in by_pref {
+                if result.len() == max_plan_size {
+                    // Stop resolving lower-preference hosts entirely, rather
+                    // than resolving them and truncating afterward.
+                    break 'by_pref;
+                }
+                result.push(addr);
+            }
         }
+
+        // Flip to the LIFO order the caller expects: the first candidate to
+        // try ends up as the last element.
+        result.reverse();
         ResolvedMxAddresses::Addresses(result)
     }
 }
@@ -667,7 +613,7 @@ pub enum ResolvedMxAddresses {
 #[cfg(test)]
 mod test {
     use super::*;
-    use dns_resolver::TestResolver;
+    use dns_resolver::{fully_qualify, TestResolver};
 
     fn policy(mode: &str, mx: &[&str]) -> MtaStsPolicy {
         let mut text = format!("version: STSv1\nmode: {mode}\nmax_age: 86400");
@@ -744,6 +690,26 @@ mod test {
     }
 
     #[tokio::test]
+    async fn site_identity_does_not_reorder_connection_preferences() {
+        let resolver = TestResolver::default()
+            .with_zone("$ORIGIN priority-a.example.\n@ 600 MX 10 mx1.targets.test.\n@ 600 MX 20 mx2.targets.test.\n")
+            .unwrap()
+            .with_zone("$ORIGIN priority-b.example.\n@ 600 MX 10 mx2.targets.test.\n@ 600 MX 20 mx1.targets.test.\n")
+            .unwrap();
+        let a = MailExchanger::resolve_via("priority-a.example", Some(&resolver))
+            .await
+            .unwrap();
+        let b = MailExchanger::resolve_via("priority-b.example", Some(&resolver))
+            .await
+            .unwrap();
+        assert_eq!(a.site_name, b.site_name);
+        assert_eq!(a.hosts, hosts(&["mx1.targets.test.", "mx2.targets.test."]));
+        assert_eq!(b.hosts, hosts(&["mx2.targets.test.", "mx1.targets.test."]));
+        assert_eq!(a.by_pref[&10], hosts(&["mx1.targets.test."]));
+        assert_eq!(b.by_pref[&10], hosts(&["mx2.targets.test."]));
+    }
+
+    #[tokio::test]
     async fn literal_resolve() {
         let v4_loopback = MailExchanger::resolve("[127.0.0.1]").await.unwrap();
         k9::snapshot!(
@@ -770,7 +736,7 @@ MailExchanger {
         );
         k9::snapshot!(
             v4_loopback
-                .resolve_addresses(None, IpLookupStrategy::default())
+                .resolve_addresses(None, IpLookupStrategy::default(), 50, 10)
                 .await,
             r#"
 Addresses(
@@ -810,7 +776,7 @@ MailExchanger {
         );
         k9::snapshot!(
             v6_loopback_non_conforming
-                .resolve_addresses(None, IpLookupStrategy::default())
+                .resolve_addresses(None, IpLookupStrategy::default(), 50, 10)
                 .await,
             r#"
 Addresses(
@@ -850,7 +816,7 @@ MailExchanger {
         );
         k9::snapshot!(
             v6_loopback
-                .resolve_addresses(None, IpLookupStrategy::default())
+                .resolve_addresses(None, IpLookupStrategy::default(), 50, 10)
                 .await,
             r#"
 Addresses(
@@ -944,7 +910,7 @@ MailExchanger {
         // shuffle in resolve_addresses is a no-op, so the order is stable.
         k9::snapshot!(
             gmail
-                .resolve_addresses(Some(&resolver), IpLookupStrategy::Ipv4Only)
+                .resolve_addresses(Some(&resolver), IpLookupStrategy::Ipv4Only, 50, 10)
                 .await,
             r#"
 Addresses(
@@ -977,6 +943,86 @@ Addresses(
     ],
 )
 "#
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_addresses_caps_plan() {
+        // One preference level with many hosts, each publishing a large A
+        // RRset: 32 hosts x 32 addresses = 1024 candidates with no cap. A
+        // lower-preference backup host with its own large RRset is dropped
+        // entirely once the total cap is reached.
+        let hosts = 32;
+        let addrs_per_host = 32;
+        let mut zone = String::from("$ORIGIN example.com.\n");
+        for h in 0..hosts {
+            zone.push_str(&format!("@ 86400 MX 10 host{h}.example.com.\n"));
+        }
+        zone.push_str("@ 86400 MX 20 backup.example.com.\n");
+        for h in 0..hosts {
+            for i in 1..=addrs_per_host {
+                zone.push_str(&format!("host{h} 300 A 10.0.{h}.{i}\n"));
+            }
+        }
+        for i in 1..=addrs_per_host {
+            zone.push_str(&format!("backup 300 A 10.1.0.{i}\n"));
+        }
+        let resolver = fixture_resolver(&[&zone]);
+        let mx = MailExchanger::resolve_via("example.com", Some(&resolver))
+            .await
+            .unwrap();
+
+        // Without the caps the plan would hold all 1056 addresses, including
+        // the lower-preference backup host.
+        let uncapped = match mx
+            .resolve_addresses(
+                Some(&resolver),
+                IpLookupStrategy::Ipv4Only,
+                usize::MAX,
+                usize::MAX,
+            )
+            .await
+        {
+            ResolvedMxAddresses::Addresses(a) => a,
+            other => panic!("expected addresses, got {other:?}"),
+        };
+        k9::assert_equal!(uncapped.len(), (hosts + 1) * addrs_per_host);
+        k9::assert_equal!(
+            uncapped
+                .iter()
+                .filter(|a| a.name == "backup.example.com.")
+                .count(),
+            addrs_per_host
+        );
+
+        // The default caps bound the total to max_plan_size, a host
+        // contributes no more than max_addresses_per_host, and the
+        // addresses dropped are the least-preferred ones: the backup host
+        // is absent entirely.
+        let capped = match mx
+            .resolve_addresses(Some(&resolver), IpLookupStrategy::Ipv4Only, 50, 10)
+            .await
+        {
+            ResolvedMxAddresses::Addresses(a) => a,
+            other => panic!("expected addresses, got {other:?}"),
+        };
+        k9::assert_equal!(capped.len(), 50);
+        k9::assert_equal!(
+            capped
+                .iter()
+                .filter(|a| a.name == "backup.example.com.")
+                .count(),
+            0
+        );
+
+        let mut per_host = std::collections::HashMap::new();
+        for addr in &capped {
+            *per_host.entry(addr.name.clone()).or_insert(0usize) += 1;
+        }
+        let max_from_one_host = per_host.values().copied().max().unwrap();
+        assert!(
+            max_from_one_host <= 10,
+            "a single host contributed {max_from_one_host} addresses, exceeding the per-host cap"
         );
     }
 
@@ -1110,81 +1156,6 @@ MailExchanger {
     expires: None,
 }
 "#
-        );
-    }
-
-    #[test]
-    fn name_factoring() {
-        assert_eq!(
-            factor_names(&[
-                "mta5.am0.yahoodns.net",
-                "mta6.am0.yahoodns.net",
-                "mta7.am0.yahoodns.net"
-            ]),
-            "(mta5|mta6|mta7).am0.yahoodns.net".to_string()
-        );
-
-        // Verify that the case is normalized to lowercase
-        assert_eq!(
-            factor_names(&[
-                "mta5.AM0.yahoodns.net",
-                "mta6.am0.yAHOodns.net",
-                "mta7.am0.yahoodns.net"
-            ]),
-            "(mta5|mta6|mta7).am0.yahoodns.net".to_string()
-        );
-
-        // When the names have mismatched lengths, do we produce
-        // something reasonable?
-        assert_eq!(
-            factor_names(&[
-                "gmail-smtp-in.l.google.com",
-                "alt1.gmail-smtp-in.l.google.com",
-                "alt2.gmail-smtp-in.l.google.com",
-                "alt3.gmail-smtp-in.l.google.com",
-                "alt4.gmail-smtp-in.l.google.com",
-            ]),
-            "(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com".to_string()
-        );
-
-        assert_eq!(
-            factor_names(&[
-                "mta5.am0.yahoodns.net:123",
-                "mta6.am0.yahoodns.net:123",
-                "mta7.am0.yahoodns.net:123"
-            ]),
-            "(mta5|mta6|mta7).am0.yahoodns.net:123".to_string()
-        );
-        assert_eq!(
-            factor_names(&[
-                "mta5.am0.yahoodns.net:123",
-                "mta6.am0.yahoodns.net:456",
-                "mta7.am0.yahoodns.net:123"
-            ]),
-            "(mta5|mta6|mta7).am0.yahoodns.(net:123|net:456)".to_string()
-        );
-    }
-
-    /// Verify that the order is preserved and that we treat these two
-    /// examples of differently ordered sets of the same names as two
-    /// separate site name strings
-    #[test]
-    fn mx_order_name_factor() {
-        assert_eq!(
-            factor_names(&[
-                "example-com.mail.protection.outlook.com.",
-                "mx-biz.mail.am0.yahoodns.net.",
-                "mx-biz.mail.am0.yahoodns.net.",
-            ]),
-            "(example-com|mx-biz).mail.(protection|am0).(outlook|yahoodns).(com|net)".to_string()
-        );
-        assert_eq!(
-            factor_names(&[
-                "mx-biz.mail.am0.yahoodns.net.",
-                "mx-biz.mail.am0.yahoodns.net.",
-                "example-com.mail.protection.outlook.com.",
-            ]),
-            "(mx-biz|example-com).mail.(am0|protection).(yahoodns|outlook).(net|com)".to_string()
         );
     }
 }

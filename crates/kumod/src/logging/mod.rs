@@ -4,12 +4,14 @@ use crate::logging::files::{LogFileParams, LogThreadState};
 use crate::logging::hooks::{LogHookParams, LogHookState};
 use anyhow::Context;
 use bstr::ByteSlice;
+use camino::Utf8PathBuf;
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
 use flume::{bounded, Sender, TrySendError};
 pub use kumo_log_types::*;
 use kumo_prometheus::declare_metric;
 use kumo_prometheus::prometheus::Histogram;
 use kumo_server_common::disk_space::MonitoredPath;
+use kumo_server_common::log_backlog::{register_location, WriterLocation};
 use kumo_server_runtime::Runtime;
 use kumo_template::TemplateEngine;
 use message::Message;
@@ -263,6 +265,13 @@ impl Logger {
         }
         .register();
 
+        register_backlog_monitor(&params.log_dir);
+        for per_rec in params.per_record.values() {
+            if let Some(log_dir) = &per_rec.log_dir {
+                register_backlog_monitor(log_dir);
+            }
+        }
+
         let thread = LOGGING_RUNTIME.spawn("log file".to_string(), async move {
             tracing::debug!("calling state.logger_thread()");
             let mut state = LogThreadState {
@@ -438,6 +447,25 @@ impl Logger {
         let meta = self.extract_meta(&msg.get_meta_obj().await.unwrap_or(serde_json::Value::Null));
 
         (headers, meta)
+    }
+}
+
+/// Start monitoring `log_dir` for the backlog of consumers reading its
+/// segments. Invalid UTF-8 paths are logged and left unmonitored because the
+/// scanner accepts only `Utf8Path` directories. This does not fail
+/// configuration.
+fn register_backlog_monitor(log_dir: &std::path::Path) {
+    match Utf8PathBuf::from_path_buf(log_dir.to_path_buf()) {
+        Ok(directory) => register_location(WriterLocation {
+            directory,
+            pattern: "*".to_string(),
+        }),
+        Err(path) => {
+            tracing::error!(
+                "log dir {} is not valid UTF-8; not monitoring consumer backlog for it",
+                path.display()
+            );
+        }
     }
 }
 

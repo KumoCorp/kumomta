@@ -25,7 +25,7 @@ use kumo_server_common::acct::{log_authn, AuthnAuditRecord};
 use kumo_server_common::authn_authz::{AuthInfo, Identity, IdentityContext};
 use kumo_server_common::http_server::auth::AuthKindResult;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription, ShuttingDownError};
-use kumo_server_runtime::{spawn, Runtime};
+use kumo_server_runtime::{accept_error_pause, spawn, Runtime};
 use lruttl::declare_cache;
 use mailparsing::ConformanceDisposition;
 use memchr::memmem::Finder;
@@ -563,6 +563,10 @@ pub fn connection_denied_counter() -> AtomicCounter {
     crate::metrics_helper::connection_denied_for_service("esmtp_listener")
 }
 
+pub fn accept_error_counter() -> AtomicCounter {
+    crate::metrics_helper::accept_errors_for_service("esmtp_listener")
+}
+
 pub fn default_hostname() -> String {
     gethostname::gethostname()
         .to_str()
@@ -718,6 +722,7 @@ impl EsmtpListenerParams {
         let connection_limiter = Arc::new(tokio::sync::Semaphore::new(self.max_connections));
         spawn(format!("esmtp_listener {addr:?}"), async move {
             let denied = connection_denied_counter();
+            let accept_errors = accept_error_counter();
             loop {
                 tokio::select! {
                     _ = shutting_down.shutting_down() => {
@@ -729,7 +734,38 @@ impl EsmtpListenerParams {
                         return Ok::<(), anyhow::Error>(());
                     }
                     result = listener.accept() => {
-                        let (mut socket, peer_address) = result?;
+                        let (mut socket, peer_address) = match result {
+                            Ok(accepted) => accepted,
+                            Err(err) => {
+                                // Keep looping instead of returning: exiting here
+                                // would silently stop serving this port while the
+                                // process stays alive, which looks healthy to any
+                                // supervisor watching it.
+                                match accept_error_pause(&err) {
+                                    Some(pause) => {
+                                        // Non-connection-level errors such as
+                                        // EMFILE are rare and significant: count
+                                        // them and log at error level.
+                                        accept_errors.inc();
+                                        tracing::error!("smtp listener on {addr:?} accept failed: {err:#}");
+                                        // Pause before the next accept() to avoid
+                                        // spinning the loop while the condition
+                                        // persists.
+                                        tokio::time::sleep(pause).await;
+                                    }
+                                    None => {
+                                        // A peer that reset between the kernel
+                                        // queuing the connection and our
+                                        // accepting it. Any peer can trigger
+                                        // this on demand. Report it only at
+                                        // debug level to deny a hostile peer a
+                                        // way to flood the logs.
+                                        tracing::debug!("smtp listener on {addr:?} accept: {err:#}");
+                                    }
+                                }
+                                continue;
+                            }
+                        };
                         let Ok(permit) = connection_limiter.clone().try_acquire_owned() else {
                             // We're over the limit. We make a "best effort" to respond;
                             // don't strain too hard here, as the purpose of the limit is
@@ -766,8 +802,17 @@ impl EsmtpListenerParams {
                         };
 
                         // No need for Nagle with SMTP request/response
-                        socket.set_nodelay(true)?;
-                        let my_address = socket.local_addr()?;
+                        if let Err(err) = socket.set_nodelay(true) {
+                            tracing::error!("failed to set_nodelay for {peer_address:?}: {err:#}");
+                            continue;
+                        }
+                        let my_address = match socket.local_addr() {
+                            Ok(my_address) => my_address,
+                            Err(err) => {
+                                tracing::error!("failed to get local_addr for {peer_address:?}: {err:#}");
+                                continue;
+                            }
+                        };
                         let params = self.clone();
                         SMTPSRV.spawn(
                             format!("SmtpServerSession {peer_address:?}"),

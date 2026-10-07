@@ -17,6 +17,7 @@ pub mod disk_space;
 pub mod hashable_weak;
 pub mod http_server;
 pub mod log;
+pub mod log_backlog;
 pub mod nodeid;
 pub mod panic;
 pub mod start;

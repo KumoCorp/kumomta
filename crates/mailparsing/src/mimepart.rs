@@ -430,25 +430,33 @@ impl<'a> MimePart<'a> {
         Ok(body)
     }
 
-    fn extract_body(
-        &'_ self,
-        options: Option<&CheckFixSettings>,
-    ) -> Result<(DecodedBody<'_>, MessageConformance)> {
+    /// Undo the Content-Transfer-Encoding and return the resulting octets. The
+    /// bytes are those that the transfer encoding produced because charset
+    /// decoding is not performed. This is the right choice when the
+    /// content is itself a message or set of headers whose own charset must be
+    /// preserved, rather than something to be rendered as text.
+    pub fn transfer_decoded_body(&self) -> Result<Vec<u8>> {
         let info = Rfc2045Info::new(&self.headers);
-
-        let bytes = match info.encoding {
+        match info.encoding {
             ContentTransferEncoding::Base64 => {
                 let data = self.raw_body();
                 let bytes = data.as_bytes();
                 BASE64_RFC2045.decode(bytes).map_err(|err| {
-                    let b = bytes[err.position] as char;
                     let region =
                         &bytes[err.position.saturating_sub(8)..(err.position + 8).min(bytes.len())];
                     let region = String::from_utf8_lossy(region);
-                    MailParsingError::BodyParse(format!(
-                        "base64 decode: {err:#} b={b:?} in {region}"
-                    ))
-                })?
+                    match bytes.get(err.position) {
+                        Some(b) => {
+                            let b = *b as char;
+                            MailParsingError::BodyParse(format!(
+                                "base64 decode: {err:#} b={b:?} in {region}"
+                            ))
+                        }
+                        None => MailParsingError::BodyParse(format!(
+                            "base64 decode: {err:#} at end of input in {region}"
+                        )),
+                    }
+                })
             }
             ContentTransferEncoding::QuotedPrintable => quoted_printable::decode(
                 self.raw_body().as_bytes(),
@@ -456,11 +464,20 @@ impl<'a> MimePart<'a> {
             )
             .map_err(|err| {
                 MailParsingError::BodyParse(format!("quoted printable decode: {err:#}"))
-            })?,
+            }),
             ContentTransferEncoding::SevenBit
             | ContentTransferEncoding::EightBit
-            | ContentTransferEncoding::Binary => self.raw_body().as_bytes().to_vec(),
-        };
+            | ContentTransferEncoding::Binary => Ok(self.raw_body().as_bytes().to_vec()),
+        }
+    }
+
+    fn extract_body(
+        &'_ self,
+        options: Option<&CheckFixSettings>,
+    ) -> Result<(DecodedBody<'_>, MessageConformance)> {
+        let info = Rfc2045Info::new(&self.headers);
+
+        let bytes = self.transfer_decoded_body()?;
 
         if info.is_text {
             let charset = info.charset?;
@@ -1748,6 +1765,24 @@ Content-Transfer-Encoding: base64\r
 SGVsbG8g8J+agA0K\r
 
 "#
+        );
+    }
+
+    #[test]
+    fn transfer_decoded_body_preserves_octets() {
+        // A quoted-printable text part whose declared charset differs from the
+        // octets it contains. transfer_decoded_body must undo the QP but leave
+        // the raw bytes untouched.
+        let input = concat!(
+            "Content-Type: text/rfc822-headers; charset=\"shift_jis\"\r\n",
+            "Content-Transfer-Encoding: quoted-printable\r\n",
+            "\r\n",
+            "Subject: =93=FA=96=7B=8C=EA\r\n",
+        );
+        let part = MimePart::parse(input).unwrap();
+        k9::assert_equal!(
+            part.transfer_decoded_body().unwrap(),
+            b"Subject: \x93\xFA\x96\x7B\x8C\xEA\r\n".to_vec()
         );
     }
 

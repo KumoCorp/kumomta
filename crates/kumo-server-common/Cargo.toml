@@ -13,6 +13,7 @@ axum-server = {workspace=true, features=["tls-rustls"]}
 axum-streams = {workspace=true}
 backtrace = {workspace=true}
 bstr.workspace = true
+camino = {workspace=true}
 chrono.workspace = true
 cidr-map = {path="../cidr-map"}
 clap = {workspace=true}
@@ -88,7 +89,9 @@ version-info = {path="../version-info"}
 zstd.workspace = true
 
 [dev-dependencies]
+futures = {workspace=true}
 k9.workspace = true
+tempfile = {workspace=true}
 
 [lints]
 workspace = true

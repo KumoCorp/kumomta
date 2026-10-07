@@ -1,3 +1,4 @@
+use crate::registry::WriterRegistration;
 use camino::Utf8PathBuf;
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
@@ -97,6 +98,7 @@ impl LogWriterConfig {
 
     /// Build the [`LogWriter`].
     pub fn build(self) -> LogWriter {
+        let registration = WriterRegistration::new(self.log_dir.clone(), self.suffix.as_deref());
         LogWriter {
             log_dir: self.log_dir,
             max_file_size: self.max_file_size,
@@ -106,6 +108,7 @@ impl LogWriterConfig {
             suffix: self.suffix,
             tz: self.tz,
             current: None,
+            _registration: registration,
         }
     }
 }
@@ -129,6 +132,9 @@ pub struct LogWriter {
     suffix: Option<String>,
     tz: Option<Tz>,
     current: Option<OpenSegment>,
+    // `_` because we don't use it directly, but need to keep it
+    // alive until we Drop
+    _registration: WriterRegistration,
 }
 
 impl LogWriter {

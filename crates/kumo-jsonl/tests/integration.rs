@@ -40,6 +40,42 @@ fn utf8_dir(dir: &TempDir) -> Utf8PathBuf {
     Utf8PathBuf::try_from(dir.path().to_path_buf()).unwrap()
 }
 
+/// Return the path of the log segment in `dir`, ignoring the dot-prefixed
+/// checkpoint files.
+fn segment_path(dir: &std::path::Path) -> Utf8PathBuf {
+    let mut segs: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| {
+            !p.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(".")
+                .starts_with('.')
+        })
+        .collect();
+    segs.sort();
+    Utf8PathBuf::try_from(segs.pop().expect("a segment file")).unwrap()
+}
+
+/// Write checkpoint `.name` in `log_dir` with position `line` in `file`.
+fn write_checkpoint(log_dir: &Utf8PathBuf, name: &str, file: &Utf8PathBuf, line: usize) {
+    let data = json!({"file": file.as_str(), "line": line});
+    std::fs::write(
+        log_dir.join(format!(".{name}")),
+        serde_json::to_vec(&data).unwrap(),
+    )
+    .unwrap();
+}
+
+/// Read the `line` field of checkpoint `.name` in `log_dir`, or `None`
+/// if the checkpoint file does not exist.
+fn read_checkpoint_line(log_dir: &Utf8PathBuf, name: &str) -> Option<usize> {
+    let bytes = std::fs::read(log_dir.join(format!(".{name}"))).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    Some(v["line"].as_u64().unwrap() as usize)
+}
+
 /// Helper to collect exactly one batch from a tailer with a timeout.
 async fn next_batch_with_timeout(tailer: &mut std::pin::Pin<&mut LogTailer>) -> LogBatch {
     let timeout = tokio::time::sleep(Duration::from_secs(5));
@@ -1055,4 +1091,258 @@ async fn test_oversized_record_skipped_rest_of_segment_read() {
         batch.records(),
         &[json!({"id": "before"}), json!({"id": "after"})]
     );
+}
+
+/// Ensure a consumer whose filter drops every record still records durable
+/// progress: once it has scanned a completed segment its checkpoint advances to
+/// the end of that segment to avoid re-scanning the same records after a
+/// restart.
+#[tokio::test]
+async fn test_filtered_consumer_advances_checkpoint() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    write_segment(
+        dir.path(),
+        &[
+            r#"{"n":1}"#,
+            r#"{"n":2}"#,
+            r#"{"n":3}"#,
+            r#"{"n":4}"#,
+            r#"{"n":5}"#,
+        ],
+    );
+
+    let sink = ConsumerConfig::new("sink")
+        .checkpoint_name("filter-cp")
+        .filter(|_record| Ok(false));
+
+    let tailer = MultiConsumerTailerConfig::new(log_dir.clone(), vec![sink])
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+
+    // Bound the wait to keep this test from hanging while the tailer waits for
+    // new records.
+    let timeout = tokio::time::sleep(Duration::from_millis(500));
+    tokio::pin!(timeout);
+    loop {
+        tokio::select! {
+            b = tailer.next() => match b {
+                Some(Ok(batches)) => {
+                    panic!("unexpected batch from filter-all consumer: {} batches", batches.len())
+                }
+                Some(Err(e)) => panic!("unexpected error: {e}"),
+                None => break,
+            },
+            _ = &mut timeout => break,
+        }
+    }
+    tailer.as_mut().close();
+
+    // The checkpoint must have advanced past all five scanned records.
+    let cp_bytes = std::fs::read(log_dir.join(".filter-cp")).expect("checkpoint should exist");
+    let cp: serde_json::Value = serde_json::from_slice(&cp_bytes).unwrap();
+    k9::assert_equal!(cp["line"], json!(5));
+}
+
+/// Verify that a consumer with an uncommitted delivered batch retains its
+/// checkpoint at or before that batch when flushing progress from filtered
+/// records. After a restart the uncommitted records are re-read.
+#[tokio::test]
+async fn test_filtered_flush_preserves_uncommitted_records() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    write_segment(
+        dir.path(),
+        &[r#"{"keep":true}"#, r#"{"keep":false}"#, r#"{"keep":false}"#],
+    );
+
+    {
+        let selective = ConsumerConfig::new("selective")
+            .max_batch_size(1)
+            .checkpoint_name("select-cp")
+            .filter(|record| Ok(record["keep"].as_bool().unwrap_or(false)));
+
+        let tailer = MultiConsumerTailerConfig::new(log_dir.clone(), vec![selective])
+            .build()
+            .await
+            .unwrap();
+        tokio::pin!(tailer);
+
+        let timeout = tokio::time::sleep(Duration::from_millis(500));
+        tokio::pin!(timeout);
+        let mut saw_match = false;
+        loop {
+            tokio::select! {
+                b = tailer.next() => match b {
+                    Some(Ok(batches)) => {
+                        k9::assert_equal!(batches[0].records(), &[json!({"keep": true})]);
+                        saw_match = true;
+                    }
+                    Some(Err(e)) => panic!("unexpected error: {e}"),
+                    None => break,
+                },
+                _ = &mut timeout => break,
+            }
+        }
+        assert!(saw_match, "expected the matching record to be delivered");
+        tailer.as_mut().close();
+    }
+
+    let cp_line = read_checkpoint_line(&log_dir, "select-cp");
+    assert!(
+        matches!(cp_line, None | Some(0)),
+        "checkpoint advanced to {cp_line:?} despite an uncommitted batch"
+    );
+
+    let all = ConsumerConfig::new("all")
+        .max_batch_size(10)
+        .checkpoint_name("select-cp")
+        .filter(|_record| Ok(true));
+    let tailer = MultiConsumerTailerConfig::new(log_dir.clone(), vec![all])
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+    let timeout = tokio::time::sleep(Duration::from_millis(500));
+    tokio::pin!(timeout);
+    let mut records = Vec::new();
+    loop {
+        tokio::select! {
+            b = tailer.next() => match b {
+                Some(Ok(batches)) => {
+                    for batch in &batches {
+                        records.extend(batch.records().iter().cloned());
+                    }
+                }
+                Some(Err(e)) => panic!("unexpected error: {e}"),
+                None => break,
+            },
+            _ = &mut timeout => break,
+        }
+    }
+    tailer.as_mut().close();
+    k9::assert_equal!(
+        records,
+        vec![
+            json!({"keep": true}),
+            json!({"keep": false}),
+            json!({"keep": false})
+        ]
+    );
+}
+
+/// Verifies that a dropped, never-committed batch does not permanently block
+/// flushing progress for filtered records: once a later batch commits past it,
+/// the flush resumes and the checkpoint advances over the filtered records that
+/// follow.
+#[tokio::test]
+async fn test_filtered_flush_resumes_after_dropped_batch() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    // Two matching records, then a filtered-out tail.
+    write_segment(
+        dir.path(),
+        &[
+            r#"{"keep":true}"#,
+            r#"{"keep":true}"#,
+            r#"{"keep":false}"#,
+            r#"{"keep":false}"#,
+            r#"{"keep":false}"#,
+        ],
+    );
+
+    {
+        let selective = ConsumerConfig::new("selective")
+            .max_batch_size(1)
+            .max_batch_latency(Duration::from_millis(50))
+            .checkpoint_name("resume-cp")
+            .filter(|record| Ok(record["keep"].as_bool().unwrap_or(false)));
+        let tailer = MultiConsumerTailerConfig::new(log_dir.clone(), vec![selective])
+            .build()
+            .await
+            .unwrap();
+        tokio::pin!(tailer);
+
+        let timeout = tokio::time::sleep(Duration::from_millis(500));
+        tokio::pin!(timeout);
+        let mut match_count = 0;
+        loop {
+            tokio::select! {
+                b = tailer.next() => match b {
+                    Some(Ok(mut batches)) => {
+                        match_count += 1;
+                        if match_count > 1 {
+                            for batch in &mut batches {
+                                batch.commit().unwrap();
+                            }
+                        }
+                    }
+                    Some(Err(e)) => panic!("unexpected error: {e}"),
+                    None => break,
+                },
+                _ = &mut timeout => break,
+            }
+        }
+        assert!(
+            match_count >= 2,
+            "expected both matching records, saw {match_count}"
+        );
+        tailer.as_mut().close();
+    }
+
+    let cp_line = read_checkpoint_line(&log_dir, "resume-cp");
+    k9::assert_equal!(cp_line, Some(5));
+}
+
+/// On restart, a consumer checkpoint can be ahead of the current scan position.
+/// Flushing progress for records rejected by filters preserves that later
+/// checkpoint.
+#[tokio::test]
+async fn test_filtered_flush_does_not_regress_ahead_consumer() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+
+    write_open_segment(dir.path(), &[r#"{"n":0}"#, r#"{"n":1}"#, r#"{"n":2}"#]);
+    let seg = segment_path(dir.path());
+
+    write_checkpoint(&log_dir, "ahead-cp", &seg, 5);
+    write_checkpoint(&log_dir, "behind-cp", &seg, 1);
+
+    let ahead = ConsumerConfig::new("ahead")
+        .checkpoint_name("ahead-cp")
+        .filter(|_r| Ok(false));
+    let behind = ConsumerConfig::new("behind")
+        .checkpoint_name("behind-cp")
+        .filter(|_r| Ok(false));
+
+    let tailer = MultiConsumerTailerConfig::new(log_dir.clone(), vec![ahead, behind])
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+
+    // Let the tailer scan to the end of the open segment and flush.
+    let timeout = tokio::time::sleep(Duration::from_millis(500));
+    tokio::pin!(timeout);
+    loop {
+        tokio::select! {
+            b = tailer.next() => match b {
+                Some(Ok(batches)) => panic!("unexpected batch: {} batches", batches.len()),
+                Some(Err(e)) => panic!("unexpected error: {e}"),
+                None => break,
+            },
+            _ = &mut timeout => break,
+        }
+    }
+    tailer.as_mut().close();
+
+    k9::assert_equal!(read_checkpoint_line(&log_dir, "behind-cp"), Some(3));
+    // The checkpoint of the ahead consumer must remain at or above its resume
+    // line.
+    k9::assert_equal!(read_checkpoint_line(&log_dir, "ahead-cp"), Some(5));
 }

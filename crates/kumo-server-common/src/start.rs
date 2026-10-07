@@ -35,6 +35,7 @@ impl StartConfig<'_> {
         self.logging.init()?;
 
         start_cpu_usage_monitor();
+        crate::log_backlog::start_monitor();
 
         rustls::crypto::aws_lc_rs::default_provider()
             .install_default()

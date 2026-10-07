@@ -58,7 +58,7 @@ local example = {
     },
   },
 
-  -- The site name is deterministically derived from the by_pref information
+  -- The site name represents the hostname/port set, independent of preferences
   site_name = '(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com',
 
   -- The FQDN that was resolved
@@ -86,6 +86,12 @@ local example = {
 
 assert(gmail_mx == example)
 ```
+
+The `site_name` field identifies the destination group used for ready queues and
+traffic shaping. See [Site Names](../queues.md#site-names) for its meaning and
+sharing behavior.
+
+## Named resolvers
 
 {{since('2026.09.22-a276d4a8')}}
 

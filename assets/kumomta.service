@@ -8,6 +8,16 @@ Restart=always
 EnvironmentFile=-/opt/kumomta/etc/kumo-common.env
 EnvironmentFile=-/opt/kumomta/etc/kumod.env
 ExecStart=/opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/init.lua --user kumod
+# Run as the service account from the outset rather than starting as root and
+# dropping privileges. CAP_NET_BIND_SERVICE is granted ambiently so that kumod
+# can bind the privileged SMTP port (25) while unprivileged; the bounding set is
+# narrowed to the same capability so a child process cannot acquire a broader
+# one. The --user kumod above remains as an assertion of the expected identity,
+# and still drops privileges should the unit ever be launched as root.
+User=kumod
+Group=kumod
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 # Allow sufficient time to wrap up in-flight tasks and safely
 # write out pending data
 TimeoutStopSec=300

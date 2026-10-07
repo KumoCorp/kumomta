@@ -1,6 +1,9 @@
 use crate::batch::LogBatch;
-use crate::checkpoint::CheckpointData;
+use crate::checkpoint::{
+    is_reserved_checkpoint_name, sweep_orphaned_temp_files, CheckpointData, CHECKPOINT_TEMP_MAX_AGE,
+};
 use crate::decompress::{FileDecompressor, NextLine, DEFAULT_MAX_LINE_SIZE};
+use anyhow::Context;
 use camino::Utf8PathBuf;
 use filenamegen::Glob;
 use futures::Stream;
@@ -9,7 +12,7 @@ use notify::{Event, EventKind, Watcher};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Notify;
 use tracing::warn;
@@ -146,6 +149,27 @@ impl MultiConsumerTailerConfig {
 
     /// Build the multi-consumer tailer.
     pub async fn build(self) -> anyhow::Result<MultiConsumerTailer> {
+        for c in &self.consumers {
+            if let Some(name) = &c.checkpoint_name {
+                if is_reserved_checkpoint_name(name) {
+                    anyhow::bail!(
+                        "checkpoint_name {name:?} is not allowed because \
+                         it would collide with temporary file names \
+                         created during checkpoint writes"
+                    );
+                }
+            }
+        }
+
+        // We run the sweep on the blocking pool because its synchronous std::fs
+        // calls would block an async worker thread.
+        let sweep_dir = self.directory.clone();
+        tokio::task::spawn_blocking(move || {
+            sweep_orphaned_temp_files(&sweep_dir, CHECKPOINT_TEMP_MAX_AGE)
+        })
+        .await
+        .ok();
+
         // Collect checkpoint paths without borrowing consumers across
         // an await (consumers contains non-Sync filter closures).
         let cp_paths: Vec<Option<Utf8PathBuf>> = self
@@ -519,6 +543,86 @@ fn is_file_done(path: &Utf8PathBuf) -> bool {
         .unwrap_or(false)
 }
 
+/// Number of lines that a consumer may scan and discard via its filter before
+/// we persist its checkpoint, bounding checkpoint writes for a consumer that
+/// matches little or nothing in a busy segment.
+const FILTERED_PROGRESS_FLUSH_INTERVAL: usize = 10_000;
+
+/// Orders consumer progress by segment and line.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct ScanPosition {
+    file: Utf8PathBuf,
+    line: usize,
+}
+
+/// Flush checkpoint writes, ensuring that checkpoints make progress
+/// even for consumers that filter out large portions of a segment.
+async fn flush_filtered_progress(
+    cp_paths: &[Option<Utf8PathBuf>],
+    last_handed_out: &[Option<ScanPosition>],
+    committed_through: &[Mutex<Option<ScanPosition>>],
+    file: &Utf8PathBuf,
+    line: usize,
+    last_persisted: &mut [Option<ScanPosition>],
+) -> anyhow::Result<()> {
+    let mut pending: Vec<(usize, Utf8PathBuf)> = vec![];
+    for (i, (cp_path, last)) in cp_paths.iter().zip(last_persisted.iter()).enumerate() {
+        let Some(cp_path) = cp_path else {
+            continue;
+        };
+        // Exclude consumers with uncommitted records from checkpoint advancement
+        // because a restart must read those records again.
+        let blocked = {
+            let committed = committed_through[i]
+                .lock()
+                .expect("committed_through mutex poisoned");
+            last_handed_out[i] > *committed
+        };
+        if blocked {
+            continue;
+        }
+        let pos = ScanPosition {
+            file: file.clone(),
+            line,
+        };
+        // Preserve a later persisted position because lowering it would repeat
+        // records already processed by the consumer.
+        if last.as_ref().is_some_and(|prev| pos <= *prev) {
+            continue;
+        }
+        pending.push((i, cp_path.clone()));
+    }
+    if pending.is_empty() {
+        return Ok(());
+    }
+
+    let segment = file.clone();
+    let written = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<usize>> {
+        let mut written = Vec::with_capacity(pending.len());
+        for (i, cp_path) in pending {
+            // `cp_path` and `segment` live on the same filesystem. A failure
+            // writing `cp_path` is evidence that the filesystem the writer is
+            // actively producing `segment` on is also failing, not an isolated
+            // fluke of this one write. We would rather stop tailing than keep
+            // reporting progress we can no longer trust to be durable.
+            CheckpointData::save_atomic(&cp_path, &segment, line)
+                .with_context(|| format!("persisting filtered-progress checkpoint {cp_path}"))?;
+            written.push(i);
+        }
+        Ok(written)
+    })
+    .await
+    .context("filtered-progress checkpoint task")??;
+
+    for i in written {
+        last_persisted[i] = Some(ScanPosition {
+            file: file.clone(),
+            line,
+        });
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Per-consumer state used during stream construction
 // ---------------------------------------------------------------------------
@@ -567,6 +671,29 @@ fn make_multi_stream(
         // consumers that are further ahead will have their records
         // filtered out by index comparison.
         let mut consumer_skip: Vec<usize> = vec![0; num_consumers];
+
+        // Scan position of the newest record handed out, per consumer,
+        // whether or not its batch has been committed yet.
+        let mut last_handed_out: Vec<Option<ScanPosition>> = vec![None; num_consumers];
+        // Scan position of the newest batch committed, per consumer. Once
+        // this reaches `last_handed_out[i]`, `flush_filtered_progress`
+        // advances the checkpoint of that consumer.
+        let committed_through: Arc<Vec<Mutex<Option<ScanPosition>>>> =
+            Arc::new((0..num_consumers).map(|_| Mutex::new(None)).collect());
+
+        // Track the greatest persisted position for each consumer to prevent a
+        // flush from moving a resumed checkpoint backward.
+        let mut last_persisted: Vec<Option<ScanPosition>> = consumer_checkpoints
+            .iter()
+            .map(|cp| {
+                cp.as_ref().map(|c| ScanPosition {
+                    file: Utf8PathBuf::from(&c.file),
+                    line: c.line,
+                })
+            })
+            .collect();
+
+        let mut lines_since_flush: usize = 0;
 
         'outer: loop {
             if shared.closed.load(Ordering::SeqCst) {
@@ -695,6 +822,12 @@ fn make_multi_stream(
                                             path,
                                             line.byte_offset,
                                         );
+                                        if cp_paths[i].is_some() {
+                                            last_handed_out[i] = Some(ScanPosition {
+                                                file: path.clone(),
+                                                line: d.lines_consumed,
+                                            });
+                                        }
                                         // Start the deadline timer on first record
                                         if deadlines[i].is_none() {
                                             deadlines[i] = Some(
@@ -703,6 +836,19 @@ fn make_multi_stream(
                                         }
                                     }
                                     global_line_in_file += 1;
+                                    lines_since_flush += 1;
+                                    if lines_since_flush >= FILTERED_PROGRESS_FLUSH_INTERVAL {
+                                        flush_filtered_progress(
+                                            &cp_paths,
+                                            &last_handed_out,
+                                            committed_through.as_slice(),
+                                            path,
+                                            d.lines_consumed,
+                                            &mut last_persisted,
+                                        )
+                                        .await?;
+                                        lines_since_flush = 0;
+                                    }
                                 }
                                 Err(err) => {
                                     warn!(
@@ -760,6 +906,18 @@ fn make_multi_stream(
                                 }
                                 advance_file = Some(false);
                             } else {
+                                // Flush before blocking to wait for the
+                                // open segment to grow.
+                                flush_filtered_progress(
+                                    &cp_paths,
+                                    &last_handed_out,
+                                    committed_through.as_slice(),
+                                    path,
+                                    d.lines_consumed,
+                                    &mut last_persisted,
+                                )
+                                .await?;
+                                lines_since_flush = 0;
                                 // File not done; find the earliest deadline
                                 // among non-empty batches to bound the wait.
                                 let earliest_deadline = (0..num_consumers)
@@ -812,6 +970,16 @@ fn make_multi_stream(
                         } else {
                             last_lines_consumed = d.lines_consumed;
                             last_processed = Some(path.clone());
+                            flush_filtered_progress(
+                                &cp_paths,
+                                &last_handed_out,
+                                committed_through.as_slice(),
+                                path,
+                                d.lines_consumed,
+                                &mut last_persisted,
+                            )
+                            .await?;
+                            lines_since_flush = 0;
                         }
                         skip_lines = 0;
                         global_line_in_file = 0;
@@ -866,8 +1034,23 @@ fn make_multi_stream(
                             unreachable!("non-empty batch without a source");
                         };
                         let cp_path = cp_path.clone();
+                        let committed_i = committed_through.clone();
                         batch.set_commit_fn(Box::new(move || {
-                            CheckpointData::save_atomic(&cp_path, &cp_file, cp_line)
+                            // Update committed state only after the checkpoint
+                            // write succeeds because failed writes must remain
+                            // eligible for replay.
+                            CheckpointData::save_atomic(&cp_path, &cp_file, cp_line)?;
+                            let pos = ScanPosition {
+                                file: cp_file.clone(),
+                                line: cp_line,
+                            };
+                            let mut committed = committed_i[i]
+                                .lock()
+                                .expect("committed_through mutex poisoned");
+                            if committed.as_ref().map_or(true, |c| *c < pos) {
+                                *committed = Some(pos);
+                            }
+                            Ok(())
                         }));
                     }
                     ready.push(batch);

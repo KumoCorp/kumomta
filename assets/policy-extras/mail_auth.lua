@@ -12,6 +12,13 @@ local Bool, Default, Record, List, Any, Option, String =
   typing.option,
   typing.string
 
+-- RFC 8601 section 3 requires iprev to limit the number of PTR names it
+-- evaluates with forward A/AAAA queries, and cites SPF's limit of 10.
+-- Without a cap, the owner of the connecting IP's reverse zone can return
+-- an unbounded PTR set and make each check perform that many sequential
+-- forward lookups.
+local IPREV_NAME_LIMIT = 10
+
 local MailAuthConfig = Record('MailAuthConfig', {
   dkim = Default(Bool, true),
   spf = Default(Bool, true),
@@ -162,7 +169,10 @@ function mod.iprev(ip, opt_resolver)
   end
 
   result.result = 'fail'
-  for _, name in ipairs(names) do
+  for i, name in ipairs(names) do
+    if i > IPREV_NAME_LIMIT then
+      break
+    end
     local ok, addrs = pcall(kumo.dns.lookup_addr, name, opt_resolver)
     if ok then
       if #addrs == 0 then

@@ -84,6 +84,20 @@ pub fn parse_openssl_options(option_list: &str) -> anyhow::Result<SslOptions> {
     Ok(result)
 }
 
+/// Deserializes a usize field, rejecting a value of zero. Used for fields
+/// that cap how many items of a list are kept, where zero would keep nothing.
+fn deserialize_nonzero_usize<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    let value = usize::deserialize(deserializer)?;
+    if value == 0 {
+        return Err(D::Error::custom("value must be at least 1"));
+    }
+    Ok(value)
+}
+
 fn deserialize_ssl_options<'de, D>(deserializer: D) -> Result<Option<SslOptions>, D::Error>
 where
     D: Deserializer<'de>,
@@ -295,6 +309,36 @@ pub struct EgressPathConfig {
     #[serde(default)]
     pub ip_lookup_strategy: IpLookupStrategy,
 
+    /// {{since('dev')}}
+    /// The largest number of candidate addresses to retain in the connection
+    /// plan that is built for a delivery attempt. MX resolution expands each
+    /// MX host to every one of its `A`/`AAAA` addresses. Neither DNS nor SMTP
+    /// limits how many MX hosts or addresses the nameservers of a destination
+    /// may answer with, and without this cap the destination's answers would
+    /// dictate the size of the plan directly. Addresses are retained in preference
+    /// order, keeping the most-preferred hosts when the limit truncates. RFC
+    /// 5321 section 5.1 permits a configurable limit on the number of
+    /// alternate addresses that are tried. Must be at least 1.
+    #[serde(
+        default = "EgressPathConfig::default_max_mx_plan_size",
+        deserialize_with = "deserialize_nonzero_usize"
+    )]
+    pub max_mx_plan_size: usize,
+
+    /// {{since('dev')}}
+    /// The largest number of addresses to retain from one MX host, applied
+    /// before `max_mx_plan_size`. Caps the `A`/`AAAA` RRset of one host so that
+    /// a host publishing a very large address set cannot crowd the plan with
+    /// its own addresses at the expense of other hosts. The cap keeps the first
+    /// N addresses of the answer in answer order. Under the default
+    /// `Ipv4AndIpv6` strategy the answer orders `A` records before `AAAA`
+    /// records, and a small value keeps only `A` records. Must be at least 1.
+    #[serde(
+        default = "EgressPathConfig::default_max_mx_addresses_per_host",
+        deserialize_with = "deserialize_nonzero_usize"
+    )]
+    pub max_mx_addresses_per_host: usize,
+
     #[serde(default)]
     pub ehlo_domain: Option<String>,
 
@@ -445,6 +489,8 @@ impl Default for EgressPathConfig {
             try_next_host_on_transport_error: false,
             ignore_8bit_checks: false,
             ip_lookup_strategy: IpLookupStrategy::default(),
+            max_mx_plan_size: Self::default_max_mx_plan_size(),
+            max_mx_addresses_per_host: Self::default_max_mx_addresses_per_host(),
             dispatcher_progress_watchdog_timeout: None,
         }
     }
@@ -489,6 +535,14 @@ impl EgressPathConfig {
 
     fn default_max_recipients_per_batch() -> usize {
         100
+    }
+
+    fn default_max_mx_plan_size() -> usize {
+        50
+    }
+
+    fn default_max_mx_addresses_per_host() -> usize {
+        10
     }
 
     fn default_refresh_interval() -> Duration {
@@ -972,6 +1026,36 @@ mod constraints_tests {
         let s = mod_serde::toml_encode_pretty_compact(&original).unwrap();
         let parsed: EgressPathConfig = toml::from_str(&s).unwrap();
         assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn zero_mx_plan_limits_are_rejected() {
+        // A zero limit would silently empty the connection plan and fail
+        // every delivery; it must be a configuration error instead.
+        let err = toml::from_str::<EgressPathConfig>("max_mx_plan_size = 0").unwrap_err();
+        k9::snapshot!(
+            err.to_string(),
+            "
+TOML parse error at line 1, column 20
+  |
+1 | max_mx_plan_size = 0
+  |                    ^
+value must be at least 1
+
+"
+        );
+        let err = toml::from_str::<EgressPathConfig>("max_mx_addresses_per_host = 0").unwrap_err();
+        k9::snapshot!(
+            err.to_string(),
+            "
+TOML parse error at line 1, column 29
+  |
+1 | max_mx_addresses_per_host = 0
+  |                             ^
+value must be at least 1
+
+"
+        );
     }
 
     #[test]

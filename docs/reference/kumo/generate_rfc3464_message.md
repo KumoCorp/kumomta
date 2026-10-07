@@ -48,6 +48,19 @@ where this function comes in.
 The `OPT_ORIG_MSG` parameter is an optional [Message](../message/index.md) that
 will used to provide the original message content in the report.
 
+{{since('dev', indent=True)}}
+    The generated report must always be 7-bit clean, which means that
+    non-conforming 8-bit header or body content cannot always be included
+    directly. A best effort is made to include what can be represented:
+
+    - `FullContent` falls back to the equivalent of `HeadersOnly` if the
+      message body contains unencoded 8-bit content.
+    - `HeadersOnly` falls back to omitting the original entirely if the
+      headers also cannot be transfer-encoded and included.
+
+    In earlier versions, generating the report failed outright when the
+    original message had 8-bit content, and no report was produced.
+
 `LOG_RECORD` is a [JsonLogRecord](../log_record.md) describing the event that
 occurred to the message.
 

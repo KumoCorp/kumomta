@@ -17,5 +17,8 @@ tokio = {workspace=true, features=["full", "tracing", "taskdump"]}
 
 tracing = {workspace=true}
 
+[dev-dependencies]
+libc = {workspace=true}
+
 [lints]
 workspace = true

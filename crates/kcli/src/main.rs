@@ -43,10 +43,9 @@ mod xfer_cancel;
 #[derive(Debug, Parser)]
 #[command(about, version=version_info::kumo_version())]
 struct Opt {
-    /// URL to reach the KumoMTA HTTP API.
-    /// You may set KUMO_KCLI_ENDPOINT in the environment to
-    /// specify this without explicitly using --endpoint.
-    /// If not specified, http://127.0.0.1:8000 will be assumed.
+    /// URL to reach the KumoMTA HTTP API. You may set KUMO_KCLI_ENDPOINT in the
+    /// environment to specify this without explicitly using --endpoint. If not
+    /// specified, http://127.0.0.1:8000 is assumed.
     #[arg(long)]
     endpoint: Option<String>,
 
@@ -84,6 +83,12 @@ enum SubCommand {
     Top(top::TopCommand),
     Xfer(xfer::XferCommand),
     XferCancel(xfer_cancel::XferCancelCommand),
+}
+
+// Split the marker token across two literals. One literal here would make
+// tooling treat this source as a generated file.
+fn generated_note() -> String {
+    format!("{} by kcli markdown-help", concat!("@", "generated"))
 }
 
 impl SubCommand {
@@ -127,37 +132,43 @@ impl SubCommand {
                 let doc_tags: HashMap<&str, &[&str]> =
                     doc_tags.iter().map(|(k, v)| (*k, &v[..])).collect();
 
-                // We want a separate markdown page per sub-command, so we're
-                // doing a bit of grubbing around to split that out here
+                // We want a separate markdown page per sub-command. Split the
+                // overall help on the sub-command headings to produce them.
 
                 for (idx, chunk) in overall_help.split("## `kcli ").enumerate() {
-                    // Fixup the markdown to work better in the context of
-                    // mkdocs-material
+                    // The heading levels and list spacing clap generates render
+                    // incorrectly under mkdocs-material. We normalize them here
+                    // to render correctly instead.
                     let chunk = chunk
                         .replace("###### **Options:**", "## Options")
                         .replace("###### **Arguments:**", "## Arguments")
                         .replace("\n  ", "\n    ")
                         .replace("\n*", "\n\n*");
 
+                    let note = generated_note();
                     if idx == 0 {
                         std::fs::write(
                             "docs/reference/kcli/_index.md",
                             format!(
-                                "{chunk}\n\n## Available Subcommands {{ data-search-exclude }}"
+                                "<!-- {note} -->\n{chunk}\n\n## Available Subcommands {{ data-search-exclude }}"
                             ),
                         )?;
                     } else {
                         let (sub_command, remainder) = chunk.split_once('`').unwrap();
                         let filename = format!("docs/reference/kcli/{sub_command}.md");
 
-                        let tags = match doc_tags.get(sub_command) {
-                            Some(tags) => {
-                                format!("---\ntags:\n  - {}\n---\n", tags.join("\n  - "))
-                            }
-                            None => String::new(),
+                        // With front matter the marker is a YAML comment on the
+                        // first line inside the block; without it, an HTML comment
+                        // above the heading.
+                        let (marker, tags) = match doc_tags.get(sub_command) {
+                            Some(tags) => (
+                                String::new(),
+                                format!("---\n# {note}\ntags:\n  - {}\n---\n", tags.join("\n  - ")),
+                            ),
+                            None => (format!("<!-- {note} -->\n"), String::new()),
                         };
 
-                        let help = format!("{tags}# kcli {sub_command}\n{remainder}");
+                        let help = format!("{marker}{tags}# kcli {sub_command}\n{remainder}");
                         std::fs::write(&filename, &help)?;
                     }
                 }
