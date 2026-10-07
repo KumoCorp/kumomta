@@ -179,38 +179,36 @@ DeliverySummary {
         })
         .collect();
 
-    // Within each round the two messages race through their dispatchers,
-    // so the file order of their Delivery records is non-deterministic.
-    // Sort each round by recipient so the snapshot is stable while still
-    // preserving the round-1 vs round-2 distinction (round 2 doesn't
-    // start until round 1's deliveries are observed).
-    assert_eq!(deliv_and_site.len(), 4);
-    deliv_and_site[0..2].sort_by(|a, b| a.0.cmp(&b.0));
-    deliv_and_site[2..4].sort_by(|a, b| a.0.cmp(&b.0));
+    // Delivery records can be flushed to the log in completion order, and
+    // site and peer are the values this test exists to verify. Sort by
+    // recipient instead of by site or peer: a sort keyed on either of the
+    // tested values could move a misrouted delivery onto a row that
+    // expects the wrong value, masking the failure.
+    deliv_and_site.sort_by(|(recip_a, ..), (recip_b, ..)| recip_a.cmp(recip_b));
 
     k9::snapshot!(
         deliv_and_site,
         r#"
 [
     (
-        "one@one.example.com",
-        "unspecified->mx_list:SINK,255.255.255.255:1@smtp_client",
-        "1.1.sink",
-    ),
-    (
-        "two@two.example.com",
-        "unspecified->mx_list:SINK,255.255.255.255:1@smtp_client",
-        "1.1.sink",
-    ),
-    (
         "four@two.example.com",
         "unspecified->mx_list:SINK,255.255.255.255:1@smtp_client",
         "2.1.sink",
     ),
     (
+        "one@one.example.com",
+        "unspecified->mx_list:SINK,255.255.255.255:1@smtp_client",
+        "1.1.sink",
+    ),
+    (
         "three@one.example.com",
         "unspecified->mx_list:SINK,255.255.255.255:2@smtp_client",
         "1.2.sink",
+    ),
+    (
+        "two@two.example.com",
+        "unspecified->mx_list:SINK,255.255.255.255:1@smtp_client",
+        "1.1.sink",
     ),
 ]
 "#
