@@ -32,6 +32,12 @@
 
 ## Fixes
 
+ * DKIM relaxed body canonicalization now reduces an empty body, or a body
+   consisting only of empty or whitespace-only lines, to zero octets as required
+   by RFC 6376 section 3.4.4. Previously it retained a CRLF, producing a body
+   hash that disagreed with verifiers such as Gmail and causing otherwise-valid
+   signatures to fail. Thanks to @bjarn! #575
+
  * SMTP and SOCKS5 proxy listeners no longer stop serving when `accept` returns
    an error. Previously a transient error such as file-descriptor exhaustion
    (`EMFILE`/`ENFILE`) propagated out of the accept loop and permanently halted

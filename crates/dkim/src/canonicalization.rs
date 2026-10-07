@@ -96,9 +96,7 @@ fn iter_lines(haystack: &'_ [u8]) -> IterLines<'_> {
 }
 
 /// Canonicalize a body using the relaxed canonicalization algorithm from
-/// RFC 6376 section 3.4.4. That section refers to section 3.4.3 only for
-/// the definition of an "empty line"; the relaxed algorithm itself is
-/// specified in section 3.4.4.
+/// RFC 6376 section 3.4.4.
 /// https://datatracker.ietf.org/doc/html/rfc6376#section-3.4.4
 fn body_relaxed(body: &[u8], hasher: &mut LimitHasher) {
     let mut pending_empty_lines = 0usize;
