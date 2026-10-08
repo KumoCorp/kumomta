@@ -2,9 +2,8 @@ use anyhow::anyhow;
 use bounce_classify::{BounceClass, BounceClassifierBuilder};
 use clap::Parser;
 use ordermap::OrderMap;
-use serde::Deserialize;
-use std::convert::TryFrom;
 use rfc5321::parse_response_line;
+use serde::Deserialize;
 
 /// KumoMTA bounce classification configuration validator
 ///
@@ -19,24 +18,8 @@ struct Opt {
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(try_from="String")]
-struct ResponseLineWrapper(String);
-
-impl TryFrom<String> for ResponseLineWrapper {
-    type Error = String;
-    fn try_from(line: String) -> Result<Self, String> {
-        let _resp = parse_response_line(&line).map_err(|e| format!("{e}"))?;
-        Ok(Self(line))
-    }
-}
-
-impl From<ResponseLineWrapper> for String {
-    fn from(resp: ResponseLineWrapper) -> String { resp.0 }
-}
-
-#[derive(Deserialize, Debug)]
 struct SampleFile {
-    pub rules: OrderMap<BounceClass, Vec<ResponseLineWrapper>>,
+    pub rules: OrderMap<BounceClass, Vec<String>>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -66,20 +49,32 @@ fn main() -> anyhow::Result<()> {
         let data = std::fs::read_to_string(samples_file)
             .map_err(|err| anyhow!("reading file: {samples_file}: {err:#}"))?;
         let samples: SampleFile = toml::from_str(&data)
-            .map_err(|err| anyhow!("decoding {samples_file} as BounceClassifierFile: {err:#}"))?;
+            .map_err(|err| anyhow!("decoding {samples_file} as SampleFile: {err:#}"))?;
 
         for (class, inputs) in samples.rules {
+            let expected = String::from(class.clone());
             for input in inputs {
                 let input_str: String = input.into();
-                let got = classifier.classify_str(&input_str);
-                if got != class {
-                    let expected = String::from(class.clone());
-                    let got = String::from(got);
-                    failures.push(format!("{input_str:?}: expected {expected} but got {got}"));
+
+                match parse_response_line(&input_str) {
+                    Ok(_) => {
+                        let got = classifier.classify_str(&input_str);
+                        if got != class {
+                            let got = String::from(got);
+                            failures
+                                .push(format!("{input_str:?}: expected {expected} but got {got}"));
+                        }
+                    }
+                    Err(e) => {
+                        failures.push(format!(
+                            "Sample {expected} bounce message is not a valid SMTP response: {e}"
+                        ));
+                    }
                 }
             }
         }
     }
+
     if !failures.is_empty() {
         anyhow::bail!(
             "{} test case(s) failed:\n{}",
