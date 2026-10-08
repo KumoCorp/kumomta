@@ -13,7 +13,7 @@ use std::future::Future;
 use std::hash::Hash;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Weak};
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::{timeout_at, Duration, Instant};
 
 mod metrics;
@@ -526,6 +526,17 @@ pub struct LruCacheWithTtl<K: Clone + Debug + Hash + Eq, V: Clone + Debug + Send
     inner: Arc<Inner<K, V>>,
 }
 
+/// The outcome of contending for the right to populate an absent entry.
+enum Acquisition<V: Debug> {
+    /// Another caller already satisfied the lookup, or it timed out or failed:
+    /// the value to hand straight back to the caller.
+    Resolved(Result<ItemLookup<V>, Arc<anyhow::Error>>),
+    /// This caller won the race and must run the populate. It holds the
+    /// single-flight permit and is responsible for closing its semaphore once
+    /// the entry is inserted.
+    Owner(OwnedSemaphorePermit),
+}
+
 impl<
         K: Clone + Debug + Hash + Eq + Send + Sync + std::fmt::Debug + 'static,
         V: Clone + Debug + Send + Sync + 'static,
@@ -807,42 +818,29 @@ impl<
         result
     }
 
-    /// Get an existing item, but if that item doesn't already exist,
-    /// execute the future `fut` to provide a value that will be inserted and then
-    /// returned.  This is done atomically wrt. other callers.
-    /// The TTL parameter is a function that can extract the TTL from the value type,
-    /// or just return a constant TTL.
-    pub async fn get_or_try_insert<E: Into<anyhow::Error>, TTL: FnOnce(&V) -> Duration>(
+    /// Contend for the right to populate `name`, returning either the resolved
+    /// lookup (someone else satisfied it, or the wait timed out or failed) or
+    /// the single-flight permit this caller must populate under.
+    async fn acquire(
         &self,
         name: &K,
-        ttl_func: TTL,
-        fut: impl Future<Output = Result<V, E>>,
-    ) -> Result<ItemLookup<V>, Arc<anyhow::Error>> {
-        // Fast path avoids cloning the key
-        if let Some(entry) = self.lookup(name) {
-            return Ok(entry);
-        }
-
-        let timeout_duration = Duration::from_millis(
-            self.inner.sema_timeout_milliseconds.load(Ordering::Relaxed) as u64,
-        );
-        let start = Instant::now();
-        let deadline = start + timeout_duration;
-
+        deadline: Instant,
+        timeout_duration: Duration,
+    ) -> Acquisition<V> {
         // Retry without an attempt cap: the caller's deadline bounds the wait,
         // enforced by the timeout_at below.
-        'retry: loop {
+        loop {
             let (stale_value, sema) = match self.clone_item_state(name, deadline, timeout_duration)
             {
                 (ItemState::Present(item), expiration) => {
-                    return Ok(ItemLookup {
+                    return Acquisition::Resolved(Ok(ItemLookup {
                         item,
                         expiration,
                         is_fresh: false,
-                    });
+                    }));
                 }
                 (ItemState::Failed(error), _) => {
-                    return Err(error);
+                    return Acquisition::Resolved(Err(error));
                 }
                 (
                     ItemState::Refreshing {
@@ -872,11 +870,11 @@ impl<
                                 self.inner.name
                             );
                             self.inner.stale_counter.inc();
-                            return Ok(ItemLookup {
+                            return Acquisition::Resolved(Ok(ItemLookup {
                                 item,
                                 expiration,
                                 is_fresh: false,
-                            });
+                            }));
                         }
                         tracing::debug!(
                             "{} semaphore acquire for {name:?} timed out after \
@@ -885,12 +883,12 @@ impl<
                         );
 
                         self.inner.error_counter.inc();
-                        return Err(Arc::new(anyhow::anyhow!(
+                        return Acquisition::Resolved(Err(Arc::new(anyhow::anyhow!(
                             "{} lookup for {name:?} \
                             timed out after {timeout_duration:?} \
                             on semaphore acquire while waiting for cache to populate",
                             self.inner.name
-                        )));
+                        ))));
                     }
                     Ok(r) => r,
                 }
@@ -900,15 +898,15 @@ impl<
             // the lookup; check it
             let current_sema = match self.clone_item_state(name, deadline, timeout_duration) {
                 (ItemState::Present(item), expiration) => {
-                    return Ok(ItemLookup {
+                    return Acquisition::Resolved(Ok(ItemLookup {
                         item,
                         expiration,
                         is_fresh: false,
-                    });
+                    }));
                 }
                 (ItemState::Failed(error), _) => {
                     self.inner.hit_counter.inc();
-                    return Err(error);
+                    return Acquisition::Resolved(Err(error));
                 }
                 (
                     ItemState::Refreshing {
@@ -923,17 +921,6 @@ impl<
             // It's still outstanding
             match wait_result {
                 Ok(permit) => {
-                    // We're responsible for resolving it.
-                    // We will always close the semaphore when
-                    // we're done with this logic (and when we unwind
-                    // or are cancelled) so that we can wake up any
-                    // waiters.
-                    // We use defer! for this so that if we are cancelled
-                    // at the await point below, others are still woken up.
-                    defer! {
-                        permit.semaphore().close();
-                    }
-
                     if !Arc::ptr_eq(&current_sema, permit.semaphore()) {
                         self.inner.error_counter.inc();
                         tracing::warn!(
@@ -941,47 +928,17 @@ impl<
                                     will restart cache resolve.",
                             self.inner.name
                         );
-                        // Populating now would insert against a semaphore no
-                        // other call is waiting on, leaving the entry's current
-                        // waiters stuck on the newer one. Restart and compete
-                        // for ownership of that current semaphore instead.
-                        continue 'retry;
+                        // This permit is for a semaphore the entry no longer
+                        // references. Close it to release any callers still
+                        // waiting on it.
+                        permit.semaphore().close();
+                        // Restart against the current semaphore of the entry.
+                        continue;
                     }
 
-                    self.inner.populate_counter.inc();
-                    let mut ttl = Duration::from_secs(60);
-                    let future_result = fut.await;
-                    let now = Instant::now();
-
-                    let (item_result, return_value) = match future_result {
-                        Ok(item) => {
-                            ttl = ttl_func(&item);
-                            (
-                                ItemState::Present(item.clone()),
-                                Ok(ItemLookup {
-                                    item,
-                                    expiration: now + ttl,
-                                    is_fresh: true,
-                                }),
-                            )
-                        }
-                        Err(err) => {
-                            self.inner.error_counter.inc();
-                            let err = Arc::new(err.into());
-                            (ItemState::Failed(err.clone()), Err(err))
-                        }
-                    };
-
-                    self.inner.cache.insert(
-                        name.clone(),
-                        Item {
-                            item: item_result,
-                            expiration: Instant::now() + ttl,
-                            last_tick: self.inc_tick().into(),
-                        },
-                    );
-                    self.inner.maybe_evict();
-                    return return_value;
+                    // The caller closes this permit's semaphore, once it has
+                    // inserted a value (see the defer! in get_or_try_insert).
+                    return Acquisition::Owner(permit);
                 }
                 Err(_) => {
                     self.inner.error_counter.inc();
@@ -994,10 +951,82 @@ impl<
                                 will restart cache lookup",
                         self.inner.name
                     );
-                    continue 'retry;
+                    continue;
                 }
             }
         }
+    }
+
+    /// Returns the cached item for `name`, or runs `fut` to produce one and
+    /// insert it, then returns it. `ttl_func` computes the TTL to store the
+    /// result under from the produced value, or a caller that wants a fixed TTL
+    /// can ignore its argument and return a constant.
+    ///
+    /// Concurrent calls for the same `name` run `fut` at most once: all of
+    /// them receive its outcome, success or failure.
+    pub async fn get_or_try_insert<E: Into<anyhow::Error>, TTL: FnOnce(&V) -> Duration>(
+        &self,
+        name: &K,
+        ttl_func: TTL,
+        fut: impl Future<Output = Result<V, E>>,
+    ) -> Result<ItemLookup<V>, Arc<anyhow::Error>> {
+        // Fast path avoids cloning the key
+        if let Some(entry) = self.lookup(name) {
+            return Ok(entry);
+        }
+
+        let timeout_duration = Duration::from_millis(
+            self.inner.sema_timeout_milliseconds.load(Ordering::Relaxed) as u64,
+        );
+        let start = Instant::now();
+        let deadline = start + timeout_duration;
+
+        let permit = match self.acquire(name, deadline, timeout_duration).await {
+            Acquisition::Resolved(result) => return result,
+            Acquisition::Owner(permit) => permit,
+        };
+
+        // defer! closes the semaphore when this function returns by any path,
+        // including a cancellation while fut is still running.
+        defer! {
+            permit.semaphore().close();
+        }
+
+        self.inner.populate_counter.inc();
+        let mut ttl = Duration::from_secs(60);
+        let future_result = fut.await;
+        let now = Instant::now();
+
+        let (item_result, return_value) = match future_result {
+            Ok(item) => {
+                ttl = ttl_func(&item);
+                (
+                    ItemState::Present(item.clone()),
+                    Ok(ItemLookup {
+                        item,
+                        expiration: now + ttl,
+                        is_fresh: true,
+                    }),
+                )
+            }
+            Err(err) => {
+                self.inner.error_counter.inc();
+                let err = Arc::new(err.into());
+                (ItemState::Failed(err.clone()), Err(err))
+            }
+        };
+
+        // This insert must complete before the deferred close above runs.
+        self.inner.cache.insert(
+            name.clone(),
+            Item {
+                item: item_result,
+                expiration: Instant::now() + ttl,
+                last_tick: self.inc_tick().into(),
+            },
+        );
+        self.inner.maybe_evict();
+        return_value
     }
 }
 
