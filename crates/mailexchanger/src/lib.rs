@@ -1,7 +1,8 @@
 use crate::site_name::factor_names;
 use anyhow::Context;
 use dns_resolver::{
-    get_resolver, has_colon_port, ip_lookup, DomainClassification, IpLookupStrategy, Name, Resolver,
+    get_resolver, has_colon_port, ip_lookup, DnsError, DomainClassification, IpLookupStrategy,
+    Name, Resolver,
 };
 use hickory_resolver::proto::rr::{RData, RecordType};
 use kumo_address::host_or_socket::HostOrSocketAddress;
@@ -91,9 +92,34 @@ struct ByPreference {
 async fn lookup_mx_record(
     domain_name: &Name,
     resolver: Option<&dyn Resolver>,
-) -> anyhow::Result<(Vec<ByPreference>, Instant)> {
-    let mx_lookup = timeout(get_mx_timeout(), async {
-        let _permit = MX_CONCURRENCY_SEMA.acquire().await;
+) -> Result<(Vec<ByPreference>, Instant), MxResolveError> {
+    lookup_mx_record_limited(
+        domain_name,
+        resolver,
+        &MX_CONCURRENCY_SEMA,
+        get_mx_timeout(),
+    )
+    .await
+}
+
+/// Perform the MX query for `domain_name`, bounding concurrency on
+/// `concurrency` and the whole operation (permit wait plus query) on
+/// `timeout_duration`.
+async fn lookup_mx_record_limited(
+    domain_name: &Name,
+    resolver: Option<&dyn Resolver>,
+    concurrency: &Semaphore,
+    timeout_duration: Duration,
+) -> Result<(Vec<ByPreference>, Instant), MxResolveError> {
+    // Records whether the MX concurrency permit was obtained before the
+    // timeout fired.
+    let permit_acquired = AtomicBool::new(false);
+    let mx_lookup = match timeout(timeout_duration, async {
+        let _permit = concurrency.acquire().await;
+        // Relaxed is enough: this store and the load after the match below
+        // both happen in this function's own task, and no other task or
+        // thread ever touches `permit_acquired`.
+        permit_acquired.store(true, Ordering::Relaxed);
         match resolver {
             Some(r) => r.resolve(domain_name.clone(), RecordType::MX).await,
             None => {
@@ -103,12 +129,35 @@ async fn lookup_mx_record(
             }
         }
     })
-    .await??;
+    .await
+    {
+        Ok(Ok(answer)) => answer,
+        Ok(Err(dns_err)) => {
+            return Err(MxResolveError {
+                kind: classify_dns_error(&dns_err),
+                message: dns_err.to_string(),
+            });
+        }
+        Err(elapsed) => {
+            let kind = if permit_acquired.load(Ordering::Relaxed) {
+                MxResolveFailure::Indeterminate
+            } else {
+                MxResolveFailure::NeverQueried
+            };
+            return Err(MxResolveError {
+                kind,
+                message: elapsed.to_string(),
+            });
+        }
+    };
     let mx_records = mx_lookup.records;
 
     if mx_records.is_empty() {
         if mx_lookup.nxdomain {
-            anyhow::bail!("NXDOMAIN");
+            return Err(MxResolveError {
+                kind: MxResolveFailure::NxDomain,
+                message: "NXDOMAIN".to_string(),
+            });
         }
 
         // No MX records: the domain's own A/AAAA records act as the implicit
@@ -158,6 +207,78 @@ async fn lookup_mx_record(
     Ok((records, mx_lookup.expires))
 }
 
+/// How resolving a domain's MX failed, classified by what the DNS exchange
+/// established. A caller that needs to act on a specific case (such as
+/// NXDOMAIN) can match on this after recovering the [`MxResolveError`] with
+/// `downcast_ref`, rather than matching on the message text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MxResolveFailure {
+    /// Authoritative negative response: the resolver reported that the name
+    /// does not exist (NXDOMAIN). A resolver can return NXDOMAIN spuriously,
+    /// while its own upstream is still propagating a new registration, and will
+    /// stop doing so once that passes. A caller should re-check after a bounded
+    /// negative-cache lifetime rather than treat this as final.
+    NxDomain,
+    /// Indeterminate negative response: a query was issued but did not produce
+    /// an authoritative answer -- a timeout after the query was sent, a
+    /// SERVFAIL or other failure RCODE, or a resolver I/O error. The true state
+    /// of the name is unknown and a later query may resolve it.
+    Indeterminate,
+    /// No query was ever issued: the timeout elapsed while waiting for an MX
+    /// concurrency permit. Indicates local concurrency pressure, nothing about
+    /// the destination.
+    NeverQueried,
+    /// The MX set resolved, but the domain's MTA-STS enforce policy permits
+    /// none of its own MX hosts. Mail to the domain cannot be delivered until
+    /// its operator corrects the policy.
+    PolicyRejected,
+}
+
+/// An MX resolution failure: its [`MxResolveFailure`] classification together
+/// with a human-readable `message`. `Display` writes `message` verbatim, which
+/// means `{err}` formatting (including `anyhow!("{err}")` and log output)
+/// reproduces that text. Conversion to `anyhow::Error` keeps this concrete
+/// type rather than erasing it: a caller holding the resulting `anyhow::Error`
+/// can recover the classification with `downcast_ref::<MxResolveError>()`.
+#[derive(Clone, Debug)]
+pub struct MxResolveError {
+    pub kind: MxResolveFailure,
+    pub message: String,
+}
+
+impl MxResolveError {
+    /// Whether the resolver returned NXDOMAIN for the name, for callers that
+    /// need to single out that case without inspecting the message text.
+    pub fn is_nxdomain(&self) -> bool {
+        self.kind == MxResolveFailure::NxDomain
+    }
+}
+
+impl std::fmt::Display for MxResolveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for MxResolveError {}
+
+/// Classify a resolver-level error. Both `DnsError` variants map to
+/// `MxResolveFailure::Indeterminate` because neither contains an authoritative
+/// answer.
+fn classify_dns_error(err: &DnsError) -> MxResolveFailure {
+    match err {
+        // The query reached the resolver but came back without an
+        // authoritative answer.
+        DnsError::ResolveFailed(_) => MxResolveFailure::Indeterminate,
+        // InvalidName is only ever constructed by the &str-parsing methods on
+        // Resolver, not by resolve(Name, RecordType), which this function's
+        // caller uses and which receives an already-parsed Name. The arm exists
+        // for exhaustiveness and maps to Indeterminate as the conservative
+        // default.
+        DnsError::InvalidName(_) => MxResolveFailure::Indeterminate,
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct MailExchanger {
     pub domain_name: String,
@@ -178,7 +299,7 @@ pub struct MailExchanger {
 
 declare_cache! {
 /// Caches domain name to computed set of MailExchanger records
-static MX_CACHE: LruCacheWithTtl<(Name, Option<u16>), Result<Arc<MailExchanger>, String>>::new("dns_resolver_mx", 64 * 1024);
+static MX_CACHE: LruCacheWithTtl<(Name, Option<u16>), Result<Arc<MailExchanger>, MxResolveError>>::new("dns_resolver_mx", 64 * 1024);
 }
 
 declare_metric! {
@@ -385,7 +506,7 @@ impl MailExchanger {
         if resolver.is_some() {
             return Self::resolve_uncached(&name_fq, opt_port, domain_name, resolver)
                 .await?
-                .map_err(|err| anyhow::anyhow!("{err}"));
+                .map_err(anyhow::Error::new);
         }
 
         let lookup_result = MX_CACHE
@@ -410,7 +531,7 @@ impl MailExchanger {
             MX_CACHED.inc();
         }
 
-        lookup_result.item.map_err(|err| anyhow::anyhow!("{err}"))
+        lookup_result.item.map_err(anyhow::Error::new)
     }
 
     async fn resolve_uncached(
@@ -418,14 +539,14 @@ impl MailExchanger {
         opt_port: Option<u16>,
         domain_name: &str,
         resolver: Option<&dyn Resolver>,
-    ) -> anyhow::Result<Result<Arc<MailExchanger>, String>> {
+    ) -> anyhow::Result<Result<Arc<MailExchanger>, MxResolveError>> {
         MX_QUERIES.inc();
         let start = Instant::now();
         let (mut by_pref, mut expires) = match lookup_mx_record(name_fq, resolver).await {
             Ok((by_pref, expires)) => (by_pref, expires),
             Err(err) => {
                 let error = format!(
-                    "MX lookup for {domain_name} failed after {elapsed:?}: {err:#}",
+                    "MX lookup for {domain_name} failed after {elapsed:?}: {err}",
                     elapsed = start.elapsed()
                 );
                 tracing::debug!(
@@ -434,7 +555,10 @@ impl MailExchanger {
                     %error,
                     "MX lookup failed; domain drops out of any site_name rollup"
                 );
-                return Ok(Err(error));
+                return Ok(Err(MxResolveError {
+                    kind: err.kind,
+                    message: error,
+                }));
             }
         };
 
@@ -465,7 +589,10 @@ impl MailExchanger {
                         %error,
                         "MTA-STS evaluation failed; domain drops out of any site_name rollup"
                     );
-                    return Ok(Err(error));
+                    return Ok(Err(MxResolveError {
+                        kind: MxResolveFailure::PolicyRejected,
+                        message: error,
+                    }));
                 }
             }
         } else {
@@ -1050,6 +1177,114 @@ $ORIGIN xn--bb-eka.at.
             Err(err) => err,
         };
         k9::assert_equal!(err.to_string(), "NXDOMAIN");
+        k9::assert_equal!(err.kind, MxResolveFailure::NxDomain);
+        assert!(err.is_nxdomain());
+    }
+
+    #[tokio::test]
+    async fn nxdomain_is_recoverable_through_anyhow() {
+        // resolve_via converts the failure to anyhow. A caller must still be
+        // able to recover the classification without parsing the message.
+        let resolver = fixture_resolver(&[]);
+        let err = MailExchanger::resolve_via("not-mairs.aasland.com", Some(&resolver))
+            .await
+            .unwrap_err();
+        let mx_err = err
+            .downcast_ref::<MxResolveError>()
+            .expect("the typed MX error survives the anyhow conversion");
+        assert!(mx_err.is_nxdomain());
+        k9::assert_equal!(mx_err.kind, MxResolveFailure::NxDomain);
+    }
+
+    #[test]
+    fn classify_resolver_error_is_indeterminate() {
+        // ResolveFailed means the query reached the resolver without producing
+        // an authoritative answer, which is the Indeterminate case.
+        k9::assert_equal!(
+            classify_dns_error(&DnsError::ResolveFailed("SERVFAIL".to_string())),
+            MxResolveFailure::Indeterminate
+        );
+        // Production never calls classify_dns_error with InvalidName, but this
+        // pins its fallback value (the same as ResolveFailed) so a future
+        // caller that does pass one gets a deliberate answer instead of an
+        // unreviewed one.
+        k9::assert_equal!(
+            classify_dns_error(&DnsError::InvalidName("bad".to_string())),
+            MxResolveFailure::Indeterminate
+        );
+    }
+
+    /// Resolver that sleeps for `delay` before failing, used to drive the
+    /// query-timeout classification path.
+    struct DelayResolver {
+        delay: Duration,
+    }
+
+    #[async_trait::async_trait]
+    impl Resolver for DelayResolver {
+        async fn resolve_ip(&self, _host: &str) -> Result<Vec<IpAddr>, DnsError> {
+            unreachable!()
+        }
+        async fn resolve_mx(&self, _host: &str) -> Result<Vec<Name>, DnsError> {
+            unreachable!()
+        }
+        async fn resolve_ptr(&self, _ip: IpAddr) -> Result<Vec<Name>, DnsError> {
+            unreachable!()
+        }
+        async fn resolve(
+            &self,
+            _name: Name,
+            _rrtype: RecordType,
+        ) -> Result<dns_resolver::Answer, DnsError> {
+            tokio::time::sleep(self.delay).await;
+            Err(DnsError::ResolveFailed("delay elapsed".to_string()))
+        }
+    }
+
+    #[tokio::test]
+    async fn deadline_before_permit_is_never_queried() {
+        // `acquire` blocks until a permit exists. With none in this semaphore
+        // it blocks forever, leaving the 50ms timeout below as the only thing
+        // that fires.
+        let resolver = fixture_resolver(&[GMAIL_ZONE, GMAIL_HOSTS_ZONE]);
+        let name = fully_qualify("gmail.com").unwrap();
+        let no_permits = Semaphore::new(0);
+        let err = match lookup_mx_record_limited(
+            &name,
+            Some(&resolver),
+            &no_permits,
+            Duration::from_millis(50),
+        )
+        .await
+        {
+            Ok(_) => panic!("expected a timeout before the permit was acquired"),
+            Err(err) => err,
+        };
+        k9::assert_equal!(err.kind, MxResolveFailure::NeverQueried);
+    }
+
+    #[tokio::test]
+    async fn query_timeout_is_indeterminate() {
+        let resolver = DelayResolver {
+            delay: Duration::from_secs(60),
+        };
+        let name = fully_qualify("gmail.com").unwrap();
+        // Unlike `deadline_before_permit_is_never_queried`, this semaphore
+        // starts with a permit available. The query reaches `DelayResolver` and
+        // is already in flight when the 50ms timeout elapses.
+        let one_permit = Semaphore::new(1);
+        let err = match lookup_mx_record_limited(
+            &name,
+            Some(&resolver),
+            &one_permit,
+            Duration::from_millis(50),
+        )
+        .await
+        {
+            Ok(_) => panic!("expected the query to exceed the timeout"),
+            Err(err) => err,
+        };
+        k9::assert_equal!(err.kind, MxResolveFailure::Indeterminate);
     }
 
     #[tokio::test]
