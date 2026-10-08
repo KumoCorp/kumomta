@@ -829,9 +829,9 @@ impl<
         let start = Instant::now();
         let deadline = start + timeout_duration;
 
-        // Note: the lookup call increments lookup_counter and miss_counter
-        const MAX_ATTEMPTS: usize = 10;
-        'retry: for _ in 0..MAX_ATTEMPTS {
+        // Retry without an attempt cap: the caller's deadline bounds the wait,
+        // enforced by the timeout_at below.
+        'retry: loop {
             let (stale_value, sema) = match self.clone_item_state(name, deadline, timeout_duration)
             {
                 (ItemState::Present(item), expiration) => {
@@ -860,6 +860,9 @@ impl<
                     self.inner.wait_gauge.dec();
                 }
 
+                // This unbounded loop does not busy-spin: acquire_owned blocks
+                // each iteration until the semaphore is released or closed, and
+                // only resolves when one of those happens.
                 match timeout_at(deadline, sema.acquire_owned()).await {
                     Err(_) => {
                         if let Some((item, expiration)) = stale_value {
@@ -938,6 +941,10 @@ impl<
                                     will restart cache resolve.",
                             self.inner.name
                         );
+                        // Populating now would insert against a semaphore no
+                        // other call is waiting on, leaving the entry's current
+                        // waiters stuck on the newer one. Restart and compete
+                        // for ownership of that current semaphore instead.
                         continue 'retry;
                     }
 
@@ -991,11 +998,6 @@ impl<
                 }
             }
         }
-
-        return Err(Arc::new(anyhow::anyhow!(
-            "{} lookup for {name:?} failed after {MAX_ATTEMPTS} attempts",
-            self.inner.name
-        )));
     }
 }
 
