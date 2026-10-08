@@ -32,6 +32,7 @@ use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on};
 use kumo_template::TemplateEngine;
+use mailexchanger::MxResolveError;
 use message::queue_name::QueueNameComponents;
 use message::Message;
 use parking_lot::FairMutex;
@@ -136,8 +137,10 @@ impl Queue {
                 // queue for this domain.
                 // We'll base it off the effective routing domain, but throw in a string to
                 // help indicate at a glance that there is an issue with its DNS
-                let reason = format!("{err:#}");
-                let reason = if reason.contains("NXDOMAIN") {
+                let reason = if err
+                    .downcast_ref::<MxResolveError>()
+                    .is_some_and(MxResolveError::is_nxdomain)
+                {
                     "NXDOMAIN"
                 } else {
                     // Any other DNS resolution failure
