@@ -360,6 +360,33 @@
     "pruning": "NonPruning"
   },
   {
+    "name": "dns_mx_resolve_permit_timeout",
+    "help": "Total number of MX lookups that timed out while waiting for an MX\nconcurrency permit before any query could be sent. Counts local\nconcurrency pressure, not any response from the destination.",
+    "doc": null,
+    "metric_type": "Counter",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "dns_mx_resolve_permit_waiters",
+    "help": "Number of MX lookups currently blocked waiting for an MX concurrency\npermit before their query can be sent.",
+    "doc": null,
+    "metric_type": "Gauge",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "dns_mx_resolve_query_timeout",
+    "help": "Total number of MX lookups that timed out after the query was sent, while\nwaiting for the resolver to answer.",
+    "doc": null,
+    "metric_type": "Counter",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
     "name": "dns_mx_resolve_status_fail",
     "help": "Total number of failed `MailExchanger::resolve` calls.",
     "doc": "Spikes may indicate an issue with your DNS configuration\nor infrastructure, or may simply indicate that the traffic\nis destined for bogus addresses.",

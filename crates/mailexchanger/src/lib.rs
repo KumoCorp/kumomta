@@ -131,6 +131,24 @@ async fn lookup_mx_record(
     .await
 }
 
+/// A guard that counts one lookup in `MX_PERMIT_WAITERS` while it waits for an
+/// MX concurrency permit. `Drop` removes it from the count, whether the
+/// permit is acquired or the wait is abandoned by a timeout.
+struct PermitWaitGuard;
+
+impl PermitWaitGuard {
+    fn enter() -> Self {
+        MX_PERMIT_WAITERS.inc();
+        Self
+    }
+}
+
+impl Drop for PermitWaitGuard {
+    fn drop(&mut self) {
+        MX_PERMIT_WAITERS.dec();
+    }
+}
+
 /// Perform the MX query for `domain_name`, bounding concurrency on
 /// `concurrency` and the whole operation (permit wait plus query) on
 /// `timeout_duration`.
@@ -144,7 +162,12 @@ async fn lookup_mx_record_limited(
     // timeout fired.
     let permit_acquired = AtomicBool::new(false);
     let mx_lookup = match timeout(timeout_duration, async {
+        let wait_guard = PermitWaitGuard::enter();
         let _permit = concurrency.acquire().await;
+        // Drop here ends the wait explicitly on success. If the enclosing
+        // timeout instead drops this whole future first, the Drop of the guard
+        // still runs and removes the count.
+        drop(wait_guard);
         // Relaxed is enough: this store and the load after the match below
         // both happen in this function's own task, and no other task or
         // thread ever touches `permit_acquired`.
@@ -167,16 +190,24 @@ async fn lookup_mx_record_limited(
                 message: dns_err.to_string(),
             });
         }
-        Err(elapsed) => {
-            let kind = if permit_acquired.load(Ordering::Relaxed) {
-                MxResolveFailure::Indeterminate
+        Err(_elapsed) => {
+            let (kind, message) = if permit_acquired.load(Ordering::Relaxed) {
+                MX_QUERY_TIMEOUT.inc();
+                (
+                    MxResolveFailure::Indeterminate,
+                    format!("MX query timed out after {timeout_duration:?}"),
+                )
             } else {
-                MxResolveFailure::NeverQueried
+                MX_PERMIT_TIMEOUT.inc();
+                (
+                    MxResolveFailure::NeverQueried,
+                    format!(
+                        "timed out after {timeout_duration:?} waiting for an MX concurrency \
+                         permit; no query was sent"
+                    ),
+                )
             };
-            return Err(MxResolveError {
-                kind,
-                message: elapsed.to_string(),
-            });
+            return Err(MxResolveError { kind, message });
         }
     };
     let mx_records = mx_lookup.records;
@@ -381,6 +412,25 @@ declare_metric! {
 /// Redundant with the newer [lruttl_miss_count{cache_name="dns_resolver_mx"}](lruttl_miss_count.md)
 /// metric.
 static MX_QUERIES: IntCounter("dns_mx_resolve_cache_miss");
+}
+
+declare_metric! {
+/// Total number of MX lookups that timed out while waiting for an MX
+/// concurrency permit before any query could be sent. Counts local
+/// concurrency pressure, not any response from the destination.
+static MX_PERMIT_TIMEOUT: IntCounter("dns_mx_resolve_permit_timeout");
+}
+
+declare_metric! {
+/// Total number of MX lookups that timed out after the query was sent, while
+/// waiting for the resolver to answer.
+static MX_QUERY_TIMEOUT: IntCounter("dns_mx_resolve_query_timeout");
+}
+
+declare_metric! {
+/// Number of MX lookups currently blocked waiting for an MX concurrency
+/// permit before their query can be sent.
+static MX_PERMIT_WAITERS: IntGauge("dns_mx_resolve_permit_waiters");
 }
 
 declare_metric! {
@@ -1285,6 +1335,7 @@ $ORIGIN xn--bb-eka.at.
         let resolver = fixture_resolver(&[GMAIL_ZONE, GMAIL_HOSTS_ZONE]);
         let name = fully_qualify("gmail.com").unwrap();
         let no_permits = Semaphore::new(0);
+        let before = MX_PERMIT_TIMEOUT.get();
         let err = match lookup_mx_record_limited(
             &name,
             Some(&resolver),
@@ -1297,6 +1348,11 @@ $ORIGIN xn--bb-eka.at.
             Err(err) => err,
         };
         k9::assert_equal!(err.kind, MxResolveFailure::NeverQueried);
+        k9::assert_equal!(
+            err.message,
+            "timed out after 50ms waiting for an MX concurrency permit; no query was sent"
+        );
+        k9::assert_equal!(MX_PERMIT_TIMEOUT.get() - before, 1);
     }
 
     #[tokio::test]
@@ -1309,6 +1365,7 @@ $ORIGIN xn--bb-eka.at.
         // starts with a permit available. The query reaches `DelayResolver` and
         // is already in flight when the 50ms timeout elapses.
         let one_permit = Semaphore::new(1);
+        let before = MX_QUERY_TIMEOUT.get();
         let err = match lookup_mx_record_limited(
             &name,
             Some(&resolver),
@@ -1321,6 +1378,8 @@ $ORIGIN xn--bb-eka.at.
             Err(err) => err,
         };
         k9::assert_equal!(err.kind, MxResolveFailure::Indeterminate);
+        k9::assert_equal!(err.message, "MX query timed out after 50ms");
+        k9::assert_equal!(MX_QUERY_TIMEOUT.get() - before, 1);
     }
 
     #[test]
