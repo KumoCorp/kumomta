@@ -5,7 +5,8 @@ use dns_resolver::{
 };
 use kumo_address::host_or_socket::HostOrSocketAddress;
 use mailexchanger::{
-    set_mx_concurrency_limit, set_mx_negative_cache_ttl, set_mx_timeout, MailExchanger,
+    set_mx_concurrency_limit, set_mx_negative_cache_ttl, set_mx_timeout,
+    set_mx_transient_negative_cache_ttl, MailExchanger,
 };
 use mlua::{Lua, LuaSerdeExt, Value};
 use parking_lot::Mutex;
@@ -91,6 +92,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(move |lua, duration: Value| {
             let duration: duration_serde::Wrap<Duration> = lua.from_value(duration)?;
             set_mx_negative_cache_ttl(duration.into_inner()).map_err(any_err)
+        })?,
+    )?;
+
+    dns_mod.set(
+        "set_mx_transient_negative_cache_ttl",
+        lua.create_function(move |lua, duration: Value| {
+            let duration: duration_serde::Wrap<Duration> = lua.from_value(duration)?;
+            set_mx_transient_negative_cache_ttl(duration.into_inner()).map_err(any_err)
         })?,
     )?;
 

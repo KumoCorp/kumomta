@@ -21,7 +21,7 @@ hickory-resolver = {workspace=true}
 [dev-dependencies]
 async-trait = {workspace=true}
 k9 = {workspace=true}
-tokio = {workspace=true, features=["macros"]}
+tokio = {workspace=true, features=["macros", "time", "test-util"]}
 
 [lints]
 workspace = true

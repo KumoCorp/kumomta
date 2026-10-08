@@ -1030,6 +1030,26 @@ mod test {
     }
 
     #[test(tokio::test)]
+    async fn test_zero_ttl_requeries() {
+        // A zero TTL makes the inserted entry expire at the instant it is stored.
+        let cache = LruCacheWithTtl::<u32, u32>::new("test_zero_ttl_requeries", 1);
+
+        let first = cache
+            .get_or_try_insert(&0, |_| Duration::ZERO, async { Ok::<_, anyhow::Error>(1) })
+            .await
+            .unwrap();
+        assert_eq!(first.item, 1);
+        assert!(first.is_fresh);
+
+        let second = cache
+            .get_or_try_insert(&0, |_| Duration::ZERO, async { Ok::<_, anyhow::Error>(2) })
+            .await
+            .unwrap();
+        assert_eq!(second.item, 2, "the zero-ttl entry was not reused");
+        assert!(second.is_fresh);
+    }
+
+    #[test(tokio::test)]
     async fn test_over_capacity_slow_resolve() {
         let cache = Arc::new(LruCacheWithTtl::<String, u64>::new(
             "test_over_capacity_slow_resolve",

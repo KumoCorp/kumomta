@@ -52,6 +52,9 @@ static MX_TIMEOUT_MS: AtomicUsize = AtomicUsize::new(5000);
 /// 5 minutes in ms
 static MX_NEGATIVE_TTL: AtomicUsize = AtomicUsize::new(300 * 1000);
 
+/// The TTL for transient negative entries, in milliseconds.
+static MX_TRANSIENT_NEGATIVE_TTL: AtomicUsize = AtomicUsize::new(30 * 1000);
+
 pub fn set_mx_concurrency_limit(n: usize) {
     MX_MAX_CONCURRENCY.store(n, Ordering::SeqCst);
 }
@@ -80,6 +83,32 @@ pub fn set_mx_negative_cache_ttl(duration: Duration) -> anyhow::Result<()> {
 
 pub fn get_mx_negative_ttl() -> Duration {
     Duration::from_millis(MX_NEGATIVE_TTL.load(Ordering::Relaxed) as u64)
+}
+
+pub fn set_mx_transient_negative_cache_ttl(duration: Duration) -> anyhow::Result<()> {
+    let ms = duration
+        .as_millis()
+        .try_into()
+        .context("set_mx_transient_negative_cache_ttl: duration is too large")?;
+    MX_TRANSIENT_NEGATIVE_TTL.store(ms, Ordering::Relaxed);
+    Ok(())
+}
+
+pub fn get_mx_transient_negative_ttl() -> Duration {
+    Duration::from_millis(MX_TRANSIENT_NEGATIVE_TTL.load(Ordering::Relaxed) as u64)
+}
+
+/// Returns the cache lifetime for an `MX_CACHE` lookup result.
+fn mx_cache_ttl(mx_result: &Result<Arc<MailExchanger>, MxResolveError>) -> Duration {
+    match mx_result {
+        Ok(mx) => match mx.expires {
+            Some(exp) => exp
+                .checked_duration_since(std::time::Instant::now())
+                .unwrap_or_else(|| Duration::from_secs(10)),
+            None => get_mx_negative_ttl(),
+        },
+        Err(err) => err.kind.negative_ttl(),
+    }
 }
 
 struct ByPreference {
@@ -232,6 +261,22 @@ pub enum MxResolveFailure {
     /// none of its own MX hosts. Mail to the domain cannot be delivered until
     /// its operator corrects the policy.
     PolicyRejected,
+}
+
+impl MxResolveFailure {
+    /// Returns the negative-cache lifetime received by a failure of this kind.
+    /// An authoritative NXDOMAIN or an operator-gated policy rejection holds
+    /// for the full negative TTL. Indeterminate failures retry after a shorter
+    /// interval. A lookup that was never issued returns a zero lifetime, which
+    /// expires the cache entry immediately and makes the next caller
+    /// re-resolve.
+    fn negative_ttl(self) -> Duration {
+        match self {
+            MxResolveFailure::NxDomain | MxResolveFailure::PolicyRejected => get_mx_negative_ttl(),
+            MxResolveFailure::Indeterminate => get_mx_transient_negative_ttl(),
+            MxResolveFailure::NeverQueried => Duration::ZERO,
+        }
+    }
 }
 
 /// An MX resolution failure: its [`MxResolveFailure`] classification together
@@ -512,16 +557,7 @@ impl MailExchanger {
         let lookup_result = MX_CACHE
             .get_or_try_insert(
                 &(name_fq.clone(), opt_port),
-                |mx_result| {
-                    if let Ok(mx) = mx_result {
-                        if let Some(exp) = mx.expires {
-                            return exp
-                                .checked_duration_since(std::time::Instant::now())
-                                .unwrap_or_else(|| Duration::from_secs(10));
-                        }
-                    }
-                    get_mx_negative_ttl()
-                },
+                mx_cache_ttl,
                 Self::resolve_uncached(&name_fq, opt_port, domain_name, None),
             )
             .await
@@ -1285,6 +1321,125 @@ $ORIGIN xn--bb-eka.at.
             Err(err) => err,
         };
         k9::assert_equal!(err.kind, MxResolveFailure::Indeterminate);
+    }
+
+    #[test]
+    fn negative_ttl_classifies_by_kind() {
+        // Pins the per-kind mapping of MxResolveFailure::negative_ttl against
+        // regression.
+        k9::assert_equal!(
+            MxResolveFailure::NxDomain.negative_ttl(),
+            get_mx_negative_ttl()
+        );
+        k9::assert_equal!(
+            MxResolveFailure::PolicyRejected.negative_ttl(),
+            get_mx_negative_ttl()
+        );
+        k9::assert_equal!(
+            MxResolveFailure::Indeterminate.negative_ttl(),
+            get_mx_transient_negative_ttl()
+        );
+        k9::assert_equal!(
+            MxResolveFailure::NeverQueried.negative_ttl(),
+            Duration::ZERO
+        );
+    }
+
+    /// Build a minimal successful `MailExchanger` for driving the cache
+    /// directly. Leaves `expires` as `None`, which `mx_cache_ttl` treats as an
+    /// unbounded success and caches for `get_mx_negative_ttl()`.
+    fn fresh_mx(domain: &str) -> Arc<MailExchanger> {
+        Arc::new(MailExchanger {
+            domain_name: domain.to_string(),
+            hosts: vec![format!("mx.{domain}.")],
+            site_name: format!("mx.{domain}"),
+            by_pref: BTreeMap::new(),
+            is_domain_literal: false,
+            is_secure: false,
+            is_mx: true,
+            mta_sts: PolicyMode::None,
+            expires: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn indeterminate_failure_cached_then_requeries() {
+        // Calls get_or_try_insert on MX_CACHE directly, with mx_cache_ttl as
+        // the real ttl_func, to exercise the negative-TTL selection in
+        // mx_cache_ttl end to end. nextest runs each test in its own process,
+        // and the shared MX_CACHE is private to this test.
+        tokio::time::pause();
+        let key = (fully_qualify("transient-ttl-test.invalid").unwrap(), None);
+        let transient = get_mx_transient_negative_ttl();
+
+        let first = MX_CACHE
+            .get_or_try_insert(&key, mx_cache_ttl, async {
+                Ok::<_, anyhow::Error>(Err(MxResolveError {
+                    kind: MxResolveFailure::Indeterminate,
+                    message: "SERVFAIL".to_string(),
+                }))
+            })
+            .await
+            .unwrap();
+        assert!(first.is_fresh);
+        assert!(first.item.is_err());
+
+        // Before the transient TTL elapses the cached failure is returned.
+        tokio::time::advance(transient / 2).await;
+        let cached = MX_CACHE
+            .get_or_try_insert(&key, mx_cache_ttl, async {
+                // Panics if polled, which fails the test if the cache wrongly
+                // re-queries instead of returning the cached failure.
+                panic!("must not re-query before the transient TTL elapses");
+                #[allow(unreachable_code)]
+                Ok::<Result<Arc<MailExchanger>, MxResolveError>, anyhow::Error>(Ok(fresh_mx(
+                    "transient-ttl-test.invalid",
+                )))
+            })
+            .await
+            .unwrap();
+        assert!(!cached.is_fresh);
+        assert!(cached.item.is_err());
+
+        // Once it elapses the next lookup re-queries and can now succeed.
+        tokio::time::advance(transient).await;
+        let refreshed = MX_CACHE
+            .get_or_try_insert(&key, mx_cache_ttl, async {
+                Ok::<_, anyhow::Error>(Ok(fresh_mx("transient-ttl-test.invalid")))
+            })
+            .await
+            .unwrap();
+        assert!(refreshed.is_fresh);
+        assert!(refreshed.item.is_ok());
+    }
+
+    #[tokio::test]
+    async fn never_queried_failure_is_not_cached() {
+        // A NeverQueried failure gets a zero TTL, which is already expired the
+        // instant it is stored. The next lookup re-queries immediately, with no
+        // time having to pass.
+        let key = (fully_qualify("never-queried-test.invalid").unwrap(), None);
+
+        let first = MX_CACHE
+            .get_or_try_insert(&key, mx_cache_ttl, async {
+                Ok::<_, anyhow::Error>(Err(MxResolveError {
+                    kind: MxResolveFailure::NeverQueried,
+                    message: "permit wait timed out".to_string(),
+                }))
+            })
+            .await
+            .unwrap();
+        assert!(first.is_fresh);
+        assert!(first.item.is_err());
+
+        let refreshed = MX_CACHE
+            .get_or_try_insert(&key, mx_cache_ttl, async {
+                Ok::<_, anyhow::Error>(Ok(fresh_mx("never-queried-test.invalid")))
+            })
+            .await
+            .unwrap();
+        assert!(refreshed.is_fresh);
+        assert!(refreshed.item.is_ok());
     }
 
     #[tokio::test]
