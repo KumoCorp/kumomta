@@ -45,12 +45,32 @@ local function ndr_generator(msg, log_record)
   end
 end
 
-log_hooks:new_disposition_hook {
+local disposition_options = {
   name = 'ndr_generator',
   hook = ndr_generator,
 }
 
+local only_record_type = os.getenv 'KUMOD_NDR_ONLY_RECORD_TYPE'
+if only_record_type then
+  disposition_options.log_parameters = {
+    per_record = {
+      Any = { enable = false },
+      [only_record_type] = { enable = true },
+    },
+  }
+end
+
+log_hooks:new_disposition_hook(disposition_options)
+
 kumo.on('init', function()
+  -- The per_record filtering test waits for message_count to reach zero to know
+  -- the daemon has drained. A pooled Lua context would keep the last message it
+  -- handled alive, which would stall that wait until its timeout. Disabling the
+  -- pool is what lets the test observe a clean drain.
+  if only_record_type then
+    kumo.set_max_spare_lua_contexts(0)
+  end
+
   kumo.configure_accounting_db_path(TEST_DIR .. '/accounting.db')
 
   local relay_hosts = { '0.0.0.0/0' }

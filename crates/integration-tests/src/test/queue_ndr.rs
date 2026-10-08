@@ -247,3 +247,115 @@ DeliverySummary {
 
     Ok(())
 }
+
+/// Verifies that setting `log_parameters.per_record` on the `log_hooks` helper
+/// reaches `kumo.configure_log_disposition_hook` and takes effect there: with
+/// only `Bounce` enabled, a permanent failure still generates and delivers an
+/// NDR.
+#[tokio::test]
+async fn disposition_hook_per_record_enables_bounce() -> anyhow::Result<()> {
+    let mut daemon = DaemonWithMaildirOptions::new()
+        .policy_file("ndr.lua")
+        .env("KUMOD_NDR_ONLY_RECORD_TYPE", "Bounce")
+        .start()
+        .await
+        .context("DaemonWithMaildir::start")?;
+
+    let mut client = daemon.smtp_client().await.context("make smtp_client")?;
+    let response = MailGenParams {
+        recip: Some("permfail@example.com"),
+        body: Some("woot"),
+        ..Default::default()
+    }
+    .send(&mut client)
+    .await
+    .context("send message")?;
+    anyhow::ensure!(response.code == 250);
+
+    let delivered = daemon
+        .wait_for_maildir_count(1, Duration::from_secs(10))
+        .await;
+    anyhow::ensure!(delivered, "expected the NDR to be delivered");
+
+    daemon.stop_both().await.context("stop_both")?;
+
+    let mut messages = daemon.extract_maildir_messages()?;
+    assert_equal!(messages.len(), 1);
+    assert_equal!(
+        messages[0].parsed()?.headers().subject().unwrap().unwrap(),
+        "Returned mail"
+    );
+
+    Ok(())
+}
+
+/// Verifies that a `per_record` filter set through the `log_hooks` helper is
+/// honored: with only `Expiration` enabled, the disposition hook is never
+/// called for the `Bounce` record produced by a permanent failure, and that
+/// no additional messages are generated or delivered.
+#[tokio::test]
+async fn disposition_hook_per_record_filters_bounce() -> anyhow::Result<()> {
+    let mut daemon = DaemonWithMaildirOptions::new()
+        .policy_file("ndr.lua")
+        .env("KUMOD_NDR_ONLY_RECORD_TYPE", "Expiration")
+        .start()
+        .await
+        .context("DaemonWithMaildir::start")?;
+
+    let mut client = daemon.smtp_client().await.context("make smtp_client")?;
+    let response = MailGenParams {
+        recip: Some("permfail@example.com"),
+        body: Some("woot"),
+        ..Default::default()
+    }
+    .send(&mut client)
+    .await
+    .context("send message")?;
+    anyhow::ensure!(response.code == 250);
+
+    // The daemon writes the Bounce record only after running or filtering out the
+    // disposition hook for this delivery.
+    let bounced = daemon
+        .wait_for_source_summary(
+            |summary| summary.get(&Bounce).copied().unwrap_or(0) >= 1,
+            Duration::from_secs(10),
+        )
+        .await;
+    // The "no NDR" check below is only meaningful once the hook has run. Without
+    // this wait, that check could pass for the wrong reason: the hook simply
+    // hadn't run yet.
+    anyhow::ensure!(bounced, "expected the message to bounce");
+
+    // message_count counts every live Message object in any state. Once it
+    // reaches zero, the original message and any NDR the hook injected have
+    // both reached a terminal state: nothing is still in flight.
+    daemon
+        .source
+        .wait_for_metric(
+            Duration::from_secs(10),
+            |m| m.name().as_str() == "message_count",
+            |values| !values.is_empty() && values.iter().all(|v| *v == 0.0),
+        )
+        .await
+        .context("waiting for the message queue to drain")?;
+
+    // Flush the source log segments to disk.
+    daemon.stop_both().await.context("stop_both")?;
+
+    // The original message permanently failed and was never delivered. With the
+    // system fully drained, a Delivery record could only belong to an NDR the
+    // hook injected. Its absence proves `per_record` filtered the hook out.
+    let ndr_delivered = daemon
+        .source
+        .collect_logs()
+        .await?
+        .iter()
+        .any(|record| record.kind == RecordType::Delivery);
+    anyhow::ensure!(
+        !ndr_delivered,
+        "no NDR should be generated for a filtered record type"
+    );
+    assert_equal!(daemon.extract_maildir_messages()?.len(), 0);
+
+    Ok(())
+}

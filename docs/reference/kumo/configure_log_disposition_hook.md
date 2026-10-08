@@ -99,15 +99,27 @@ end)
 
 ## Using the log_hooks helper
 
-The `policy-extras.log_hooks` module provides a simpler `new_disposition_hook`
-helper that lets you supply the event handler as a `hook` field alongside
-`name`.
+The `policy-extras.log_hooks` module provides a `new_disposition_hook` helper
+that makes it a little more convenient to set up a disposition hook.
 
 ```lua
 local log_hooks = require 'policy-extras.log_hooks'
 
 log_hooks:new_disposition_hook {
   name = 'ndr_generator',
+
+  -- Optionally filter/restrict which log records will trigger
+  -- and call your `hook` function below.
+  -- {{since('dev', inline=True)}}
+  log_parameters = {
+    per_record = {
+      Any = { enable = false },
+      Bounce = { enable = true },
+    },
+  },
+
+  -- The hook callback, receives the message and log record as
+  -- described in the configure_log_disposition_hook documentation above.
   hook = function(msg, log_record)
     local bounce_msg = kumo.generate_rfc3464_message({
       include_original_message = 'FullContent',

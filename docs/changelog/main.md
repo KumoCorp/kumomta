@@ -50,6 +50,12 @@
    `User=kumod`, `Group=kumod`, `AmbientCapabilities=CAP_NET_BIND_SERVICE` and
    `CapabilityBoundingSet=CAP_NET_BIND_SERVICE` to adopt the same model.
 
+ * The `log_hooks` helper
+   [new_disposition_hook](../reference/kumo/configure_log_disposition_hook.md#using-the-log_hooks-helper)
+   now accepts a `log_parameters` table and forwards it to
+   [kumo.configure_log_disposition_hook](../reference/kumo/configure_log_disposition_hook.md),
+   letting you set options such as `per_record` through the helper. #499 #500 #519 #520
+
 ## Fixes
 
  * DKIM relaxed body canonicalization now reduces an empty body, or a body

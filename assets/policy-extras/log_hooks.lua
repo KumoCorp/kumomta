@@ -13,8 +13,24 @@ local QueueConfig = Record('QueueConfig', {
   _dynamic = queue_module.is_queue_config_option,
 })
 
+-- The per_record option of kumo.configure_log_disposition_hook takes the same
+-- LogRecordParams shape as file-based logging. A disposition hook does not
+-- write log files or render templates. `enable` is the only field that affects
+-- it, and the others are deliberately left untyped here.
+local DispPerRecord = Record('DispPerRecord', {
+  enable = typing.boolean,
+})
+
+-- Record type names are kept as plain strings here, rather than a local
+-- enum, because the core adds new record types over time and we do not want
+-- this helper to reject a valid new type until it is updated to match.
+local DispHookParameters = Record('DispHookParameters', {
+  per_record = Option(Map(String, DispPerRecord)),
+})
+
 local DispHookOptions = Record('DispHookOptions', {
   name = String,
+  log_parameters = Option(DispHookParameters),
   hook = typing.Function,
 })
 
@@ -35,7 +51,7 @@ function mod:new_disposition_hook(options)
     local log_parameters = {
       name = options.name,
     }
-    -- utils.merge_into(options.log_parameters, log_parameters)
+    utils.merge_into(options.log_parameters, log_parameters)
     kumo.configure_log_disposition_hook(log_parameters)
   end)
 
