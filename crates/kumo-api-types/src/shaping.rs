@@ -902,14 +902,10 @@ impl Shaping {
             ctx.update(provider);
             prov.hash_into(&mut ctx);
         }
-        ctx.update("warnings");
-        for warn in &collector.warnings {
-            ctx.update(warn);
-        }
-        ctx.update("errors");
-        for err in &collector.errors {
-            ctx.update(err);
-        }
+        // collector.warnings and collector.errors are deliberately left out of
+        // the hash: we want hash() to identify the configuration, not this
+        // particular load of it. Some diagnostic text includes details such as
+        // elapsed query time that vary between otherwise-identical loads.
         let hash = ctx.finalize();
         let hash = data_encoding::HEXLOWER.encode(&hash);
 
@@ -1589,6 +1585,62 @@ mod test {
         Shaping::merge_files(&file_names, &ShapingMergeOptions::default())
             .await
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn hash_excludes_diagnostics() {
+        let content = r#"
+["example.com"]
+mx_rollup = false
+connection_limit = 5
+"#;
+        let mut file = NamedTempFile::with_prefix("shaping").unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+        let path = file.path().to_str().unwrap().to_string();
+
+        // skip_remote records a warning for a remote source without fetching
+        // it, giving a warning whose presence is independent of the merged
+        // content. This isolates the warning from the by_site/by_domain/
+        // by_provider data the hash is computed over.
+        let options = ShapingMergeOptions {
+            skip_remote: true,
+            ..ShapingMergeOptions::default()
+        };
+
+        let without_warning = Shaping::merge_files(std::slice::from_ref(&path), &options)
+            .await
+            .unwrap();
+        let with_warning = Shaping::merge_files(
+            &[
+                path.clone(),
+                "https://example.invalid/shaping.toml".to_string(),
+            ],
+            &options,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            without_warning.get_warnings().is_empty(),
+            "the content-only load should record no warnings"
+        );
+        assert!(
+            !with_warning.get_warnings().is_empty(),
+            "the skipped remote source should record a warning"
+        );
+        // Identical merged content with and without a warning must hash the
+        // same: the hash covers configuration only.
+        k9::assert_equal!(without_warning.hash(), with_warning.hash());
+
+        // A real content change must still change the hash.
+        let changed = content.replace("connection_limit = 5", "connection_limit = 6");
+        let mut changed_file = NamedTempFile::with_prefix("shaping").unwrap();
+        changed_file.write_all(changed.as_bytes()).unwrap();
+        let changed_path = changed_file.path().to_str().unwrap().to_string();
+        let changed = Shaping::merge_files(&[changed_path], &options)
+            .await
+            .unwrap();
+        assert_ne!(without_warning.hash(), changed.hash());
     }
 
     #[tokio::test]
