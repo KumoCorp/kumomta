@@ -334,6 +334,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     dns_mod.set(
         "configure_unbound_resolver",
         lua.create_function(move |lua, config: mlua::Value| {
+            tracing::error!(
+                "kumo.dns.configure_unbound_resolver is deprecated and will be \
+                 removed in a future release; use kumo.dns.configure_resolver instead"
+            );
             let config: DnsResolverConfig = lua.from_value(config)?;
             let resolver = unbound_backend::build_unbound_resolver(&config).map_err(any_err)?;
             dns_resolver::reconfigure_resolver(resolver);

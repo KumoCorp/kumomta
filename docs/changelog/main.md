@@ -2,6 +2,15 @@
 
 ## Breaking Changes
 
+* [kumo.dns.configure_unbound_resolver](../reference/kumo.dns/configure_unbound_resolver.md)
+  is deprecated and slated for removal in a future release. It is not yet
+  removed, but calling it now logs an error to advise you of the future removal.
+  Use [kumo.dns.configure_resolver](../reference/kumo.dns/configure_resolver.md)
+  instead.  The only reason to consider using the `configure_unbound_resolver`
+  was if you required DANE support, but the hickory resolver has been able to
+  satisfy that requirement since version `2026.09.22-a276d4a8` and works more
+  reliably in KumoMTA.
+
 * Site-name generation now preserves complete hostname branches instead of
   combining labels independently. Distinct MX sets that previously collided
   now have separate site names and ready queues. For example, two real-world
