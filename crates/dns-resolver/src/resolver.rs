@@ -212,6 +212,12 @@ pub struct TestResolver {
     /// Owner names for which any lookup should return SERVFAIL, used to model
     /// resolution failures (e.g. for DANE downgrade-resistance tests).
     servfail: BTreeSet<Name>,
+    /// Owner names whose answers are flagged DNSSEC-bogus, used to model a
+    /// validating resolver returning a forged or tampered RRset. The records
+    /// of the zone, if any, are still returned alongside the flag: a test can
+    /// use that to cover both a bogus answer with records and a bogus answer
+    /// with none.
+    bogus: BTreeSet<Name>,
 }
 
 impl TestResolver {
@@ -265,6 +271,18 @@ impl TestResolver {
         self
     }
 
+    /// Makes any lookup for `name` return its normal records (if any) marked
+    /// DNSSEC-bogus, as a validating resolver would for a forged or tampered
+    /// RRset.
+    pub fn with_bogus(mut self, name: &str) -> Self {
+        let mut name = Name::from_str_relaxed(name)
+            .expect("valid name passed to with_bogus")
+            .to_lowercase();
+        name.set_fqdn(true);
+        self.bogus.insert(name);
+        self
+    }
+
     pub fn with_txt(self, domain: &str, value: impl Into<String>) -> Self {
         self.with_txt_multiple(domain, vec![value.into()])
     }
@@ -292,6 +310,17 @@ impl TestResolver {
     }
 
     fn get(&self, full: &Name, record_type: RecordType) -> Result<Answer, DnsError> {
+        let mut answer = self.get_impl(full, record_type)?;
+        let mut full_fqdn = full.clone();
+        full_fqdn.set_fqdn(true);
+        if self.bogus.contains(&full_fqdn.to_lowercase()) {
+            answer.bogus = true;
+            answer.why_bogus = Some("test bogus".to_string());
+        }
+        Ok(answer)
+    }
+
+    fn get_impl(&self, full: &Name, record_type: RecordType) -> Result<Answer, DnsError> {
         let mut full_fqdn = full.clone();
         full_fqdn.set_fqdn(true);
 
