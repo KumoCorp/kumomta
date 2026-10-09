@@ -2,6 +2,16 @@
 
 ## Breaking Changes
 
+* The `LocalDisk` spool kind is deprecated and slated for removal in a future
+  release. It has not yet been removed, but defining a spool with it now logs
+  an error to advise you of the future removal. Use the `RocksDB` kind instead;
+  it is faster, more durable, uses less space (and thus IOPS), and is the
+  recommended production configuration.  In addition, we've made the
+  [kind](../reference/kumo/define_spool/kind.md) field of
+  [kumo.define_spool](../reference/kumo/define_spool/index.md) a required field
+  so that new users don't accidentally deploy with `LocalDisk` between now and
+  the removal of the `LocalDisk` support.
+
 * [kumo.dns.configure_unbound_resolver](../reference/kumo.dns/configure_unbound_resolver.md)
   is deprecated and slated for removal in a future release. It is not yet
   removed, but calling it now logs an error to advise you of the future removal.

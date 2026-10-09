@@ -64,15 +64,10 @@ impl Drop for Spool {
 
 impl Spool {}
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Copy, Clone, Debug)]
 pub enum SpoolKind {
     LocalDisk,
     RocksDB,
-}
-impl Default for SpoolKind {
-    fn default() -> Self {
-        Self::LocalDisk
-    }
 }
 
 #[derive(Deserialize)]
@@ -81,7 +76,7 @@ pub struct DefineSpoolParams {
     pub name: String,
     pub path: PathBuf,
     #[serde(default)]
-    pub kind: SpoolKind,
+    pub kind: Option<SpoolKind>,
     #[serde(default)]
     pub flush: bool,
     #[serde(default)]
@@ -91,6 +86,42 @@ pub struct DefineSpoolParams {
     pub min_free_space: MinFree,
     #[serde(default)]
     pub min_free_inodes: MinFree,
+}
+
+/// Returns whether `path` holds any existing spooled data. A missing
+/// directory, or one that contains no entries, counts as empty. Any other
+/// error reading the directory is propagated rather than mistaken for empty,
+/// which would misdirect the omitted-`kind` diagnostic toward RocksDB.
+fn spool_path_is_empty(path: &std::path::Path) -> anyhow::Result<bool> {
+    match std::fs::read_dir(path) {
+        Ok(mut entries) => Ok(entries.next().is_none()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(err) => Err(anyhow::Error::new(err).context(format!("reading {}", path.display()))),
+    }
+}
+
+/// Returns the effective `SpoolKind`. If `kind` is `None`, returns an error
+/// recommending `RocksDB` when `path` is empty, or `LocalDisk` when `path`
+/// already holds spooled data.
+fn resolve_spool_kind(
+    kind: Option<SpoolKind>,
+    name: &str,
+    path: &std::path::Path,
+) -> anyhow::Result<SpoolKind> {
+    if let Some(kind) = kind {
+        return Ok(kind);
+    }
+    // The old default of LocalDisk is deprecated, so an omitted `kind` is an error
+    // rather than a silent fallback that would bind a new spool to a backend we
+    // plan to remove.
+    if spool_path_is_empty(path)? {
+        anyhow::bail!("spool '{name}' must specify `kind = 'RocksDB'` for future compatibility.");
+    }
+    anyhow::bail!(
+        "spool '{name}' must specify `kind = 'LocalDisk'`.  Note that LocalDisk is \
+         deprecated and slated for removal in a future release, so you should plan \
+         to migrate to RocksDB."
+    );
 }
 
 async fn define_spool(params: DefineSpoolParams) -> anyhow::Result<()> {
@@ -263,19 +294,28 @@ impl SpoolManager {
             params.name,
             params.path.display()
         );
+        let kind = resolve_spool_kind(params.kind, &params.name, &params.path)?;
         self.named.lock().await.insert(
             params.name.to_string(),
             SpoolHandle(Arc::new(Spool {
                 maintainer: StdMutex::new(None),
-                spool: match params.kind {
-                    SpoolKind::LocalDisk => Arc::new(
-                        LocalDiskSpool::new(
-                            &params.path,
-                            params.flush,
-                            kumo_server_runtime::get_main_runtime(),
+                spool: match kind {
+                    SpoolKind::LocalDisk => {
+                        tracing::error!(
+                            "spool '{}' uses the deprecated LocalDisk kind, which will \
+                             be removed in a future release. Plan your migration to \
+                             RocksDB.",
+                            params.name
+                        );
+                        Arc::new(
+                            LocalDiskSpool::new(
+                                &params.path,
+                                params.flush,
+                                kumo_server_runtime::get_main_runtime(),
+                            )
+                            .with_context(|| format!("Opening spool {}", params.name))?,
                         )
-                        .with_context(|| format!("Opening spool {}", params.name))?,
-                    ),
+                    }
                     SpoolKind::RocksDB => Arc::new(
                         RocksSpool::new(
                             &params.path,
@@ -776,5 +816,44 @@ impl SpoolManager {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn omitted_kind_on_empty_dir_recommends_rocksdb() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = resolve_spool_kind(None, "data", dir.path()).unwrap_err();
+        k9::assert_equal!(
+            format!("{err:#}"),
+            "spool 'data' must specify `kind = 'RocksDB'` for future compatibility."
+        );
+    }
+
+    #[test]
+    fn omitted_kind_on_missing_dir_recommends_rocksdb() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("does-not-exist");
+        let err = resolve_spool_kind(None, "data", &missing).unwrap_err();
+        k9::assert_equal!(
+            format!("{err:#}"),
+            "spool 'data' must specify `kind = 'RocksDB'` for future compatibility."
+        );
+    }
+
+    #[test]
+    fn omitted_kind_on_populated_dir_recommends_localdisk() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("existing"), b"data").unwrap();
+        let err = resolve_spool_kind(None, "data", dir.path()).unwrap_err();
+        k9::assert_equal!(
+            format!("{err:#}"),
+            "spool 'data' must specify `kind = 'LocalDisk'`.  Note that LocalDisk is \
+             deprecated and slated for removal in a future release, so you should plan \
+             to migrate to RocksDB."
+        );
     }
 }

@@ -41,6 +41,7 @@ kumo.on('init', function()
 
   for _, name in ipairs { 'data', 'meta' } do
     kumo.define_spool {
+      kind = 'RocksDB',
       name = name,
       path = spool_dir .. '/' .. name,
     }
