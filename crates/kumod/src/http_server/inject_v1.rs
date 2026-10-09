@@ -474,6 +474,53 @@ pub struct Attachment {
     base64: bool,
 }
 
+enum CompiledHeader {
+    Static(mailparsing::Header<'static>),
+    Dynamic { name: String },
+}
+
+fn string_needs_template(dialect: TemplateDialectWithSchema, s: &str) -> bool {
+    match dialect {
+        TemplateDialectWithSchema::Static => false,
+        TemplateDialectWithSchema::Handlebars => s.contains("{{"),
+        TemplateDialectWithSchema::Jinja => {
+            s.contains("{{") || s.contains("{%") || s.contains("{#")
+        }
+    }
+}
+
+fn make_header(
+    name: &str,
+    expanded: &str,
+    constructed_addresses: &BTreeMap<String, AddrSpec>,
+) -> anyhow::Result<mailparsing::Header<'static>> {
+    let header = if let Some(address) = constructed_addresses.get(name) {
+        // Encode the mailbox after substitution to escape the
+        // rendered name as a display name rather than parse it
+        // as address syntax.
+        let mailbox = Mailbox {
+            name: (!expanded.is_empty()).then(|| expanded.to_string()),
+            address: address.clone(),
+        };
+        mailparsing::Header::new(name.to_string(), Address::Mailbox(mailbox))
+    } else if is_address_header_name(name.as_bytes()) && !expanded.trim().is_empty() {
+        // Emit a user-supplied address header through the
+        // address grammar: a non-ASCII display name becomes an
+        // encoded-word around only the name, leaving the
+        // addr-spec bare. new_unstructured would qp-encode the
+        // whole value, wrapping the addr-spec in an
+        // encoded-word that no address parser accepts. A blank
+        // value is left to new_unstructured below, since the
+        // address grammar requires at least one address.
+        let parsed = ParsedHeader::structured(name.as_bytes(), expanded.as_bytes())
+            .with_context(|| format!("parsing {name} header value {expanded:?}"))?;
+        mailparsing::Header::new(name.to_string(), parsed)
+    } else {
+        mailparsing::Header::new_unstructured(name.to_string(), expanded.to_string())
+    };
+    Ok(header)
+}
+
 struct Compiled<'a> {
     env_and_templates: CompiledTemplates,
     attached: Vec<MimePart<'a>>,
@@ -481,6 +528,7 @@ struct Compiled<'a> {
     /// and encoded per recipient (content.from, content.reply_to), keyed by
     /// the header name the name template is stored under.
     constructed_addresses: BTreeMap<String, AddrSpec>,
+    headers: Vec<CompiledHeader>,
 }
 
 impl<'a> Compiled<'a> {
@@ -533,7 +581,7 @@ impl<'a> Compiled<'a> {
                 text_body,
                 html_body,
                 amp_html_body,
-                headers,
+                headers: _,
                 ..
             } => {
                 let mut builder = MessageBuilder::new();
@@ -558,43 +606,25 @@ impl<'a> Compiled<'a> {
 
                 let mut need_to = true;
 
-                #[allow(clippy::for_kv_map)]
-                for (name, _value) in headers {
-                    if need_to && name.eq_ignore_ascii_case("to") {
-                        need_to = false;
+                for entry in &self.headers {
+                    match entry {
+                        CompiledHeader::Static(header) => {
+                            if need_to && header.get_name().eq_ignore_ascii_case(b"to") {
+                                need_to = false;
+                            }
+                            builder.push(header.clone());
+                        }
+                        CompiledHeader::Dynamic { name } => {
+                            if need_to && name.eq_ignore_ascii_case("to") {
+                                need_to = false;
+                            }
+                            let expanded =
+                                self.env_and_templates.borrow_dependent()[id].render(&subst)?;
+                            id += 1;
+                            let header = make_header(name, &expanded, &self.constructed_addresses)?;
+                            builder.push(header);
+                        }
                     }
-                    let expanded = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
-                    id += 1;
-
-                    let header = if let Some(address) = self.constructed_addresses.get(name) {
-                        // Encode the mailbox after substitution to escape the
-                        // rendered name as a display name rather than parse it
-                        // as address syntax.
-                        let mailbox = Mailbox {
-                            name: (!expanded.is_empty()).then(|| expanded.to_string()),
-                            address: address.clone(),
-                        };
-                        mailparsing::Header::new(name.to_string(), Address::Mailbox(mailbox))
-                    } else if is_address_header_name(name.as_bytes()) && !expanded.trim().is_empty()
-                    {
-                        // Emit a user-supplied address header through the
-                        // address grammar: a non-ASCII display name becomes an
-                        // encoded-word around only the name, leaving the
-                        // addr-spec bare. new_unstructured would qp-encode the
-                        // whole value, wrapping the addr-spec in an
-                        // encoded-word that no address parser accepts. A blank
-                        // value is left to new_unstructured below, since the
-                        // address grammar requires at least one address.
-                        let parsed = ParsedHeader::structured(name.as_bytes(), expanded.as_bytes())
-                            .with_context(|| format!("parsing {name} header value {expanded:?}"))?;
-                        mailparsing::Header::new(name.to_string(), parsed)
-                    } else {
-                        mailparsing::Header::new_unstructured(
-                            name.to_string(),
-                            expanded.to_string(),
-                        )
-                    };
-                    builder.push(header);
                 }
 
                 if need_to {
@@ -651,6 +681,25 @@ impl InjectV1Request {
     fn compile(&'_ self) -> anyhow::Result<Compiled<'_>> {
         let mut env = TemplateEngine::with_dialect(self.template_dialect.into());
 
+        let mut constructed_addresses = BTreeMap::new();
+        if let Content::Builder { from, reply_to, .. } = &self.content {
+            if let Some(from) = from {
+                constructed_addresses.insert(
+                    "From".to_string(),
+                    AddrSpec::parse(&from.email).context("failed parsing content.from")?,
+                );
+            }
+            if let Some(reply_to) = reply_to {
+                constructed_addresses.insert(
+                    "Reply-To".to_string(),
+                    AddrSpec::parse(&reply_to.email).context("failed parsing content.reply_to")?,
+                );
+            }
+        }
+
+        let mut compiled_headers = vec![];
+        let mut dynamic_header_names = vec![];
+
         // Pass 1: create the templates
         match &self.content {
             Content::Rfc822(text) => {
@@ -684,10 +733,19 @@ impl InjectV1Request {
                         .context("failed parsing field 'content.amp_html_body' as template")?;
                 }
                 for (header_name, value) in headers.iter() {
-                    env.add_template(format!("headers[{header_name}]"), value)
-                        .with_context(|| {
-                            format!("failed parsing field headers['{header_name}'] as template")
-                        })?;
+                    if string_needs_template(self.template_dialect, value) {
+                        dynamic_header_names.push(header_name.clone());
+                        env.add_template(format!("headers[{header_name}]"), value)
+                            .with_context(|| {
+                                format!("failed parsing field headers['{header_name}'] as template")
+                            })?;
+                        compiled_headers.push(CompiledHeader::Dynamic {
+                            name: header_name.clone(),
+                        });
+                    } else {
+                        let header = make_header(header_name, value, &constructed_addresses)?;
+                        compiled_headers.push(CompiledHeader::Static(header));
+                    }
                 }
             }
         }
@@ -697,6 +755,7 @@ impl InjectV1Request {
         fn get_templates<'b>(
             env: &'b TemplateEngine,
             content: &Content,
+            dynamic_header_names: &[String],
         ) -> anyhow::Result<TemplateList<'b>> {
             let mut templates = vec![];
             match content {
@@ -707,7 +766,6 @@ impl InjectV1Request {
                     text_body,
                     html_body,
                     amp_html_body,
-                    headers,
                     ..
                 } => {
                     if text_body.is_some() {
@@ -721,7 +779,7 @@ impl InjectV1Request {
                         // The filename extension is needed to enable auto-escaping
                         templates.push(env.get_template("amp_html_body.html")?);
                     }
-                    for header_name in headers.keys() {
+                    for header_name in dynamic_header_names {
                         templates.push(env.get_template(&format!("headers[{header_name}]"))?);
                     }
                 }
@@ -731,30 +789,15 @@ impl InjectV1Request {
 
         let attached = self.attachment_data()?;
 
-        let mut constructed_addresses = BTreeMap::new();
-        if let Content::Builder { from, reply_to, .. } = &self.content {
-            if let Some(from) = from {
-                constructed_addresses.insert(
-                    "From".to_string(),
-                    AddrSpec::parse(&from.email).context("failed parsing content.from")?,
-                );
-            }
-            if let Some(reply_to) = reply_to {
-                constructed_addresses.insert(
-                    "Reply-To".to_string(),
-                    AddrSpec::parse(&reply_to.email).context("failed parsing content.reply_to")?,
-                );
-            }
-        }
-
         let env_and_templates = CompiledTemplates::try_new(env, |env: &TemplateEngine| {
-            get_templates(env, &self.content)
+            get_templates(env, &self.content, &dynamic_header_names)
         })?;
 
         Ok(Compiled {
             env_and_templates,
             attached,
             constructed_addresses,
+            headers: compiled_headers,
         })
     }
 
@@ -2692,5 +2735,112 @@ Some(
 )
 "#
         );
+    }
+
+    #[tokio::test]
+    async fn test_builder_static_and_dynamic_headers() {
+        let mut request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: Some("James Smythe".to_string()),
+                substitutions: HashMap::new(),
+                metadata: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Builder {
+                text_body: Some("Hello {{ name }}".to_string()),
+                amp_html_body: None,
+                html_body: None,
+                subject: Some("Test Subject".to_string()),
+                from: Some(FromHeader {
+                    email: "from@example.com".to_string(),
+                    name: Some("Sender".to_string()),
+                }),
+                reply_to: None,
+                headers: [
+                    ("X-Static-1".to_string(), "static-val-1".to_string()),
+                    ("X-Dynamic".to_string(), "hello {{ name }}".to_string()),
+                    ("X-Static-2".to_string(), "static-val-2".to_string()),
+                    (
+                        "Cc".to_string(),
+                        "\"Static CC\" <static.cc@example.com>".to_string(),
+                    ),
+                    ("To".to_string(), "{{ to_header }}".to_string()),
+                ]
+                .into_iter()
+                .collect(),
+                attachments: vec![],
+            },
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+            template_dialect: TemplateDialectWithSchema::Handlebars,
+        };
+
+        request.normalize().unwrap();
+        let compiled = request.compile().unwrap();
+        let generated = compiled
+            .expand_for_recip(
+                &request.recipients[0],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap();
+
+        let parsed = MimePart::parse(generated.as_str()).unwrap();
+
+        k9::assert_equal!(
+            parsed
+                .headers()
+                .get_first("X-Static-1")
+                .unwrap()
+                .as_unstructured()
+                .unwrap()
+                .to_string(),
+            "static-val-1"
+        );
+        k9::assert_equal!(
+            parsed
+                .headers()
+                .get_first("X-Dynamic")
+                .unwrap()
+                .as_unstructured()
+                .unwrap()
+                .to_string(),
+            "hello James Smythe"
+        );
+        k9::assert_equal!(
+            parsed
+                .headers()
+                .get_first("X-Static-2")
+                .unwrap()
+                .as_unstructured()
+                .unwrap()
+                .to_string(),
+            "static-val-2"
+        );
+
+        let to_addr = parsed.headers().to().unwrap().unwrap();
+        let to_mailboxes = to_addr.0;
+        k9::assert_equal!(to_mailboxes.len(), 1);
+        let mb = match &to_mailboxes[0] {
+            mailparsing::Address::Mailbox(mb) => mb,
+            _ => panic!("expected mailbox"),
+        };
+        k9::assert_equal!(mb.name.as_deref(), Some("James Smythe"));
+        k9::assert_equal!(mb.address.local_part, "user");
+        k9::assert_equal!(mb.address.domain, "example.com");
+
+        let cc_addr = parsed.headers().cc().unwrap().unwrap();
+        let cc_mailboxes = cc_addr.0;
+        k9::assert_equal!(cc_mailboxes.len(), 1);
+        let cc_mb = match &cc_mailboxes[0] {
+            mailparsing::Address::Mailbox(mb) => mb,
+            _ => panic!("expected mailbox"),
+        };
+        k9::assert_equal!(cc_mb.name.as_deref(), Some("Static CC"));
+        k9::assert_equal!(cc_mb.address.local_part, "static.cc");
+        k9::assert_equal!(cc_mb.address.domain, "example.com");
     }
 }
