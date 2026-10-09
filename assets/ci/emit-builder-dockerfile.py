@@ -8,6 +8,7 @@ IMAGES = [
     "ubuntu:24.04",
     "rockylinux:8",
     "rockylinux:9",
+    "almalinux:10",
     "amazonlinux:2",
     "amazonlinux:2023",
 ]
@@ -105,7 +106,7 @@ if "ubuntu" in container:
     dockerfile += "RUN rm -f /etc/apt/apt.conf.d/docker-clean\n"
     dockerfile += "RUN " + " && ".join(commands) + "\n"
 
-if "rocky" in container:
+if "rocky" in container or "almalinux" in container:
     commands = [
         "dnf install -y git rpm-sign gnupg2",
         # Some systems have curl-minimal which won't tolerate us installing curl

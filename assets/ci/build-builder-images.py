@@ -16,6 +16,7 @@ IMAGES = [
     "ubuntu:24.04",
     "rockylinux:8",
     "rockylinux:9",
+    "almalinux:10",
     "amazonlinux:2",
     "amazonlinux:2023",
 ]
