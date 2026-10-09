@@ -322,6 +322,7 @@ impl Queue {
             if let Ok(queue_config) = Queue::call_get_queue_config(&self.name, &mut config).await {
                 match EgressPool::resolve(queue_config.egress_pool.as_deref(), &mut config).await {
                     Ok(pool) => {
+                        config.put();
                         if !self.source_selector.load().equivalent(&pool) {
                             self.source_selector
                                 .store(EgressPoolSourceSelector::new(&pool).into());
