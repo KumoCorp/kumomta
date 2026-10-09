@@ -5172,6 +5172,7 @@ dependencies = [
  "resolv-conf",
  "serde",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]
