@@ -12,11 +12,12 @@ use lruttl::declare_cache;
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, LazyLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 mod resolver;
 #[cfg(feature = "unbound")]
 pub use resolver::UnboundResolver;
+use resolver::DEFAULT_NEGATIVE_TTL_SECS;
 pub use resolver::{
     ptr_host, reverse_ip, AggregateResolver, Answer, DnsError, HickoryResolver, IpDisplay,
     Resolver, TestResolver,
@@ -606,13 +607,34 @@ pub async fn ip_lookup(
         }
     };
 
+    let (result, exp) = combine_ip_families([v4, v6], Instant::now())?;
+
+    if resolver.is_none() {
+        IP_CACHE
+            .insert((key_fq, strategy), result.clone(), exp.into())
+            .await;
+    }
+    Ok((result, exp))
+}
+
+/// Merge the per-family (v4, v6) lookup outcomes into one address set and the
+/// instant the combined entry should expire, measured from `now`.
+///
+/// When one family lookup succeeds and the other fails, the returned
+/// expiry is capped to at most the negative-cache window rather than the
+/// TTL of the surviving family. If every family failed the first error
+/// is returned.
+fn combine_ip_families(
+    families: [Option<anyhow::Result<(Arc<IpAddresses>, Instant)>>; 2],
+    now: Instant,
+) -> anyhow::Result<(Arc<IpAddresses>, Instant)> {
     let mut addrs = vec![];
     let mut any_addr = false;
     let mut all_secure = true;
     let mut errors = vec![];
     let mut expires: Option<Instant> = None;
 
-    for family in [v4, v6] {
+    for family in families {
         match family {
             Some(Ok((answer, exp))) => {
                 expires = Some(match expires {
@@ -640,12 +662,9 @@ pub async fn ip_lookup(
         // contributed one was DNSSEC validated.
         secure: any_addr && all_secure,
     });
-    let exp = expires.unwrap_or_else(Instant::now);
-
-    if resolver.is_none() {
-        IP_CACHE
-            .insert((key_fq, strategy), result.clone(), exp.into())
-            .await;
+    let mut exp = expires.unwrap_or(now);
+    if !errors.is_empty() {
+        exp = exp.min(now + Duration::from_secs(DEFAULT_NEGATIVE_TTL_SECS as u64));
     }
     Ok((result, exp))
 }
@@ -849,6 +868,63 @@ mod test {
             err.to_string(),
             "address lookup for mx.example.com is bogus: invalid signature"
         );
+    }
+
+    fn v6_family(
+        ttl: Duration,
+        now: Instant,
+    ) -> Option<anyhow::Result<(Arc<IpAddresses>, Instant)>> {
+        Some(Ok((
+            Arc::new(IpAddresses {
+                addrs: vec!["2001:db8::1".parse().unwrap()],
+                secure: false,
+            }),
+            now + ttl,
+        )))
+    }
+
+    #[test]
+    fn failed_family_caps_sibling_ttl() {
+        let now = Instant::now();
+        let v6_ttl = Duration::from_secs(86400);
+
+        // A hard-fails (a timeout) while AAAA succeeds with a long TTL: the
+        // surviving address is still returned, and the combined entry expires
+        // at the negative-cache window rather than the AAAA TTL, because we
+        // want the failed A family retried within a minute rather than left
+        // unused for the full AAAA TTL.
+        let v4 = Some(Err(anyhow::anyhow!("timed out")));
+        let (result, exp) = combine_ip_families([v4, v6_family(v6_ttl, now)], now).unwrap();
+        k9::assert_equal!(result.addrs, vec!["2001:db8::1".parse::<IpAddr>().unwrap()]);
+        k9::assert_equal!(
+            exp,
+            now + Duration::from_secs(DEFAULT_NEGATIVE_TTL_SECS as u64)
+        );
+
+        // Both families succeed: the entry keeps the shorter of the two TTLs,
+        // and the negative-cache cap is never applied.
+        let v4_ttl = Duration::from_secs(300);
+        let v4 = Some(Ok((
+            Arc::new(IpAddresses {
+                addrs: vec!["192.0.2.1".parse().unwrap()],
+                secure: false,
+            }),
+            now + v4_ttl,
+        )));
+        let (_, exp) = combine_ip_families([v4, v6_family(v6_ttl, now)], now).unwrap();
+        k9::assert_equal!(exp, now + v4_ttl);
+
+        // Every family failed and the address list is empty: the first error is
+        // surfaced.
+        let err = combine_ip_families(
+            [
+                Some(Err(anyhow::anyhow!("a failed"))),
+                Some(Err(anyhow::anyhow!("aaaa failed"))),
+            ],
+            now,
+        )
+        .unwrap_err();
+        k9::assert_equal!(err.to_string(), "a failed");
     }
 
     fn dane_ee_record() -> TLSA {

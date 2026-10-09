@@ -151,3 +151,10 @@
    explicitly configured to perform DNSSEC validation (`validate = true`)
    against an upstream that does not validate (a validating upstream returns a
    SERVFAIL for bogus data, which hickory handles as an error). #629
+
+ * A dual-stack address lookup where one family (A or AAAA) failed while the
+   other succeeded no longer holds the partial result for the surviving
+   family's full TTL, which could be up to a day. We now use the negative-cache
+   TTL (60 seconds) to ensure that we will re-attempt the failed address family
+   in a more reasonable time frame.  NXDOMAIN and NODATA answers are not
+   failures and keep their normal TTL. #630

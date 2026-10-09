@@ -19,6 +19,9 @@ use std::str::FromStr;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
+/// Negative-cache TTL, in seconds, applied when an answer has no TTL.
+pub(crate) const DEFAULT_NEGATIVE_TTL_SECS: u32 = 60;
+
 pub struct IpDisplay {
     pub ip: IpAddr,
     pub reverse: bool,
@@ -725,7 +728,9 @@ impl Resolver for HickoryResolver {
                         why_bogus: None,
                         response_code: no_records.response_code,
                         expires: Instant::now()
-                            + Duration::from_secs(no_records.negative_ttl.unwrap_or(60) as u64),
+                            + Duration::from_secs(
+                                no_records.negative_ttl.unwrap_or(DEFAULT_NEGATIVE_TTL_SECS) as u64,
+                            ),
                     })
                 }
                 None => Err(DnsError::from_resolve(&name, err)),
