@@ -16,7 +16,7 @@ use crate::queue::{
     DeliveryProto, IncrementAttempts, InsertContext, InsertReason, Queue, QueueConfig,
     QueueManager, QueueState,
 };
-use crate::smtp_dispatcher::{OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
+use crate::smtp_dispatcher::SmtpDispatcher;
 use crate::smtp_server::DeferredSmtpInjectionDispatcher;
 use crate::spool::SpoolManager;
 use crate::xfer::XferDispatcher;
@@ -1983,7 +1983,6 @@ impl Dispatcher {
 
         #[derive(Copy, Clone, Debug, PartialEq, Eq)]
         enum ConnectionFailureKind {
-            OpportunisticInsecureTlsHandshakeError,
             UnplumbedSource,
             ProxyConnect,
             ProxyUnplumbedSource,
@@ -1992,9 +1991,7 @@ impl Dispatcher {
 
         impl ConnectionFailureKind {
             fn classify(err: &anyhow::Error) -> Self {
-                if err_match_anyhow::<OpportunisticInsecureTlsHandshakeError>(err).is_some() {
-                    Self::OpportunisticInsecureTlsHandshakeError
-                } else if let Some(bind) = err_match_anyhow::<BindError>(err) {
+                if let Some(bind) = err_match_anyhow::<BindError>(err) {
                     if bind.is_unplumbed() {
                         Self::UnplumbedSource
                     } else {
@@ -2081,10 +2078,6 @@ impl Dispatcher {
                         let summary = match ConnectionFailureKind::all_same(
                             &connection_failure_classifications,
                         ) {
-                            Some(ConnectionFailureKind::OpportunisticInsecureTlsHandshakeError) => {
-                                "All failures are related to OpportunisticInsecure STARTTLS. \
-                                 Consider setting enable_tls=Disabled for this site. "
-                            }
                             Some(ConnectionFailureKind::UnplumbedSource) => {
                                 "All failures are related to having an unplumbed source address. \
                                  Are the network interfaces provisioned correctly? "

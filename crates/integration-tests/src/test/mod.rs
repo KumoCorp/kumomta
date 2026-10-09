@@ -66,6 +66,7 @@ mod suspend_delivery_scheduled_q;
 mod suspend_delivery_scheduled_q_and_deliver;
 mod temp_fail;
 mod tls_client_certificate;
+mod tls_handshake_failure;
 mod tls_info_log;
 mod tls_opportunistic_fail;
 mod tls_opportunistic_reconnect;
