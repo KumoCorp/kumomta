@@ -194,6 +194,16 @@ impl LuaConfig {
             .set("_KUMO_CURRENT_EVENT", name.to_string())
     }
 
+    /// Returns the Lua context managed by this config, or an error if the
+    /// context is not currently held by this LuaConfig.
+    pub fn lua(&self) -> anyhow::Result<&Lua> {
+        Ok(&self
+            .inner
+            .as_ref()
+            .context("LuaConfig is missing the inner Lua context")?
+            .lua)
+    }
+
     /// Convert an array of args into a MultiValue that can be passed
     /// to a callback signature
     pub fn convert_args_to_multi<A: Serialize>(

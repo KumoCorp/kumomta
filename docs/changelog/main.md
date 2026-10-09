@@ -56,6 +56,12 @@
    [kumo.configure_log_disposition_hook](../reference/kumo/configure_log_disposition_hook.md),
    letting you set options such as `per_record` through the helper. #499 #500 #519 #520
 
+ * [kumo.memoize](../reference/kumo/memoize.md) caches now run the population
+   function that fills a cache miss on a separate task by default, rather than
+   on the calling task. A caller that is cancelled (an HTTP request handler
+   whose client disconnected) no longer cancels the cache population function.
+   The new `detached` memoize option can be used to override this if needed.  #602
+
 ## Fixes
 
  * DKIM relaxed body canonicalization now reduces an empty body, or a body

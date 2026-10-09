@@ -638,6 +638,10 @@ impl<
             .store(duration.as_millis() as usize, Ordering::Relaxed);
     }
 
+    pub fn get_sema_timeout(&self) -> Duration {
+        Duration::from_millis(self.inner.sema_timeout_milliseconds.load(Ordering::Relaxed) as u64)
+    }
+
     pub fn clear(&self) -> usize {
         self.inner.clear()
     }
