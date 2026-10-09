@@ -158,6 +158,9 @@ kumo.on('smtp_server_ehlo', function(domain, conn_meta, extensions)
     if ext == 'SMTPUTF8' and os.getenv 'KUMOD_HIDE_SMTPUTF8' then
       include = false
     end
+    if ext == 'STARTTLS' and os.getenv 'KUMOD_HIDE_STARTTLS' then
+      include = false
+    end
     if include then
       table.insert(revised, ext)
     end

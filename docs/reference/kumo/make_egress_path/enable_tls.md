@@ -3,10 +3,15 @@
 Controls whether and how TLS will be used when connecting to the destination.
 
 !!! note
-    This setting is overriden by [enable_mta_sts](enable_mta_sts.md) and/or
-    [enable_dane](enable_dane.md) when either of those options are enabled and
-    an MTA-STS or DANE policy (respectively) is published by the destination
-    site.
+    When [enable_mta_sts](enable_mta_sts.md) is enabled:
+
+    * An `enforce` policy selects `Required`.
+    * A `testing` policy changes `Opportunistic` to `OpportunisticInsecure`,
+      leaving other modes unchanged.
+    * A `none` policy leaves this setting unchanged.
+
+    A DANE policy can also change the effective TLS behavior when
+    [enable_dane](enable_dane.md) is enabled.
 
 Possible values are:
 
