@@ -36,11 +36,13 @@ $ORIGIN proxy.test.
   }
 
   kumo.define_spool {
+    kind = 'RocksDB',
     name = 'data',
     path = TEST_DIR .. '/data-spool',
   }
 
   kumo.define_spool {
+    kind = 'RocksDB',
     name = 'meta',
     path = TEST_DIR .. '/meta-spool',
   }

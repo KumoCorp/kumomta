@@ -13,8 +13,16 @@ kumo.on('init', function()
     log_dir = TEST_DIR .. '/logs',
     max_segment_duration = '1s',
   }
-  kumo.define_spool { name = 'data', path = TEST_DIR .. '/data-spool' }
-  kumo.define_spool { name = 'meta', path = TEST_DIR .. '/meta-spool' }
+  kumo.define_spool {
+    name = 'data',
+    path = TEST_DIR .. '/data-spool',
+    kind = 'RocksDB',
+  }
+  kumo.define_spool {
+    name = 'meta',
+    path = TEST_DIR .. '/meta-spool',
+    kind = 'RocksDB',
+  }
   kumo.dns.set_mta_sts_enabled(false)
   kumo.dns.configure_test_resolver {
     [[

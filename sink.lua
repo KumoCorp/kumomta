@@ -21,6 +21,7 @@ kumo.on('init', function()
   -- This is unused by this config, but we are required to
   -- define a default spool location.
   kumo.define_spool {
+    kind = 'RocksDB',
     name = 'data',
     path = '/tmp/kumo-sink/data',
   }
@@ -29,6 +30,7 @@ kumo.on('init', function()
   -- This is unused by this config, but we are required to
   -- define a default spool location.
   kumo.define_spool {
+    kind = 'RocksDB',
     name = 'meta',
     path = '/tmp/kumo-sink/meta',
   }
