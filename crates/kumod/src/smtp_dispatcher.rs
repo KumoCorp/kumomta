@@ -225,6 +225,8 @@ impl SmtpDispatcher {
             },
         };
 
+        let mut mx_list_errors = vec![];
+
         let addresses = if proto_config.mx_list.is_empty() {
             dispatcher
                 .mx
@@ -240,12 +242,19 @@ impl SmtpDispatcher {
         } else {
             let mut addresses = vec![];
             for a in proto_config.mx_list.iter() {
-                a.resolve_into(
-                    &mut addresses,
-                    path_config.ip_lookup_strategy,
-                    path_config.max_mx_addresses_per_host,
-                )
-                .await?;
+                if let Err(err) = a
+                    .resolve_into(
+                        &mut addresses,
+                        path_config.ip_lookup_strategy,
+                        path_config.max_mx_addresses_per_host,
+                    )
+                    .await
+                {
+                    // Other entries can still cover for this one, making it
+                    // routine rather than an operator concern.
+                    tracing::debug!("skipping mx_list entry: {err:#}");
+                    mx_list_errors.push(format!("{err:#}"));
+                }
             }
             // The list is still in most-preferred-first order here. `truncate`
             // drops entries off the least-preferred end.
@@ -289,6 +298,14 @@ impl SmtpDispatcher {
         };
 
         if addresses.is_empty() {
+            let content = if mx_list_errors.is_empty() {
+                "MX didn't resolve to any hosts".to_string()
+            } else {
+                format!(
+                    "MX didn't resolve to any hosts; mx_list lookups failed: {}",
+                    mx_list_errors.join(", ")
+                )
+            };
             dispatcher
                 .bulk_ready_queue_operation(
                     Response {
@@ -298,7 +315,7 @@ impl SmtpDispatcher {
                             subject: 4,
                             detail: 4,
                         }),
-                        content: "MX didn't resolve to any hosts".to_string(),
+                        content,
                         command: None,
                     },
                     InsertReason::MxResolvedToZeroHosts.into(),

@@ -158,3 +158,13 @@
    TTL (60 seconds) to ensure that we will re-attempt the failed address family
    in a more reasonable time frame.  NXDOMAIN and NODATA answers are not
    failures and keep their normal TTL. #630
+
+ * An explicit [mx_list](../reference/kumo/make_queue_config/protocol.md) with
+   multiple entries would error out of the SMTP dispatcher setup if one of the
+   entries failed to resolve, instead of continuing with a partial list of
+   hosts. This could prevent delivery to that destination for as long as the
+   entry failed to resolve, without a clear log of the reason. We now continue
+   with whatever resolved in the partial success case, and include the failed
+   DNS lookup results in the TransientFailure log record that we produce if they
+   all fail. #628
+
