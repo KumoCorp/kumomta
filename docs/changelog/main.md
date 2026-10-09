@@ -133,3 +133,21 @@
  * Fixed a DANE downgrade that could occur when an A or AAAA lookup returned a
    bogus (DNSSEC validation failure) result. Such a result now defers delivery
    rather than being treated as ordinary unsigned addresses. #612
+
+ * Fixed the handling of a failed MX lookup on the deprecated unbound resolver
+   backend.  A DNS *failure* response (SERVFAIL, REFUSED, or any other
+   non-NXDOMAIN failure RCODE) is now classified as a temporary error instead,
+   and it no longer qualifies for the implicit `MX->A` fallback and is treated
+   as an ordinary failed lookup, as RFC 5321 section 5.1 requires.  The default
+   hickory backend already reports these failures as errors and its behavior is
+   unchanged. #629
+
+ * A DNSSEC-bogus MX answer (one that failed DNSSEC validation) is no longer
+   used to route mail. The MX lookup now treats a bogus result as a temporary
+   error and defers, rather than using forged or tampered MX hosts as an
+   ordinary unsigned MX set, as RFC 7672 section 2.1.1 requires. This is the MX
+   counterpart of the A/AAAA bogus fix above (#612). It applies both to the
+   deprecated unbound backend and to a hickory backend that has been
+   explicitly configured to perform DNSSEC validation (`validate = true`)
+   against an upstream that does not validate (a validating upstream returns a
+   SERVFAIL for bogus data, which hickory handles as an error). #629

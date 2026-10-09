@@ -4,6 +4,7 @@ use dns_resolver::{
     get_resolver, has_colon_port, ip_lookup, DnsError, DomainClassification, IpLookupStrategy,
     Name, Resolver,
 };
+use hickory_resolver::proto::op::ResponseCode;
 use hickory_resolver::proto::rr::{RData, RecordType};
 use kumo_address::host_or_socket::HostOrSocketAddress;
 use kumo_log_types::ResolvedAddress;
@@ -111,6 +112,7 @@ fn mx_cache_ttl(mx_result: &Result<Arc<MailExchanger>, MxResolveError>) -> Durat
     }
 }
 
+#[derive(Debug)]
 struct ByPreference {
     pub hosts: Vec<String>,
     pub pref: u16,
@@ -210,6 +212,35 @@ async fn lookup_mx_record_limited(
             return Err(MxResolveError { kind, message });
         }
     };
+    // A validating resolver can return a successful `Answer` that is really a
+    // failure or a forgery: a failure RCODE (SERVFAIL, REFUSED, ...) is a
+    // temporary error, and a DNSSEC-bogus answer must not be trusted even when
+    // it has records of its own. RFC 5321 5.1 requires retrying a temporary
+    // error rather than treating it as "no MX", and RFC 7672 2.1.1 requires
+    // treating a bogus answer as a lookup failure rather than as unsigned MX
+    // data we could deliver on.
+    if mx_lookup.bogus {
+        return Err(MxResolveError {
+            kind: MxResolveFailure::Indeterminate,
+            message: format!(
+                "MX records for {domain_name} are bogus: {}",
+                mx_lookup
+                    .why_bogus
+                    .as_deref()
+                    .unwrap_or("DNSSEC validation failed")
+            ),
+        });
+    }
+    match mx_lookup.response_code {
+        ResponseCode::NoError | ResponseCode::NXDomain => {}
+        rcode => {
+            return Err(MxResolveError {
+                kind: MxResolveFailure::Indeterminate,
+                message: format!("MX lookup for {domain_name} returned {rcode}"),
+            });
+        }
+    }
+
     let mx_records = mx_lookup.records;
 
     if mx_records.is_empty() {
@@ -220,10 +251,11 @@ async fn lookup_mx_record_limited(
             });
         }
 
-        // No MX records: the domain's own A/AAAA records act as the implicit
-        // MX. This implicit MX is secure exactly when the MX NODATA response
-        // was securely (DNSSEC) resolved, which is common for signed domains
-        // that publish no MX (e.g. many `.br` domains).
+        // An empty answer reaching this point is NODATA. The domain's own
+        // A/AAAA records act as the implicit MX in that case. This implicit MX
+        // is secure exactly when the MX NODATA response was securely (DNSSEC)
+        // resolved, which is common for signed domains that don't publish an
+        // MX (e.g. many `.br` domains).
         return Ok((
             vec![ByPreference {
                 hosts: vec![domain_name.to_lowercase().to_ascii()],
@@ -1380,6 +1412,66 @@ $ORIGIN xn--bb-eka.at.
         k9::assert_equal!(err.kind, MxResolveFailure::Indeterminate);
         k9::assert_equal!(err.message, "MX query timed out after 50ms");
         k9::assert_equal!(MX_QUERY_TIMEOUT.get() - before, 1);
+    }
+
+    const EXAMPLE_MX_ZONE: &str = r#"
+$ORIGIN example.com.
+@ 86400 MX 10 mx.example.com.
+"#;
+
+    #[tokio::test]
+    async fn servfail_mx_is_indeterminate_not_implicit_mx() {
+        // A SERVFAIL on the MX query must be a temporary failure, not treated
+        // as NODATA (which would synthesise the A/AAAA of the domain as an
+        // implicit MX and deliver on the back of a failed lookup).
+        let resolver = TestResolver::default().with_servfail("example.com");
+        let name = fully_qualify("example.com").unwrap();
+        let err = lookup_mx_record_limited(
+            &name,
+            Some(&resolver),
+            &Semaphore::new(1),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap_err();
+        k9::assert_equal!(err.kind, MxResolveFailure::Indeterminate);
+        k9::assert_equal!(
+            err.message,
+            "MX lookup for example.com. returned Server Failure"
+        );
+    }
+
+    #[tokio::test]
+    async fn bogus_mx_is_rejected_not_used() {
+        let name = fully_qualify("example.com").unwrap();
+
+        // Control: without the bogus flag the zone resolves to its MX host.
+        let ok = TestResolver::default().with_zone(EXAMPLE_MX_ZONE).unwrap();
+        let (records, _) =
+            lookup_mx_record_limited(&name, Some(&ok), &Semaphore::new(1), Duration::from_secs(5))
+                .await
+                .unwrap();
+        k9::assert_equal!(records[0].hosts, vec!["mx.example.com.".to_string()]);
+
+        // The same answer flagged DNSSEC-bogus: the forged MX records must not
+        // be used, even though they are present.
+        let resolver = TestResolver::default()
+            .with_zone(EXAMPLE_MX_ZONE)
+            .unwrap()
+            .with_bogus("example.com");
+        let err = lookup_mx_record_limited(
+            &name,
+            Some(&resolver),
+            &Semaphore::new(1),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap_err();
+        k9::assert_equal!(err.kind, MxResolveFailure::Indeterminate);
+        k9::assert_equal!(
+            err.message,
+            "MX records for example.com. are bogus: test bogus"
+        );
     }
 
     #[test]

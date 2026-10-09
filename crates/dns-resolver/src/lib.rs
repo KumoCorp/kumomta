@@ -1047,13 +1047,11 @@ mod test {
         ));
     }
 
-    /// Confirms that a DNSSEC-validating hickory resolver, via our adapter,
-    /// reports signed records as secure and resolves unsigned records as
-    /// insecure (rather than failing). Validation requires a DNSSEC-capable
-    /// upstream reachable over TCP, since DNSKEY/RRSIG responses are large.
+    /// Builds a DNSSEC-validating hickory resolver that queries `server` over
+    /// both UDP and TCP on port 53. TCP matters because DNSKEY/RRSIG responses
+    /// are large and validation needs them.
     #[cfg(feature = "live-dns-tests")]
-    #[tokio::test]
-    async fn hickory_dnssec_validation() {
+    fn validating_hickory(server: &str) -> HickoryResolver {
         use hickory_resolver::config::{
             ConnectionConfig, NameServerConfig, ProtocolConfig, ResolverConfig,
         };
@@ -1068,7 +1066,7 @@ mod test {
             None,
             vec![],
             vec![NameServerConfig::new(
-                "1.1.1.1".parse().unwrap(),
+                server.parse().unwrap(),
                 true,
                 vec![udp, tcp],
             )],
@@ -1076,7 +1074,17 @@ mod test {
         let mut builder =
             TokioResolver::builder_with_config(config, TokioRuntimeProvider::default());
         builder.options_mut().validate = true;
-        let resolver = HickoryResolver::from(builder.build().unwrap());
+        HickoryResolver::from(builder.build().unwrap())
+    }
+
+    /// Confirms that a DNSSEC-validating hickory resolver, via our adapter,
+    /// reports signed records as secure and resolves unsigned records as
+    /// insecure (rather than failing). Validation requires a DNSSEC-capable
+    /// upstream reachable over TCP, since DNSKEY/RRSIG responses are large.
+    #[cfg(feature = "live-dns-tests")]
+    #[tokio::test]
+    async fn hickory_dnssec_validation() {
+        let resolver = validating_hickory("1.1.1.1");
 
         let tlsa = resolver
             .resolve(
@@ -1109,29 +1117,7 @@ mod test {
     #[cfg(feature = "live-dns-tests")]
     #[tokio::test]
     async fn hickory_negative_answer_secure_bit() {
-        use hickory_resolver::config::{
-            ConnectionConfig, NameServerConfig, ProtocolConfig, ResolverConfig,
-        };
-        use hickory_resolver::net::runtime::TokioRuntimeProvider;
-        use hickory_resolver::TokioResolver;
-
-        let mut udp = ConnectionConfig::new(ProtocolConfig::Udp);
-        udp.port = 53;
-        let mut tcp = ConnectionConfig::new(ProtocolConfig::Tcp);
-        tcp.port = 53;
-        let config = ResolverConfig::from_parts(
-            None,
-            vec![],
-            vec![NameServerConfig::new(
-                "1.1.1.1".parse().unwrap(),
-                true,
-                vec![udp, tcp],
-            )],
-        );
-        let mut builder =
-            TokioResolver::builder_with_config(config, TokioRuntimeProvider::default());
-        builder.options_mut().validate = true;
-        let resolver = HickoryResolver::from(builder.build().unwrap());
+        let resolver = validating_hickory("1.1.1.1");
 
         // Signed zone with no TLSA at the apex: a securely proven NODATA.
         let secure_nodata = resolver
