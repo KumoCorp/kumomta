@@ -14,7 +14,7 @@ use std::hash::Hash;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Weak};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-use tokio::time::{timeout_at, Duration, Instant};
+use tokio::time::{timeout, timeout_at, Duration, Instant};
 
 mod metrics;
 
@@ -526,6 +526,14 @@ pub struct LruCacheWithTtl<K: Clone + Debug + Hash + Eq, V: Clone + Debug + Send
     inner: Arc<Inner<K, V>>,
 }
 
+impl<K: Clone + Debug + Hash + Eq, V: Clone + Debug + Send + Sync> Clone for LruCacheWithTtl<K, V> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
 /// The outcome of contending for the right to populate an absent entry.
 enum Acquisition<V: Debug> {
     /// Another caller already satisfied the lookup, or it timed out or failed:
@@ -1028,6 +1036,146 @@ impl<
         self.inner.maybe_evict();
         return_value
     }
+
+    /// Get an existing item, or populate and insert one. If this call is
+    /// cancelled while the entry is being populated, the populate keeps
+    /// running on its own task and the entry still ends up populated.
+    ///
+    /// This call reports `is_fresh` as false.
+    ///
+    /// `make_fut` and `ttl_func` (which must be [`Clone`]) may each be invoked
+    /// more than once, to retry the populate after `populate_timeout` elapses.
+    pub async fn get_or_try_insert_detached<E, TTL, MK, F>(
+        &self,
+        name: &K,
+        ttl_func: TTL,
+        make_fut: MK,
+        populate_timeout: Duration,
+    ) -> Result<ItemLookup<V>, Arc<anyhow::Error>>
+    where
+        E: Into<anyhow::Error> + Send + 'static,
+        TTL: Clone + Send + 'static + FnOnce(&V) -> Duration,
+        MK: Fn() -> F,
+        F: Future<Output = Result<V, E>> + Send + 'static,
+    {
+        if let Some(entry) = self.lookup(name) {
+            return Ok(entry);
+        }
+
+        let timeout_duration = Duration::from_millis(
+            self.inner.sema_timeout_milliseconds.load(Ordering::Relaxed) as u64,
+        );
+        let deadline = Instant::now() + timeout_duration;
+
+        loop {
+            let permit = match self.acquire(name, deadline, timeout_duration).await {
+                Acquisition::Resolved(result) => return result,
+                Acquisition::Owner(permit) => permit,
+            };
+
+            let this = self.clone();
+            let key = name.clone();
+            let ttl_func = ttl_func.clone();
+            let fut = make_fut();
+            // permit moves into the spawned task below. This clone is the only
+            // handle left to close the semaphore if the spawn itself fails.
+            let sema = permit.semaphore().clone();
+
+            // Extend the entry's expiration to populate_timeout. Without this,
+            // it keeps the wait deadline of the calling task, which can be
+            // shorter.
+            self.set_pending_expiration(name, Instant::now() + populate_timeout);
+
+            kumo_server_runtime::spawn("lruttl-populate", async move {
+                // defer! closes the semaphore on every exit path, including a
+                // panic in the populate, waking any caller blocked on it.
+                defer! {
+                    permit.semaphore().close();
+                }
+
+                // The semaphore this populate was spawned for, compared below
+                // against the current semaphore of the entry to detect a
+                // stuck-entry swap (see is_current).
+                let our_sema = permit.semaphore();
+
+                this.inner.populate_counter.inc();
+                let (item, ttl) = match timeout(populate_timeout, fut).await {
+                    Ok(Ok(value)) => {
+                        let ttl = ttl_func(&value);
+                        (ItemState::Present(value), ttl)
+                    }
+                    Ok(Err(err)) => {
+                        this.inner.error_counter.inc();
+                        // A failed populate bypasses ttl_func. This uses the
+                        // same 60-second fallback TTL that the failure case of
+                        // get_or_try_insert uses.
+                        (
+                            ItemState::Failed(Arc::new(err.into())),
+                            Duration::from_secs(60),
+                        )
+                    }
+                    Err(_) => {
+                        this.inner.error_counter.inc();
+                        (
+                            ItemState::Failed(Arc::new(anyhow::anyhow!(
+                                "{} populate for {key:?} timed out after {populate_timeout:?}",
+                                this.inner.name
+                            ))),
+                            Duration::from_secs(60),
+                        )
+                    }
+                };
+
+                // Insert the result into the entry before our_sema closes:
+                // a waiter unblocked by that close reads the entry right away
+                // and must not find it still pending.
+                if let Some(mut entry) = this.inner.cache.get_mut(&key) {
+                    let is_current = match &entry.item {
+                        ItemState::Pending(current)
+                        | ItemState::Refreshing {
+                            pending: current, ..
+                        } => Arc::ptr_eq(current, our_sema),
+                        ItemState::Present(_) | ItemState::Failed(_) => false,
+                    };
+                    if is_current {
+                        entry.item = item;
+                        entry.expiration = Instant::now() + ttl;
+                        entry.last_tick = this.inc_tick().into();
+                    }
+                }
+                this.inner.maybe_evict();
+            })
+            .map_err(|err| {
+                // The lruttl-populate task above never ran. Its defer! block,
+                // which would otherwise close this semaphore, never ran
+                // either.
+                sema.close();
+                Arc::new(anyhow::anyhow!(
+                    "{} failed to spawn detached populate for {name:?}: {err:#}",
+                    self.inner.name
+                ))
+            })?;
+
+            // Winning ownership again here means the populate just spawned
+            // overran populate_timeout and was abandoned before it finished.
+            // Spawn a replacement and keep retrying this way until one
+            // completes.
+        }
+    }
+
+    /// Push the expiration of the in-flight entry out to `expiration`, but only
+    /// while it is still being populated (Pending or Refreshing). A populate
+    /// that already finished keeps its own expiration.
+    fn set_pending_expiration(&self, name: &K, expiration: Instant) {
+        if let Some(mut entry) = self.inner.cache.get_mut(name) {
+            if matches!(
+                entry.item,
+                ItemState::Pending(_) | ItemState::Refreshing { .. }
+            ) {
+                entry.expiration = expiration;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1137,5 +1285,160 @@ mod test {
         assert_eq!(1, foos.pop().unwrap().await.unwrap().unwrap().item);
 
         assert_eq!(cache.inner.cache.len(), 1);
+    }
+
+    #[test(tokio::test)]
+    async fn detached_populate_survives_caller_cancellation() {
+        use tokio::sync::Notify;
+
+        let cache = Arc::new(LruCacheWithTtl::<String, u64>::new(
+            "detached_survives_cancel",
+            16,
+        ));
+        let key = "k".to_string();
+        let started = Arc::new(Notify::new());
+        let gate = Arc::new(Notify::new());
+        let runs = Arc::new(AtomicUsize::new(0));
+
+        let caller = {
+            let cache = cache.clone();
+            let key = key.clone();
+            let started = started.clone();
+            let gate = gate.clone();
+            let runs = runs.clone();
+            tokio::spawn(async move {
+                cache
+                    .get_or_try_insert_detached(
+                        &key,
+                        |_| Duration::from_secs(86400),
+                        move || {
+                            let started = started.clone();
+                            let gate = gate.clone();
+                            let runs = runs.clone();
+                            async move {
+                                runs.fetch_add(1, Ordering::SeqCst);
+                                started.notify_one();
+                                gate.notified().await;
+                                Ok::<_, anyhow::Error>(42u64)
+                            }
+                        },
+                        Duration::from_secs(300),
+                    )
+                    .await
+            })
+        };
+
+        // Wait until the detached populate is actually running, then cancel the
+        // triggering caller before it can complete.
+        started.notified().await;
+        caller.abort();
+        // The detached populate must still finish and insert the value.
+        gate.notify_one();
+
+        loop {
+            if let Some(value) = cache.get(&key) {
+                assert_eq!(value, 42);
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+    }
+
+    #[test(tokio::test)]
+    async fn detached_second_caller_shares_populate() {
+        use tokio::sync::Notify;
+
+        let cache = Arc::new(LruCacheWithTtl::<String, u64>::new(
+            "detached_shared_populate",
+            16,
+        ));
+        let key = "k".to_string();
+        let gate = Arc::new(Notify::new());
+        let runs = Arc::new(AtomicUsize::new(0));
+
+        let make_caller = || {
+            let cache = cache.clone();
+            let key = key.clone();
+            let gate = gate.clone();
+            let runs = runs.clone();
+            tokio::spawn(async move {
+                cache
+                    .get_or_try_insert_detached(
+                        &key,
+                        |_| Duration::from_secs(86400),
+                        move || {
+                            let gate = gate.clone();
+                            let runs = runs.clone();
+                            async move {
+                                runs.fetch_add(1, Ordering::SeqCst);
+                                gate.notified().await;
+                                Ok::<_, anyhow::Error>(7u64)
+                            }
+                        },
+                        Duration::from_secs(300),
+                    )
+                    .await
+            })
+        };
+
+        let first = make_caller();
+        let second = make_caller();
+
+        // Wait until populate is running, then release it.
+        while runs.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+        gate.notify_one();
+
+        let first = first.await.unwrap().unwrap();
+        let second = second.await.unwrap().unwrap();
+        assert_eq!(first.item, 7);
+        assert_eq!(second.item, 7);
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            1,
+            "the two callers must share one populate"
+        );
+    }
+
+    #[test(tokio::test)]
+    async fn detached_populate_timeout_yields_one_error() {
+        let cache = Arc::new(LruCacheWithTtl::<String, u64>::new(
+            "detached_populate_timeout",
+            16,
+        ));
+        let key = "k".to_string();
+        let runs = Arc::new(AtomicUsize::new(0));
+
+        let runs_in_fut = runs.clone();
+        let result = cache
+            .get_or_try_insert_detached(
+                &key,
+                |_| Duration::from_secs(86400),
+                move || {
+                    let runs = runs_in_fut.clone();
+                    async move {
+                        runs.fetch_add(1, Ordering::SeqCst);
+                        // Never completes. The test relies on
+                        // populate_timeout to fire.
+                        std::future::pending::<()>().await;
+                        Ok::<_, anyhow::Error>(0u64)
+                    }
+                },
+                Duration::from_millis(50),
+            )
+            .await;
+
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("timed out after"),
+            "unexpected error: {err}"
+        );
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            1,
+            "a timed-out populate must leave a Failed entry, not spin up repeated populates"
+        );
     }
 }

@@ -4625,6 +4625,7 @@ dependencies = [
  "dashmap",
  "kumo-prometheus",
  "kumo-server-memory",
+ "kumo-server-runtime",
  "linkme",
  "parking_lot",
  "pastey",
