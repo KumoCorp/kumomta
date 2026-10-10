@@ -182,6 +182,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let source = EgressSource::resolve(&source_name, &mut config)
                 .await
                 .map_err(any_err)?;
+            config.put();
             lua.to_value(&source)
         })?,
     )?;
@@ -193,6 +194,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let pool = EgressPool::resolve(pool_name.as_deref(), &mut config)
                 .await
                 .map_err(any_err)?;
+            config.put();
             lua.to_value(&pool)
         })?,
     )?;

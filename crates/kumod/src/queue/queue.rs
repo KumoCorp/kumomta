@@ -404,7 +404,9 @@ impl Queue {
                         &REBIND_MESSAGE_SIG,
                         (msg.clone(), rebind.request.data.clone()),
                     )
-                    .await
+                    .await?;
+                config.put();
+                Ok(())
             } else {
                 for (k, v) in &rebind.request.data {
                     msg.set_meta(k, v.clone()).await?;

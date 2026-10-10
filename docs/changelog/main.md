@@ -168,5 +168,7 @@
    DNS lookup results in the TransientFailure log record that we produce if they
    all fail. #628
 
- * Reduced lua context creation overhead in scheduled queue config refreshes
-    by reusing the cached context. Thanks to @edgarsendernet! #632
+ * Reduced lua context creation overhead in scheduled queue config refreshes,
+   egress source and pool loading and `kumo.secrets` loading
+   by reusing the cached context. Thanks to @edgarsendernet! #632
+
