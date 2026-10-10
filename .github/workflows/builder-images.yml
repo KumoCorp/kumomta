@@ -52,12 +52,6 @@ jobs:
             REPOARM: "-aarch64"
             platform: linux/aarch64
             runs_on: kumo-linux-16core-arm64
-          - IMAGE: "almalinux"
-            VERSION: 10
-            ISARM: "ARM=1"
-            REPOARM: "-aarch64"
-            platform: linux/aarch64
-            runs_on: kumo-linux-16core-arm64
           - IMAGE: "ubuntu"
             VERSION: 22.04
             ISARM: "ARM=1"
@@ -84,10 +78,6 @@ jobs:
             runs_on: kumo-linux-16core-amd64
           - IMAGE: "rockylinux"
             VERSION: 8
-            platform: linux/amd64
-            runs_on: kumo-linux-16core-amd64
-          - IMAGE: "almalinux"
-            VERSION: 10
             platform: linux/amd64
             runs_on: kumo-linux-16core-amd64
           - IMAGE: "ubuntu"
