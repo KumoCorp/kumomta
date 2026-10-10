@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_MAX_LINE_SIZE"],"enum":["NextLine"],"struct":["DecompressedLine","FileDecompressor","ZStdError"]};

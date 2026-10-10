@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ACLIdentity","ACLQueryDisposition","ACLRuleTerm","Access","IdentityContext"],"fn":["get_acl_cache_ttl","get_check_cache_ttl","register"],"struct":["AccessControlList","AccessControlListMap","AccessControlRule","AuditRecord","AuthInfo","Identity"],"trait":["Resource"]};

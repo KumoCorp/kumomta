@@ -1,0 +1,9 @@
+(function() {
+    var implementors = Object.fromEntries([["cidr_map",[["impl&lt;'a, V&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/1.92.0/core/iter/traits/iterator/trait.Iterator.html\" title=\"trait core::iter::traits::iterator::Iterator\">Iterator</a> for <a class=\"struct\" href=\"cidr_map/struct.Iter.html\" title=\"struct cidr_map::Iter\">Iter</a>&lt;'a, V&gt;<div class=\"where\">where\n    V: <a class=\"trait\" href=\"https://doc.rust-lang.org/1.92.0/core/clone/trait.Clone.html\" title=\"trait core::clone::Clone\">Clone</a>,</div>"]]],["maildir",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.92.0/core/iter/traits/iterator/trait.Iterator.html\" title=\"trait core::iter::traits::iterator::Iterator\">Iterator</a> for <a class=\"struct\" href=\"maildir/struct.MailEntries.html\" title=\"struct maildir::MailEntries\">MailEntries</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.92.0/core/iter/traits/iterator/trait.Iterator.html\" title=\"trait core::iter::traits::iterator::Iterator\">Iterator</a> for <a class=\"struct\" href=\"maildir/struct.MaildirEntries.html\" title=\"struct maildir::MaildirEntries\">MaildirEntries</a>"]]],["message",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.92.0/core/iter/traits/iterator/trait.Iterator.html\" title=\"trait core::iter::traits::iterator::Iterator\">Iterator</a> for <a class=\"struct\" href=\"message/message/struct.MessageListIter.html\" title=\"struct message::message::MessageListIter\">MessageListIter</a>"]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":57,"fragment_lengths":[499,629,346]}

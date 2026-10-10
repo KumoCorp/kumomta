@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MinFree"],"fn":["is_over_limit"],"struct":["AvailableSpace","MonitoredPath"]};
