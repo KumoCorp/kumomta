@@ -540,6 +540,84 @@ async fn dmarc_pct_rate() {
     k9::assert_greater_than!(total_failures, lower_bound);
 }
 
+#[tokio::test]
+async fn dmarc_props_included_on_pass() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "_dmarc.example.com",
+            "v=DMARC1; p=none; aspf=r; adkim=r; pct=100; \
+            rua=mailto:dmarc-feedback@example.com"
+                .to_string(),
+        );
+
+    let result = evaluate_ip(TestData {
+        from_domain: "example.com",
+        mail_from_domain: "example.com",
+        dkim_domains: &[],
+        resolver: &resolver,
+    })
+    .await;
+
+    // Verify domain doesn't include _dmarc prefix
+    assert_eq!(
+        result.props.get("dmarc.domain"),
+        Some(&"example.com".into()),
+        "dmarc.domain should be base domain without _dmarc prefix"
+    );
+
+    // Verify alignment results are present (SPF should pass, DKIM pass because no DKIM to fail)
+    assert_eq!(
+        result.props.get("dmarc.spf-alignment-result"),
+        Some(&"pass".into())
+    );
+
+    // Verify SPF domain is present for pass
+    assert_eq!(
+        result.props.get("dmarc.spf-domain"),
+        Some(&"example.com".into())
+    );
+}
+
+#[tokio::test]
+async fn dmarc_props_included_on_fail() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .unwrap()
+        .with_txt(
+            "_dmarc.example.com",
+            "v=DMARC1; p=reject; aspf=s; adkim=s; \
+            rua=mailto:dmarc-feedback@example.com"
+                .to_string(),
+        );
+
+    let result = evaluate_ip(TestData {
+        from_domain: "example.com",
+        mail_from_domain: "otherdomain.com",
+        dkim_domains: &[Some("otherdomain.com")],
+        resolver: &resolver,
+    })
+    .await;
+
+    // Verify domain doesn't include _dmarc prefix
+    assert_eq!(
+        result.props.get("dmarc.domain"),
+        Some(&"example.com".into()),
+        "dmarc.domain should be base domain without _dmarc prefix"
+    );
+
+    // Verify alignment results show failure
+    assert_eq!(
+        result.props.get("dmarc.dkim-alignment-result"),
+        Some(&"fail".into())
+    );
+    assert_eq!(
+        result.props.get("dmarc.spf-alignment-result"),
+        Some(&"fail".into())
+    );
+}
+
 async fn evaluate_ip<'a>(
     TestData {
         from_domain,
