@@ -9,8 +9,8 @@ Pre-built packages are provided for the officially supported platforms listed on
 In addition to the officially supported platforms, the following systems have been community-tested:
 
 
-* Rocky (8, 9)
-* Alma (8, 9)
+* Rocky (8, 9, 10)
+* Alma (8, 9, 10)
 * Debian (11,12)
 * Ubuntu (18, 20, 22, 24)
 * OpenSuse Leap (15.4)
