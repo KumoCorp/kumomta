@@ -172,3 +172,12 @@
    egress source and pool loading and `kumo.secrets` loading
    by reusing the cached context. Thanks to @edgarsendernet! #632
 
+ * The
+   [message_data_resident_count](../reference/metrics/kumod/message_data_resident_count.md)
+   metric could drift away from the true number of messages holding their body
+   in memory: constructing a message with an empty body leaked the count
+   upward, while messages received via node-to-node transfer were never counted
+   and drove it downward (potentially negative).  The count is now bound to the
+   lifetime of the resident body, which keeps it accurate in both directions.
+   Thanks to @kayozaki! #588
+

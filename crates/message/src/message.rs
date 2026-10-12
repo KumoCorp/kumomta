@@ -35,6 +35,7 @@ use serde_with::{serde_as, OneOrMany};
 use spool::{get_data_spool, get_meta_spool, Spool, SpoolId};
 use std::collections::{BTreeMap, HashSet};
 use std::hash::Hash;
+use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, LazyLock, Weak};
 use std::time::{Duration, Instant};
 use timeq::TimerEntryWithDelay;
@@ -124,13 +125,166 @@ declare_metric! {
 static LOAD_META_HIST: Histogram("message_meta_load_latency");
 }
 
+/// Keeps MESSAGE_COUNT incremented for the lifetime of a `MessageInner`.
+///
+/// Binding the count to construction and `Drop` makes it impossible to
+/// create or destroy a message without the gauge tracking it. The guard is
+/// zero-sized and costs no storage.
+#[derive(Debug)]
+struct MessageGuard;
+
+impl MessageGuard {
+    fn new() -> Self {
+        MESSAGE_COUNT.inc();
+        Self
+    }
+}
+
+impl Drop for MessageGuard {
+    fn drop(&mut self) {
+        MESSAGE_COUNT.dec();
+    }
+}
+
+/// Keeps META_COUNT incremented while resident metadata is held. See
+/// [`MessageGuard`] for the zero-sized guard pattern.
+#[derive(Debug)]
+struct MetaGuard;
+
+impl MetaGuard {
+    fn new() -> Self {
+        META_COUNT.inc();
+        Self
+    }
+}
+
+impl Drop for MetaGuard {
+    fn drop(&mut self) {
+        META_COUNT.dec();
+    }
+}
+
+/// Keeps DATA_COUNT incremented while resident body data is held. See
+/// [`MessageGuard`] for the zero-sized guard pattern.
+#[derive(Debug)]
+struct DataGuard;
+
+impl DataGuard {
+    fn new() -> Self {
+        DATA_COUNT.inc();
+        Self
+    }
+}
+
+impl Drop for DataGuard {
+    fn drop(&mut self) {
+        DATA_COUNT.dec();
+    }
+}
+
+/// Message metadata resident in memory. Holding one keeps META_COUNT
+/// incremented. Dropping it releases the count.
+#[derive(Debug)]
+struct ResidentMeta {
+    value: Box<MetaData>,
+    _guard: MetaGuard,
+}
+
+impl ResidentMeta {
+    fn new(value: Box<MetaData>) -> Self {
+        Self {
+            value,
+            _guard: MetaGuard::new(),
+        }
+    }
+}
+
+impl Deref for ResidentMeta {
+    type Target = MetaData;
+    fn deref(&self) -> &MetaData {
+        &self.value
+    }
+}
+
+impl DerefMut for ResidentMeta {
+    fn deref_mut(&mut self) -> &mut MetaData {
+        &mut self.value
+    }
+}
+
+/// Message body data resident in memory, counted in DATA_COUNT while held. A
+/// resident body is always non-empty. An empty body is the absence of a
+/// `ResidentData` (`None`).
+#[derive(Debug)]
+struct ResidentData {
+    value: Arc<Box<[u8]>>,
+    _guard: DataGuard,
+}
+
+impl ResidentData {
+    fn new(value: Arc<Box<[u8]>>) -> Self {
+        Self {
+            value,
+            _guard: DataGuard::new(),
+        }
+    }
+
+    /// Wraps `value` as a resident body, or yields `None` when it is empty.
+    fn maybe(value: Arc<Box<[u8]>>) -> Option<Self> {
+        if value.is_empty() {
+            None
+        } else {
+            Some(Self::new(value))
+        }
+    }
+}
+
 #[derive(Debug)]
 struct MessageInner {
-    metadata: Option<Box<MetaData>>,
-    data: Arc<Box<[u8]>>,
+    metadata: Option<ResidentMeta>,
+    data: Option<ResidentData>,
     flags: MessageFlags,
     num_attempts: u16,
     due: Option<DateTime<Utc>>,
+    _live: MessageGuard,
+}
+
+impl MessageInner {
+    /// Returns the resident body, or the shared empty buffer when the body is
+    /// not resident. The returned `Arc` is a handle to the bytes and does not
+    /// affect DATA_COUNT.
+    fn data_arc(&self) -> Arc<Box<[u8]>> {
+        match &self.data {
+            Some(resident) => resident.value.clone(),
+            None => NO_DATA.clone(),
+        }
+    }
+
+    /// Installs `data` as the resident body, or clears it when `data` is empty.
+    fn set_data(&mut self, data: Arc<Box<[u8]>>) {
+        if data.is_empty() {
+            self.data = None;
+        } else if let Some(resident) = &mut self.data {
+            // Reuse the existing DATA_COUNT guard instead of dropping and
+            // recreating it. A resident-to-resident update never touches the
+            // gauge.
+            resident.value = data;
+        } else {
+            self.data = Some(ResidentData::new(data));
+        }
+    }
+
+    /// Installs `metadata` as the resident metadata.
+    fn set_metadata(&mut self, metadata: Box<MetaData>) {
+        if let Some(resident) = &mut self.metadata {
+            // Reuse the existing META_COUNT guard instead of dropping and
+            // recreating it. A resident-to-resident update never touches the
+            // gauge.
+            resident.value = metadata;
+        } else {
+            self.metadata = Some(ResidentMeta::new(metadata));
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -298,18 +452,6 @@ pub(crate) struct MetaData {
     pub schedule: Option<Scheduling>,
 }
 
-impl Drop for MessageInner {
-    fn drop(&mut self) {
-        if self.metadata.is_some() {
-            META_COUNT.dec();
-        }
-        if !self.data.is_empty() {
-            DATA_COUNT.dec();
-        }
-        MESSAGE_COUNT.dec();
-    }
-}
-
 impl Message {
     /// Create a new message with the supplied data.
     /// The message meta and data are marked as dirty
@@ -321,23 +463,21 @@ impl Message {
         data: Arc<Box<[u8]>>,
     ) -> anyhow::Result<Self> {
         anyhow::ensure!(meta.is_object(), "metadata must be a json object");
-        MESSAGE_COUNT.inc();
-        DATA_COUNT.inc();
-        META_COUNT.inc();
         Ok(Self {
             msg_and_id: Arc::new(MessageWithId {
                 id,
                 inner: Mutex::new(MessageInner {
-                    metadata: Some(Box::new(MetaData {
+                    metadata: Some(ResidentMeta::new(Box::new(MetaData {
                         sender,
                         recipient,
                         meta,
                         schedule: None,
-                    })),
-                    data,
+                    }))),
+                    data: ResidentData::maybe(data),
                     flags: MessageFlags::META_DIRTY | MessageFlags::DATA_DIRTY,
                     num_attempts: 0,
                     due: None,
+                    _live: MessageGuard::new(),
                 }),
                 link: LinkedListAtomicLink::default(),
             }),
@@ -355,8 +495,6 @@ impl Message {
     /// a message holding the deserialized version of that metadata.
     pub fn new_from_spool(id: SpoolId, metadata: Vec<u8>) -> anyhow::Result<Self> {
         let metadata: MetaData = serde_json::from_slice(&metadata)?;
-        MESSAGE_COUNT.inc();
-        META_COUNT.inc();
 
         let flags = if metadata.schedule.is_some() {
             MessageFlags::SCHEDULED
@@ -368,11 +506,12 @@ impl Message {
             msg_and_id: Arc::new(MessageWithId {
                 id,
                 inner: Mutex::new(MessageInner {
-                    metadata: Some(Box::new(metadata)),
-                    data: NO_DATA.clone(),
+                    metadata: Some(ResidentMeta::new(Box::new(metadata))),
+                    data: None,
                     flags,
                     num_attempts: 0,
                     due: None,
+                    _live: MessageGuard::new(),
                 }),
                 link: LinkedListAtomicLink::default(),
             }),
@@ -380,9 +519,6 @@ impl Message {
     }
 
     pub(crate) fn new_from_parts(id: SpoolId, metadata: MetaData, data: Arc<Box<[u8]>>) -> Self {
-        MESSAGE_COUNT.inc();
-        META_COUNT.inc();
-
         let flags = if metadata.schedule.is_some() {
             MessageFlags::SCHEDULED
         } else {
@@ -393,11 +529,12 @@ impl Message {
             msg_and_id: Arc::new(MessageWithId {
                 id,
                 inner: Mutex::new(MessageInner {
-                    metadata: Some(Box::new(metadata)),
-                    data,
+                    metadata: Some(ResidentMeta::new(Box::new(metadata))),
+                    data: ResidentData::maybe(data),
                     flags: flags | MessageFlags::META_DIRTY | MessageFlags::DATA_DIRTY,
                     num_attempts: 0,
                     due: None,
+                    _live: MessageGuard::new(),
                 }),
                 link: LinkedListAtomicLink::default(),
             }),
@@ -532,7 +669,7 @@ impl Message {
     fn get_data_if_dirty(&self) -> Option<Arc<Box<[u8]>>> {
         let inner = self.msg_and_id.inner.lock();
         if inner.flags.contains(MessageFlags::DATA_DIRTY) {
-            Some(Arc::clone(&inner.data))
+            Some(inner.data_arc())
         } else {
             None
         }
@@ -692,12 +829,7 @@ impl Message {
         if inner.flags.contains(MessageFlags::DATA_DIRTY) {
             anyhow::bail!("Cannot shrink message: DATA_DIRTY");
         }
-        if !inner.data.is_empty() {
-            DATA_COUNT.dec();
-            did_shrink = true;
-        }
-        if !inner.data.is_empty() {
-            inner.data = NO_DATA.clone();
+        if inner.data.take().is_some() {
             did_shrink = true;
         }
         Ok(did_shrink)
@@ -713,15 +845,9 @@ impl Message {
             anyhow::bail!("Cannot shrink message: META_DIRTY");
         }
         if inner.metadata.take().is_some() {
-            META_COUNT.dec();
             did_shrink = true;
         }
-        if !inner.data.is_empty() {
-            DATA_COUNT.dec();
-            did_shrink = true;
-        }
-        if !inner.data.is_empty() {
-            inner.data = NO_DATA.clone();
+        if inner.data.take().is_some() {
             did_shrink = true;
         }
         Ok(did_shrink)
@@ -808,7 +934,7 @@ impl Message {
     }
 
     pub fn is_data_loaded(&self) -> bool {
-        !self.msg_and_id.inner.lock().data.is_empty()
+        self.msg_and_id.inner.lock().data.is_some()
     }
 
     pub async fn load_meta_if_needed(&self) -> anyhow::Result<()> {
@@ -838,12 +964,8 @@ impl Message {
         let id = self.id();
         let data = meta_spool.load(*id).await?;
         let mut inner = self.msg_and_id.inner.lock();
-        let was_not_loaded = inner.metadata.is_none();
         let metadata: MetaData = serde_json::from_slice(&data)?;
-        inner.metadata.replace(Box::new(metadata));
-        if was_not_loaded {
-            META_COUNT.inc();
-        }
+        inner.set_metadata(Box::new(metadata));
         Ok(())
     }
 
@@ -856,29 +978,21 @@ impl Message {
         &self,
         data_spool: &(dyn Spool + Send + Sync),
     ) -> anyhow::Result<Arc<Box<[u8]>>> {
-        let data = data_spool.load(*self.id()).await?;
+        let data = Arc::new(data_spool.load(*self.id()).await?.into_boxed_slice());
         let mut inner = self.msg_and_id.inner.lock();
-        let was_empty = inner.data.is_empty();
-        inner.data = Arc::new(data.into_boxed_slice());
-        if was_empty {
-            DATA_COUNT.inc();
-        }
-        Ok(inner.data.clone())
+        inner.set_data(data.clone());
+        Ok(data)
     }
 
     pub fn assign_data(&self, data: Vec<u8>) {
         let mut inner = self.msg_and_id.inner.lock();
-        let was_empty = inner.data.is_empty();
-        inner.data = Arc::new(data.into_boxed_slice());
+        inner.set_data(Arc::new(data.into_boxed_slice()));
         inner.flags.set(MessageFlags::DATA_DIRTY, true);
-        if was_empty {
-            DATA_COUNT.inc();
-        }
     }
 
     pub fn get_data_maybe_not_loaded(&self) -> Arc<Box<[u8]>> {
         let inner = self.msg_and_id.inner.lock();
-        inner.data.clone()
+        inner.data_arc()
     }
 
     pub async fn set_meta<S: AsRef<str>, V: Into<serde_json::Value>>(
@@ -2167,14 +2281,15 @@ pub(crate) mod test {
     #[tokio::test]
     async fn set_sender_after_shrink_does_not_flag_empty_data() {
         let msg = new_msg_body(X_HDR_CONTENT);
-        // Simulate a persisted-then-shrunk message: no dirty flags and an
-        // empty in-memory data buffer (the body lives only on the spool).
+        // Simulate a persisted-then-shrunk message: the dirty flags are cleared
+        // and the resident data buffer is empty (the body lives only on the
+        // spool).
         {
             let mut inner = msg.msg_and_id.inner.lock();
             inner
                 .flags
                 .remove(MessageFlags::DATA_DIRTY | MessageFlags::META_DIRTY);
-            inner.data = NO_DATA.clone();
+            inner.data = None;
         }
 
         msg.set_sender(EnvelopeAddress::parse("new-sender@example.com").unwrap())
