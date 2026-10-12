@@ -62,10 +62,12 @@ fedora_deps() {
     'pkg-config' \
     'python3' \
     'python3-pip' \
-    'redis' \
     'rpm-build' \
     'rpm-sign' \
     'telnet'
+  # RHEL 10 and its derivatives (Rocky, Alma) no longer ship redis;
+  # valkey is the drop-in replacement provided by the distro.
+  $YUM install -y 'redis' || $YUM install -y 'valkey'
 }
 
 amazon_deps() {
@@ -300,7 +302,7 @@ if test -e /etc/os-release; then
 fi
 
 case $ID in
-  centos|fedora|rhel)
+  almalinux|centos|fedora|rhel|rocky)
     fedora_deps
   ;;
   alpine)

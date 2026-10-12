@@ -23,9 +23,27 @@ fn allocate_port() -> u16 {
     listener.local_addr().unwrap().port()
 }
 
+/// Returns the first of the candidate executables that can be found in the PATH.
+/// Some distros (eg: RHEL 10 and its derivatives) ship valkey instead of
+/// redis, without providing the redis-* compatibility names.
+fn find_executable(candidates: &[&'static str]) -> Option<&'static str> {
+    candidates
+        .iter()
+        .copied()
+        .find(|name| which::which(name).is_ok())
+}
+
+fn server_executable() -> Option<&'static str> {
+    find_executable(&["redis-server", "valkey-server"])
+}
+
+fn cli_executable() -> Option<&'static str> {
+    find_executable(&["redis-cli", "valkey-cli"])
+}
+
 impl RedisServer {
     pub fn is_available() -> bool {
-        which::which("redis-server").is_ok()
+        server_executable().is_some()
     }
 
     pub async fn spawn(extra_config: &str) -> anyhow::Result<Self> {
@@ -50,14 +68,15 @@ impl RedisServer {
 
     async fn spawn_with_port(port: u16, extra_config: &str) -> anyhow::Result<Self> {
         let dir = tempfile::tempdir().context("make temp dir")?;
-        let mut daemon = Command::new("redis-server")
+        let server = server_executable().context("redis-server not found")?;
+        let mut daemon = Command::new(server)
             .args(["-"])
             .stdin(Stdio::piped())
             .stderr(Stdio::piped())
             .stdout(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
-            .context("spawning redis-server")?;
+            .with_context(|| format!("spawning {server}"))?;
 
         let mut stdout = BufReader::new(daemon.stdout.take().unwrap());
         let mut stderr = daemon.stderr.take().unwrap();
@@ -140,12 +159,16 @@ impl RedisCluster {
     /// the --cluster-yes option actually working as part of
     /// our cluster initialization. It doesn't work on redis 5.x
     /// which is present on rocky8 for example.
+    /// valkey was forked from redis 7.2, so any valkey version is ok.
     pub async fn is_available() -> bool {
         if !RedisServer::is_available() {
             return false;
         }
+        let Some(cli) = cli_executable() else {
+            return false;
+        };
 
-        match Command::new("redis-cli").arg("-v").output().await {
+        match Command::new(cli).arg("-v").output().await {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 match stdout.lines().next() {
@@ -153,7 +176,7 @@ impl RedisCluster {
                         let Some((redis, version)) = line.split_once(" ") else {
                             return false;
                         };
-                        if redis == "redis-cli" {
+                        if redis == "redis-cli" || redis == "valkey-cli" {
                             let Some((major, _rest)) = version.split_once(".") else {
                                 return false;
                             };
@@ -178,7 +201,8 @@ impl RedisCluster {
         let secondary = RedisServer::spawn(extra_config).await?;
         let tertiary = RedisServer::spawn(extra_config).await?;
 
-        let cluster_setup = Command::new("redis-cli")
+        let cli = cli_executable().context("redis-cli not found")?;
+        let cluster_setup = Command::new(cli)
             .args([
                 "--cluster",
                 "create",

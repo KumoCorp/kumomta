@@ -81,6 +81,11 @@
    whose client disconnected) no longer cancels the cache population function.
    The new `detached` memoize option can be used to override this if needed.  #602
 
+ * Added build support for RHEL 10 and its derivatives (AlmaLinux 10, Rocky
+   Linux 10). `get-deps.sh` now installs `valkey` where `redis` is no longer
+   provided by the distro, and the redis-based tests will use `valkey-server`
+   and `valkey-cli` when the `redis-*` executables are not available.
+
 ## Fixes
 
  * DKIM relaxed body canonicalization now reduces an empty body, or a body
