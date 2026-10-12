@@ -7,7 +7,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write;
 
-#[derive(Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TemplateDialect {
     #[default]
     Jinja,
@@ -19,13 +19,36 @@ enum Engine {
     Jinja {
         env: Environment<'static>,
     },
-    Static {
-        env: HashMap<String, String>,
-    },
+    Static,
     Handlebars {
         registry: Handlebars<'static>,
         globals: HashMap<String, serde_json::Value>,
     },
+}
+
+/// Returns true when `source` contains none of the expansion markers of
+/// `dialect`, meaning the engine would render it with no substitution.
+fn source_is_static(dialect: TemplateDialect, source: &str) -> bool {
+    match dialect {
+        TemplateDialect::Static => true,
+        TemplateDialect::Handlebars => !source.contains("{{"),
+        TemplateDialect::Jinja => {
+            !(source.contains("{{") || source.contains("{%") || source.contains("{#"))
+        }
+    }
+}
+
+/// Returns the prefix of `source` that `dialect` renders for a static value:
+/// for Jinja, `source` with one trailing `\n` and then one trailing `\r`
+/// removed, matching the trim the minijinja lexer applies to every template it
+/// compiles. For the other dialects, `source` unchanged.
+fn trim_static_source(dialect: TemplateDialect, source: &str) -> &str {
+    if dialect == TemplateDialect::Jinja {
+        let s = source.strip_suffix('\n').unwrap_or(source);
+        s.strip_suffix('\r').unwrap_or(s)
+    } else {
+        source
+    }
 }
 
 pub enum Template<'env, 'source> {
@@ -38,6 +61,12 @@ pub enum Template<'env, 'source> {
 }
 
 impl<'env, 'source> Template<'env, 'source> {
+    /// Returns true when this template renders its source verbatim, ignoring
+    /// the context.
+    pub fn is_static(&self) -> bool {
+        matches!(self, Self::Static(_))
+    }
+
     pub fn render<S: Serialize>(&self, ctx: S) -> anyhow::Result<String> {
         match &self {
             Self::Jinja(t) => Ok(t.render(ctx)?),
@@ -92,7 +121,9 @@ impl<'env, 'source> Template<'env, 'source> {
 
 /// Holds a set of templates
 pub struct TemplateEngine {
+    dialect: TemplateDialect,
     engine: Engine,
+    literals: HashMap<String, String>,
 }
 
 impl TemplateEngine {
@@ -101,7 +132,7 @@ impl TemplateEngine {
     }
 
     pub fn with_dialect(dialect: TemplateDialect) -> Self {
-        match dialect {
+        let engine = match dialect {
             TemplateDialect::Jinja => {
                 let mut env = Environment::new();
                 env.set_unknown_method_callback(
@@ -114,42 +145,52 @@ impl TemplateEngine {
                     mod_smtp_response_normalize::normalize,
                 );
 
-                Self {
-                    engine: Engine::Jinja { env },
-                }
+                Engine::Jinja { env }
             }
-            TemplateDialect::Static => Self {
-                engine: Engine::Static {
-                    env: HashMap::new(),
-                },
-            },
+            TemplateDialect::Static => Engine::Static,
             TemplateDialect::Handlebars => {
                 let mut registry = Handlebars::new();
                 registry.set_recursive_lookup(true);
-                Self {
-                    engine: Engine::Handlebars {
-                        registry,
-                        globals: HashMap::new(),
-                    },
+                Engine::Handlebars {
+                    registry,
+                    globals: HashMap::new(),
                 }
             }
+        };
+        Self {
+            dialect,
+            engine,
+            literals: HashMap::new(),
         }
     }
 
-    /// Add a named template with the specified source.
-    /// If name ends with `.html` then automatical escaping of html entities
-    /// will be performed on substitutions.
+    /// Add a named template with the specified source. If name ends with
+    /// `.html` then automatic escaping of html entities will be performed on
+    /// substitutions.
+    ///
+    /// A source that is free of expansion markers for the active dialect is
+    /// stored as a literal static template, bypassing the compiler and
+    /// evaluator of the engine entirely.
     pub fn add_template<N, S>(&mut self, name: N, source: S) -> anyhow::Result<()>
     where
         N: Into<String>,
         S: Into<String>,
     {
+        let name = name.into();
+        let mut source = source.into();
+
+        if source_is_static(self.dialect, &source) {
+            source.truncate(trim_static_source(self.dialect, &source).len());
+            self.literals.insert(name, source);
+            return Ok(());
+        }
+
         match &mut self.engine {
             Engine::Jinja { env } => {
-                let source: Cow<'_, str> = source.into().into();
+                let source: Cow<'_, str> = source.into();
 
                 Ok(env
-                    .add_template_owned(name.into(), source.clone())
+                    .add_template_owned(name, source.clone())
                     .map_err(|err| {
                         let mut reason = String::new();
 
@@ -186,12 +227,9 @@ impl TemplateEngine {
                         anyhow::anyhow!("{reason}")
                     })?)
             }
-            Engine::Static { env } => {
-                env.insert(name.into(), source.into());
-                Ok(())
-            }
+            Engine::Static => anyhow::bail!("Static dialect cannot hold a dynamic template"),
             Engine::Handlebars { registry, .. } => {
-                registry.register_template_string(&name.into(), source.into())?;
+                registry.register_template_string(&name, source)?;
                 Ok(())
             }
         }
@@ -199,13 +237,12 @@ impl TemplateEngine {
 
     /// Get a reference to a named template
     pub fn get_template(&self, name: &str) -> anyhow::Result<Template<'_, '_>> {
+        if let Some(source) = self.literals.get(name) {
+            return Ok(Template::Static(source));
+        }
         match &self.engine {
             Engine::Jinja { env } => Ok(Template::Jinja(env.get_template(name)?)),
-            Engine::Static { env } => {
-                Ok(Template::Static(env.get(name).ok_or_else(|| {
-                    anyhow::anyhow!("template {name} is not defined")
-                })?))
-            }
+            Engine::Static => anyhow::bail!("template {name} is not defined"),
             Engine::Handlebars { registry, .. } => {
                 let template = registry
                     .get_template(name)
@@ -227,7 +264,7 @@ impl TemplateEngine {
     {
         match &mut self.engine {
             Engine::Jinja { env } => env.add_global(name.into(), JinjaValue::from_serialize(value)),
-            Engine::Static { .. } => { /* NOP */ }
+            Engine::Static => { /* NOP */ }
             Engine::Handlebars { globals, .. } => {
                 globals.insert(name.into(), serde_json::to_value(value)?);
             }
@@ -240,9 +277,12 @@ impl TemplateEngine {
     where
         CTX: serde::Serialize,
     {
+        if source_is_static(self.dialect, source) {
+            return Ok(trim_static_source(self.dialect, source).to_string());
+        }
         match &self.engine {
             Engine::Jinja { env } => Ok(env.render_named_str(name, source, context)?),
-            Engine::Static { .. } => Ok(source.to_string()),
+            Engine::Static => Ok(source.to_string()),
             Engine::Handlebars { .. } => {
                 let template = HandlebarsTemplate::compile_with_name(source, name.to_string())?;
                 let template = Template::Handlebars {
@@ -303,3 +343,126 @@ self_cell!(
         dependent: TemplateList,
     }
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A marker-free source is a static template and renders to itself across
+    /// every dialect, ignoring the supplied context.
+    #[test]
+    fn marker_free_source_is_static() {
+        for dialect in [
+            TemplateDialect::Jinja,
+            TemplateDialect::Handlebars,
+            TemplateDialect::Static,
+        ] {
+            let mut engine = TemplateEngine::with_dialect(dialect);
+            engine
+                .add_template("h", "In-Reply-To: <abc@example.com>")
+                .unwrap();
+            let t = engine.get_template("h").unwrap();
+            assert!(
+                t.is_static(),
+                "{dialect:?} should treat marker-free source as static"
+            );
+            k9::assert_equal!(
+                t.render(json!({"name": "ignored"})).unwrap(),
+                "In-Reply-To: <abc@example.com>".to_string()
+            );
+        }
+    }
+
+    /// Confirms `Template::Static` renders a marker-free source to the same
+    /// bytes the real engine would have produced for it, for Jinja (whose
+    /// lexer strips trailing bytes) and Handlebars (whose lexer does not).
+    #[test]
+    fn static_render_matches_engine_on_trailing_newline() {
+        // (source, expected output) pairs, expected being what the Jinja or
+        // Handlebars engine renders for that source.
+        let jinja_cases = [
+            ("text\n", "text"),
+            ("text\r\n", "text"),
+            ("text\n\n", "text\n"),
+            ("text", "text"),
+        ];
+        for (src, expected) in jinja_cases {
+            let mut engine = TemplateEngine::with_dialect(TemplateDialect::Jinja);
+            engine.add_template("t", src).unwrap();
+            let out = engine.get_template("t").unwrap().render(json!({})).unwrap();
+            k9::assert_equal!(out, expected.to_string());
+        }
+
+        let hbs_cases = [
+            ("text\n", "text\n"),
+            ("text\r\n", "text\r\n"),
+            ("text\n\n", "text\n\n"),
+            ("text", "text"),
+        ];
+        for (src, expected) in hbs_cases {
+            let mut engine = TemplateEngine::with_dialect(TemplateDialect::Handlebars);
+            engine.add_template("t", src).unwrap();
+            let out = engine.get_template("t").unwrap().render(json!({})).unwrap();
+            k9::assert_equal!(out, expected.to_string());
+        }
+
+        // TemplateEngine::render, the one-shot path used when a named template
+        // is not pre-added, strips the same trailing newline.
+        let jinja2 = TemplateEngine::with_dialect(TemplateDialect::Jinja);
+        k9::assert_equal!(
+            jinja2.render("t", "text\n", json!({})).unwrap(),
+            "text".to_string()
+        );
+    }
+
+    /// Confirms that a source containing a marker is rendered by the engine
+    /// rather than treated as static, even when the marker is a comment that
+    /// substitutes no value.
+    #[test]
+    fn marked_source_is_dynamic() {
+        let mut jinja = TemplateEngine::with_dialect(TemplateDialect::Jinja);
+        jinja.add_template("h", "hello {{ name }}").unwrap();
+        let t = jinja.get_template("h").unwrap();
+        assert!(!t.is_static());
+        k9::assert_equal!(
+            t.render(json!({"name": "Alice"})).unwrap(),
+            "hello Alice".to_string()
+        );
+
+        let mut hbs = TemplateEngine::with_dialect(TemplateDialect::Handlebars);
+        hbs.add_template("h", "hello {{ name }}").unwrap();
+        assert!(!hbs.get_template("h").unwrap().is_static());
+
+        // Jinja statement and comment markers also keep a source dynamic.
+        let mut j2 = TemplateEngine::with_dialect(TemplateDialect::Jinja);
+        j2.add_template("c", "{# comment #}kept").unwrap();
+        assert!(!j2.get_template("c").unwrap().is_static());
+    }
+
+    /// HTML auto-escaping applies to substituted values, never to literal
+    /// markup. A marker-free source is all literal and renders unescaped.
+    #[test]
+    fn html_escaping_applies_only_to_substitutions() {
+        let literal = "<b>bold &amp; <i>italic</i></b>";
+
+        let mut engine = TemplateEngine::with_dialect(TemplateDialect::Handlebars);
+        engine.add_template("static.html", literal).unwrap();
+        let static_template = engine.get_template("static.html").unwrap();
+        assert!(static_template.is_static());
+        k9::assert_equal!(
+            static_template.render(json!({})).unwrap(),
+            literal.to_string()
+        );
+
+        engine
+            .add_template("dynamic.html", "<b>{{ v }}</b>")
+            .unwrap();
+        let dynamic_template = engine.get_template("dynamic.html").unwrap();
+        assert!(!dynamic_template.is_static());
+        k9::assert_equal!(
+            dynamic_template.render(json!({"v": "a & b"})).unwrap(),
+            "<b>a &amp; b</b>".to_string()
+        );
+    }
+}

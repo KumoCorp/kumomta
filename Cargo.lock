@@ -4243,7 +4243,9 @@ name = "kumo-template"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "criterion",
  "handlebars",
+ "k9",
  "minijinja",
  "minijinja-contrib",
  "mod-smtp-response-normalize",
