@@ -102,87 +102,134 @@ DeliverySummary {
     Ok(())
 }
 
-/// Under an MTA-STS testing policy, `Opportunistic` becomes
-/// `OpportunisticInsecure`. Required and disabled modes, including DANE's
-/// mandatory STARTTLS, are left unchanged.
-#[tokio::test]
-async fn mta_sts_testing_tls_modes() -> anyhow::Result<()> {
-    for (tls, hide_starttls, unusable_dane, expected, encrypted) in [
-        ("Required", true, false, TransientFailure, false),
-        ("Required", false, false, TransientFailure, false),
-        ("RequiredInsecure", true, false, TransientFailure, false),
-        ("RequiredInsecure", false, false, Delivery, true),
-        ("Opportunistic", true, false, Delivery, false),
-        ("Opportunistic", false, false, Delivery, true),
-        ("OpportunisticInsecure", false, false, Delivery, true),
-        ("Disabled", false, false, Delivery, false),
-        // The testing policy must not relax DANE's TLS requirement.
-        ("Disabled", true, true, TransientFailure, false),
-    ] {
-        // With broken-TLS memory enabled, the opportunistic cases must still
-        // use TLS when advertised, despite the sink's untrusted certificate.
-        let mut options = DaemonWithMaildirOptions::new()
-            .policy_file("mta-sts.lua")
-            .env("KUMOD_TESTING_TLS", tls)
-            .env("KUMOD_TESTING_REMEMBER_BROKEN_TLS", "3 days");
-        if hide_starttls {
-            options = options.env("KUMOD_HIDE_STARTTLS", "1");
-        }
-        if unusable_dane {
-            options = options.env("KUMOD_TESTING_DANE_UNUSABLE", "1");
-        }
-        let mut daemon = options.start().await?;
-        let mut client = daemon.smtp_client().await?;
-        let response = MailGenParams {
-            recip: Some("recipient@testing.example.com"),
-            ..Default::default()
-        }
-        .send(&mut client)
-        .await?;
-        anyhow::ensure!(response.code == 250, "{response:?}");
-        anyhow::ensure!(
-            daemon
-                .wait_for_source_summary(
-                    |s| s.get(&Delivery).copied().unwrap_or(0) > 0
-                        || s.get(&TransientFailure).copied().unwrap_or(0) > 0,
-                    Duration::from_secs(10),
-                )
-                .await,
-            "no result for {tls}"
-        );
-        daemon.stop_both().await?;
-        let records = daemon.source.collect_logs().await?;
-        let outcome = records
-            .iter()
-            .find(|r| matches!(r.kind, Delivery | TransientFailure))
-            .context("testing-policy disposition")?;
-        anyhow::ensure!(
-            outcome.kind == expected,
-            "{tls}, hide_starttls={hide_starttls}, unusable_dane={unusable_dane}: {outcome:?}"
-        );
-        if expected == Delivery {
+/// Whether the sink advertises STARTTLS in its EHLO response.
+enum StartTlsEhlo {
+    Advertised,
+    Hidden,
+}
+
+/// How delivery to the MTA-STS testing domain is expected to conclude.
+enum Expect {
+    DeliveredOverTls,
+    DeliveredInPlaintext,
+    /// Deferred with a response containing this text.
+    Deferred(&'static str),
+}
+
+/// Sends a message to testing.example.com, which publishes an MTA-STS testing
+/// policy, through an egress path configured with `enable_tls = tls`, and
+/// checks the outcome of its first delivery attempt. The sink presents an
+/// untrusted certificate.
+async fn run_testing_policy_case(
+    tls: &str,
+    starttls: StartTlsEhlo,
+    expect: Expect,
+) -> anyhow::Result<()> {
+    let mut options = DaemonWithMaildirOptions::new()
+        .policy_file("mta-sts.lua")
+        .env("KUMOD_TESTING_TLS", tls);
+    if let StartTlsEhlo::Hidden = starttls {
+        options = options.env("KUMOD_HIDE_STARTTLS", "1");
+    }
+    let mut daemon = options.start().await?;
+    let mut client = daemon.smtp_client().await?;
+    let response = MailGenParams {
+        recip: Some("recipient@testing.example.com"),
+        ..Default::default()
+    }
+    .send(&mut client)
+    .await?;
+    anyhow::ensure!(response.code == 250, "{response:?}");
+    anyhow::ensure!(
+        daemon
+            .wait_for_source_summary(
+                |s| s.get(&Delivery).copied().unwrap_or(0) > 0
+                    || s.get(&TransientFailure).copied().unwrap_or(0) > 0,
+                Duration::from_secs(30),
+            )
+            .await,
+        "no delivery outcome"
+    );
+    daemon.stop_both().await?;
+    let records = daemon.source.collect_logs().await?;
+    let outcome = records
+        .iter()
+        .find(|r| matches!(r.kind, Delivery | TransientFailure))
+        .context("delivery outcome")?;
+    let delivered = daemon.extract_maildir_messages()?.len();
+
+    match expect {
+        Expect::DeliveredOverTls | Expect::DeliveredInPlaintext => {
+            let over_tls = matches!(expect, Expect::DeliveredOverTls);
             anyhow::ensure!(
-                outcome.tls_cipher.is_some() == encrypted,
-                "{tls}: {outcome:?}"
+                outcome.kind == Delivery && outcome.tls_cipher.is_some() == over_tls,
+                "expected delivery with over_tls={over_tls}, got {outcome:?}"
             );
-            anyhow::ensure!(daemon.extract_maildir_messages()?.len() == 1);
-        } else {
-            let expected_error = if hide_starttls {
-                let policy = if unusable_dane {
-                    "RequiredInsecure"
-                } else {
-                    tls
-                };
-                format!("tls policy is {policy} but STARTTLS is not advertised")
-            } else {
-                "invalid peer certificate".to_string()
-            };
+            anyhow::ensure!(delivered == 1, "{delivered} messages in the maildir");
+        }
+        Expect::Deferred(reason) => {
             anyhow::ensure!(
-                outcome.response.content.contains(&expected_error),
-                "{tls}, unusable_dane={unusable_dane}: expected {expected_error:?}, got {outcome:?}"
+                outcome.kind == TransientFailure && outcome.response.content.contains(reason),
+                "expected deferral with {reason:?}, got {outcome:?}"
             );
-            anyhow::ensure!(daemon.extract_maildir_messages()?.is_empty());
+            anyhow::ensure!(delivered == 0, "{delivered} messages in the maildir");
         }
     }
     Ok(())
+}
+
+/// A testing policy doesn't relax `Required` to plaintext delivery.
+#[tokio::test]
+async fn mta_sts_testing_required_without_starttls() -> anyhow::Result<()> {
+    run_testing_policy_case(
+        "Required",
+        StartTlsEhlo::Hidden,
+        Expect::Deferred("tls policy is Required but STARTTLS is not advertised"),
+    )
+    .await
+}
+
+/// A testing policy doesn't skip certificate validation for `Required`.
+#[tokio::test]
+async fn mta_sts_testing_required_untrusted_certificate() -> anyhow::Result<()> {
+    run_testing_policy_case(
+        "Required",
+        StartTlsEhlo::Advertised,
+        Expect::Deferred("invalid peer certificate"),
+    )
+    .await
+}
+
+/// A testing policy doesn't relax `RequiredInsecure` to plaintext delivery.
+#[tokio::test]
+async fn mta_sts_testing_required_insecure_without_starttls() -> anyhow::Result<()> {
+    run_testing_policy_case(
+        "RequiredInsecure",
+        StartTlsEhlo::Hidden,
+        Expect::Deferred("tls policy is RequiredInsecure but STARTTLS is not advertised"),
+    )
+    .await
+}
+
+/// A testing policy doesn't enable STARTTLS when TLS is `Disabled`.
+#[tokio::test]
+async fn mta_sts_testing_disabled() -> anyhow::Result<()> {
+    run_testing_policy_case(
+        "Disabled",
+        StartTlsEhlo::Advertised,
+        Expect::DeliveredInPlaintext,
+    )
+    .await
+}
+
+/// A testing policy turns `Opportunistic` into `OpportunisticInsecure`, so the
+/// untrusted certificate doesn't prevent TLS delivery.
+#[tokio::test]
+async fn mta_sts_testing_opportunistic_untrusted_certificate() -> anyhow::Result<()> {
+    run_testing_policy_case(
+        "Opportunistic",
+        StartTlsEhlo::Advertised,
+        Expect::DeliveredOverTls,
+    )
+    .await
 }

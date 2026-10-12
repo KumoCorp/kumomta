@@ -41,21 +41,18 @@ connection will be made with `enable_tls="Required"`. Candidate MX hosts that do
 not match the `mx` fields are removed during resolution, so by the time a
 connection is attempted the candidate set already satisfies the policy.
 
-If the `mode` is set to `"testing"` and `enable_tls` is `"Opportunistic"`, then
-the connection will be made with `enable_tls="OpportunisticInsecure"`, so that
-certificate problems don't prevent delivery.
+The effective value of `enable_tls` depends on the policy `mode`, the value
+configured for this egress path and the KumoMTA version:
 
-{{since('dev', indent=True)}}
-    A `testing` policy leaves `"Required"`, `"RequiredInsecure"` and
-    `"Disabled"` unchanged. In earlier versions, it replaced them with
-    `"OpportunisticInsecure"` as well, unless unusable TLSA records required
-    STARTTLS.
+|MTA-STS `mode`|Configured `enable_tls`|Earlier versions|{{since('dev', inline=True)}}|
+|--------------|-----------------------|----------------|-----------------------------|
+|`"enforce"`|Any value|`"Required"`|`"Required"`|
+|`"testing"`|`"Opportunistic"`|`"OpportunisticInsecure"`|`"OpportunisticInsecure"`|
+|`"testing"`|`"OpportunisticInsecure"`|`"OpportunisticInsecure"`|`"OpportunisticInsecure"`|
+|`"testing"`|`"Required"`|`"OpportunisticInsecure"`|`"Required"`|
+|`"testing"`|`"RequiredInsecure"`|`"OpportunisticInsecure"`|`"RequiredInsecure"`|
+|`"testing"`|`"Disabled"`|`"OpportunisticInsecure"`|`"Disabled"`|
+|`"none"`|Any value|The configured value|The configured value|
 
-If the `mode` is set to `"none"`, then your configured value for `enable_tls`
-will be used.
-
-With [enable_dane](enable_dane.md) enabled, usable TLSA records for a
-DANE-eligible MX host take precedence over MTA-STS. If TLSA records are
-published for that host but none are usable, STARTTLS is still required: an
-MTA-STS `enforce` policy can add certificate validation, and a `testing`
-policy doesn't relax the requirement.
+If `enable_dane=true` and `TLSA` records are present, then any MTA-STS policy
+will be ignored.

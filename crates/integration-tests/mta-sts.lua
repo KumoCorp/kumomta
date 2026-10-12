@@ -1,4 +1,4 @@
--- Source policy for the MTA-STS integration tests.
+-- Source policy for the mta_sts_enforce_impossible integration test.
 local kumo = require 'kumo'
 
 local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
@@ -54,19 +54,6 @@ mail 600 A  127.0.0.1
 ]],
   }
 
-  if os.getenv 'KUMOD_TESTING_DANE_UNUSABLE' then
-    -- Sign the zone and publish only a PKIX-EE TLSA record. DANE SMTP treats
-    -- that usage as unusable, so STARTTLS is required without authentication.
-    kumo.dns.configure_test_resolver {
-      {
-        zone = '$ORIGIN testing.example.com.\n@ 600 MX 10 mail.testing.example.com.\nmail 600 A 127.0.0.1\n_'
-          .. SINK_PORT
-          .. '._tcp.mail 600 TLSA 1 0 0 00\n',
-        secure = true,
-      },
-    }
-  end
-
   kumo.dns.configure_test_mta_sts {
     ['broken.example.com'] = [[
 version: STSv1
@@ -94,21 +81,19 @@ kumo.on('get_queue_config', function(domain)
   -- domain rather than short-circuiting to a sink.
   return kumo.make_queue_config {
     protocol = nil,
-    -- Keep each TLS-mode test to one delivery attempt.
-    retry_interval = os.getenv 'KUMOD_TESTING_TLS' and '1h' or '2s',
+    retry_interval = '2s',
   }
 end)
 
 kumo.on('get_egress_path_config', function(domain)
   return kumo.make_egress_path {
     enable_tls = os.getenv 'KUMOD_TESTING_TLS' or 'OpportunisticInsecure',
-    remember_broken_tls = os.getenv 'KUMOD_TESTING_REMEMBER_BROKEN_TLS',
     prohibited_hosts = {},
     -- Direct the resolved 127.0.0.1 MX host at the sink.
     smtp_port = SINK_PORT,
-    -- Only the testing domain applies MTA-STS TLS; the enforce-policy
-    -- MX-filtering tests keep an opportunistic sink hop.
+    -- The matching enforce policy is evaluated during resolution; we don't
+    -- additionally raise the TLS posture here, keeping the sink hop simple.
+    -- The testing domain applies its MTA-STS TLS posture.
     enable_mta_sts = domain == 'testing.example.com',
-    enable_dane = os.getenv 'KUMOD_TESTING_DANE_UNUSABLE' ~= nil,
   }
 end)

@@ -634,6 +634,12 @@ impl SmtpDispatcher {
 
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
+        // Set when DANE published TLSA records that turned out to be unusable:
+        // STARTTLS is then mandatory (the host committed to TLS) even though we
+        // cannot authenticate it, so MTA-STS may add authentication but must not
+        // relax the requirement back to opportunistic.
+        let mut dane_requires_starttls = false;
+
         let mut certificate_from_pem = None;
         let mut private_key_from_pem = None;
 
@@ -734,6 +740,7 @@ impl SmtpDispatcher {
                             )
                         });
                         enable_tls = Tls::RequiredInsecure;
+                        dane_requires_starttls = true;
                     }
                     DaneStatus::TempFail(reason) => {
                         record_dane_result("tempfail");
@@ -787,10 +794,11 @@ impl SmtpDispatcher {
                     });
                 }
                 Some(PolicyMode::Testing) => {
-                    // Under a testing policy, opportunistic TLS skips
-                    // certificate validation. Required modes, including
-                    // DANE's mandatory STARTTLS, and Disabled stay as-is.
-                    if enable_tls == Tls::Opportunistic {
+                    // Skip certificate validation for opportunistic TLS;
+                    // leave required and disabled modes unchanged.
+                    // Don't relax a mandatory STARTTLS established by
+                    // unusable DANE TLSA records.
+                    if !dane_requires_starttls && enable_tls == Tls::Opportunistic {
                         enable_tls = Tls::OpportunisticInsecure;
                     }
                     self.tracer.diagnostic(Level::INFO, || {
