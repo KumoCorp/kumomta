@@ -81,6 +81,15 @@
    whose client disconnected) no longer cancels the cache population function.
    The new `detached` memoize option can be used to override this if needed.  #602
 
+ * Improved [HTTP injection API](../reference/http/kumod/api_inject_v1_post.md)
+   performance for `content` fields and headers that are effectively static.
+   Previously these would round-trip through the template engine, but now we
+   recognize that we can precompile them once for the whole request and skip
+   the engine overhead.  In a microbenchmark of expanding a marker-free value,
+   this is 50-100x faster than routing it through the engine, depending on the
+   template dialect. The benefit scales with the number of static fields and
+   recipients in a batch injection. Thanks to @shivamgoel1009! #620
+
 ## Fixes
 
  * DKIM relaxed body canonicalization now reduces an empty body, or a body
