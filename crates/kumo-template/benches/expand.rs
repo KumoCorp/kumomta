@@ -49,5 +49,46 @@ pub fn bench_expand(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, bench_expand);
+/// Compares the time to render TEMPLATES templates with Template::render,
+/// which converts the substitution values on every call, against the time
+/// with Template::render_prepared, reusing a context converted once with
+/// TemplateEngine::prepare_context.
+pub fn bench_prepared_context(c: &mut Criterion) {
+    let ctx = context();
+    // One message body plus several header values, the number of templates a
+    // caller typically renders against the same substitution values.
+    const TEMPLATES: usize = 6;
+
+    for dialect in [TemplateDialect::Jinja, TemplateDialect::Handlebars] {
+        let mut engine = TemplateEngine::with_dialect(dialect);
+        for i in 0..TEMPLATES {
+            engine
+                .add_template(format!("t{i}"), "hello {{ name }}")
+                .unwrap();
+        }
+        let templates: Vec<_> = (0..TEMPLATES)
+            .map(|i| engine.get_template(&format!("t{i}")).unwrap())
+            .collect();
+
+        let mut group = c.benchmark_group(format!("{dialect:?}/{TEMPLATES}-renders"));
+        group.bench_function("per_call_serialize", |b| {
+            b.iter(|| {
+                for t in &templates {
+                    std::hint::black_box(t.render(&ctx).unwrap());
+                }
+            })
+        });
+        group.bench_function("prepared_once", |b| {
+            b.iter(|| {
+                let prepared = engine.prepare_context(&ctx).unwrap();
+                for t in &templates {
+                    std::hint::black_box(t.render_prepared(&prepared).unwrap());
+                }
+            })
+        });
+        group.finish();
+    }
+}
+
+criterion_group!(benches, bench_expand, bench_prepared_context);
 criterion_main!(benches);

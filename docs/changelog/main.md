@@ -90,6 +90,14 @@
    template dialect. The benefit scales with the number of static fields and
    recipients in a batch injection. Thanks to @shivamgoel1009! #620
 
+ * Further improved [HTTP injection API](../reference/http/kumod/api_inject_v1_post.md)
+   performance for the `content` fields and headers that do vary per recipient.
+   Previously the substitution context was re-serialized into the template
+   engine's native form for every field expanded, but now we convert it once
+   per recipient and render every field against that prepared context. In a
+   microbenchmark this expands fields roughly 2-3x faster with the Jinja
+   dialect and 3-5x faster with Handlebars.
+
 ## Fixes
 
  * DKIM relaxed body canonicalization now reduces an empty body, or a body

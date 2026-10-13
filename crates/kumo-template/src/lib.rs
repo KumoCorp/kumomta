@@ -102,21 +102,56 @@ impl<'env, 'source> Template<'env, 'source> {
                 let context = merge_contexts(globals, context);
                 let context = handlebars::Context::wraps(context)?;
 
-                let mut render_context = handlebars::RenderContext::new(None);
-                render_context.set_recursive_lookup(true);
-                let is_html = template
-                    .name
-                    .as_deref()
-                    .map(|name| name.ends_with(".html"))
-                    .unwrap_or(false);
-                render_context.set_disable_escape(!is_html);
-
-                let output = template.renders(registry, &context, &mut render_context)?;
+                let output = render_handlebars(registry, template, &context)?;
                 w.write_all(output.as_bytes())?;
                 Ok(())
             }
         }
     }
+
+    /// Renders this template against a context already converted to the native
+    /// form of the engine, returning the rendered output.
+    pub fn render_prepared(&self, ctx: &PreparedContext) -> anyhow::Result<String> {
+        match (self, ctx) {
+            (Self::Jinja(t), PreparedContext::Jinja(value)) => Ok(t.render(value)?),
+            (Self::Static(s), _) => Ok(s.to_string()),
+            (Self::Handlebars { engine, template }, PreparedContext::Handlebars(context)) => {
+                let Engine::Handlebars { registry, .. } = &engine.engine else {
+                    anyhow::bail!("impossible Handlebars Template vs. TemplateEngine state")
+                };
+                render_handlebars(registry, template, context)
+            }
+            _ => anyhow::bail!("prepared context dialect does not match template dialect"),
+        }
+    }
+}
+
+/// Renders `template` against `context` with the escaping rule the registry
+/// expects: substitutions are html-escaped only for a `.html` template name.
+fn render_handlebars(
+    registry: &Handlebars<'static>,
+    template: &HandlebarsTemplate,
+    context: &handlebars::Context,
+) -> anyhow::Result<String> {
+    let mut render_context = handlebars::RenderContext::new(None);
+    render_context.set_recursive_lookup(true);
+    let is_html = template
+        .name
+        .as_deref()
+        .map(|name| name.ends_with(".html"))
+        .unwrap_or(false);
+    render_context.set_disable_escape(!is_html);
+
+    Ok(template.renders(registry, context, &mut render_context)?)
+}
+
+/// A rendering context converted once into the native form of the active
+/// dialect. Obtained from [`TemplateEngine::prepare_context`] and rendered
+/// against with [`Template::render_prepared`].
+pub enum PreparedContext {
+    Jinja(JinjaValue),
+    Static,
+    Handlebars(handlebars::Context),
 }
 
 /// Holds a set of templates
@@ -252,6 +287,25 @@ impl TemplateEngine {
                     engine: self,
                     template,
                 })
+            }
+        }
+    }
+
+    /// Converts a context into the native form of the active dialect, merging in
+    /// the globals previously added with [`TemplateEngine::add_global`].
+    pub fn prepare_context<CTX>(&self, context: CTX) -> anyhow::Result<PreparedContext>
+    where
+        CTX: Serialize,
+    {
+        match &self.engine {
+            Engine::Jinja { .. } => Ok(PreparedContext::Jinja(JinjaValue::from_serialize(context))),
+            Engine::Static => Ok(PreparedContext::Static),
+            Engine::Handlebars { globals, .. } => {
+                let context = serde_json::to_value(context)?;
+                let context = merge_contexts(globals, context);
+                Ok(PreparedContext::Handlebars(handlebars::Context::wraps(
+                    context,
+                )?))
             }
         }
     }
@@ -414,6 +468,31 @@ mod tests {
             jinja2.render("t", "text\n", json!({})).unwrap(),
             "text".to_string()
         );
+    }
+
+    /// A prepared context renders identically to passing the serde context
+    /// directly, for dynamic and static templates in every dialect.
+    #[test]
+    fn render_prepared_matches_render() {
+        for dialect in [
+            TemplateDialect::Jinja,
+            TemplateDialect::Handlebars,
+            TemplateDialect::Static,
+        ] {
+            let mut engine = TemplateEngine::with_dialect(dialect);
+            engine.add_template("dyn", "hello {{ name }}").unwrap();
+            engine.add_template("lit", "no markers here").unwrap();
+
+            let ctx = json!({"name": "Alice"});
+            let prepared = engine.prepare_context(&ctx).unwrap();
+            for key in ["dyn", "lit"] {
+                let template = engine.get_template(key).unwrap();
+                k9::assert_equal!(
+                    template.render_prepared(&prepared).unwrap(),
+                    template.render(&ctx).unwrap()
+                );
+            }
+        }
     }
 
     /// Confirms that a source containing a marker is rendered by the engine
