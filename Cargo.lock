@@ -4260,7 +4260,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hickory-proto",
- "libc",
  "linkme",
  "lruttl",
  "openssl",
@@ -7160,7 +7159,6 @@ dependencies = [
  "idna",
  "k9",
  "kumo-tls-helper",
- "libc",
  "linkme",
  "lruttl",
  "memchr",

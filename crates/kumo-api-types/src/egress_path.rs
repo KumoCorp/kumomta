@@ -23,6 +23,7 @@ pub enum Tls {
     /// STARTTLS.
     Opportunistic,
     /// Use it if available, and allow self-signed or otherwise invalid server certs.
+    /// On handshake failure, retry the same address once in plaintext on a fresh connection.
     /// Not recommended for sending to the public internet; this is for local/lab
     /// testing scenarios only.
     OpportunisticInsecure,
@@ -376,9 +377,10 @@ pub struct EgressPathConfig {
     #[serde(default, with = "duration_serde")]
     pub remember_broken_tls: Option<Duration>,
 
-    /// If true, when a TLS handshake fails and TLS is set to
-    /// opportunistic, we will re-connect to that host with
-    /// TLS disabled.
+    /// If true, when a TLS handshake or post-handshake EHLO fails and TLS is
+    /// opportunistic, re-connect to that host with TLS disabled.
+    /// OpportunisticInsecure also retries handshake failures when this is false,
+    /// without enabling broken-TLS memory for subsequent connections.
     #[serde(default)]
     pub opportunistic_tls_reconnect_on_failed_handshake: bool,
 
