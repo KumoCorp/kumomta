@@ -110,6 +110,14 @@
 
 ## Fixes
 
+ * Log hooks no longer receive records about the log record messages that log
+   hooks themselves generate. Hooks already discarded these records, but only
+   after they had waited for room in the hook's queue. Because a log hook
+   dispatcher logs a delivery for each record it sends, a busy hook's own
+   dispatchers would spend most of their time waiting for room in that same
+   queue, capping the hook's throughput. The records are now skipped before
+   they are queued.
+
  * DKIM relaxed body canonicalization now reduces an empty body, or a body
    consisting only of empty or whitespace-only lines, to zero octets as required
    by RFC 6376 section 3.4.4. Previously it retained a CRLF, producing a body

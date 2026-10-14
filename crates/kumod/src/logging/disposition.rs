@@ -139,6 +139,15 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             };
         }
 
+        // Hooks discard records about the log record messages that hooks
+        // generate (see `do_record` in hooks.rs and disposition_hooks.rs).
+        // Skip them before building the record and waiting for room in the
+        // hook's channel: otherwise a busy hook's own dispatchers wait for
+        // channel slots that are only thrown away, one per delivered record.
+        if logger.hook_name.is_some() && reception_protocol.as_deref() == Some("LogRecord") {
+            continue;
+        }
+
         let (headers, meta) = logger.extract_fields(&msg).await;
 
         let mut tls_cipher = None;
