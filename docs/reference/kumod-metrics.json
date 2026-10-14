@@ -441,6 +441,24 @@
     "pruning": "NonPruning"
   },
   {
+    "name": "httpinject_requests_in_flight",
+    "help": "The number of HTTP injection requests currently being served.",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Gauge",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "httpinject_requests_rejected_total",
+    "help": "Total number of HTTP injection requests rejected for exceeding the\nconcurrency limit set by\n[kumo.set_httpinject_concurrency_limit](../../kumo/set_httpinject_concurrency_limit.md).",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Counter",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
     "name": "log_consumer_bytes_behind",
     "help": "The compressed size, in bytes, of whole log segments awaiting processing by\na consumer.",
     "doc": "This counts whole unread segments only, not the remainder of the segment\nthat the consumer is partway through processing.\n\nLabelled by:\n* `log_dir` - the log directory being scanned\n* `checkpoint_name` - the name set by the tailer of the consumer for its\n  checkpoint.",

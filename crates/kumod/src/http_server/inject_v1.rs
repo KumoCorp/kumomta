@@ -13,7 +13,7 @@ use config::{any_err, get_or_create_sub_module, load_config, LuaConfig, SerdeWra
 use kumo_api_types::InjectV1Response;
 use kumo_chrono_helper::Utc;
 use kumo_log_types::ResolvedAddress;
-use kumo_prometheus::AtomicCounter;
+use kumo_prometheus::{declare_metric, AtomicCounter};
 use kumo_server_common::authn_authz::AuthInfo;
 use kumo_server_common::http_server::{AppError, AppState};
 use kumo_server_lifecycle::Activity;
@@ -37,6 +37,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use throttle::ThrottleSpec;
+use tokio::sync::Semaphore;
 use utoipa::ToSchema;
 
 config::declare_event! {
@@ -58,6 +59,28 @@ static HTTPINJECT: LazyLock<Runtime> =
 static HTTPINJECT_THREADS: AtomicUsize = AtomicUsize::new(0);
 static LIMIT: LazyLock<ArcSwap<Option<ThrottleSpec>>> = LazyLock::new(ArcSwap::default);
 
+/// Default ceiling on the number of injection requests processed concurrently.
+const DEFAULT_HTTPINJECT_CONCURRENCY_LIMIT: usize = 32 * 1024;
+/// Bounds the number of injection requests processed concurrently.
+static HTTPINJECT_CONCURRENCY: LazyLock<ArcSwap<Semaphore>> =
+    LazyLock::new(|| ArcSwap::from_pointee(Semaphore::new(DEFAULT_HTTPINJECT_CONCURRENCY_LIMIT)));
+
+declare_metric! {
+/// The number of HTTP injection requests currently being served.
+///
+/// {{since('dev')}}
+static HTTPINJECT_IN_FLIGHT: IntGauge("httpinject_requests_in_flight");
+}
+
+declare_metric! {
+/// Total number of HTTP injection requests rejected for exceeding the
+/// concurrency limit set by
+/// [kumo.set_httpinject_concurrency_limit](../../kumo/set_httpinject_concurrency_limit.md).
+///
+/// {{since('dev')}}
+static HTTPINJECT_REJECTED: IntCounter("httpinject_requests_rejected_total");
+}
+
 pub fn set_httpinject_recipient_rate_limit(spec: Option<ThrottleSpec>) {
     let spec = Arc::new(spec);
     LIMIT.store(spec);
@@ -65,6 +88,38 @@ pub fn set_httpinject_recipient_rate_limit(spec: Option<ThrottleSpec>) {
 
 pub fn set_httpinject_threads(n: usize) {
     HTTPINJECT_THREADS.store(n, Ordering::SeqCst);
+}
+
+/// Set the maximum number of concurrent in-flight injection requests.
+pub fn set_httpinject_concurrency_limit(n: usize) -> anyhow::Result<()> {
+    anyhow::ensure!(n >= 1, "concurrency limit must be at least 1");
+    HTTPINJECT_CONCURRENCY.store(Arc::new(Semaphore::new(n)));
+    Ok(())
+}
+
+/// Holds a concurrency slot for an in-flight injection request. It owns the
+/// semaphore permit and keeps the in-flight gauge in step, decrementing it when
+/// the request completes.
+struct InjectionSlot {
+    _permit: tokio::sync::OwnedSemaphorePermit,
+}
+
+impl InjectionSlot {
+    /// Reserve a slot, or return `None` when the limit is already reached.
+    fn acquire() -> Option<Self> {
+        let permit = HTTPINJECT_CONCURRENCY
+            .load_full()
+            .try_acquire_owned()
+            .ok()?;
+        HTTPINJECT_IN_FLIGHT.inc();
+        Some(Self { _permit: permit })
+    }
+}
+
+impl Drop for InjectionSlot {
+    fn drop(&mut self) {
+        HTTPINJECT_IN_FLIGHT.dec();
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, ToSchema)]
@@ -1346,6 +1401,14 @@ pub async fn inject_v1(
     Json(request): Json<InjectV1Request>,
 ) -> Result<Json<InjectV1Response>, AppError> {
     let activity = activity_for_peer("inject_v1", peer_address)?;
+
+    let _slot = InjectionSlot::acquire().ok_or_else(|| {
+        HTTPINJECT_REJECTED.inc();
+        AppError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "too many concurrent injection requests",
+        )
+    })?;
 
     let limit = LIMIT.load();
     if let Some(limit) = limit.as_ref() {

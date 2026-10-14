@@ -41,6 +41,16 @@
   prior to upgrading.  We do not anticipate this affecting anyone in practice.
   See [Site Names](../reference/queues.md#site-names) for details.
 
+* The HTTP injection API now bounds the number of concurrently processed
+  requests (default `32768`), configurable via
+  [kumo.set_httpinject_concurrency_limit](../reference/kumo/set_httpinject_concurrency_limit.md).
+  Requests above the limit are rejected with a `503` response rather than
+  queued. The new
+  [httpinject_requests_in_flight](../reference/metrics/kumod/httpinject_requests_in_flight.md)
+  gauge and
+  [httpinject_requests_rejected_total](../reference/metrics/kumod/httpinject_requests_rejected_total.md)
+  counter expose the current load and rejections. #631
+
 ## Other Changes and Enhancements
 
  * The SOCKS5 proxy listener now accepts a
