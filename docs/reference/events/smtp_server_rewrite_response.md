@@ -18,7 +18,9 @@ The parameters are:
 * `status` - the SMTP status code (eg: 250, 400, etc.)
 * `response` - the response message text that will be sent to the client. (eg: `"OK"`, `"4.4.5 data_processing_timeout exceeded"`)
 * `command` - the SMTP command that is being responded to. This may be `nil`
-  for unknown commands, or for unilateral responses.
+  for unknown commands, or for unilateral responses. AUTH rejection context is
+  redacted as `AUTH <mechanism> [REDACTED]`, including challenge-response
+  continuations. Malformed AUTH commands use `AUTH [REDACTED]`.
 * `conn_meta` - the [Connection Metadata](../connectionmeta.md) object for the connection
 
 The return value is expected to be a two-tuple consisting of:

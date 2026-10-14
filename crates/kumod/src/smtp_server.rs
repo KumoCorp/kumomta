@@ -36,7 +36,7 @@ use openssl::x509::X509;
 use parking_lot::FairMutex as Mutex;
 use ppp::{HeaderResult, PartialResult};
 use rfc5321::parser::{
-    Command, EnvelopeAddress, MaybePartialCommand, PartialReason, XClientParameter,
+    Command, CommandVerb, EnvelopeAddress, MaybePartialCommand, PartialReason, XClientParameter,
 };
 use rfc5321::{subject_name, AsyncReadAndWrite, BoxedAsyncReadAndWrite, Response, TlsInformation};
 use rustls::ServerConfig;
@@ -1797,7 +1797,7 @@ impl SmtpServerSession {
                     )
                     .await?;
                 }
-                Ok(MaybePartialCommand::Partial { reason, .. }) => {
+                Ok(MaybePartialCommand::Partial { verb, reason, .. }) => {
                     let msg = match reason {
                         PartialReason::InvalidRecipientAddress => {
                             "5.1.3 Invalid recipient address syntax"
@@ -1807,7 +1807,12 @@ impl SmtpServerSession {
                         }
                         PartialReason::Syntax => "Syntax error in command or arguments",
                     };
-                    self.write_response(501, msg, Some(line), RejectDisconnect::If421)
+                    let command = if verb == CommandVerb::Auth {
+                        "AUTH [REDACTED]".to_string()
+                    } else {
+                        line
+                    };
+                    self.write_response(501, msg, Some(command), RejectDisconnect::If421)
                         .await?;
                 }
                 Ok(MaybePartialCommand::Full(Command::Quit)) => {
@@ -1896,7 +1901,7 @@ impl SmtpServerSession {
                     sasl_mech,
                     initial_response,
                 })) => {
-                    if self.process_auth(line, sasl_mech, initial_response).await?
+                    if self.process_auth(sasl_mech, initial_response).await?
                         == CommandDisposition::Terminate
                     {
                         return Ok(());
@@ -2587,15 +2592,17 @@ impl SmtpServerSession {
 
     async fn process_auth(
         &mut self,
-        line: String,
         sasl_mech: String,
         initial_response: Option<String>,
     ) -> anyhow::Result<CommandDisposition> {
+        // Neither the initial response nor a continuation may appear in
+        // rejection logs or the response-rewrite callback's command context.
+        let command = format!("AUTH {sasl_mech} [REDACTED]");
         if self.authentication_id.is_some() {
             self.write_response(
                 503,
                 "5.5.1 AUTH me once, can't get authed again!",
-                Some(line),
+                Some(command),
                 RejectDisconnect::If421,
             )
             .await?;
@@ -2605,7 +2612,7 @@ impl SmtpServerSession {
             self.write_response(
                 503,
                 "5.5.1 AUTH not permitted inside a transaction",
-                Some(line),
+                Some(command),
                 RejectDisconnect::If421,
             )
             .await?;
@@ -2615,7 +2622,7 @@ impl SmtpServerSession {
             self.write_response(
                 504,
                 format!("5.5.4 AUTH {sasl_mech} not supported"),
-                Some(line),
+                Some(command),
                 RejectDisconnect::If421,
             )
             .await?;
@@ -2625,7 +2632,7 @@ impl SmtpServerSession {
             self.write_response(
                 524,
                 format!("5.7.11 AUTH {sasl_mech} requires an encrypted channel"),
-                Some(line),
+                Some(command),
                 RejectDisconnect::If421,
             )
             .await?;
@@ -2644,7 +2651,7 @@ impl SmtpServerSession {
                     self.write_response(
                         501,
                         "5.5.2 Invalid UTF-8 in authentication exchange",
-                        Some(line),
+                        Some(command),
                         RejectDisconnect::If421,
                     )
                     .await?;
@@ -2654,7 +2661,7 @@ impl SmtpServerSession {
                     self.write_response(
                         421,
                         format!("4.3.2 {} idle too long", self.params.hostname),
-                        Some(line),
+                        Some(command),
                         RejectDisconnect::If421,
                     )
                     .await?;
@@ -2664,7 +2671,7 @@ impl SmtpServerSession {
                     self.write_response(
                         421,
                         format!("4.3.2 {} shutting down", self.params.hostname),
-                        Some(line),
+                        Some(command),
                         RejectDisconnect::If421,
                     )
                     .await?;
@@ -2674,7 +2681,7 @@ impl SmtpServerSession {
                     self.write_response(
                         500,
                         "5.5.6 authentication exchange line too long",
-                        Some(line),
+                        Some(command),
                         RejectDisconnect::If421,
                     )
                     .await?;
@@ -2687,7 +2694,7 @@ impl SmtpServerSession {
             self.write_response(
                 501,
                 "5.5.0 AUTH cancelled by client",
-                Some(line),
+                Some(command),
                 RejectDisconnect::If421,
             )
             .await?;
@@ -2698,7 +2705,7 @@ impl SmtpServerSession {
             self.write_response(
                 501,
                 "5.5.2 Invalid base64 response",
-                Some(response),
+                Some(command),
                 RejectDisconnect::If421,
             )
             .await?;
@@ -2718,7 +2725,7 @@ impl SmtpServerSession {
                 self.write_response(
                     501,
                     "5.5.2 Invalid decoded PLAIN response",
-                    Some(response),
+                    Some(command),
                     RejectDisconnect::If421,
                 )
                 .await?;
@@ -2732,7 +2739,7 @@ impl SmtpServerSession {
                 self.write_response(
                     501,
                     "5.5.2 Invalid UTF8 in decoded PLAIN response",
-                    Some(response),
+                    Some(command),
                     RejectDisconnect::If421,
                 )
                 .await?;
@@ -2752,7 +2759,7 @@ impl SmtpServerSession {
             .await?
         {
             Err(rej) => {
-                self.write_response(rej.code, rej.message, Some(response), rej.disconnect)
+                self.write_response(rej.code, rej.message, Some(command), rej.disconnect)
                     .await?;
                 return Ok(CommandDisposition::Continue);
             }
@@ -2847,7 +2854,7 @@ impl SmtpServerSession {
             self.write_response(
                 535,
                 "5.7.8 AUTH invalid",
-                Some(response),
+                Some(command),
                 RejectDisconnect::If421,
             )
             .await?;

@@ -799,8 +799,7 @@ pub enum Command {
 
 impl std::fmt::Debug for Command {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Use Command::encode to get the wire format, then escape_bytes for Debug output
-        let encoded = self.encode();
+        let encoded = self.encode_for_logging();
         write!(f, "Command(\"{}\")", encoded.escape_bytes())
     }
 }
@@ -1124,6 +1123,18 @@ impl Command {
         }
         buf.extend_from_slice(b"\r\n");
         BString::from(buf)
+    }
+
+    /// Format a command for diagnostics, without an AUTH initial response.
+    /// Use `encode` instead when sending the command to the peer.
+    pub fn encode_for_logging(&self) -> BString {
+        match self {
+            Self::Auth {
+                sasl_mech,
+                initial_response: Some(_),
+            } => format!("AUTH {sasl_mech} [REDACTED]\r\n").into(),
+            _ => self.encode(),
+        }
     }
 
     /// Timeout for reading the response to this command.
@@ -3290,6 +3301,37 @@ Ok(
     #[test]
     fn test_encode_auth_with_response() {
         assert_encode("AUTH PLAIN dXNlcjpwYXNz", "AUTH PLAIN dXNlcjpwYXNz\r\n");
+    }
+
+    #[test]
+    fn test_auth_diagnostic_redaction() {
+        let payload = data_encoding::BASE64.encode(b"\0daniel\0needle");
+        let command = Command::Auth {
+            sasl_mech: "PLAIN".to_string(),
+            initial_response: Some(payload.clone()),
+        };
+        assert_eq!(
+            command.encode_for_logging(),
+            BString::from("AUTH PLAIN [REDACTED]\r\n")
+        );
+        assert_eq!(
+            format!("{command:?}"),
+            r#"Command("AUTH\x20PLAIN\x20[REDACTED]\r\n")"#
+        );
+        assert_eq!(
+            command.encode(),
+            BString::from(format!("AUTH PLAIN {payload}\r\n"))
+        );
+
+        for command in [
+            Command::Auth {
+                sasl_mech: "PLAIN".to_string(),
+                initial_response: None,
+            },
+            Command::Noop(Some("test".to_string())),
+        ] {
+            assert_eq!(command.encode_for_logging(), command.encode());
+        }
     }
 
     #[test]
