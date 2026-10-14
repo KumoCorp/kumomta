@@ -91,6 +91,19 @@
    whose client disconnected) no longer cancels the cache population function.
    The new `detached` memoize option can be used to override this if needed.  #602
 
+ * The [HTTP injection API](../reference/http/kumod/api_inject_v1_post.md)
+   now caches compiled templates across requests. Batch injection commonly
+   sends the same `text_body`, `html_body`, `amp_html_body` or `content`
+   template in many requests, each of which previously compiled it again. It
+   is now compiled once and reused by later requests with the same template
+   text and `template_dialect`. Content that contains no template syntax is
+   not cached. The cache is enabled by default and holds up to 1,000 templates
+   for up to 10 minutes. Use
+   [kumo.set_lruttl_cache_capacity](../reference/kumo/set_lruttl_cache_capacity.md)
+   with the cache name `http_inject_template` to change its capacity, or
+   [kumo.set_httpinject_template_cache_enabled](../reference/kumo/set_httpinject_template_cache_enabled.md)
+   to disable it.
+
  * Improved [HTTP injection API](../reference/http/kumod/api_inject_v1_post.md)
    performance for `content` fields and headers that are effectively static.
    Previously these would round-trip through the template engine, but now we

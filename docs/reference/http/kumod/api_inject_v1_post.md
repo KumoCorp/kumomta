@@ -94,6 +94,19 @@ Subject: hello
 Hello John Smith!
 ```
 
+## Template Caching
+
+{{since('dev')}}
+
+The compiled form of the `content` string, and of the `text_body`,
+`html_body` and `amp_html_body` fields, is cached and reused by
+subsequent requests that use the same template text and
+`template_dialect`, which avoids the cost of compiling the same
+templates again on every request.  Header templates, and content that
+contains no template syntax, are not cached.  See
+[kumo.set_httpinject_template_cache_enabled](../../kumo/set_httpinject_template_cache_enabled.md)
+for more information.
+
 ## Request Body
 
 The request body is required.
