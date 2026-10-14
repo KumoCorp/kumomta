@@ -108,6 +108,14 @@
    microbenchmark this expands fields roughly 2-3x faster with the Jinja
    dialect and 3-5x faster with Handlebars.
 
+ * Handlebars templates no longer copy the substitution context a second time
+   when converting it into the engine's native form. This benefits the
+   [HTTP injection API](../reference/http/kumod/api_inject_v1_post.md) with
+   `"template_dialect": "Handlebars"`, as well as any other Handlebars
+   template expansion. In a microbenchmark this expands Handlebars templates
+   roughly 1.3-1.7x faster with a handful of substitution values, and roughly
+   2x faster with a large, nested substitution context.
+
 ## Fixes
 
  * DKIM relaxed body canonicalization now reduces an empty body, or a body
