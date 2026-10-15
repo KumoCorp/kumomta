@@ -357,7 +357,7 @@ fn remove_line_break(data: &str) -> String {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct ResponseLine<'a> {
+pub struct ResponseLine<'a> {
     pub code: u16,
     pub is_final: bool,
     pub content: &'a str,

@@ -9562,6 +9562,10 @@ dependencies = [
  "anyhow",
  "bounce-classify",
  "clap",
+ "ordermap",
+ "rfc5321",
+ "serde",
+ "toml",
 ]
 
 [[package]]
