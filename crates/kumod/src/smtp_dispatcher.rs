@@ -200,15 +200,6 @@ pub struct SmtpDispatcher {
     recips_last_txn: HashMap<(SpoolId, ForwardPath), u8>,
 }
 
-#[derive(thiserror::Error, Debug)]
-#[error("{address}: EHLO after OpportunisticInsecure STARTTLS handshake status: {label}")]
-#[must_use]
-pub struct OpportunisticInsecureTlsHandshakeError {
-    pub error: ClientError,
-    pub address: String,
-    pub label: String,
-}
-
 impl SmtpDispatcher {
     pub async fn init(
         dispatcher: &mut Dispatcher,
