@@ -3481,6 +3481,7 @@ dependencies = [
  "bstr",
  "camino",
  "chrono",
+ "data-encoding",
  "dns-resolver",
  "flate2",
  "futures",

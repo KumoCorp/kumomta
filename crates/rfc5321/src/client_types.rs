@@ -1,4 +1,4 @@
-use crate::parser::{Command, MaybePartialCommand};
+use crate::parser::{Command, CommandVerb, MaybePartialCommand};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -268,26 +268,35 @@ impl Response {
     /// a separate connection
     pub fn was_due_to_message(&self) -> bool {
         if let Some(command) = &self.command {
-            if let Ok(MaybePartialCommand::Full(cmd)) = Command::parse(command) {
-                return match cmd {
-                    Command::MailFrom { .. }
-                    | Command::RcptTo { .. }
-                    | Command::Data
-                    | Command::DataDot => true,
-                    Command::Ehlo(_)
-                    | Command::Helo(_)
-                    | Command::Lhlo(_)
-                    | Command::Rset
-                    | Command::Quit
-                    | Command::StartTls
-                    | Command::Vrfy(_)
-                    | Command::Expn(_)
-                    | Command::Noop(_)
-                    | Command::Help(_)
-                    | Command::Auth { .. }
-                    | Command::Unknown(_)
-                    | Command::XClient(_) => false,
-                };
+            match Command::parse(command) {
+                Ok(MaybePartialCommand::Full(cmd)) => {
+                    return match cmd {
+                        Command::MailFrom { .. }
+                        | Command::RcptTo { .. }
+                        | Command::Data
+                        | Command::DataDot => true,
+                        Command::Ehlo(_)
+                        | Command::Helo(_)
+                        | Command::Lhlo(_)
+                        | Command::Rset
+                        | Command::Quit
+                        | Command::StartTls
+                        | Command::Vrfy(_)
+                        | Command::Expn(_)
+                        | Command::Noop(_)
+                        | Command::Help(_)
+                        | Command::Auth { .. }
+                        | Command::Unknown(_)
+                        | Command::XClient(_) => false,
+                    };
+                }
+                // Redacted AUTH context is not a valid wire command, but
+                // authentication failures are still connection-related.
+                Ok(MaybePartialCommand::Partial {
+                    verb: CommandVerb::Auth,
+                    ..
+                }) => return false,
+                _ => {}
             }
         }
 

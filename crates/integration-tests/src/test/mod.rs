@@ -2,6 +2,7 @@
 mod arc;
 mod auth_deliver;
 mod auth_deliver_invalid_password;
+mod auth_rejection_redaction;
 #[cfg(target_os = "linux")]
 mod bad_source_address;
 mod bare_lf_line_length;

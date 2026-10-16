@@ -10,6 +10,7 @@ axum = {workspace=true}
 axum-server = {workspace=true}
 bstr.workspace = true
 camino = {workspace=true}
+data-encoding = {workspace=true}
 chrono = {workspace=true, default-features=false, features=["std", "clock"]}
 dns-resolver = {path="../dns-resolver"}
 futures.workspace = true

@@ -87,13 +87,13 @@ impl ClientError {
             | Self::ReadError {
                 command: Some(command),
                 ..
-            } => Some(command.encode().to_string()),
+            } => Some(command.encode_for_logging().to_string()),
             Self::TimeOutRequest { commands, .. } | Self::WriteError { commands, .. }
                 if !commands.is_empty() =>
             {
                 let s: String = commands
                     .iter()
-                    .map(|cmd| cmd.encode().to_string())
+                    .map(|cmd| cmd.encode_for_logging().to_string())
                     .collect();
                 Some(s)
             }
@@ -484,7 +484,8 @@ impl SmtpClient {
                 .map_err(ClientError::MalformedResponseLine)?;
         }
 
-        let response = response_builder.build(command.map(|cmd| cmd.encode().to_string()));
+        let response =
+            response_builder.build(command.map(|cmd| cmd.encode_for_logging().to_string()));
 
         tracing::trace!("{}: {response:?}", self.hostname);
 
@@ -1489,6 +1490,99 @@ mod test {
             ),
             r#"Timed Out waiting 10s for response to cmd=MAIL FROM:<user@host>"#
         );
+    }
+
+    #[test]
+    fn auth_transport_errors_redact_command() {
+        let payload = data_encoding::BASE64.encode(b"\0daniel\0needle");
+        let command = Command::Auth {
+            sasl_mech: "PLAIN".to_string(),
+            initial_response: Some(payload.clone()),
+        };
+        for error in [
+            ClientError::TimeOutResponse {
+                command: Some(command.clone()),
+                duration: Duration::from_secs(10),
+            },
+            ClientError::TimeOutRequest {
+                commands: vec![command.clone()],
+                duration: Duration::from_secs(10),
+            },
+            ClientError::ReadError {
+                command: Some(command.clone()),
+                error: "connection closed".to_string(),
+                partial: String::new(),
+            },
+            ClientError::WriteError {
+                commands: vec![command],
+                error: "broken pipe".to_string(),
+            },
+        ] {
+            assert_eq!(
+                error.command().as_deref(),
+                Some("AUTH PLAIN [REDACTED]\r\n")
+            );
+            for text in [
+                format!("{error}"),
+                format!("{error:?}"),
+                format!("{error:#?}"),
+            ] {
+                assert!(text.contains("[REDACTED]"), "{text}");
+                assert!(!text.contains(&payload), "{text}");
+                assert!(!text.contains("needle"), "{text}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn auth_rejection_redacts_command() -> anyhow::Result<()> {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        use tokio::net::UnixStream;
+
+        let (stream, peer) = UnixStream::pair()?;
+        let mut client =
+            SmtpClient::with_stream(stream, "localhost", SmtpClientTimeouts::short_timeouts());
+        let payload = data_encoding::BASE64.encode(b"\0daniel\0needle");
+        let server = async {
+            let mut peer = BufReader::new(peer);
+            let mut line = String::new();
+            peer.read_line(&mut line).await?;
+            // Diagnostics must not change the bytes sent to the peer.
+            assert_eq!(line, format!("AUTH PLAIN {payload}\r\n"));
+            peer.write_all(b"535 5.7.8 Invalid credentials\r\n").await?;
+            Ok::<_, anyhow::Error>(())
+        };
+        let authenticate = async {
+            let error = client
+                .auth_plain("daniel", Some("needle"))
+                .await
+                .unwrap_err();
+            assert!(
+                !error.was_due_to_message(),
+                "AUTH failure is not message-specific"
+            );
+            for text in [
+                format!("{error}"),
+                format!("{error:?}"),
+                format!("{error:#?}"),
+            ] {
+                assert!(text.contains("AUTH PLAIN [REDACTED]"), "{text}");
+                assert!(!text.contains(&payload), "{text}");
+            }
+            let ClientError::Rejected(response) = error else {
+                anyhow::bail!("expected AUTH rejection");
+            };
+            assert_eq!(response.code, 535);
+            assert_eq!(response.content, "Invalid credentials");
+            assert_eq!(
+                response.command.as_deref(),
+                Some("AUTH PLAIN [REDACTED]\r\n")
+            );
+            assert!(!serde_json::to_string(&response)?.contains(&payload));
+            Ok(())
+        };
+        tokio::try_join!(server, authenticate)?;
+        Ok(())
     }
 
     #[test]
