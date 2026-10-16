@@ -226,3 +226,21 @@
    lifetime of the resident body, which keeps it accurate in both directions.
    Thanks to @kayozaki! #588
 
+ * On a failed outbound STARTTLS handshake with
+   [enable_tls](../reference/kumo/make_egress_path/enable_tls.md) set to
+   `Opportunistic` or `OpportunisticInsecure`, kumod no longer tries to continue
+   the SMTP session in cleartext on that same connection because the receiving
+   server has already dropped the connection by the time the handshake fails.
+   Delivery behavior is unchanged. Only the logged text for such a failure
+   changes. kumod previously logged a failure as:
+
+   ```text
+   mx.example.com/192.0.2.1:25: EHLO after OpportunisticInsecure STARTTLS handshake status: failed: <tls error>
+   ```
+
+   and is now logged as:
+
+   ```text
+   TLS handshake with ResolvedAddress { name: "mx.example.com", addr: 192.0.2.1, is_secure: false }:25 failed: <tls error>
+   ```
+

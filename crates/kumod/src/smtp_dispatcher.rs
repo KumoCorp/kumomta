@@ -1017,85 +1017,12 @@ impl SmtpDispatcher {
                 // TLS is not advertised, don't try to use it
                 false
             }
-            (Tls::OpportunisticInsecure, AdvTls::Yes, BrokenTls::No) => {
-                dispatcher.set_detail("STARTTLS");
-                let (enabled, label) = match client
-                    .starttls(TlsOptions {
-                        insecure: enable_tls.allow_insecure(),
-                        prefer_openssl,
-                        alt_name: None,
-                        dane_tlsa,
-                        certificate_from_pem,
-                        private_key_from_pem,
-                        openssl_options,
-                        openssl_cipher_list,
-                        openssl_cipher_suites,
-                        rustls_cipher_suites,
-                    })
-                    .await?
-                {
-                    TlsStatus::FailedHandshake(handshake_error) => {
-                        tracing::debug!(
-                            "TLS handshake with {address}:{port} failed: \
-                        {handshake_error}, but continuing in clear text because \
-                        we are in OpportunisticInsecure mode"
-                        );
-
-                        self.remember_broken_tls(&dispatcher.name, path_config)
-                            .await;
-
-                        if path_config.opportunistic_tls_reconnect_on_failed_handshake {
-                            self.addresses.push(address.clone());
-                            anyhow::bail!(
-                                "TLS handshake failed: {handshake_error}, \
-                                will re-connect in the clear because \
-                                opportunistic_tls_reconnect_on_failed_handshake=true"
-                            );
-                        }
-
-                        // We did not enable TLS
-                        (false, format!("failed: {handshake_error}"))
-                    }
-                    TlsStatus::Info(info) => {
-                        // TLS is available
-                        tracing::trace!("TLS: {info:?}");
-                        self.tls_info.replace(info);
-                        (true, "OK".to_string())
-                    }
-                };
-                // Re-EHLO even if we didn't enable TLS, as some implementations
-                // incorrectly roll over failed TLS into the following command,
-                // and we want to consider those as connection errors rather than
-                // having them show up per-message in MAIL FROM
-                match client.ehlo_lhlo(&ehlo_name, path_config.use_lmtp).await {
-                    Ok(_) => enabled,
-                    Err(error) => {
-                        self.remember_broken_tls(&dispatcher.name, path_config)
-                            .await;
-                        if path_config.opportunistic_tls_reconnect_on_failed_handshake {
-                            self.addresses.push(address.clone());
-                            anyhow::bail!(
-                                "{helo_verb} after STARTLS failed: {error:#}, \
-                                will re-connect in the clear because \
-                                opportunistic_tls_reconnect_on_failed_handshake=true"
-                            );
-                        }
-
-                        return Err(OpportunisticInsecureTlsHandshakeError {
-                            error,
-                            address: format!("{address}:{port}"),
-                            label,
-                        }
-                        .into());
-                    }
-                }
-            }
             (
                 Tls::Required | Tls::RequiredInsecure,
                 AdvTls::Yes,
                 _, /* don't care if we think tls is broken when policy is required */
             )
-            | (Tls::Opportunistic, AdvTls::Yes, BrokenTls::No) => {
+            | (Tls::Opportunistic | Tls::OpportunisticInsecure, AdvTls::Yes, BrokenTls::No) => {
                 dispatcher.set_detail("STARTTLS");
                 match client
                     .starttls(TlsOptions {
