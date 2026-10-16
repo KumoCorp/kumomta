@@ -211,3 +211,4 @@
    and drove it downward (potentially negative).  The count is now bound to the
    lifetime of the resident body, which keeps it accurate in both directions.
    Thanks to @kayozaki! #588
+
