@@ -18,7 +18,9 @@ use kumo_server_common::authn_authz::AuthInfo;
 use kumo_server_common::http_server::{AppError, AppState};
 use kumo_server_lifecycle::Activity;
 use kumo_server_runtime::{Runtime, RUNTIME};
-use kumo_template::{CompiledTemplates, TemplateDialect, TemplateEngine, TemplateList};
+use kumo_template::{
+    CompiledTemplates, StandaloneTemplate, TemplateDialect, TemplateEngine, TemplateList,
+};
 use mailparsing::{
     is_address_header_name, AddrSpec, Address, EncodeHeaderValue, Mailbox, MessageBuilder,
     MimePart, ParsedHeader,
@@ -572,7 +574,20 @@ fn make_header(
     Ok(header)
 }
 
+/// The compiled body templates of a request; mirrors [`Content`].
+enum CompiledBody {
+    Rfc822(Arc<StandaloneTemplate>),
+    Builder {
+        text: Option<Arc<StandaloneTemplate>>,
+        html: Option<Arc<StandaloneTemplate>>,
+        amp_html: Option<Arc<StandaloneTemplate>>,
+    },
+}
+
 struct Compiled<'a> {
+    body: CompiledBody,
+    /// The dynamic header templates, in the order of their
+    /// CompiledHeader::Dynamic entries in `headers`
     env_and_templates: CompiledTemplates,
     attached: Vec<MimePart<'a>>,
     /// Validated addr-specs for the headers whose display name is templated
@@ -618,11 +633,9 @@ impl<'a> Compiled<'a> {
             .borrow_owner()
             .prepare_context(&subst)?;
 
-        let mut id = 0;
-        match content {
-            Content::Rfc822(_) => {
-                let content =
-                    self.env_and_templates.borrow_dependent()[id].render_prepared(&prepared)?;
+        match (&self.body, content) {
+            (CompiledBody::Rfc822(template), Content::Rfc822(_)) => {
+                let content = template.render_prepared(&prepared)?;
                 let mut msg = MimePart::parse(&*content)
                     .with_context(|| format!("failed to parse content: {content}"))?
                     .rebuild(None)
@@ -634,38 +647,28 @@ impl<'a> Compiled<'a> {
 
                 Ok(String::from_utf8(msg.to_message_bytes()?)?)
             }
-            Content::Builder {
-                text_body,
-                html_body,
-                amp_html_body,
-                ..
-            } => {
+            (
+                CompiledBody::Builder {
+                    text,
+                    html,
+                    amp_html,
+                },
+                Content::Builder { .. },
+            ) => {
                 let mut builder = MessageBuilder::new();
 
-                if text_body.is_some() {
-                    builder.text_plain(
-                        &self.env_and_templates.borrow_dependent()[id]
-                            .render_prepared(&prepared)?,
-                    );
-                    id += 1;
+                if let Some(text) = text {
+                    builder.text_plain(&text.render_prepared(&prepared)?);
                 }
-
-                if html_body.is_some() {
-                    builder.text_html(
-                        &self.env_and_templates.borrow_dependent()[id]
-                            .render_prepared(&prepared)?,
-                    );
-                    id += 1;
+                if let Some(html) = html {
+                    builder.text_html(&html.render_prepared(&prepared)?);
                 }
-                if amp_html_body.is_some() {
-                    builder.text_amp_html(
-                        &self.env_and_templates.borrow_dependent()[id]
-                            .render_prepared(&prepared)?,
-                    );
-                    id += 1;
+                if let Some(amp_html) = amp_html {
+                    builder.text_amp_html(&amp_html.render_prepared(&prepared)?);
                 }
 
                 let mut need_to = true;
+                let mut id = 0;
 
                 for entry in &self.headers {
                     match entry {
@@ -698,6 +701,7 @@ impl<'a> Compiled<'a> {
 
                 Ok(String::from_utf8(builder.build()?.to_message_bytes()?)?)
             }
+            _ => anyhow::bail!("compiled templates do not match the request content"),
         }
     }
 }
@@ -739,15 +743,17 @@ impl InjectV1Request {
         }
     }
 
-    fn compile(&'_ self) -> anyhow::Result<Compiled<'_>> {
-        let mut env = TemplateEngine::with_dialect(self.template_dialect.into());
+    async fn compile(&'_ self) -> anyhow::Result<Compiled<'_>> {
+        let dialect: TemplateDialect = self.template_dialect.into();
+        let mut env = TemplateEngine::with_dialect(dialect);
 
-        // Pass 1: create the templates
-        match &self.content {
-            Content::Rfc822(text) => {
-                env.add_template("content", text)
-                    .context("failed parsing field 'content' as template")?;
-            }
+        // Pass 1: create the templates. The body templates come from the
+        // template cache, shared across requests; the header templates are
+        // compiled into this request's engine.
+        let body = match &self.content {
+            Content::Rfc822(text) => CompiledBody::Rfc822(
+                compile_body_template(dialect, "content", text, "content").await?,
+            ),
             Content::Builder {
                 text_body: None,
                 html_body: None,
@@ -760,64 +766,58 @@ impl InjectV1Request {
                 headers,
                 ..
             } => {
-                if let Some(tb) = text_body {
-                    env.add_template("text_body.txt", tb)
-                        .context("failed parsing field 'content.text_body' as template")?;
-                }
-                if let Some(hb) = html_body {
-                    // The filename extension is needed to enable auto-escaping
-                    env.add_template("html_body.html", hb)
-                        .context("failed parsing field 'content.html_body' as template")?;
-                }
-                if let Some(hb) = amp_html_body {
-                    // The filename extension is needed to enable auto-escaping
-                    env.add_template("amp_html_body.html", hb)
-                        .context("failed parsing field 'content.amp_html_body' as template")?;
-                }
+                let text = match text_body {
+                    Some(tb) => Some(
+                        compile_body_template(dialect, "text_body.txt", tb, "content.text_body")
+                            .await?,
+                    ),
+                    None => None,
+                };
+                // The filename extension is needed to enable auto-escaping
+                let html = match html_body {
+                    Some(hb) => Some(
+                        compile_body_template(dialect, "html_body.html", hb, "content.html_body")
+                            .await?,
+                    ),
+                    None => None,
+                };
+                // The filename extension is needed to enable auto-escaping
+                let amp_html = match amp_html_body {
+                    Some(hb) => Some(
+                        compile_body_template(
+                            dialect,
+                            "amp_html_body.html",
+                            hb,
+                            "content.amp_html_body",
+                        )
+                        .await?,
+                    ),
+                    None => None,
+                };
                 for (header_name, value) in headers.iter() {
                     env.add_template(format!("headers[{header_name}]"), value)
                         .with_context(|| {
                             format!("failed parsing field headers['{header_name}'] as template")
                         })?;
                 }
+                CompiledBody::Builder {
+                    text,
+                    html,
+                    amp_html,
+                }
             }
-        }
+        };
 
         // Pass 2: retrieve the references
 
         fn get_templates<'b>(
             env: &'b TemplateEngine,
-            content: &Content,
             dynamic_header_names: &[String],
         ) -> anyhow::Result<TemplateList<'b>> {
-            let mut templates = vec![];
-            match content {
-                Content::Rfc822(_) => {
-                    templates.push(env.get_template("content")?);
-                }
-                Content::Builder {
-                    text_body,
-                    html_body,
-                    amp_html_body,
-                    ..
-                } => {
-                    if text_body.is_some() {
-                        templates.push(env.get_template("text_body.txt")?);
-                    }
-                    if html_body.is_some() {
-                        // The filename extension is needed to enable auto-escaping
-                        templates.push(env.get_template("html_body.html")?);
-                    }
-                    if amp_html_body.is_some() {
-                        // The filename extension is needed to enable auto-escaping
-                        templates.push(env.get_template("amp_html_body.html")?);
-                    }
-                    for header_name in dynamic_header_names {
-                        templates.push(env.get_template(&format!("headers[{header_name}]"))?);
-                    }
-                }
-            };
-            Ok(templates)
+            dynamic_header_names
+                .iter()
+                .map(|header_name| env.get_template(&format!("headers[{header_name}]")))
+                .collect()
         }
 
         let attached = self.attachment_data()?;
@@ -858,10 +858,11 @@ impl InjectV1Request {
         }
 
         let env_and_templates = CompiledTemplates::try_new(env, |env: &TemplateEngine| {
-            get_templates(env, &self.content, &dynamic_header_names)
+            get_templates(env, &dynamic_header_names)
         })?;
 
         Ok(Compiled {
+            body,
             env_and_templates,
             attached,
             constructed_addresses,
@@ -900,6 +901,17 @@ impl InjectV1Request {
             }
         }
     }
+}
+
+async fn compile_body_template(
+    dialect: TemplateDialect,
+    name: &str,
+    source: &str,
+    field: &str,
+) -> anyhow::Result<Arc<StandaloneTemplate>> {
+    super::inject_template_cache::get_or_compile(dialect, name, source)
+        .await
+        .with_context(|| format!("failed parsing field '{field}' as template"))
 }
 
 async fn make_message<'a>(
@@ -1137,7 +1149,7 @@ async fn inject_v1_impl(
 ) -> Result<Json<InjectV1Response>, AppError> {
     request.normalize().map_err(content_syntax_err)?;
 
-    let compiled = request.compile().map_err(content_syntax_err)?;
+    let compiled = request.compile().await.map_err(content_syntax_err)?;
 
     if request.deferred_generation {
         return Ok(Json(
@@ -1191,7 +1203,7 @@ async fn build_from_v1_injection_request(
     mut request: InjectV1Request,
 ) -> anyhow::Result<Vec<Message>> {
     request.normalize()?;
-    let compiled = request.compile()?;
+    let compiled = request.compile().await?;
     let mut result = vec![];
     for recip in &request.recipients {
         let msg = make_message(
@@ -1383,6 +1395,19 @@ pub fn activity_for_peer(
 ///
 /// Hello John Smith!
 /// ```
+///
+/// ## Template Caching
+///
+/// {{since('dev')}}
+///
+/// The compiled form of the `content` string, and of the `text_body`,
+/// `html_body` and `amp_html_body` fields, is cached and reused by
+/// subsequent requests that use the same template text and
+/// `template_dialect`, which avoids the cost of compiling the same
+/// templates again on every request.  Header templates, and content that
+/// contains no template syntax, are not cached.  See
+/// [kumo.set_httpinject_template_cache_enabled](../../kumo/set_httpinject_template_cache_enabled.md)
+/// for more information.
 #[utoipa::path(
     post,
     tag="inject",
@@ -1629,7 +1654,7 @@ This is a test message to {{ name }}, with some 👻🍉💩 emoji!
             template_dialect: Default::default(),
         };
 
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
             .expand_for_recip(
                 &request.recipients[0],
@@ -1679,7 +1704,7 @@ This is a test message to {{ name }}, with some 👻🍉💩 emoji!
             template_dialect: Default::default(),
         };
 
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
             .expand_for_recip(
                 &request.recipients[0],
@@ -1742,7 +1767,7 @@ This is a test message to James Smythe, with some =F0=9F=91=BB=F0=9F=8D=89=\r
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
             .expand_for_recip(
                 &request.recipients[0],
@@ -1823,7 +1848,7 @@ Some(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
             .expand_for_recip(
                 &request.recipients[0],
@@ -1885,7 +1910,7 @@ Some(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
             .expand_for_recip(
                 &request.recipients[0],
@@ -1983,7 +2008,7 @@ Ok(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
             .expand_for_recip(
                 &request.recipients[0],
@@ -2048,7 +2073,7 @@ Ok(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
             .expand_for_recip(
                 &request.recipients[0],
@@ -2117,7 +2142,7 @@ Ok(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
             .expand_for_recip(
                 &request.recipients[0],
@@ -2155,7 +2180,7 @@ Ok(
 
     /// Generate the message for a recipient named `recip_name` with `header`
     /// set to `value` in content.headers.
-    fn generate_with_header(
+    async fn generate_with_header(
         recip_name: Option<&str>,
         header: &str,
         value: &str,
@@ -2187,7 +2212,7 @@ Ok(
             template_dialect: Default::default(),
         };
         request.normalize()?;
-        let compiled = request.compile()?;
+        let compiled = request.compile().await?;
         compiled.expand_for_recip(
             &request.recipients[0],
             &request.substitutions,
@@ -2206,6 +2231,7 @@ Ok(
             "Cc",
             "\"{{ name }}\" <cc@example.com>",
         )
+        .await
         .unwrap();
         let parsed = MimePart::parse(generated.as_str()).unwrap();
         k9::snapshot!(
@@ -2239,7 +2265,9 @@ Ok(
     /// rather than being emitted as corrupt free text.
     #[tokio::test]
     async fn test_user_address_header_malformed_errors() {
-        let err = generate_with_header(None, "Cc", "this is not an address").unwrap_err();
+        let err = generate_with_header(None, "Cc", "this is not an address")
+            .await
+            .unwrap_err();
         k9::assert_equal!(
             err.to_string(),
             "parsing Cc header value \"this is not an address\""
@@ -2251,7 +2279,7 @@ Ok(
     /// expand_for_recip.
     #[tokio::test]
     async fn test_user_address_header_empty_value_is_not_an_error() {
-        let generated = generate_with_header(None, "Cc", "").unwrap();
+        let generated = generate_with_header(None, "Cc", "").await.unwrap();
         let parsed = MimePart::parse(generated.as_str()).unwrap();
         let raw = parsed
             .headers()
@@ -2296,7 +2324,7 @@ Ok(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
             .expand_for_recip(
                 &request.recipients[0],
@@ -2395,7 +2423,7 @@ Some(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
             .expand_for_recip(
                 &request.recipients[0],
@@ -2465,7 +2493,7 @@ Some(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
 
         // Recipient: gets default To from their own email+name
         let generated = compiled
@@ -2551,7 +2579,7 @@ Some(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
 
         // Recipient 0: no override, to_header renders to pre-defined default
         let generated0 = compiled
@@ -2654,7 +2682,7 @@ Some(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
             .expand_for_recip(
                 &request.recipients[0],
@@ -2749,7 +2777,7 @@ Don't expand in here {{ name }}
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
             .expand_for_recip(
                 &request.recipients[0],
@@ -2858,7 +2886,7 @@ Some(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
 
         // Static (marker-free values): X-Static-1, X-Static-2, Cc, From, and
         // Subject (the latter two copied verbatim into the header map by
@@ -2935,5 +2963,107 @@ Some(
         k9::assert_equal!(cc_mb.name.as_deref(), Some("Static CC"));
         k9::assert_equal!(cc_mb.address.local_part, "static.cc".to_string());
         k9::assert_equal!(cc_mb.address.domain, "example.com".to_string());
+    }
+
+    fn cache_test_request(
+        text_body: &str,
+        html_body: Option<&str>,
+        subject: &str,
+    ) -> InjectV1Request {
+        InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: Some("James Smythe".to_string()),
+                substitutions: HashMap::new(),
+                metadata: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Builder {
+                text_body: Some(text_body.to_string()),
+                html_body: html_body.map(str::to_string),
+                amp_html_body: None,
+                subject: Some(subject.to_string()),
+                from: None,
+                reply_to: None,
+                headers: BTreeMap::new(),
+                attachments: vec![],
+            },
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+            template_dialect: Default::default(),
+        }
+    }
+
+    /// Requests that differ only in their headers share the compiled body
+    /// templates, while the headers are still rendered per request.
+    #[tokio::test]
+    async fn test_body_templates_are_cached_across_requests() {
+        let text = "test_body_templates_are_cached_across_requests text {{ name }}";
+        let html = "<p>test_body_templates_are_cached_across_requests {{ name }}</p>";
+        let mut first = cache_test_request(text, Some(html), "first {{ name }}");
+        let mut second = cache_test_request(text, Some(html), "second {{ name }}");
+        first.normalize().unwrap();
+        second.normalize().unwrap();
+
+        let compiled_first = first.compile().await.unwrap();
+        let compiled_second = second.compile().await.unwrap();
+
+        let (
+            CompiledBody::Builder {
+                text: Some(text_first),
+                html: Some(html_first),
+                ..
+            },
+            CompiledBody::Builder {
+                text: Some(text_second),
+                html: Some(html_second),
+                ..
+            },
+        ) = (&compiled_first.body, &compiled_second.body)
+        else {
+            panic!("expected builder bodies with text and html");
+        };
+        assert!(Arc::ptr_eq(text_first, text_second));
+        assert!(Arc::ptr_eq(html_first, html_second));
+
+        let generated = compiled_second
+            .expand_for_recip(
+                &second.recipients[0],
+                &second.substitutions,
+                &second.content,
+            )
+            .unwrap();
+        let parsed = MimePart::parse(generated.as_str()).unwrap();
+        k9::assert_equal!(
+            parsed
+                .headers()
+                .subject()
+                .unwrap()
+                .map(|subject| subject.to_string()),
+            Some("second James Smythe".to_string())
+        );
+    }
+
+    /// The 422 error text for a template syntax error is identical whether
+    /// the failed compilation was freshly computed or served from the cache.
+    #[tokio::test]
+    async fn test_template_syntax_error_is_stable_across_requests() {
+        let mut request = cache_test_request("Hello {{name}}, your code is {{code", None, "hello");
+        request.normalize().unwrap();
+        for attempt in 0..2 {
+            let err = match request.compile().await {
+                Ok(_) => panic!("attempt {attempt}: expected a syntax error"),
+                Err(err) => content_syntax_err(err),
+            };
+            k9::assert_equal!(err.code, StatusCode::UNPROCESSABLE_ENTITY);
+            k9::assert_equal!(
+                format!("{:#}", err.err),
+                "failed parsing field 'content.text_body' as template: \
+                syntax error: unexpected end of input, expected end of variable block \
+                (in template 'text_body.txt' line 1: 'Hello {{name}}, your code is {{code')"
+            );
+        }
     }
 }

@@ -50,6 +50,11 @@
     "doc": "Caches EgressSource information by source name"
   },
   {
+    "name": "http_inject_template",
+    "capacity": 1000,
+    "doc": "Caches compiled HTTP injection body templates, keyed by a digest of the template dialect, name and source text."
+  },
+  {
     "name": "http_server_auth",
     "capacity": 128,
     "doc": "Caches the results of the http server auth validation by auth credential"

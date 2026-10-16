@@ -83,6 +83,16 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "set_httpinject_template_cache_enabled",
+        lua.create_function(move |_, enabled: bool| {
+            crate::http_server::inject_template_cache::set_httpinject_template_cache_enabled(
+                enabled,
+            );
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
         "set_smtpsrv_threads",
         lua.create_function(move |_, limit: usize| {
             crate::smtp_server::set_smtpsrv_threads(limit);
