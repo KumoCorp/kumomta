@@ -110,6 +110,10 @@
 
 ## Fixes
 
+ * RFC3464 parsing now correctly recognizes the RFC822 address type case
+   insensitively and handles extraneous spaces in the `Original-Recipient`
+   and `Final-Recipient` portions of the DSN. Thanks to @Harshjha3006! #640
+
  * DKIM relaxed body canonicalization now reduces an empty body, or a body
    consisting only of empty or whitespace-only lines, to zero octets as required
    by RFC 6376 section 3.4.4. Previously it retained a CRLF, producing a body
@@ -207,4 +211,3 @@
    and drove it downward (potentially negative).  The count is now bound to the
    lifetime of the resident body, which keeps it accurate in both directions.
    Thanks to @kayozaki! #588
-
