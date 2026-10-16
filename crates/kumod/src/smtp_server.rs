@@ -18,6 +18,7 @@ use config::{
 use data_encoding::BASE64;
 use data_loader::KeySource;
 use derive_where::derive_where;
+use kumo_api_types::egress_path::TlsMode;
 use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::prometheus::HistogramTimer;
 use kumo_prometheus::{declare_metric, AtomicCounter};
@@ -411,6 +412,7 @@ pub struct ConcreteEsmtpListenerParams {
     pub tls_certificate: Option<KeySource>,
     pub tls_private_key: Option<KeySource>,
     pub tls_required_client_ca: Option<KeySource>,
+    pub tls_mode: TlsMode,
 
     pub deferred_spool: bool,
     pub deferred_queue: bool,
@@ -489,6 +491,9 @@ impl ConcreteEsmtpListenerParams {
         }
         if let Some(tls_required_client_ca) = base.tls_required_client_ca {
             self.tls_required_client_ca.replace(tls_required_client_ca);
+        }
+        if let Some(tls_mode) = base.tls_mode {
+            self.tls_mode = tls_mode;
         }
         if let Some(deferred_spool) = base.deferred_spool {
             self.deferred_spool = deferred_spool;
@@ -584,6 +589,7 @@ impl Default for ConcreteEsmtpListenerParams {
             tls_certificate: None,
             tls_private_key: None,
             tls_required_client_ca: None,
+            tls_mode: TlsMode::default(),
             deferred_spool: false,
             deferred_queue: false,
             trace_headers: TraceHeaders::default(),
@@ -631,6 +637,9 @@ pub struct GenericEsmtpListenerParams {
     pub tls_private_key: Option<KeySource>,
     #[serde(default)]
     pub tls_required_client_ca: Option<KeySource>,
+
+    #[serde(default)]
+    pub tls_mode: Option<TlsMode>,
 
     #[serde(default)]
     pub deferred_spool: Option<bool>,
@@ -1604,6 +1613,31 @@ impl SmtpServerSession {
 
     #[instrument(skip(self))]
     async fn process(&mut self) -> anyhow::Result<()> {
+        let mut proxy_header_consumed = false;
+        if self.params.tls_mode == TlsMode::ImplicitTls {
+            if self.params.require_proxy_protocol {
+                if let Err(err) = self.process_proxy_protocol().await {
+                    tracing::error!("Error processing PROXY protocol: {err:#}");
+                    return Ok(());
+                }
+                proxy_header_consumed = true;
+            }
+            // The peer speaks only TLS and cannot read a cleartext 421. Treat
+            // an acceptor-build failure (bad cert or key) the same as a failed
+            // handshake: drop the connection silently instead of replying.
+            let handshake = match self.perform_tls_handshake().await {
+                Ok(succeeded) => succeeded,
+                Err(err) => {
+                    tracing::error!("TLS acceptor setup failed: {err:#}");
+                    false
+                }
+            };
+            if !handshake {
+                return Ok(());
+            }
+            self.meta.set_meta("tls_implicit", true);
+        }
+
         let activity = match Activity::get_opt(format!(
             "smtp_server process client {:?} -> {:?}",
             self.peer_address, self.my_address
@@ -1690,7 +1724,7 @@ impl SmtpServerSession {
             return Ok(());
         }
 
-        if self.params.require_proxy_protocol {
+        if self.params.require_proxy_protocol && !proxy_header_consumed {
             if let Err(err) = self.process_proxy_protocol().await {
                 tracing::error!("Error processing PROXY protocol: {err:#}");
                 return Ok(());
