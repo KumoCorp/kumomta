@@ -176,19 +176,23 @@ impl FromStr for Recipient {
         let (recipient_type, recipient) = input
             .split_once(";")
             .ok_or_else(|| anyhow!("expected 'recipient-type; recipient', got {input}"))?;
+        let recipient_type = recipient_type.trim();
+        let recipient = recipient.trim();
 
-        let recipient = if recipient_type == "rfc822" {
-            recipient
-                .trim()
-                .parse::<EnvelopeAddress>()
-                .map_err(|err| anyhow!("{err}"))?
-                .to_string()
+        let (recipient_type, recipient) = if recipient_type.eq_ignore_ascii_case("rfc822") {
+            (
+                "rfc822",
+                recipient
+                    .parse::<EnvelopeAddress>()
+                    .map_err(|err| anyhow!("{err}"))?
+                    .to_string(),
+            )
         } else {
-            recipient.trim().to_string()
+            (recipient_type, recipient.to_string())
         };
 
         Ok(Self {
-            recipient_type: recipient_type.trim().to_string(),
+            recipient_type: recipient_type.to_string(),
             recipient,
         })
     }
@@ -727,6 +731,45 @@ mod test {
     use crate::ResolvedAddress;
     use mailparsing::MessageConformance;
     use rfc5321::{EnhancedStatusCode, Response};
+
+    #[test]
+    fn recipient_address_type_is_case_insensitive() {
+        for input in [
+            "rfc822;User+Tag@Example.COM",
+            "RFC822 ; User+Tag@Example.COM",
+            "Rfc822; <User+Tag@Example.COM>",
+            "rfc822 ; <User+Tag@Example.COM>",
+            " RFC822 ; <User+Tag@Example.COM> ",
+            "\tRFC822\t;\t<User+Tag@Example.COM>\t",
+        ] {
+            let recipient: Recipient = input.parse().unwrap();
+            k9::assert_equal!(recipient.recipient_type, "rfc822");
+            k9::assert_equal!(recipient.recipient, "User+Tag@example.com");
+        }
+    }
+
+    #[test]
+    fn parse_recipient_fields_with_uppercase_address_type() {
+        let report = PerRecipientReportEntry::parse(
+            "Original-Recipient: RFC822 ; <Original+Tag@Example.COM>\r\n\
+             Final-Recipient: Rfc822 ; <Final+Tag@Example.COM>\r\n\
+             Action: failed\r\n\
+             Status: 5.2.2\r\n",
+        )
+        .unwrap();
+        let original = report.original_recipient.unwrap();
+        k9::assert_equal!(original.recipient_type, "rfc822");
+        k9::assert_equal!(original.recipient, "Original+Tag@example.com");
+        k9::assert_equal!(report.final_recipient.recipient_type, "rfc822");
+        k9::assert_equal!(report.final_recipient.recipient, "Final+Tag@example.com");
+    }
+
+    #[test]
+    fn recipient_preserves_other_address_types() {
+        let recipient: Recipient = "unknown; <User@Example.COM> ".parse().unwrap();
+        k9::assert_equal!(recipient.recipient_type, "unknown");
+        k9::assert_equal!(recipient.recipient, "<User@Example.COM>");
+    }
 
     #[test]
     fn parse_ses_obsolete_arrival_date() {

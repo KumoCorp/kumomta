@@ -217,3 +217,6 @@
    lifetime of the resident body, which keeps it accurate in both directions.
    Thanks to @kayozaki! #588
 
+ * RFC3464 parsing now correctly recognizes the RFC822 address type case
+   insensitively and handles extraneous spaces in the `Original-Recipient`
+   and `Final-Recipient` portions of the DSN. Thanks to @Harshjha3006! #640
