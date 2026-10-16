@@ -35,6 +35,43 @@ async fn end_to_end_with_webhook() -> anyhow::Result<()> {
         .wait_for_webhook_record_count(2, Duration::from_secs(10))
         .await;
 
+    // Each of the 2 webhook records is logged as a Delivery once the
+    // webhook queue has delivered it. kumod logs a delivery before counting
+    // it, so once both are counted, both have been offered to the loggers.
+    daemon
+        .with_maildir
+        .source
+        .wait_for_metric(
+            Duration::from_secs(10),
+            |m| {
+                m.name().as_str() == "total_messages_delivered"
+                    && m.labels()
+                        .get("service")
+                        .map(|s| s.contains("make.webhook"))
+                        .unwrap_or(false)
+            },
+            |values| values.iter().sum::<f64>() >= 2.0,
+        )
+        .await?;
+
+    // Only the Reception and Delivery of the message we sent were submitted
+    // to the webhook log hook; the Deliveries of its own records were not.
+    let submitted: f64 = daemon
+        .with_maildir
+        .source
+        .api_client()
+        .get_metrics(|m| {
+            if m.name().as_str() == "log_submit_latency" && m.label_is("logger", "hook-webhook") {
+                Some(m.as_histogram().count)
+            } else {
+                None
+            }
+        })
+        .await?
+        .into_iter()
+        .sum();
+    assert_equal!(submitted, 2.0);
+
     daemon.stop().await?;
     println!("Stopped!");
 
