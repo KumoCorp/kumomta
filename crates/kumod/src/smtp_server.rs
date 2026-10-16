@@ -2242,16 +2242,13 @@ impl SmtpServerSession {
 
     /// Perform the TLS handshake on the current socket.
     ///
-    /// Returns whether the handshake succeeded. On failure the socket is
-    /// restored to its unencrypted state.
+    /// Returns whether the handshake succeeded. A failed handshake consumes the
+    /// socket, leaving the session with none. The caller must drop the
+    /// connection.
     #[instrument(skip(self))]
     async fn perform_tls_handshake(&mut self) -> anyhow::Result<bool> {
         let acceptor = self.params.build_tls_acceptor().await?;
-        let (socket, succeeded) = match acceptor
-            .accept(self.socket.take().unwrap())
-            .into_fallible()
-            .await
-        {
+        match acceptor.accept(self.socket.take().unwrap()).await {
             Ok(stream) => {
                 let (_io, conn) = stream.get_ref();
                 let mut tls_info = TlsInformation {
@@ -2288,15 +2285,15 @@ impl SmtpServerSession {
 
                 self.tls_active = Some(tls_info);
 
-                (Box::new(stream) as BoxedAsyncReadAndWrite, true)
+                self.socket
+                    .replace(Box::new(stream) as BoxedAsyncReadAndWrite);
+                Ok(true)
             }
-            Err((err, stream)) => {
+            Err(err) => {
                 tracing::debug!("TLS handshake failed: {err:#}");
-                (stream, false)
+                Ok(false)
             }
-        };
-        self.socket.replace(socket);
-        Ok(succeeded)
+        }
     }
 
     #[instrument(skip(self))]
