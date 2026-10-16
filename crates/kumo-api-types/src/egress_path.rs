@@ -58,6 +58,21 @@ impl Default for Tls {
     }
 }
 
+/// Selects how TLS is established on an SMTP connection, independently of the
+/// security posture expressed by [Tls].
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Copy, Default)]
+pub enum TlsMode {
+    /// Begin in cleartext and upgrade via the STARTTLS verb, as governed by
+    /// `enable_tls`.
+    #[default]
+    StartTls,
+    /// The connection is TLS from the first byte (SMTPS). There is no STARTTLS
+    /// negotiation. `enable_tls` is consulted only for certificate validation:
+    /// an `*Insecure` variant skips validation, any other variant (including
+    /// `Disabled`) requires a valid certificate. DANE and MTA-STS do not apply.
+    ImplicitTls,
+}
+
 pub fn parse_openssl_options(option_list: &str) -> anyhow::Result<SslOptions> {
     let mut result = SslOptions::empty();
 
@@ -203,6 +218,9 @@ pub struct EgressPathConfig {
 
     #[serde(default)]
     pub enable_tls: Tls,
+
+    #[serde(default)]
+    pub tls_mode: TlsMode,
 
     #[serde(default = "EgressPathConfig::default_enable_mta_sts")]
     pub enable_mta_sts: bool,
@@ -442,6 +460,7 @@ impl Default for EgressPathConfig {
             connection_limit: Self::default_connection_limit(),
             tls_prefer_openssl: false,
             enable_tls: Tls::default(),
+            tls_mode: TlsMode::default(),
             enable_mta_sts: Self::default_enable_mta_sts(),
             enable_dane: Self::default_enable_dane(),
             enable_rset: Self::default_enable_rset(),
