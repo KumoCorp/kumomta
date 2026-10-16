@@ -26,6 +26,10 @@ kumo.on('init', function()
       supplemental_header = false,
     },
   }
+  local tls_mode = os.getenv 'KUMOD_TEST_SINK_TLS_MODE'
+  if tls_mode then
+    smtp_params.tls_mode = tls_mode
+  end
   local client_ca = os.getenv 'KUMOD_CLIENT_REQUIRED_CA'
   if client_ca then
     smtp_params.tls_required_client_ca = {
