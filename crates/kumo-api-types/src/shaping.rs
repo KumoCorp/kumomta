@@ -1979,8 +1979,7 @@ match_internal = true
 
     #[tokio::test]
     async fn test_defaults() {
-        let shaping = make_shaping_configs(&[
-            r#"
+        let shaping = make_shaping_configs(&[r#"
 ["default"]
 connection_limit = 10
 max_connection_rate = "100/min"
@@ -2005,11 +2004,6 @@ action = [
         {SetConfig={name="connection_limit", value=1}}
 ]
 duration = "90m"
-
-[["default".automation]]
-regex="KumoMTA internal: failed to connect to any candidate hosts: All failures are related to OpportunisticInsecure STARTTLS. Consider setting enable_tls=Disabled for this site"
-action = {SetConfig={name="enable_tls", value="Disabled"}}
-duration = "30 days"
 
 ["gmail.com"]
 max_deliveries_per_connection = 50
@@ -2049,8 +2043,7 @@ connection_limit = 3
 
 ["example.com".sources."my source name"]
 connection_limit = 5
-        "#,
-        ])
+        "#])
         .await;
 
         let default = shaping
@@ -2181,29 +2174,6 @@ MergedEntry {
             ],
             trigger: Immediate,
             duration: 5400s,
-            was_rollup: false,
-            match_internal: false,
-        },
-        Rule {
-            regex: [
-                Regex(
-                    KumoMTA internal: failed to connect to any candidate hosts: All failures are related to OpportunisticInsecure STARTTLS. Consider setting enable_tls=Disabled for this site,
-                ),
-            ],
-            action: [
-                SetConfig(
-                    EgressPathConfigValue {
-                        name: "enable_tls",
-                        value: HashableTomlValue {
-                            value: String(
-                                "Disabled",
-                            ),
-                        },
-                    },
-                ),
-            ],
-            trigger: Immediate,
-            duration: 2592000s,
             was_rollup: false,
             match_internal: false,
         },
@@ -2415,29 +2385,6 @@ MergedEntry {
             was_rollup: false,
             match_internal: false,
         },
-        Rule {
-            regex: [
-                Regex(
-                    KumoMTA internal: failed to connect to any candidate hosts: All failures are related to OpportunisticInsecure STARTTLS. Consider setting enable_tls=Disabled for this site,
-                ),
-            ],
-            action: [
-                SetConfig(
-                    EgressPathConfigValue {
-                        name: "enable_tls",
-                        value: HashableTomlValue {
-                            value: String(
-                                "Disabled",
-                            ),
-                        },
-                    },
-                ),
-            ],
-            trigger: Immediate,
-            duration: 2592000s,
-            was_rollup: false,
-            match_internal: false,
-        },
     ],
 }
 "#
@@ -2577,29 +2524,6 @@ MergedEntry {
             ],
             trigger: Immediate,
             duration: 5400s,
-            was_rollup: false,
-            match_internal: false,
-        },
-        Rule {
-            regex: [
-                Regex(
-                    KumoMTA internal: failed to connect to any candidate hosts: All failures are related to OpportunisticInsecure STARTTLS. Consider setting enable_tls=Disabled for this site,
-                ),
-            ],
-            action: [
-                SetConfig(
-                    EgressPathConfigValue {
-                        name: "enable_tls",
-                        value: HashableTomlValue {
-                            value: String(
-                                "Disabled",
-                            ),
-                        },
-                    },
-                ),
-            ],
-            trigger: Immediate,
-            duration: 2592000s,
             was_rollup: false,
             match_internal: false,
         },
