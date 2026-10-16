@@ -133,7 +133,7 @@ fn tls_authenticated(events: &[TraceSmtpClientV1Event]) -> Option<bool> {
     let re = Regex::new(r"authenticated: (true|false)").unwrap();
     for event in events {
         if let TraceSmtpClientV1Payload::Diagnostic { message, .. } = &event.payload {
-            if message.starts_with("STARTTLS handshake ->") {
+            if message.starts_with("TLS handshake ->") {
                 if let Some(caps) = re.captures(message) {
                     return Some(&caps[1] == "true");
                 }

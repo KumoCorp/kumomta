@@ -783,17 +783,28 @@ impl SmtpClient {
         Ok(())
     }
 
-    /// Attempt TLS handshake.
-    /// Returns Err for IO errors.
-    /// On completion, return an option that will be:
-    /// * Some(handshake_error) - if the handshake failed
-    /// * None - if the handshake succeeded
+    /// Upgrade the connection to TLS using the STARTTLS verb.
+    /// Returns Err if the server rejects the STARTTLS command, or for an IO
+    /// error. A TLS handshake failure after STARTTLS is accepted is reported
+    /// as `Ok(TlsStatus::FailedHandshake(_))` rather than as Err, leaving the
+    /// choice of whether to continue in cleartext up to the caller.
     pub async fn starttls(&mut self, options: TlsOptions) -> Result<TlsStatus, ClientError> {
         let resp = self.send_command(&Command::StartTls).await?;
         if resp.code != 220 {
             return Err(ClientError::Rejected(resp));
         }
 
+        self.tls_handshake(options).await
+    }
+
+    /// Perform the TLS handshake directly on the current socket, without a
+    /// preceding STARTTLS negotiation. Used for implicit TLS (SMTPS), where
+    /// the session is encrypted from the first byte.
+    pub async fn tls_connect(&mut self, options: TlsOptions) -> Result<TlsStatus, ClientError> {
+        self.tls_handshake(options).await
+    }
+
+    async fn tls_handshake(&mut self, options: TlsOptions) -> Result<TlsStatus, ClientError> {
         let mut handshake_error = None;
         let mut tls_info = TlsInformation::default();
 
@@ -943,8 +954,8 @@ impl SmtpClient {
             tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
                 level: Level::INFO,
                 message: match &handshake_error {
-                    Some(error) => format!("STARTTLS handshake failed: {error:?}"),
-                    None => format!("STARTTLS handshake -> {tls_info:?}"),
+                    Some(error) => format!("TLS handshake failed: {error:?}"),
+                    None => format!("TLS handshake -> {tls_info:?}"),
                 },
             });
         }
