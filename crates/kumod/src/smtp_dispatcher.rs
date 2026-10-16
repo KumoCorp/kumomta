@@ -545,7 +545,7 @@ impl SmtpDispatcher {
 
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.name.to_string();
-        let mut enable_tls = path_config.enable_tls;
+        let enable_tls = path_config.enable_tls;
         let port = dispatcher
             .egress_source
             .remote_port
@@ -660,8 +660,94 @@ impl SmtpDispatcher {
             .await
             .with_context(|| format!("{target_address}: {helo_verb} after banner"))?;
 
-        // Use STARTTLS if available.
         let has_tls = pretls_caps.contains_key("STARTTLS");
+        let tls_enabled = self
+            .negotiate_tls(
+                dispatcher,
+                &path_config,
+                &mut client,
+                &address,
+                port,
+                &ehlo_name,
+                helo_verb,
+                has_tls,
+                enable_tls,
+            )
+            .await?;
+
+        if let Some(username) = &path_config.smtp_auth_plain_username {
+            if !tls_enabled {
+                if !path_config.allow_smtp_auth_plain_without_tls {
+                    anyhow::bail!(
+                        "TLS is not enabled and AUTH PLAIN is required. Skipping ({address:?}:{port})"
+                    );
+                }
+            } else {
+                // The session is encrypted, but an unvalidated peer certificate
+                // still leaves an active attacker able to capture credentials.
+                // Refuse to send them unless the certificate was validated, or
+                // the operator has explicitly accepted that risk via
+                // allow_smtp_auth_plain_without_valid_certificate.
+                let validated = self
+                    .tls_info
+                    .as_ref()
+                    .map(|info| info.authenticated)
+                    .unwrap_or(false);
+                if !validated && !path_config.allow_smtp_auth_plain_without_valid_certificate {
+                    anyhow::bail!(
+                        "TLS peer certificate was not validated and AUTH PLAIN \
+                         requires a valid certificate. Skipping ({address:?}:{port})"
+                    );
+                }
+            }
+
+            let password = if let Some(pw) = &path_config.smtp_auth_plain_password {
+                Some(
+                    String::from_utf8(
+                        pw.get()
+                            .await
+                            .context("fetching smtp_auth_plain_password")?,
+                    )
+                    .context("smtp_auth_plain_password is not UTF8")?,
+                )
+            } else {
+                None
+            };
+
+            dispatcher.set_detail("AUTH PLAIN");
+            client
+                .auth_plain(username, password.as_deref())
+                .await
+                .with_context(|| {
+                    format!(
+                        "authenticating as {username} via SMTP AUTH PLAIN to {address:?}:{port}"
+                    )
+                })?;
+        }
+
+        self.client
+            .replace(connection_wrapper.map_connection(client));
+        self.client_address.replace(address);
+        dispatcher.delivered_this_connection = 0;
+        Ok(AttemptConnectionDisposition::ConnectedNew)
+    }
+
+    /// Negotiate the TLS posture for a cleartext connection and, when the
+    /// policy calls for it, upgrade to TLS via STARTTLS. Returns whether TLS
+    /// ended up enabled on the session. DANE and MTA-STS policy are applied to
+    /// the effective `enable_tls` before the decision.
+    async fn negotiate_tls(
+        &mut self,
+        dispatcher: &Dispatcher,
+        path_config: &EgressPathConfig,
+        client: &mut SmtpClient,
+        address: &ResolvedAddress,
+        port: u16,
+        ehlo_name: &str,
+        helo_verb: &str,
+        has_tls: bool,
+        mut enable_tls: Tls,
+    ) -> anyhow::Result<bool> {
         let broken_tls = self.has_broken_tls(&dispatcher.name);
 
         let mut dane_tlsa = vec![];
@@ -861,7 +947,7 @@ impl SmtpDispatcher {
             BrokenTls::No
         };
 
-        let tls_enabled = match (enable_tls, has_tls, broken_tls) {
+        Ok(match (enable_tls, has_tls, broken_tls) {
             (Tls::Required | Tls::RequiredInsecure, AdvTls::No, _) => {
                 anyhow::bail!("tls policy is {enable_tls:?} but STARTTLS is not advertised by {address:?}:{port}");
             }
@@ -901,11 +987,11 @@ impl SmtpDispatcher {
                         we are in OpportunisticInsecure mode"
                         );
 
-                        self.remember_broken_tls(&dispatcher.name, &path_config)
+                        self.remember_broken_tls(&dispatcher.name, path_config)
                             .await;
 
                         if path_config.opportunistic_tls_reconnect_on_failed_handshake {
-                            self.addresses.push(address);
+                            self.addresses.push(address.clone());
                             anyhow::bail!(
                                 "TLS handshake failed: {handshake_error}, \
                                 will re-connect in the clear because \
@@ -930,10 +1016,10 @@ impl SmtpDispatcher {
                 match client.ehlo_lhlo(&ehlo_name, path_config.use_lmtp).await {
                     Ok(_) => enabled,
                     Err(error) => {
-                        self.remember_broken_tls(&dispatcher.name, &path_config)
+                        self.remember_broken_tls(&dispatcher.name, path_config)
                             .await;
                         if path_config.opportunistic_tls_reconnect_on_failed_handshake {
-                            self.addresses.push(address);
+                            self.addresses.push(address.clone());
                             anyhow::bail!(
                                 "{helo_verb} after STARTLS failed: {error:#}, \
                                 will re-connect in the clear because \
@@ -973,7 +1059,7 @@ impl SmtpDispatcher {
                     .await?
                 {
                     TlsStatus::FailedHandshake(handshake_error) => {
-                        self.remember_broken_tls(&dispatcher.name, &path_config)
+                        self.remember_broken_tls(&dispatcher.name, path_config)
                             .await;
 
                         // Don't try too hard to send the quit here; the connection may
@@ -988,7 +1074,7 @@ impl SmtpDispatcher {
                         if enable_tls.is_opportunistic()
                             && path_config.opportunistic_tls_reconnect_on_failed_handshake
                         {
-                            self.addresses.push(address);
+                            self.addresses.push(address.clone());
                             anyhow::bail!(
                                 "TLS handshake failed: {handshake_error}, will \
                                 re-connect in the clear because \
@@ -1014,12 +1100,12 @@ impl SmtpDispatcher {
                 {
                     Ok(_) => true,
                     Err(err) => {
-                        self.remember_broken_tls(&dispatcher.name, &path_config)
+                        self.remember_broken_tls(&dispatcher.name, path_config)
                             .await;
                         if enable_tls.is_opportunistic()
                             && path_config.opportunistic_tls_reconnect_on_failed_handshake
                         {
-                            self.addresses.push(address);
+                            self.addresses.push(address.clone());
                             anyhow::bail!(
                                 "{helo_verb} after STARTLS failed {err:#}, \
                                 will re-connect in the clear because \
@@ -1030,61 +1116,7 @@ impl SmtpDispatcher {
                     }
                 }
             }
-        };
-
-        if let Some(username) = &path_config.smtp_auth_plain_username {
-            if !tls_enabled {
-                if !path_config.allow_smtp_auth_plain_without_tls {
-                    anyhow::bail!(
-                        "TLS is not enabled and AUTH PLAIN is required. Skipping ({address:?}:{port})"
-                    );
-                }
-            } else {
-                // The session is encrypted; refuse to send credentials unless
-                // the peer certificate was validated, otherwise an active
-                // attacker could capture them.
-                let validated = self
-                    .tls_info
-                    .as_ref()
-                    .map(|info| info.authenticated)
-                    .unwrap_or(false);
-                if !validated && !path_config.allow_smtp_auth_plain_without_valid_certificate {
-                    anyhow::bail!(
-                        "TLS peer certificate was not validated and AUTH PLAIN \
-                         requires a valid certificate. Skipping ({address:?}:{port})"
-                    );
-                }
-            }
-
-            let password = if let Some(pw) = &path_config.smtp_auth_plain_password {
-                Some(
-                    String::from_utf8(
-                        pw.get()
-                            .await
-                            .context("fetching smtp_auth_plain_password")?,
-                    )
-                    .context("smtp_auth_plain_password is not UTF8")?,
-                )
-            } else {
-                None
-            };
-
-            dispatcher.set_detail("AUTH PLAIN");
-            client
-                .auth_plain(username, password.as_deref())
-                .await
-                .with_context(|| {
-                    format!(
-                        "authenticating as {username} via SMTP AUTH PLAIN to {address:?}:{port}"
-                    )
-                })?;
-        }
-
-        self.client
-            .replace(connection_wrapper.map_connection(client));
-        self.client_address.replace(address);
-        dispatcher.delivered_this_connection = 0;
-        Ok(AttemptConnectionDisposition::ConnectedNew)
+        })
     }
 
     async fn resolve_cached_client_cert(
