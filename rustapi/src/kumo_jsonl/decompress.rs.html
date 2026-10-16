@@ -1,0 +1,630 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `crates/kumo-jsonl/src/decompress.rs`."><title>decompress.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-ca0dd0c4.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="kumo_jsonl" data-themes="" data-resource-suffix="" data-rustdoc-version="1.92.0 (ded5c06cf 2025-12-08)" data-channel="1.92.0" data-search-js="search-d69d8955.js" data-stringdex-js="stringdex-c3e638e9.js" data-settings-js="settings-c38705f0.js" ><script src="../../static.files/storage-e2aeef58.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-ce535bd0.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-263c88ec.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content"><div class="main-heading"><h1><div class="sub-heading">kumo_jsonl/</div>decompress.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="kw">use </span>std::collections::VecDeque;
+<a href=#2 id=2 data-nosnippet>2</a><span class="kw">use </span>std::io::{BufRead, BufReader};
+<a href=#3 id=3 data-nosnippet>3</a><span class="kw">use </span>thiserror::Error;
+<a href=#4 id=4 data-nosnippet>4</a><span class="kw">use </span>zstd_safe::{DCtx, InBuffer, OutBuffer};
+<a href=#5 id=5 data-nosnippet>5</a>
+<a href=#6 id=6 data-nosnippet>6</a><span class="attr">#[derive(Error, Debug)]
+<a href=#7 id=7 data-nosnippet>7</a>#[error(<span class="string">"{}"</span>, zstd_safe::get_error_name(<span class="kw-2">*</span>.<span class="number">0</span>))]
+<a href=#8 id=8 data-nosnippet>8</a></span><span class="kw">pub struct </span>ZStdError(<span class="kw">pub </span>usize);
+<a href=#9 id=9 data-nosnippet>9</a>
+<a href=#10 id=10 data-nosnippet>10</a><span class="doccomment">/// Default limit, in bytes, on how large a decompressed record may be. A record
+<a href=#11 id=11 data-nosnippet>11</a>/// that reaches it without a newline is discarded and the following records are
+<a href=#12 id=12 data-nosnippet>12</a>/// still read. Large enough that legitimate records are not expected to
+<a href=#13 id=13 data-nosnippet>13</a>/// approach it, while still bounding how much is buffered for one line.
+<a href=#14 id=14 data-nosnippet>14</a></span><span class="kw">pub const </span>DEFAULT_MAX_LINE_SIZE: usize = <span class="number">128 </span>* <span class="number">1024 </span>* <span class="number">1024</span>;
+<a href=#15 id=15 data-nosnippet>15</a>
+<a href=#16 id=16 data-nosnippet>16</a><span class="doccomment">/// A line extracted from the decompressed stream, along with its
+<a href=#17 id=17 data-nosnippet>17</a>/// byte offset in the decompressed data.
+<a href=#18 id=18 data-nosnippet>18</a></span><span class="kw">pub struct </span>DecompressedLine {
+<a href=#19 id=19 data-nosnippet>19</a>    <span class="kw">pub </span>text: String,
+<a href=#20 id=20 data-nosnippet>20</a>    <span class="kw">pub </span>byte_offset: u64,
+<a href=#21 id=21 data-nosnippet>21</a>}
+<a href=#22 id=22 data-nosnippet>22</a>
+<a href=#23 id=23 data-nosnippet>23</a><span class="kw">impl </span>std::fmt::Debug <span class="kw">for </span>DecompressedLine {
+<a href=#24 id=24 data-nosnippet>24</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>std::fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; std::fmt::Result {
+<a href=#25 id=25 data-nosnippet>25</a>        <span class="comment">// A line may be as large as the configured maximum (128 MiB by
+<a href=#26 id=26 data-nosnippet>26</a>        // default). Truncate to a leading fragment to keep debug output, and
+<a href=#27 id=27 data-nosnippet>27</a>        // anything that logs it, bounded regardless of line length.
+<a href=#28 id=28 data-nosnippet>28</a>        </span><span class="kw">const </span>MAX: usize = <span class="number">64</span>;
+<a href=#29 id=29 data-nosnippet>29</a>        <span class="kw">let </span><span class="kw-2">mut </span>dbg = f.debug_struct(<span class="string">"DecompressedLine"</span>);
+<a href=#30 id=30 data-nosnippet>30</a>        dbg.field(<span class="string">"byte_offset"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.byte_offset)
+<a href=#31 id=31 data-nosnippet>31</a>            .field(<span class="string">"len"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.text.len());
+<a href=#32 id=32 data-nosnippet>32</a>        <span class="kw">if </span><span class="self">self</span>.text.len() &lt;= MAX {
+<a href=#33 id=33 data-nosnippet>33</a>            dbg.field(<span class="string">"text"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.text);
+<a href=#34 id=34 data-nosnippet>34</a>        } <span class="kw">else </span>{
+<a href=#35 id=35 data-nosnippet>35</a>            dbg.field(
+<a href=#36 id=36 data-nosnippet>36</a>                <span class="string">"text_prefix"</span>,
+<a href=#37 id=37 data-nosnippet>37</a>                &amp;&amp;<span class="self">self</span>.text[..<span class="self">self</span>.text.floor_char_boundary(MAX)],
+<a href=#38 id=38 data-nosnippet>38</a>            );
+<a href=#39 id=39 data-nosnippet>39</a>        }
+<a href=#40 id=40 data-nosnippet>40</a>        dbg.finish()
+<a href=#41 id=41 data-nosnippet>41</a>    }
+<a href=#42 id=42 data-nosnippet>42</a>}
+<a href=#43 id=43 data-nosnippet>43</a>
+<a href=#44 id=44 data-nosnippet>44</a><span class="doccomment">/// The outcome of a call to [`FileDecompressor::next_line`].
+<a href=#45 id=45 data-nosnippet>45</a></span><span class="attr">#[derive(Debug)]
+<a href=#46 id=46 data-nosnippet>46</a></span><span class="kw">pub enum </span>NextLine {
+<a href=#47 id=47 data-nosnippet>47</a>    <span class="doccomment">/// A complete line was extracted.
+<a href=#48 id=48 data-nosnippet>48</a>    </span>Line(DecompressedLine),
+<a href=#49 id=49 data-nosnippet>49</a>    <span class="doccomment">/// A record longer than the configured maximum was discarded and the
+<a href=#50 id=50 data-nosnippet>50</a>    /// stream continues with the following record. Reports where the discarded
+<a href=#51 id=51 data-nosnippet>51</a>    /// record began in the decompressed stream and how many bytes were dropped
+<a href=#52 id=52 data-nosnippet>52</a>    /// (excluding the terminating newline).
+<a href=#53 id=53 data-nosnippet>53</a>    </span>Skipped { byte_offset: u64, bytes: u64 },
+<a href=#54 id=54 data-nosnippet>54</a>    <span class="doccomment">/// No line is available right now. The caller should check whether the file
+<a href=#55 id=55 data-nosnippet>55</a>    /// is done or retry later.
+<a href=#56 id=56 data-nosnippet>56</a>    </span><span class="prelude-val">None</span>,
+<a href=#57 id=57 data-nosnippet>57</a>}
+<a href=#58 id=58 data-nosnippet>58</a>
+<a href=#59 id=59 data-nosnippet>59</a><span class="doccomment">/// Bookkeeping for a record being discarded because it exceeds the maximum line
+<a href=#60 id=60 data-nosnippet>60</a>/// size. Scanning continues across decompress calls until the record's
+<a href=#61 id=61 data-nosnippet>61</a>/// terminating newline is found. Discarding only consumes bytes from the
+<a href=#62 id=62 data-nosnippet>62</a>/// output buffer; the zstd stream itself is never put in an error state, so
+<a href=#63 id=63 data-nosnippet>63</a>/// the segment's later records decode normally once the newline is reached.
+<a href=#64 id=64 data-nosnippet>64</a></span><span class="kw">struct </span>Skip {
+<a href=#65 id=65 data-nosnippet>65</a>    <span class="doccomment">/// Byte offset in the decompressed stream where the discarded record began.
+<a href=#66 id=66 data-nosnippet>66</a>    </span>byte_offset: u64,
+<a href=#67 id=67 data-nosnippet>67</a>    <span class="doccomment">/// Bytes of the record discarded so far, excluding the terminating newline.
+<a href=#68 id=68 data-nosnippet>68</a>    </span>discarded: u64,
+<a href=#69 id=69 data-nosnippet>69</a>    <span class="doccomment">/// Whether the record is at or after `skip_before` and should be reported
+<a href=#70 id=70 data-nosnippet>70</a>    /// to the caller. A record before the checkpoint was consumed on an earlier
+<a href=#71 id=71 data-nosnippet>71</a>    /// run and is dropped silently.
+<a href=#72 id=72 data-nosnippet>72</a>    </span>surface: bool,
+<a href=#73 id=73 data-nosnippet>73</a>}
+<a href=#74 id=74 data-nosnippet>74</a>
+<a href=#75 id=75 data-nosnippet>75</a><span class="doccomment">/// State for incremental zstd decompression and line extraction from a single file.
+<a href=#76 id=76 data-nosnippet>76</a></span><span class="kw">pub struct </span>FileDecompressor {
+<a href=#77 id=77 data-nosnippet>77</a>    file: BufReader&lt;std::fs::File&gt;,
+<a href=#78 id=78 data-nosnippet>78</a>    context: DCtx&lt;<span class="lifetime">'static</span>&gt;,
+<a href=#79 id=79 data-nosnippet>79</a>    out_buffer: Vec&lt;u8&gt;,
+<a href=#80 id=80 data-nosnippet>80</a>    <span class="doccomment">/// Steady-state size of `out_buffer`. The buffer grows past this to hold an
+<a href=#81 id=81 data-nosnippet>81</a>    /// oversized record and is shrunk back to it once the record is emitted.
+<a href=#82 id=82 data-nosnippet>82</a>    </span>base_out_buffer: usize,
+<a href=#83 id=83 data-nosnippet>83</a>    <span class="doccomment">/// The maximum size `out_buffer` may grow to. A record that fills it
+<a href=#84 id=84 data-nosnippet>84</a>    /// without a newline is discarded (reported as `NextLine::Skipped`) rather
+<a href=#85 id=85 data-nosnippet>85</a>    /// than buffered further.
+<a href=#86 id=86 data-nosnippet>86</a>    </span>max_out_buffer: usize,
+<a href=#87 id=87 data-nosnippet>87</a>    <span class="doccomment">/// Start of the next unprocessed line in `out_buffer`.
+<a href=#88 id=88 data-nosnippet>88</a>    </span>line_start: usize,
+<a href=#89 id=89 data-nosnippet>89</a>    <span class="doccomment">/// Number of valid bytes in `out_buffer`.
+<a href=#90 id=90 data-nosnippet>90</a>    </span>out_pos: usize,
+<a href=#91 id=91 data-nosnippet>91</a>    <span class="doccomment">/// When discarding a record that exceeds `max_out_buffer`, the state of
+<a href=#92 id=92 data-nosnippet>92</a>    /// that in-progress skip. `None` during normal line extraction.
+<a href=#93 id=93 data-nosnippet>93</a>    </span>skipping: <span class="prelude-ty">Option</span>&lt;Skip&gt;,
+<a href=#94 id=94 data-nosnippet>94</a>    <span class="doccomment">/// Total number of lines decompressed so far.
+<a href=#95 id=95 data-nosnippet>95</a>    </span>lines_decompressed: usize,
+<a href=#96 id=96 data-nosnippet>96</a>    <span class="doccomment">/// Global line index up to which lines have been consumed or skipped.
+<a href=#97 id=97 data-nosnippet>97</a>    /// This is the value that should be used for checkpointing.
+<a href=#98 id=98 data-nosnippet>98</a>    /// Equals skip_before + number of lines actually returned to caller.
+<a href=#99 id=99 data-nosnippet>99</a>    </span><span class="kw">pub </span>lines_consumed: usize,
+<a href=#100 id=100 data-nosnippet>100</a>    <span class="doccomment">/// Buffered lines that have been extracted but not yet consumed.
+<a href=#101 id=101 data-nosnippet>101</a>    </span>pending_lines: VecDeque&lt;DecompressedLine&gt;,
+<a href=#102 id=102 data-nosnippet>102</a>    <span class="doccomment">/// Whether we've seen EOF on the compressed input.
+<a href=#103 id=103 data-nosnippet>103</a>    </span>saw_eof: bool,
+<a href=#104 id=104 data-nosnippet>104</a>    <span class="doccomment">/// Cumulative byte offset in the decompressed stream.
+<a href=#105 id=105 data-nosnippet>105</a>    /// Tracks the position of `line_start` relative to the start
+<a href=#106 id=106 data-nosnippet>106</a>    /// of the decompressed output.
+<a href=#107 id=107 data-nosnippet>107</a>    </span>decompressed_offset: u64,
+<a href=#108 id=108 data-nosnippet>108</a>}
+<a href=#109 id=109 data-nosnippet>109</a>
+<a href=#110 id=110 data-nosnippet>110</a><span class="kw">impl </span>FileDecompressor {
+<a href=#111 id=111 data-nosnippet>111</a>    <span class="doccomment">/// Open a file and prepare for incremental zstd decompression.
+<a href=#112 id=112 data-nosnippet>112</a>    </span><span class="kw">pub fn </span>open(path: <span class="kw-2">&amp;</span>std::path::Path) -&gt; anyhow::Result&lt;<span class="self">Self</span>&gt; {
+<a href=#113 id=113 data-nosnippet>113</a>        <span class="self">Self</span>::open_with_max_line_size(path, DEFAULT_MAX_LINE_SIZE)
+<a href=#114 id=114 data-nosnippet>114</a>    }
+<a href=#115 id=115 data-nosnippet>115</a>
+<a href=#116 id=116 data-nosnippet>116</a>    <span class="doccomment">/// Open a file, capping the output buffer at `max_out_buffer` bytes. A
+<a href=#117 id=117 data-nosnippet>117</a>    /// record that fills the cap without a newline is discarded and reading
+<a href=#118 id=118 data-nosnippet>118</a>    /// continues with the next record (see [`NextLine::Skipped`]).
+<a href=#119 id=119 data-nosnippet>119</a>    </span><span class="kw">pub fn </span>open_with_max_line_size(
+<a href=#120 id=120 data-nosnippet>120</a>        path: <span class="kw-2">&amp;</span>std::path::Path,
+<a href=#121 id=121 data-nosnippet>121</a>        max_out_buffer: usize,
+<a href=#122 id=122 data-nosnippet>122</a>    ) -&gt; anyhow::Result&lt;<span class="self">Self</span>&gt; {
+<a href=#123 id=123 data-nosnippet>123</a>        <span class="kw">let </span>file = BufReader::new(
+<a href=#124 id=124 data-nosnippet>124</a>            std::fs::File::open(path)
+<a href=#125 id=125 data-nosnippet>125</a>                .map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"opening {} for read: {e}"</span>, path.display()))<span class="question-mark">?</span>,
+<a href=#126 id=126 data-nosnippet>126</a>        );
+<a href=#127 id=127 data-nosnippet>127</a>        <span class="kw">let </span><span class="kw-2">mut </span>context = DCtx::create();
+<a href=#128 id=128 data-nosnippet>128</a>        context
+<a href=#129 id=129 data-nosnippet>129</a>            .init()
+<a href=#130 id=130 data-nosnippet>130</a>            .map_err(ZStdError)
+<a href=#131 id=131 data-nosnippet>131</a>            .map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"initialize zstd decompression context: {e}"</span>))<span class="question-mark">?</span>;
+<a href=#132 id=132 data-nosnippet>132</a>        context
+<a href=#133 id=133 data-nosnippet>133</a>            .load_dictionary(<span class="kw-2">&amp;</span>[])
+<a href=#134 id=134 data-nosnippet>134</a>            .map_err(ZStdError)
+<a href=#135 id=135 data-nosnippet>135</a>            .map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"load empty dictionary: {e}"</span>))<span class="question-mark">?</span>;
+<a href=#136 id=136 data-nosnippet>136</a>
+<a href=#137 id=137 data-nosnippet>137</a>        <span class="comment">// Keep at least one byte so the growth check has a non-empty buffer to
+<a href=#138 id=138 data-nosnippet>138</a>        // fill. A misconfigured tiny cap simply discards records as oversized.
+<a href=#139 id=139 data-nosnippet>139</a>        </span><span class="kw">let </span>max_out_buffer = max_out_buffer.max(<span class="number">1</span>);
+<a href=#140 id=140 data-nosnippet>140</a>        <span class="kw">let </span>base_out_buffer = DCtx::out_size().min(max_out_buffer);
+<a href=#141 id=141 data-nosnippet>141</a>        <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
+<a href=#142 id=142 data-nosnippet>142</a>            file,
+<a href=#143 id=143 data-nosnippet>143</a>            context,
+<a href=#144 id=144 data-nosnippet>144</a>            out_buffer: <span class="macro">vec!</span>[<span class="number">0u8</span>; base_out_buffer],
+<a href=#145 id=145 data-nosnippet>145</a>            base_out_buffer,
+<a href=#146 id=146 data-nosnippet>146</a>            max_out_buffer,
+<a href=#147 id=147 data-nosnippet>147</a>            line_start: <span class="number">0</span>,
+<a href=#148 id=148 data-nosnippet>148</a>            out_pos: <span class="number">0</span>,
+<a href=#149 id=149 data-nosnippet>149</a>            skipping: <span class="prelude-val">None</span>,
+<a href=#150 id=150 data-nosnippet>150</a>            lines_decompressed: <span class="number">0</span>,
+<a href=#151 id=151 data-nosnippet>151</a>            lines_consumed: <span class="number">0</span>,
+<a href=#152 id=152 data-nosnippet>152</a>            pending_lines: VecDeque::new(),
+<a href=#153 id=153 data-nosnippet>153</a>            saw_eof: <span class="bool-val">false</span>,
+<a href=#154 id=154 data-nosnippet>154</a>            decompressed_offset: <span class="number">0</span>,
+<a href=#155 id=155 data-nosnippet>155</a>        })
+<a href=#156 id=156 data-nosnippet>156</a>    }
+<a href=#157 id=157 data-nosnippet>157</a>
+<a href=#158 id=158 data-nosnippet>158</a>    <span class="doccomment">/// Returns the next line from this file.
+<a href=#159 id=159 data-nosnippet>159</a>    ///
+<a href=#160 id=160 data-nosnippet>160</a>    /// `skip_before`: lines with index &lt; skip_before are discarded.
+<a href=#161 id=161 data-nosnippet>161</a>    ///
+<a href=#162 id=162 data-nosnippet>162</a>    /// Returns:
+<a href=#163 id=163 data-nosnippet>163</a>    /// - `Ok(NextLine::Line(line))` -- a complete line was extracted.
+<a href=#164 id=164 data-nosnippet>164</a>    /// - `Ok(NextLine::Skipped { .. })` -- a record exceeding the maximum line
+<a href=#165 id=165 data-nosnippet>165</a>    ///   size was discarded. Reading continues with the next record.
+<a href=#166 id=166 data-nosnippet>166</a>    /// - `Ok(NextLine::None)` -- there isn't any more data available right now.
+<a href=#167 id=167 data-nosnippet>167</a>    ///   The caller should check if the file is done or retry later.
+<a href=#168 id=168 data-nosnippet>168</a>    </span><span class="kw">pub fn </span>next_line(<span class="kw-2">&amp;mut </span><span class="self">self</span>, skip_before: usize) -&gt; anyhow::Result&lt;NextLine&gt; {
+<a href=#169 id=169 data-nosnippet>169</a>        <span class="comment">// Return a buffered line if available
+<a href=#170 id=170 data-nosnippet>170</a>        </span><span class="kw">if let </span><span class="prelude-val">Some</span>(line) = <span class="self">self</span>.pending_lines.pop_front() {
+<a href=#171 id=171 data-nosnippet>171</a>            <span class="self">self</span>.lines_consumed += <span class="number">1</span>;
+<a href=#172 id=172 data-nosnippet>172</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(NextLine::Line(line));
+<a href=#173 id=173 data-nosnippet>173</a>        }
+<a href=#174 id=174 data-nosnippet>174</a>
+<a href=#175 id=175 data-nosnippet>175</a>        <span class="comment">// If we previously saw EOF and have no buffered lines, signal EOF
+<a href=#176 id=176 data-nosnippet>176</a>        </span><span class="kw">if </span><span class="self">self</span>.saw_eof {
+<a href=#177 id=177 data-nosnippet>177</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(NextLine::None);
+<a href=#178 id=178 data-nosnippet>178</a>        }
+<a href=#179 id=179 data-nosnippet>179</a>
+<a href=#180 id=180 data-nosnippet>180</a>        <span class="comment">// Account for skipped lines in lines_consumed
+<a href=#181 id=181 data-nosnippet>181</a>        </span><span class="kw">if </span><span class="self">self</span>.lines_consumed &lt; skip_before {
+<a href=#182 id=182 data-nosnippet>182</a>            <span class="self">self</span>.lines_consumed = skip_before;
+<a href=#183 id=183 data-nosnippet>183</a>        }
+<a href=#184 id=184 data-nosnippet>184</a>
+<a href=#185 id=185 data-nosnippet>185</a>        <span class="comment">// Read and decompress more data
+<a href=#186 id=186 data-nosnippet>186</a>        </span><span class="kw">loop </span>{
+<a href=#187 id=187 data-nosnippet>187</a>            <span class="kw">let </span>in_buffer = <span class="self">self</span>.file.fill_buf()<span class="question-mark">?</span>;
+<a href=#188 id=188 data-nosnippet>188</a>            <span class="kw">if </span>in_buffer.is_empty() {
+<a href=#189 id=189 data-nosnippet>189</a>                <span class="self">self</span>.saw_eof = <span class="bool-val">true</span>;
+<a href=#190 id=190 data-nosnippet>190</a>                <span class="comment">// A skip in progress is left intact. If the file is still
+<a href=#191 id=191 data-nosnippet>191</a>                // being written, the caller resets EOF and we resume discarding
+<a href=#192 id=192 data-nosnippet>192</a>                // when more data arrives. If the file is done, has_partial_data
+<a href=#193 id=193 data-nosnippet>193</a>                // returns true while a skip is in progress, which is how the
+<a href=#194 id=194 data-nosnippet>194</a>                // caller recognizes that the trailing partial record should be
+<a href=#195 id=195 data-nosnippet>195</a>                // dropped.
+<a href=#196 id=196 data-nosnippet>196</a>                </span><span class="kw">if let </span><span class="prelude-val">Some</span>(line) = <span class="self">self</span>.pending_lines.pop_front() {
+<a href=#197 id=197 data-nosnippet>197</a>                    <span class="self">self</span>.lines_consumed += <span class="number">1</span>;
+<a href=#198 id=198 data-nosnippet>198</a>                    <span class="kw">return </span><span class="prelude-val">Ok</span>(NextLine::Line(line));
+<a href=#199 id=199 data-nosnippet>199</a>                }
+<a href=#200 id=200 data-nosnippet>200</a>                <span class="kw">return </span><span class="prelude-val">Ok</span>(NextLine::None);
+<a href=#201 id=201 data-nosnippet>201</a>            }
+<a href=#202 id=202 data-nosnippet>202</a>
+<a href=#203 id=203 data-nosnippet>203</a>            <span class="kw">let </span><span class="kw-2">mut </span>src = InBuffer::around(in_buffer);
+<a href=#204 id=204 data-nosnippet>204</a>            <span class="kw">let </span><span class="kw-2">mut </span>dest = OutBuffer::around_pos(<span class="kw-2">&amp;mut </span><span class="self">self</span>.out_buffer, <span class="self">self</span>.out_pos);
+<a href=#205 id=205 data-nosnippet>205</a>
+<a href=#206 id=206 data-nosnippet>206</a>            <span class="self">self</span>.context
+<a href=#207 id=207 data-nosnippet>207</a>                .decompress_stream(<span class="kw-2">&amp;mut </span>dest, <span class="kw-2">&amp;mut </span>src)
+<a href=#208 id=208 data-nosnippet>208</a>                .map_err(ZStdError)
+<a href=#209 id=209 data-nosnippet>209</a>                .map_err(|e| <span class="macro">anyhow::anyhow!</span>(<span class="string">"zstd decompress: {e}"</span>))<span class="question-mark">?</span>;
+<a href=#210 id=210 data-nosnippet>210</a>
+<a href=#211 id=211 data-nosnippet>211</a>            <span class="kw">let </span>bytes_read = {
+<a href=#212 id=212 data-nosnippet>212</a>                <span class="kw">let </span>pos = src.pos();
+<a href=#213 id=213 data-nosnippet>213</a>                drop(src);
+<a href=#214 id=214 data-nosnippet>214</a>                pos
+<a href=#215 id=215 data-nosnippet>215</a>            };
+<a href=#216 id=216 data-nosnippet>216</a>            <span class="self">self</span>.file.consume(bytes_read);
+<a href=#217 id=217 data-nosnippet>217</a>            <span class="self">self</span>.out_pos = dest.pos();
+<a href=#218 id=218 data-nosnippet>218</a>
+<a href=#219 id=219 data-nosnippet>219</a>            <span class="comment">// Set when this iteration finishes discarding an oversized record
+<a href=#220 id=220 data-nosnippet>220</a>            // that should be reported. Extraction below queues any lines found
+<a href=#221 id=221 data-nosnippet>221</a>            // after the skip into pending_lines first. The code further down
+<a href=#222 id=222 data-nosnippet>222</a>            // deliberately checks for a pending just_skipped report ahead of
+<a href=#223 id=223 data-nosnippet>223</a>            // pending_lines, reversing the detection order: the skip is
+<a href=#224 id=224 data-nosnippet>224</a>            // reported to the caller before the lines that follow it, even
+<a href=#225 id=225 data-nosnippet>225</a>            // though those lines were extracted first.
+<a href=#226 id=226 data-nosnippet>226</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>just_skipped: <span class="prelude-ty">Option</span>&lt;(u64, u64)&gt; = <span class="prelude-val">None</span>;
+<a href=#227 id=227 data-nosnippet>227</a>
+<a href=#228 id=228 data-nosnippet>228</a>            <span class="comment">// While discarding an oversized record, consume its bytes up to and
+<a href=#229 id=229 data-nosnippet>229</a>            // including its terminating newline before resuming extraction.
+<a href=#230 id=230 data-nosnippet>230</a>            </span><span class="kw">if </span><span class="self">self</span>.skipping.is_some() {
+<a href=#231 id=231 data-nosnippet>231</a>                <span class="kw">match </span>memchr::memchr(<span class="string">b'\n'</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.out_buffer[..<span class="self">self</span>.out_pos]) {
+<a href=#232 id=232 data-nosnippet>232</a>                    <span class="prelude-val">None </span>=&gt; {
+<a href=#233 id=233 data-nosnippet>233</a>                        <span class="comment">// The whole buffer is more of the record. Drop it and
+<a href=#234 id=234 data-nosnippet>234</a>                        // read more. `self.skipping.is_some()` guards this
+<a href=#235 id=235 data-nosnippet>235</a>                        // whole match, and the code that enlarges `out_buffer`
+<a href=#236 id=236 data-nosnippet>236</a>                        // runs only when `self.skipping` is `None`. The
+<a href=#237 id=237 data-nosnippet>237</a>                        // conditions cannot both hold, so entering this branch
+<a href=#238 id=238 data-nosnippet>238</a>                        // guarantees the resize code does not run this
+<a href=#239 id=239 data-nosnippet>239</a>                        // iteration. `out_buffer` holds at `base_out_buffer`
+<a href=#240 id=240 data-nosnippet>240</a>                        // bytes for every iteration of a skip, whatever the
+<a href=#241 id=241 data-nosnippet>241</a>                        // size of the discarded record.
+<a href=#242 id=242 data-nosnippet>242</a>                        </span><span class="kw">let </span>skip = <span class="self">self</span>.skipping.as_mut().expect(<span class="string">"checked skipping"</span>);
+<a href=#243 id=243 data-nosnippet>243</a>                        skip.discarded += <span class="self">self</span>.out_pos <span class="kw">as </span>u64;
+<a href=#244 id=244 data-nosnippet>244</a>                        <span class="self">self</span>.decompressed_offset += <span class="self">self</span>.out_pos <span class="kw">as </span>u64;
+<a href=#245 id=245 data-nosnippet>245</a>                        <span class="self">self</span>.out_pos = <span class="number">0</span>;
+<a href=#246 id=246 data-nosnippet>246</a>                        <span class="self">self</span>.line_start = <span class="number">0</span>;
+<a href=#247 id=247 data-nosnippet>247</a>                        <span class="kw">continue</span>;
+<a href=#248 id=248 data-nosnippet>248</a>                    }
+<a href=#249 id=249 data-nosnippet>249</a>                    <span class="prelude-val">Some</span>(idx) =&gt; {
+<a href=#250 id=250 data-nosnippet>250</a>                        <span class="comment">// The record ends at the newline. Discard through it
+<a href=#251 id=251 data-nosnippet>251</a>                        // and resume normal extraction on whatever follows.
+<a href=#252 id=252 data-nosnippet>252</a>                        </span><span class="kw">let </span><span class="kw-2">mut </span>skip = <span class="self">self</span>.skipping.take().expect(<span class="string">"checked skipping"</span>);
+<a href=#253 id=253 data-nosnippet>253</a>                        skip.discarded += idx <span class="kw">as </span>u64;
+<a href=#254 id=254 data-nosnippet>254</a>                        <span class="kw">let </span>consumed = idx + <span class="number">1</span>;
+<a href=#255 id=255 data-nosnippet>255</a>                        <span class="self">self</span>.decompressed_offset += consumed <span class="kw">as </span>u64;
+<a href=#256 id=256 data-nosnippet>256</a>                        <span class="self">self</span>.lines_decompressed += <span class="number">1</span>;
+<a href=#257 id=257 data-nosnippet>257</a>                        <span class="self">self</span>.out_buffer.copy_within(consumed..<span class="self">self</span>.out_pos, <span class="number">0</span>);
+<a href=#258 id=258 data-nosnippet>258</a>                        <span class="self">self</span>.out_pos -= consumed;
+<a href=#259 id=259 data-nosnippet>259</a>                        <span class="self">self</span>.line_start = <span class="number">0</span>;
+<a href=#260 id=260 data-nosnippet>260</a>                        <span class="kw">if </span>skip.surface {
+<a href=#261 id=261 data-nosnippet>261</a>                            just_skipped = <span class="prelude-val">Some</span>((skip.byte_offset, skip.discarded));
+<a href=#262 id=262 data-nosnippet>262</a>                        }
+<a href=#263 id=263 data-nosnippet>263</a>                        <span class="comment">// Fall through to extract the remainder. A surfaced
+<a href=#264 id=264 data-nosnippet>264</a>                        // skip is returned below, ahead of those lines.
+<a href=#265 id=265 data-nosnippet>265</a>                    </span>}
+<a href=#266 id=266 data-nosnippet>266</a>                }
+<a href=#267 id=267 data-nosnippet>267</a>            }
+<a href=#268 id=268 data-nosnippet>268</a>
+<a href=#269 id=269 data-nosnippet>269</a>            <span class="comment">// Extract complete lines
+<a href=#270 id=270 data-nosnippet>270</a>            </span><span class="kw">while let </span><span class="prelude-val">Some</span>(idx) =
+<a href=#271 id=271 data-nosnippet>271</a>                memchr::memchr(<span class="string">b'\n'</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.out_buffer[<span class="self">self</span>.line_start..<span class="self">self</span>.out_pos])
+<a href=#272 id=272 data-nosnippet>272</a>            {
+<a href=#273 id=273 data-nosnippet>273</a>                <span class="kw">let </span>line_byte_offset = <span class="self">self</span>.decompressed_offset;
+<a href=#274 id=274 data-nosnippet>274</a>                <span class="kw">if </span><span class="self">self</span>.lines_decompressed &gt;= skip_before {
+<a href=#275 id=275 data-nosnippet>275</a>                    <span class="kw">let </span>this_line = <span class="kw-2">&amp;</span><span class="self">self</span>.out_buffer[<span class="self">self</span>.line_start..<span class="self">self</span>.line_start + idx];
+<a href=#276 id=276 data-nosnippet>276</a>                    <span class="kw">let </span>line = String::from_utf8_lossy(this_line).into_owned();
+<a href=#277 id=277 data-nosnippet>277</a>                    <span class="self">self</span>.pending_lines.push_back(DecompressedLine {
+<a href=#278 id=278 data-nosnippet>278</a>                        text: line,
+<a href=#279 id=279 data-nosnippet>279</a>                        byte_offset: line_byte_offset,
+<a href=#280 id=280 data-nosnippet>280</a>                    });
+<a href=#281 id=281 data-nosnippet>281</a>                }
+<a href=#282 id=282 data-nosnippet>282</a>                <span class="comment">// Advance past the line content + newline
+<a href=#283 id=283 data-nosnippet>283</a>                </span><span class="kw">let </span>consumed = idx + <span class="number">1</span>;
+<a href=#284 id=284 data-nosnippet>284</a>                <span class="self">self</span>.decompressed_offset += consumed <span class="kw">as </span>u64;
+<a href=#285 id=285 data-nosnippet>285</a>                <span class="self">self</span>.line_start += consumed;
+<a href=#286 id=286 data-nosnippet>286</a>                <span class="self">self</span>.lines_decompressed += <span class="number">1</span>;
+<a href=#287 id=287 data-nosnippet>287</a>            }
+<a href=#288 id=288 data-nosnippet>288</a>
+<a href=#289 id=289 data-nosnippet>289</a>            <span class="comment">// Compact the output buffer
+<a href=#290 id=290 data-nosnippet>290</a>            </span><span class="kw">if </span><span class="self">self</span>.line_start == <span class="self">self</span>.out_pos {
+<a href=#291 id=291 data-nosnippet>291</a>                <span class="self">self</span>.out_pos = <span class="number">0</span>;
+<a href=#292 id=292 data-nosnippet>292</a>                <span class="self">self</span>.line_start = <span class="number">0</span>;
+<a href=#293 id=293 data-nosnippet>293</a>            } <span class="kw">else if </span><span class="self">self</span>.line_start &gt; <span class="number">0 </span>{
+<a href=#294 id=294 data-nosnippet>294</a>                <span class="self">self</span>.out_buffer
+<a href=#295 id=295 data-nosnippet>295</a>                    .copy_within(<span class="self">self</span>.line_start..<span class="self">self</span>.out_pos, <span class="number">0</span>);
+<a href=#296 id=296 data-nosnippet>296</a>                <span class="self">self</span>.out_pos -= <span class="self">self</span>.line_start;
+<a href=#297 id=297 data-nosnippet>297</a>                <span class="self">self</span>.line_start = <span class="number">0</span>;
+<a href=#298 id=298 data-nosnippet>298</a>            }
+<a href=#299 id=299 data-nosnippet>299</a>
+<a href=#300 id=300 data-nosnippet>300</a>            <span class="comment">// Release memory borrowed to hold an oversized record (see
+<a href=#301 id=301 data-nosnippet>301</a>            // base_out_buffer) once the remaining live data fits in the
+<a href=#302 id=302 data-nosnippet>302</a>            // steady-state size again.
+<a href=#303 id=303 data-nosnippet>303</a>            </span><span class="kw">if </span><span class="self">self</span>.out_buffer.len() &gt; <span class="self">self</span>.base_out_buffer &amp;&amp; <span class="self">self</span>.out_pos &lt;= <span class="self">self</span>.base_out_buffer
+<a href=#304 id=304 data-nosnippet>304</a>            {
+<a href=#305 id=305 data-nosnippet>305</a>                <span class="self">self</span>.out_buffer.truncate(<span class="self">self</span>.base_out_buffer);
+<a href=#306 id=306 data-nosnippet>306</a>                <span class="self">self</span>.out_buffer.shrink_to_fit();
+<a href=#307 id=307 data-nosnippet>307</a>            }
+<a href=#308 id=308 data-nosnippet>308</a>
+<a href=#309 id=309 data-nosnippet>309</a>            <span class="comment">// Report a just-finished oversized-record skip ahead of any lines
+<a href=#310 id=310 data-nosnippet>310</a>            // that followed it in the same buffer (already queued above).
+<a href=#311 id=311 data-nosnippet>311</a>            </span><span class="kw">if let </span><span class="prelude-val">Some</span>((byte_offset, bytes)) = just_skipped {
+<a href=#312 id=312 data-nosnippet>312</a>                <span class="self">self</span>.lines_consumed += <span class="number">1</span>;
+<a href=#313 id=313 data-nosnippet>313</a>                <span class="kw">return </span><span class="prelude-val">Ok</span>(NextLine::Skipped { byte_offset, bytes });
+<a href=#314 id=314 data-nosnippet>314</a>            }
+<a href=#315 id=315 data-nosnippet>315</a>
+<a href=#316 id=316 data-nosnippet>316</a>            <span class="comment">// If we extracted any lines, return the first one
+<a href=#317 id=317 data-nosnippet>317</a>            </span><span class="kw">if let </span><span class="prelude-val">Some</span>(line) = <span class="self">self</span>.pending_lines.pop_front() {
+<a href=#318 id=318 data-nosnippet>318</a>                <span class="self">self</span>.lines_consumed += <span class="number">1</span>;
+<a href=#319 id=319 data-nosnippet>319</a>                <span class="kw">return </span><span class="prelude-val">Ok</span>(NextLine::Line(line));
+<a href=#320 id=320 data-nosnippet>320</a>            }
+<a href=#321 id=321 data-nosnippet>321</a>
+<a href=#322 id=322 data-nosnippet>322</a>            <span class="comment">// A full buffer that doesn't hold any complete lines (compaction
+<a href=#323 id=323 data-nosnippet>323</a>            // always leaves line_start at 0) means the current record is larger
+<a href=#324 id=324 data-nosnippet>324</a>            // than the buffer. Grow it (up to max_out_buffer) to let the next
+<a href=#325 id=325 data-nosnippet>325</a>            // decompress call make progress; otherwise zstd stalls with "no
+<a href=#326 id=326 data-nosnippet>326</a>            // progress ... output buffer full".
+<a href=#327 id=327 data-nosnippet>327</a>            </span><span class="kw">if </span><span class="self">self</span>.out_pos == <span class="self">self</span>.out_buffer.len() {
+<a href=#328 id=328 data-nosnippet>328</a>                <span class="kw">if </span><span class="self">self</span>.out_buffer.len() &gt;= <span class="self">self</span>.max_out_buffer {
+<a href=#329 id=329 data-nosnippet>329</a>                    <span class="comment">// If a record exceeds the buffer cap, we discard just that
+<a href=#330 id=330 data-nosnippet>330</a>                    // record rather than failing the whole segment, since the
+<a href=#331 id=331 data-nosnippet>331</a>                    // zstd stream is intact (this is our own cap, not a decode
+<a href=#332 id=332 data-nosnippet>332</a>                    // error). We scan forward for its terminating newline and
+<a href=#333 id=333 data-nosnippet>333</a>                    // resume with the next record. The current buffer is
+<a href=#334 id=334 data-nosnippet>334</a>                    // dropped and the buffer shrinks back to base, since while
+<a href=#335 id=335 data-nosnippet>335</a>                    // skipping we only need room to scan.
+<a href=#336 id=336 data-nosnippet>336</a>                    </span><span class="kw">let </span>surface = <span class="self">self</span>.lines_decompressed &gt;= skip_before;
+<a href=#337 id=337 data-nosnippet>337</a>                    <span class="self">self</span>.skipping = <span class="prelude-val">Some</span>(Skip {
+<a href=#338 id=338 data-nosnippet>338</a>                        byte_offset: <span class="self">self</span>.decompressed_offset,
+<a href=#339 id=339 data-nosnippet>339</a>                        discarded: <span class="self">self</span>.out_pos <span class="kw">as </span>u64,
+<a href=#340 id=340 data-nosnippet>340</a>                        surface,
+<a href=#341 id=341 data-nosnippet>341</a>                    });
+<a href=#342 id=342 data-nosnippet>342</a>                    <span class="self">self</span>.decompressed_offset += <span class="self">self</span>.out_pos <span class="kw">as </span>u64;
+<a href=#343 id=343 data-nosnippet>343</a>                    <span class="self">self</span>.out_pos = <span class="number">0</span>;
+<a href=#344 id=344 data-nosnippet>344</a>                    <span class="self">self</span>.line_start = <span class="number">0</span>;
+<a href=#345 id=345 data-nosnippet>345</a>                    <span class="kw">if </span><span class="self">self</span>.out_buffer.len() &gt; <span class="self">self</span>.base_out_buffer {
+<a href=#346 id=346 data-nosnippet>346</a>                        <span class="self">self</span>.out_buffer.truncate(<span class="self">self</span>.base_out_buffer);
+<a href=#347 id=347 data-nosnippet>347</a>                        <span class="self">self</span>.out_buffer.shrink_to_fit();
+<a href=#348 id=348 data-nosnippet>348</a>                    }
+<a href=#349 id=349 data-nosnippet>349</a>                    <span class="kw">continue</span>;
+<a href=#350 id=350 data-nosnippet>350</a>                }
+<a href=#351 id=351 data-nosnippet>351</a>                <span class="kw">let </span>new_len = <span class="self">self
+<a href=#352 id=352 data-nosnippet>352</a>                    </span>.out_buffer
+<a href=#353 id=353 data-nosnippet>353</a>                    .len()
+<a href=#354 id=354 data-nosnippet>354</a>                    .saturating_mul(<span class="number">2</span>)
+<a href=#355 id=355 data-nosnippet>355</a>                    .min(<span class="self">self</span>.max_out_buffer);
+<a href=#356 id=356 data-nosnippet>356</a>                <span class="comment">// Reserve fallibly: max_out_buffer comes straight from operator
+<a href=#357 id=357 data-nosnippet>357</a>                // config and can be arbitrarily large. A huge cap is reported
+<a href=#358 id=358 data-nosnippet>358</a>                // as an error here (skipping this segment) instead of aborting
+<a href=#359 id=359 data-nosnippet>359</a>                // the process on a failed allocation.
+<a href=#360 id=360 data-nosnippet>360</a>                </span><span class="kw">let </span>additional = new_len - <span class="self">self</span>.out_buffer.len();
+<a href=#361 id=361 data-nosnippet>361</a>                <span class="self">self</span>.out_buffer.try_reserve(additional).map_err(|e| {
+<a href=#362 id=362 data-nosnippet>362</a>                    <span class="macro">anyhow::anyhow!</span>(<span class="string">"allocating {new_len} bytes for the decompression buffer: {e}"</span>)
+<a href=#363 id=363 data-nosnippet>363</a>                })<span class="question-mark">?</span>;
+<a href=#364 id=364 data-nosnippet>364</a>                <span class="self">self</span>.out_buffer.resize(new_len, <span class="number">0</span>);
+<a href=#365 id=365 data-nosnippet>365</a>            }
+<a href=#366 id=366 data-nosnippet>366</a>
+<a href=#367 id=367 data-nosnippet>367</a>            <span class="comment">// No complete lines yet; read more data
+<a href=#368 id=368 data-nosnippet>368</a>        </span>}
+<a href=#369 id=369 data-nosnippet>369</a>    }
+<a href=#370 id=370 data-nosnippet>370</a>
+<a href=#371 id=371 data-nosnippet>371</a>    <span class="doccomment">/// Reset the EOF flag so we can try reading more data
+<a href=#372 id=372 data-nosnippet>372</a>    /// (useful when tailing a file that is still being written to).
+<a href=#373 id=373 data-nosnippet>373</a>    </span><span class="kw">pub fn </span>reset_eof(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
+<a href=#374 id=374 data-nosnippet>374</a>        <span class="self">self</span>.saw_eof = <span class="bool-val">false</span>;
+<a href=#375 id=375 data-nosnippet>375</a>    }
+<a href=#376 id=376 data-nosnippet>376</a>
+<a href=#377 id=377 data-nosnippet>377</a>    <span class="doccomment">/// Returns true if there is partial (incomplete line) data remaining: either
+<a href=#378 id=378 data-nosnippet>378</a>    /// buffered bytes with no terminating newline yet, or a record still being
+<a href=#379 id=379 data-nosnippet>379</a>    /// discarded for exceeding the maximum line size. When a done file ends in
+<a href=#380 id=380 data-nosnippet>380</a>    /// this state the trailing record is incomplete and is dropped.
+<a href=#381 id=381 data-nosnippet>381</a>    </span><span class="kw">pub fn </span>has_partial_data(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
+<a href=#382 id=382 data-nosnippet>382</a>        <span class="self">self</span>.out_pos &gt; <span class="number">0 </span>|| <span class="self">self</span>.skipping.is_some()
+<a href=#383 id=383 data-nosnippet>383</a>    }
+<a href=#384 id=384 data-nosnippet>384</a>
+<a href=#385 id=385 data-nosnippet>385</a>    <span class="doccomment">/// Returns true if the trailing partial data is a record being discarded
+<a href=#386 id=386 data-nosnippet>386</a>    /// for exceeding the maximum line size, as opposed to an unterminated line
+<a href=#387 id=387 data-nosnippet>387</a>    /// left behind by a writer that exited without flushing.
+<a href=#388 id=388 data-nosnippet>388</a>    </span><span class="kw">pub fn </span>is_discarding_oversized_record(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
+<a href=#389 id=389 data-nosnippet>389</a>        <span class="self">self</span>.skipping.is_some()
+<a href=#390 id=390 data-nosnippet>390</a>    }
+<a href=#391 id=391 data-nosnippet>391</a>}
+<a href=#392 id=392 data-nosnippet>392</a>
+<a href=#393 id=393 data-nosnippet>393</a><span class="attr">#[cfg(test)]
+<a href=#394 id=394 data-nosnippet>394</a></span><span class="kw">mod </span>test {
+<a href=#395 id=395 data-nosnippet>395</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#396 id=396 data-nosnippet>396</a>    <span class="kw">use </span>std::io::Write;
+<a href=#397 id=397 data-nosnippet>397</a>    <span class="kw">use </span>zstd::stream::write::Encoder;
+<a href=#398 id=398 data-nosnippet>398</a>
+<a href=#399 id=399 data-nosnippet>399</a>    <span class="doccomment">/// Compress the supplied lines into a zstd JSONL segment on disk, matching
+<a href=#400 id=400 data-nosnippet>400</a>    /// the framing produced by the log writer, and return the path.
+<a href=#401 id=401 data-nosnippet>401</a>    </span><span class="kw">fn </span>write_segment(lines: <span class="kw-2">&amp;</span>[String]) -&gt; tempfile::NamedTempFile {
+<a href=#402 id=402 data-nosnippet>402</a>        <span class="kw">let </span>file = tempfile::NamedTempFile::new().unwrap();
+<a href=#403 id=403 data-nosnippet>403</a>        <span class="kw">let </span><span class="kw-2">mut </span>encoder = Encoder::new(file.reopen().unwrap(), <span class="number">3</span>).unwrap();
+<a href=#404 id=404 data-nosnippet>404</a>        <span class="kw">for </span>line <span class="kw">in </span>lines {
+<a href=#405 id=405 data-nosnippet>405</a>            encoder.write_all(line.as_bytes()).unwrap();
+<a href=#406 id=406 data-nosnippet>406</a>            encoder.write_all(<span class="string">b"\n"</span>).unwrap();
+<a href=#407 id=407 data-nosnippet>407</a>        }
+<a href=#408 id=408 data-nosnippet>408</a>        encoder.finish().unwrap();
+<a href=#409 id=409 data-nosnippet>409</a>        file
+<a href=#410 id=410 data-nosnippet>410</a>    }
+<a href=#411 id=411 data-nosnippet>411</a>
+<a href=#412 id=412 data-nosnippet>412</a>    <span class="kw">fn </span>read_all(path: <span class="kw-2">&amp;</span>std::path::Path) -&gt; anyhow::Result&lt;Vec&lt;String&gt;&gt; {
+<a href=#413 id=413 data-nosnippet>413</a>        <span class="kw">let </span><span class="kw-2">mut </span>decompressor = FileDecompressor::open(path)<span class="question-mark">?</span>;
+<a href=#414 id=414 data-nosnippet>414</a>        <span class="kw">let </span><span class="kw-2">mut </span>lines = <span class="macro">vec!</span>[];
+<a href=#415 id=415 data-nosnippet>415</a>        <span class="kw">loop </span>{
+<a href=#416 id=416 data-nosnippet>416</a>            <span class="kw">match </span>decompressor.next_line(<span class="number">0</span>)<span class="question-mark">? </span>{
+<a href=#417 id=417 data-nosnippet>417</a>                NextLine::Line(line) =&gt; lines.push(line.text),
+<a href=#418 id=418 data-nosnippet>418</a>                NextLine::Skipped { .. } =&gt; <span class="macro">panic!</span>(<span class="string">"unexpected skip"</span>),
+<a href=#419 id=419 data-nosnippet>419</a>                NextLine::None =&gt; <span class="kw">break</span>,
+<a href=#420 id=420 data-nosnippet>420</a>            }
+<a href=#421 id=421 data-nosnippet>421</a>        }
+<a href=#422 id=422 data-nosnippet>422</a>        <span class="prelude-val">Ok</span>(lines)
+<a href=#423 id=423 data-nosnippet>423</a>    }
+<a href=#424 id=424 data-nosnippet>424</a>
+<a href=#425 id=425 data-nosnippet>425</a>    <span class="kw">fn </span>expect_line(decompressor: <span class="kw-2">&amp;mut </span>FileDecompressor) -&gt; DecompressedLine {
+<a href=#426 id=426 data-nosnippet>426</a>        <span class="kw">match </span>decompressor.next_line(<span class="number">0</span>).unwrap() {
+<a href=#427 id=427 data-nosnippet>427</a>            NextLine::Line(line) =&gt; line,
+<a href=#428 id=428 data-nosnippet>428</a>            other =&gt; <span class="macro">panic!</span>(<span class="string">"expected a line, got {other:?}"</span>),
+<a href=#429 id=429 data-nosnippet>429</a>        }
+<a href=#430 id=430 data-nosnippet>430</a>    }
+<a href=#431 id=431 data-nosnippet>431</a>
+<a href=#432 id=432 data-nosnippet>432</a>    <span class="attr">#[test]
+<a href=#433 id=433 data-nosnippet>433</a>    </span><span class="kw">fn </span>small_records_roundtrip() {
+<a href=#434 id=434 data-nosnippet>434</a>        <span class="kw">let </span>input: Vec&lt;String&gt; = (<span class="number">0</span>..<span class="number">1000</span>).map(|i| <span class="macro">format!</span>(<span class="string">"{{\"n\":{i}}}"</span>)).collect();
+<a href=#435 id=435 data-nosnippet>435</a>        <span class="kw">let </span>seg = write_segment(<span class="kw-2">&amp;</span>input);
+<a href=#436 id=436 data-nosnippet>436</a>        <span class="kw">let </span>lines = read_all(seg.path()).unwrap();
+<a href=#437 id=437 data-nosnippet>437</a>        <span class="macro">k9::assert_equal!</span>(lines, input);
+<a href=#438 id=438 data-nosnippet>438</a>    }
+<a href=#439 id=439 data-nosnippet>439</a>
+<a href=#440 id=440 data-nosnippet>440</a>    <span class="doccomment">/// Verifies that a record whose decompressed size exceeds the fixed output
+<a href=#441 id=441 data-nosnippet>441</a>    /// buffer (`DCtx::out_size()`) is still recovered, along with the ordinary
+<a href=#442 id=442 data-nosnippet>442</a>    /// records that share its segment.
+<a href=#443 id=443 data-nosnippet>443</a>    </span><span class="attr">#[test]
+<a href=#444 id=444 data-nosnippet>444</a>    </span><span class="kw">fn </span>record_larger_than_output_buffer() {
+<a href=#445 id=445 data-nosnippet>445</a>        <span class="kw">let </span>big_value = <span class="string">"x"</span>.repeat(DCtx::out_size() * <span class="number">2</span>);
+<a href=#446 id=446 data-nosnippet>446</a>        <span class="kw">let </span>input = <span class="macro">vec!</span>[
+<a href=#447 id=447 data-nosnippet>447</a>            <span class="string">r#"{"n":"before"}"#</span>.to_string(),
+<a href=#448 id=448 data-nosnippet>448</a>            <span class="macro">format!</span>(<span class="string">r#"{{"big":"{big_value}"}}"#</span>),
+<a href=#449 id=449 data-nosnippet>449</a>            <span class="string">r#"{"n":"after"}"#</span>.to_string(),
+<a href=#450 id=450 data-nosnippet>450</a>        ];
+<a href=#451 id=451 data-nosnippet>451</a>        <span class="kw">let </span>seg = write_segment(<span class="kw-2">&amp;</span>input);
+<a href=#452 id=452 data-nosnippet>452</a>        <span class="kw">let </span>lines = read_all(seg.path()).unwrap();
+<a href=#453 id=453 data-nosnippet>453</a>        <span class="macro">k9::assert_equal!</span>(lines, input);
+<a href=#454 id=454 data-nosnippet>454</a>    }
+<a href=#455 id=455 data-nosnippet>455</a>
+<a href=#456 id=456 data-nosnippet>456</a>    <span class="doccomment">/// After an oversized record forces the buffer to grow, it shrinks back
+<a href=#457 id=457 data-nosnippet>457</a>    /// down to the steady-state size once that record has been emitted.
+<a href=#458 id=458 data-nosnippet>458</a>    </span><span class="attr">#[test]
+<a href=#459 id=459 data-nosnippet>459</a>    </span><span class="kw">fn </span>buffer_shrinks_back_after_large_record() {
+<a href=#460 id=460 data-nosnippet>460</a>        <span class="kw">let </span>big_value = <span class="string">"x"</span>.repeat(DCtx::out_size() * <span class="number">4</span>);
+<a href=#461 id=461 data-nosnippet>461</a>        <span class="kw">let </span>input = <span class="macro">vec!</span>[
+<a href=#462 id=462 data-nosnippet>462</a>            <span class="macro">format!</span>(<span class="string">r#"{{"big":"{big_value}"}}"#</span>),
+<a href=#463 id=463 data-nosnippet>463</a>            <span class="string">r#"{"n":"after"}"#</span>.to_string(),
+<a href=#464 id=464 data-nosnippet>464</a>        ];
+<a href=#465 id=465 data-nosnippet>465</a>        <span class="kw">let </span>seg = write_segment(<span class="kw-2">&amp;</span>input);
+<a href=#466 id=466 data-nosnippet>466</a>        <span class="kw">let </span><span class="kw-2">mut </span>decompressor = FileDecompressor::open(seg.path()).unwrap();
+<a href=#467 id=467 data-nosnippet>467</a>
+<a href=#468 id=468 data-nosnippet>468</a>        <span class="comment">// Recovering the oversized record forces the buffer past its base size
+<a href=#469 id=469 data-nosnippet>469</a>        // (proven by record_larger_than_output_buffer). By the time it is
+<a href=#470 id=470 data-nosnippet>470</a>        // emitted the buffer has already been reclaimed.
+<a href=#471 id=471 data-nosnippet>471</a>        </span><span class="kw">let </span>first = expect_line(<span class="kw-2">&amp;mut </span>decompressor);
+<a href=#472 id=472 data-nosnippet>472</a>        <span class="macro">k9::assert_equal!</span>(first.text, input[<span class="number">0</span>]);
+<a href=#473 id=473 data-nosnippet>473</a>        <span class="macro">k9::assert_equal!</span>(decompressor.out_buffer.len(), decompressor.base_out_buffer);
+<a href=#474 id=474 data-nosnippet>474</a>
+<a href=#475 id=475 data-nosnippet>475</a>        <span class="kw">let </span>second = expect_line(<span class="kw-2">&amp;mut </span>decompressor);
+<a href=#476 id=476 data-nosnippet>476</a>        <span class="macro">k9::assert_equal!</span>(second.text, input[<span class="number">1</span>]);
+<a href=#477 id=477 data-nosnippet>477</a>        <span class="macro">k9::assert_equal!</span>(decompressor.out_buffer.len(), decompressor.base_out_buffer);
+<a href=#478 id=478 data-nosnippet>478</a>    }
+<a href=#479 id=479 data-nosnippet>479</a>
+<a href=#480 id=480 data-nosnippet>480</a>    <span class="doccomment">/// Discards a record exceeding the cap and reports it as skipped, with its
+<a href=#481 id=481 data-nosnippet>481</a>    /// start offset and byte count, rather than failing the whole segment.
+<a href=#482 id=482 data-nosnippet>482</a>    </span><span class="attr">#[test]
+<a href=#483 id=483 data-nosnippet>483</a>    </span><span class="kw">fn </span>record_exceeding_cap_is_skipped() {
+<a href=#484 id=484 data-nosnippet>484</a>        <span class="kw">let </span>cap = <span class="number">64 </span>* <span class="number">1024</span>;
+<a href=#485 id=485 data-nosnippet>485</a>        <span class="kw">let </span>content = <span class="string">"x"</span>.repeat(cap * <span class="number">2</span>);
+<a href=#486 id=486 data-nosnippet>486</a>        <span class="kw">let </span>seg = write_segment(<span class="kw-2">&amp;</span>[content.clone()]);
+<a href=#487 id=487 data-nosnippet>487</a>        <span class="kw">let </span><span class="kw-2">mut </span>decompressor = FileDecompressor::open_with_max_line_size(seg.path(), cap).unwrap();
+<a href=#488 id=488 data-nosnippet>488</a>        <span class="kw">match </span>decompressor.next_line(<span class="number">0</span>).unwrap() {
+<a href=#489 id=489 data-nosnippet>489</a>            NextLine::Skipped { byte_offset, bytes } =&gt; {
+<a href=#490 id=490 data-nosnippet>490</a>                <span class="macro">k9::assert_equal!</span>(byte_offset, <span class="number">0</span>);
+<a href=#491 id=491 data-nosnippet>491</a>                <span class="macro">k9::assert_equal!</span>(bytes, content.len() <span class="kw">as </span>u64);
+<a href=#492 id=492 data-nosnippet>492</a>            }
+<a href=#493 id=493 data-nosnippet>493</a>            other =&gt; <span class="macro">panic!</span>(<span class="string">"expected the oversized record to be skipped, got {other:?}"</span>),
+<a href=#494 id=494 data-nosnippet>494</a>        }
+<a href=#495 id=495 data-nosnippet>495</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(decompressor.next_line(<span class="number">0</span>).unwrap(), NextLine::None));
+<a href=#496 id=496 data-nosnippet>496</a>    }
+<a href=#497 id=497 data-nosnippet>497</a>
+<a href=#498 id=498 data-nosnippet>498</a>    <span class="doccomment">/// Reads a record one byte below the cap: its content plus the newline
+<a href=#499 id=499 data-nosnippet>499</a>    /// separator fit within the buffer.
+<a href=#500 id=500 data-nosnippet>500</a>    </span><span class="attr">#[test]
+<a href=#501 id=501 data-nosnippet>501</a>    </span><span class="kw">fn </span>record_just_below_cap_is_read() {
+<a href=#502 id=502 data-nosnippet>502</a>        <span class="kw">let </span>cap = <span class="number">64 </span>* <span class="number">1024</span>;
+<a href=#503 id=503 data-nosnippet>503</a>        <span class="kw">let </span>content = <span class="string">"x"</span>.repeat(cap - <span class="number">1</span>);
+<a href=#504 id=504 data-nosnippet>504</a>        <span class="kw">let </span>seg = write_segment(<span class="kw-2">&amp;</span>[content.clone()]);
+<a href=#505 id=505 data-nosnippet>505</a>        <span class="kw">let </span><span class="kw-2">mut </span>decompressor = FileDecompressor::open_with_max_line_size(seg.path(), cap).unwrap();
+<a href=#506 id=506 data-nosnippet>506</a>        <span class="macro">k9::assert_equal!</span>(expect_line(<span class="kw-2">&amp;mut </span>decompressor).text, content);
+<a href=#507 id=507 data-nosnippet>507</a>    }
+<a href=#508 id=508 data-nosnippet>508</a>
+<a href=#509 id=509 data-nosnippet>509</a>    <span class="doccomment">/// Skips a record whose content is exactly `cap` bytes: one byte too long
+<a href=#510 id=510 data-nosnippet>510</a>    /// for its trailing newline to also fit in the buffer.
+<a href=#511 id=511 data-nosnippet>511</a>    </span><span class="attr">#[test]
+<a href=#512 id=512 data-nosnippet>512</a>    </span><span class="kw">fn </span>record_at_cap_is_skipped() {
+<a href=#513 id=513 data-nosnippet>513</a>        <span class="kw">let </span>cap = <span class="number">64 </span>* <span class="number">1024</span>;
+<a href=#514 id=514 data-nosnippet>514</a>        <span class="kw">let </span>content = <span class="string">"y"</span>.repeat(cap);
+<a href=#515 id=515 data-nosnippet>515</a>        <span class="kw">let </span>seg = write_segment(<span class="kw-2">&amp;</span>[content]);
+<a href=#516 id=516 data-nosnippet>516</a>        <span class="kw">let </span><span class="kw-2">mut </span>decompressor = FileDecompressor::open_with_max_line_size(seg.path(), cap).unwrap();
+<a href=#517 id=517 data-nosnippet>517</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(
+<a href=#518 id=518 data-nosnippet>518</a>            decompressor.next_line(<span class="number">0</span>).unwrap(),
+<a href=#519 id=519 data-nosnippet>519</a>            NextLine::Skipped { .. }
+<a href=#520 id=520 data-nosnippet>520</a>        ));
+<a href=#521 id=521 data-nosnippet>521</a>    }
+<a href=#522 id=522 data-nosnippet>522</a>
+<a href=#523 id=523 data-nosnippet>523</a>    <span class="doccomment">/// Discards an oversized record between two ordinary records while the
+<a href=#524 id=524 data-nosnippet>524</a>    /// records around it are still read, and the checkpoint line count keeps
+<a href=#525 id=525 data-nosnippet>525</a>    /// advancing across the skip.
+<a href=#526 id=526 data-nosnippet>526</a>    </span><span class="attr">#[test]
+<a href=#527 id=527 data-nosnippet>527</a>    </span><span class="kw">fn </span>oversized_record_skipped_rest_recovered() {
+<a href=#528 id=528 data-nosnippet>528</a>        <span class="kw">let </span>cap = <span class="number">64 </span>* <span class="number">1024</span>;
+<a href=#529 id=529 data-nosnippet>529</a>        <span class="kw">let </span>input = <span class="macro">vec!</span>[
+<a href=#530 id=530 data-nosnippet>530</a>            <span class="string">"before"</span>.to_string(),
+<a href=#531 id=531 data-nosnippet>531</a>            <span class="string">"y"</span>.repeat(cap * <span class="number">2</span>),
+<a href=#532 id=532 data-nosnippet>532</a>            <span class="string">"after"</span>.to_string(),
+<a href=#533 id=533 data-nosnippet>533</a>        ];
+<a href=#534 id=534 data-nosnippet>534</a>        <span class="kw">let </span>seg = write_segment(<span class="kw-2">&amp;</span>input);
+<a href=#535 id=535 data-nosnippet>535</a>        <span class="kw">let </span><span class="kw-2">mut </span>decompressor = FileDecompressor::open_with_max_line_size(seg.path(), cap).unwrap();
+<a href=#536 id=536 data-nosnippet>536</a>
+<a href=#537 id=537 data-nosnippet>537</a>        <span class="kw">let </span>before = expect_line(<span class="kw-2">&amp;mut </span>decompressor);
+<a href=#538 id=538 data-nosnippet>538</a>        <span class="macro">k9::assert_equal!</span>(before.text, <span class="string">"before"</span>.to_string());
+<a href=#539 id=539 data-nosnippet>539</a>
+<a href=#540 id=540 data-nosnippet>540</a>        <span class="kw">match </span>decompressor.next_line(<span class="number">0</span>).unwrap() {
+<a href=#541 id=541 data-nosnippet>541</a>            NextLine::Skipped { bytes, .. } =&gt; {
+<a href=#542 id=542 data-nosnippet>542</a>                <span class="macro">k9::assert_equal!</span>(bytes, (cap * <span class="number">2</span>) <span class="kw">as </span>u64);
+<a href=#543 id=543 data-nosnippet>543</a>            }
+<a href=#544 id=544 data-nosnippet>544</a>            other =&gt; <span class="macro">panic!</span>(<span class="string">"expected the oversized record to be skipped, got {other:?}"</span>),
+<a href=#545 id=545 data-nosnippet>545</a>        }
+<a href=#546 id=546 data-nosnippet>546</a>
+<a href=#547 id=547 data-nosnippet>547</a>        <span class="kw">let </span>after = expect_line(<span class="kw-2">&amp;mut </span>decompressor);
+<a href=#548 id=548 data-nosnippet>548</a>        <span class="macro">k9::assert_equal!</span>(after.text, <span class="string">"after"</span>.to_string());
+<a href=#549 id=549 data-nosnippet>549</a>        <span class="comment">// before + skipped record + after = three lines consumed.
+<a href=#550 id=550 data-nosnippet>550</a>        </span><span class="macro">k9::assert_equal!</span>(decompressor.lines_consumed, <span class="number">3</span>);
+<a href=#551 id=551 data-nosnippet>551</a>
+<a href=#552 id=552 data-nosnippet>552</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(decompressor.next_line(<span class="number">0</span>).unwrap(), NextLine::None));
+<a href=#553 id=553 data-nosnippet>553</a>    }
+<a href=#554 id=554 data-nosnippet>554</a>
+<a href=#555 id=555 data-nosnippet>555</a>    <span class="doccomment">/// A record that exceeds the cap but sits before `skip_before` (already
+<a href=#556 id=556 data-nosnippet>556</a>    /// consumed on an earlier run) is dropped silently. Decompression always
+<a href=#557 id=557 data-nosnippet>557</a>    /// restarts from the head of a segment. This keeps an oversized record
+<a href=#558 id=558 data-nosnippet>558</a>    /// before the checkpoint from being reported again on every restart.
+<a href=#559 id=559 data-nosnippet>559</a>    </span><span class="attr">#[test]
+<a href=#560 id=560 data-nosnippet>560</a>    </span><span class="kw">fn </span>oversized_record_before_checkpoint_dropped_silently() {
+<a href=#561 id=561 data-nosnippet>561</a>        <span class="kw">let </span>cap = <span class="number">64 </span>* <span class="number">1024</span>;
+<a href=#562 id=562 data-nosnippet>562</a>        <span class="kw">let </span>input = <span class="macro">vec!</span>[<span class="string">"y"</span>.repeat(cap * <span class="number">2</span>), <span class="string">"after"</span>.to_string()];
+<a href=#563 id=563 data-nosnippet>563</a>        <span class="kw">let </span>seg = write_segment(<span class="kw-2">&amp;</span>input);
+<a href=#564 id=564 data-nosnippet>564</a>        <span class="kw">let </span><span class="kw-2">mut </span>decompressor = FileDecompressor::open_with_max_line_size(seg.path(), cap).unwrap();
+<a href=#565 id=565 data-nosnippet>565</a>
+<a href=#566 id=566 data-nosnippet>566</a>        <span class="comment">// skip_before = 1 marks the oversized first record as already consumed;
+<a href=#567 id=567 data-nosnippet>567</a>        // it must not surface as a skip, and the next call yields "after".
+<a href=#568 id=568 data-nosnippet>568</a>        </span><span class="kw">match </span>decompressor.next_line(<span class="number">1</span>).unwrap() {
+<a href=#569 id=569 data-nosnippet>569</a>            NextLine::Line(line) =&gt; {
+<a href=#570 id=570 data-nosnippet>570</a>                <span class="macro">k9::assert_equal!</span>(line.text, <span class="string">"after"</span>.to_string());
+<a href=#571 id=571 data-nosnippet>571</a>            }
+<a href=#572 id=572 data-nosnippet>572</a>            other =&gt; <span class="macro">panic!</span>(<span class="string">"expected the record after the skipped one, got {other:?}"</span>),
+<a href=#573 id=573 data-nosnippet>573</a>        }
+<a href=#574 id=574 data-nosnippet>574</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(decompressor.next_line(<span class="number">1</span>).unwrap(), NextLine::None));
+<a href=#575 id=575 data-nosnippet>575</a>    }
+<a href=#576 id=576 data-nosnippet>576</a>
+<a href=#577 id=577 data-nosnippet>577</a>    <span class="doccomment">/// Verifies that a skip reaching EOF before the newline of the record
+<a href=#578 id=578 data-nosnippet>578</a>    /// arrives (the record is still being written) is preserved: after more
+<a href=#579 id=579 data-nosnippet>579</a>    /// data is appended and `reset_eof` is called, the skip completes with the
+<a href=#580 id=580 data-nosnippet>580</a>    /// full byte count and the following record is read with its correct
+<a href=#581 id=581 data-nosnippet>581</a>    /// offset, rather than the appended suffix being mistaken for a new record.
+<a href=#582 id=582 data-nosnippet>582</a>    </span><span class="attr">#[test]
+<a href=#583 id=583 data-nosnippet>583</a>    </span><span class="kw">fn </span>skip_resumes_across_eof_when_tailing() {
+<a href=#584 id=584 data-nosnippet>584</a>        <span class="kw">let </span>cap = <span class="number">64 </span>* <span class="number">1024</span>;
+<a href=#585 id=585 data-nosnippet>585</a>        <span class="kw">let </span>content = <span class="string">"y"</span>.repeat(cap * <span class="number">2</span>);
+<a href=#586 id=586 data-nosnippet>586</a>
+<a href=#587 id=587 data-nosnippet>587</a>        <span class="comment">// Compress incrementally: first the content of the oversized record
+<a href=#588 id=588 data-nosnippet>588</a>        // with no newline yet (flushed to decode on its own), then its newline
+<a href=#589 id=589 data-nosnippet>589</a>        // and a following record.
+<a href=#590 id=590 data-nosnippet>590</a>        </span><span class="kw">let </span><span class="kw-2">mut </span>encoder = Encoder::new(Vec::new(), <span class="number">3</span>).unwrap();
+<a href=#591 id=591 data-nosnippet>591</a>        encoder.write_all(content.as_bytes()).unwrap();
+<a href=#592 id=592 data-nosnippet>592</a>        encoder.flush().unwrap();
+<a href=#593 id=593 data-nosnippet>593</a>        <span class="kw">let </span>prefix_len = encoder.get_ref().len();
+<a href=#594 id=594 data-nosnippet>594</a>        encoder.write_all(<span class="string">b"\nafter\n"</span>).unwrap();
+<a href=#595 id=595 data-nosnippet>595</a>        <span class="kw">let </span>all = encoder.finish().unwrap();
+<a href=#596 id=596 data-nosnippet>596</a>        <span class="kw">let </span>(prefix, suffix) = all.split_at(prefix_len);
+<a href=#597 id=597 data-nosnippet>597</a>
+<a href=#598 id=598 data-nosnippet>598</a>        <span class="kw">let </span>seg = tempfile::NamedTempFile::new().unwrap();
+<a href=#599 id=599 data-nosnippet>599</a>        std::fs::write(seg.path(), prefix).unwrap();
+<a href=#600 id=600 data-nosnippet>600</a>
+<a href=#601 id=601 data-nosnippet>601</a>        <span class="kw">let </span><span class="kw-2">mut </span>d = FileDecompressor::open_with_max_line_size(seg.path(), cap).unwrap();
+<a href=#602 id=602 data-nosnippet>602</a>        <span class="comment">// The record is missing its terminating newline: reading scans for one
+<a href=#603 id=603 data-nosnippet>603</a>        // and finds none before the input runs out, then stops at EOF mid-skip.
+<a href=#604 id=604 data-nosnippet>604</a>        </span><span class="macro">assert!</span>(<span class="macro">matches!</span>(d.next_line(<span class="number">0</span>).unwrap(), NextLine::None));
+<a href=#605 id=605 data-nosnippet>605</a>        <span class="macro">assert!</span>(d.has_partial_data());
+<a href=#606 id=606 data-nosnippet>606</a>
+<a href=#607 id=607 data-nosnippet>607</a>        <span class="comment">// The rest of the record and a following record arrive.
+<a href=#608 id=608 data-nosnippet>608</a>        </span><span class="kw">let </span><span class="kw-2">mut </span>f = std::fs::OpenOptions::new()
+<a href=#609 id=609 data-nosnippet>609</a>            .append(<span class="bool-val">true</span>)
+<a href=#610 id=610 data-nosnippet>610</a>            .open(seg.path())
+<a href=#611 id=611 data-nosnippet>611</a>            .unwrap();
+<a href=#612 id=612 data-nosnippet>612</a>        f.write_all(suffix).unwrap();
+<a href=#613 id=613 data-nosnippet>613</a>        f.flush().unwrap();
+<a href=#614 id=614 data-nosnippet>614</a>        drop(f);
+<a href=#615 id=615 data-nosnippet>615</a>        d.reset_eof();
+<a href=#616 id=616 data-nosnippet>616</a>
+<a href=#617 id=617 data-nosnippet>617</a>        <span class="kw">match </span>d.next_line(<span class="number">0</span>).unwrap() {
+<a href=#618 id=618 data-nosnippet>618</a>            NextLine::Skipped { byte_offset, bytes } =&gt; {
+<a href=#619 id=619 data-nosnippet>619</a>                <span class="macro">k9::assert_equal!</span>(byte_offset, <span class="number">0</span>);
+<a href=#620 id=620 data-nosnippet>620</a>                <span class="macro">k9::assert_equal!</span>(bytes, content.len() <span class="kw">as </span>u64);
+<a href=#621 id=621 data-nosnippet>621</a>            }
+<a href=#622 id=622 data-nosnippet>622</a>            other =&gt; <span class="macro">panic!</span>(<span class="string">"expected the oversized record to be skipped, got {other:?}"</span>),
+<a href=#623 id=623 data-nosnippet>623</a>        }
+<a href=#624 id=624 data-nosnippet>624</a>        <span class="kw">let </span>after = expect_line(<span class="kw-2">&amp;mut </span>d);
+<a href=#625 id=625 data-nosnippet>625</a>        <span class="macro">k9::assert_equal!</span>(after.text, <span class="string">"after"</span>.to_string());
+<a href=#626 id=626 data-nosnippet>626</a>        <span class="macro">k9::assert_equal!</span>(after.byte_offset, content.len() <span class="kw">as </span>u64 + <span class="number">1</span>);
+<a href=#627 id=627 data-nosnippet>627</a>        <span class="macro">k9::assert_equal!</span>(d.lines_consumed, <span class="number">2</span>);
+<a href=#628 id=628 data-nosnippet>628</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(d.next_line(<span class="number">0</span>).unwrap(), NextLine::None));
+<a href=#629 id=629 data-nosnippet>629</a>    }
+<a href=#630 id=630 data-nosnippet>630</a>}</code></pre></div></section></main></body></html>
