@@ -1833,64 +1833,7 @@ impl SmtpServerSession {
                     }
                     self.write_response(220, "Ready to Start TLS", None, RejectDisconnect::If421)
                         .await?;
-                    let acceptor = self.params.build_tls_acceptor().await?;
-                    let socket: BoxedAsyncReadAndWrite = match acceptor
-                        .accept(self.socket.take().unwrap())
-                        .into_fallible()
-                        .await
-                    {
-                        Ok(stream) => {
-                            let (_io, conn) = stream.get_ref();
-                            let mut tls_info = TlsInformation {
-                                provider_name: "rustls".to_string(),
-                                cipher: match conn.negotiated_cipher_suite() {
-                                    Some(suite) => {
-                                        suite.suite().as_str().unwrap_or("UNKNOWN").to_string()
-                                    }
-                                    None => String::new(),
-                                },
-                                protocol_version: match conn.protocol_version() {
-                                    Some(version) => {
-                                        version.as_str().unwrap_or("UNKNOWN").to_string()
-                                    }
-                                    None => String::new(),
-                                },
-                                ..Default::default()
-                            };
-
-                            if let Some(certs) = conn.peer_certificates() {
-                                let peer_cert = &certs[0];
-                                if let Ok(cert) = X509::from_der(peer_cert.as_ref()) {
-                                    tls_info.subject_name = subject_name(&cert);
-                                }
-                            }
-
-                            if !tls_info.cipher.is_empty() {
-                                self.meta.set_meta("tls_cipher", tls_info.cipher.clone());
-                            }
-                            if !tls_info.protocol_version.is_empty() {
-                                self.meta.set_meta(
-                                    "tls_protocol_version",
-                                    tls_info.protocol_version.clone(),
-                                );
-                            }
-                            if !tls_info.subject_name.is_empty() {
-                                self.meta.set_meta(
-                                    "tls_peer_subject_name",
-                                    tls_info.subject_name.clone(),
-                                );
-                            }
-
-                            self.tls_active = Some(tls_info);
-
-                            Box::new(stream)
-                        }
-                        Err((err, stream)) => {
-                            tracing::debug!("TLS handshake failed: {err:#}");
-                            stream
-                        }
-                    };
-                    self.socket.replace(socket);
+                    self.perform_tls_handshake().await?;
                 }
                 Ok(MaybePartialCommand::Full(Command::Auth {
                     sasl_mech,
@@ -2240,6 +2183,65 @@ impl SmtpServerSession {
                 Ok(MaybePartialCommand::Full(Command::DataDot)) => unreachable!(),
             }
         }
+    }
+
+    /// Perform the TLS handshake on the current socket.
+    ///
+    /// Returns whether the handshake succeeded. On failure the socket is
+    /// restored to its unencrypted state.
+    #[instrument(skip(self))]
+    async fn perform_tls_handshake(&mut self) -> anyhow::Result<bool> {
+        let acceptor = self.params.build_tls_acceptor().await?;
+        let (socket, succeeded) = match acceptor
+            .accept(self.socket.take().unwrap())
+            .into_fallible()
+            .await
+        {
+            Ok(stream) => {
+                let (_io, conn) = stream.get_ref();
+                let mut tls_info = TlsInformation {
+                    provider_name: "rustls".to_string(),
+                    cipher: match conn.negotiated_cipher_suite() {
+                        Some(suite) => suite.suite().as_str().unwrap_or("UNKNOWN").to_string(),
+                        None => String::new(),
+                    },
+                    protocol_version: match conn.protocol_version() {
+                        Some(version) => version.as_str().unwrap_or("UNKNOWN").to_string(),
+                        None => String::new(),
+                    },
+                    ..Default::default()
+                };
+
+                if let Some(certs) = conn.peer_certificates() {
+                    let peer_cert = &certs[0];
+                    if let Ok(cert) = X509::from_der(peer_cert.as_ref()) {
+                        tls_info.subject_name = subject_name(&cert);
+                    }
+                }
+
+                if !tls_info.cipher.is_empty() {
+                    self.meta.set_meta("tls_cipher", tls_info.cipher.clone());
+                }
+                if !tls_info.protocol_version.is_empty() {
+                    self.meta
+                        .set_meta("tls_protocol_version", tls_info.protocol_version.clone());
+                }
+                if !tls_info.subject_name.is_empty() {
+                    self.meta
+                        .set_meta("tls_peer_subject_name", tls_info.subject_name.clone());
+                }
+
+                self.tls_active = Some(tls_info);
+
+                (Box::new(stream) as BoxedAsyncReadAndWrite, true)
+            }
+            Err((err, stream)) => {
+                tracing::debug!("TLS handshake failed: {err:#}");
+                (stream, false)
+            }
+        };
+        self.socket.replace(socket);
+        Ok(succeeded)
     }
 
     #[instrument(skip(self))]
