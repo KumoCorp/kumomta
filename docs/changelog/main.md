@@ -53,6 +53,15 @@
 
 ## Other Changes and Enhancements
 
+ * Implicit TLS (SMTPS) is now supported on both the inbound and outbound SMTP
+   paths.
+   [kumo.start_esmtp_listener](../reference/kumo/start_esmtp_listener/index.md)
+   accepts a [tls_mode](../reference/kumo/start_esmtp_listener/tls_mode.md)
+   parameter, and
+   [kumo.make_egress_path](../reference/kumo/make_egress_path/index.md) accepts
+   a [tls_mode](../reference/kumo/make_egress_path/tls_mode.md) parameter, each
+   selecting `StartTls` (the default) or `ImplicitTls`. #199 #200
+
  * The SOCKS5 proxy listener now accepts a
    [max_connections](../reference/proxy/start_proxy_listener/max_connections.md)
    parameter (default `32768`) that bounds the number of concurrent client
