@@ -15,7 +15,7 @@ use dns_resolver::{
     has_colon_port, resolve_a_or_aaaa, DaneStatus, IpLookupStrategy, SecureCnameStatus,
 };
 use kumo_address::socket::SocketAddress;
-use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls};
+use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls, TlsMode};
 use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
 use kumo_prometheus::declare_metric;
 use kumo_server_lifecycle::{ShutdownSubcription, ShuttingDownError};
@@ -566,7 +566,39 @@ impl SmtpDispatcher {
             format!("Attempting connection to {target_address}")
         });
 
-        let make_connection = {
+        type ConnectedSession = (
+            SmtpClient,
+            MaybeProxiedSourceAddress,
+            Option<TlsInformation>,
+        );
+
+        let implicit_tls_options = match path_config.tls_mode {
+            TlsMode::ImplicitTls => {
+                let certificate_from_pem = match &path_config.tls_certificate {
+                    Some(pem) => self.resolve_cached_client_cert(pem).await?,
+                    None => None,
+                };
+                let private_key_from_pem = match &path_config.tls_private_key {
+                    Some(pem) => self.resolve_cached_client_cert(pem).await?,
+                    None => None,
+                };
+                Some(TlsOptions {
+                    insecure: path_config.enable_tls.allow_insecure(),
+                    prefer_openssl: path_config.tls_prefer_openssl,
+                    alt_name: None,
+                    dane_tlsa: vec![],
+                    certificate_from_pem,
+                    private_key_from_pem,
+                    openssl_options: path_config.openssl_options,
+                    openssl_cipher_list: path_config.openssl_cipher_list.clone(),
+                    openssl_cipher_suites: path_config.openssl_cipher_suites.clone(),
+                    rustls_cipher_suites: path_config.rustls_cipher_suites.clone(),
+                })
+            }
+            TlsMode::StartTls => None,
+        };
+
+        let make_connection: tokio::task::JoinHandle<anyhow::Result<ConnectedSession>> = {
             let target_address = target_address.clone();
             let address = address.clone();
             let timeouts = path_config.client_timeouts;
@@ -626,24 +658,35 @@ impl SmtpDispatcher {
                 client.set_enable_pipelining(enable_pipelining);
                 client.set_enable_rset(enable_rset);
 
+                // The peer sends its banner already encrypted, without a
+                // STARTTLS command preceding it. The handshake runs here,
+                // immediately after connecting.
+                let implicit_tls_info = match implicit_tls_options {
+                    Some(options) => match client.tls_connect(options).await? {
+                        TlsStatus::FailedHandshake(error) => {
+                            anyhow::bail!("implicit TLS handshake failed: {error}");
+                        }
+                        TlsStatus::Info(info) => Some(info),
+                    },
+                    None => None,
+                };
+
                 // Read banner
                 let banner = client
                     .read_response(None, timeouts.banner_timeout)
                     .await
                     .context("reading banner")?;
                 if banner.code != 220 {
-                    return anyhow::Result::<(SmtpClient, MaybeProxiedSourceAddress)>::Err(
-                        ClientError::Rejected(banner).into(),
-                    );
+                    return Err(ClientError::Rejected(banner).into());
                 }
 
-                Ok((client, source_address))
+                Ok((client, source_address, implicit_tls_info))
             })
         };
 
         self.source_address.take();
         dispatcher.set_detail("connect+banner");
-        let (mut client, source_address) = tokio::select! {
+        let (mut client, source_address, implicit_tls_info) = tokio::select! {
             _ = shutdown.shutting_down() => {
                 return Err(ShuttingDownError::new("waiting for new connection").into());
             }
@@ -651,6 +694,11 @@ impl SmtpDispatcher {
         }
         .with_context(|| connect_context.clone())?;
         self.source_address.replace(source_address);
+        if let Some(info) = implicit_tls_info {
+            self.tracer
+                .diagnostic(Level::INFO, || format!("TLS: {info:?}"));
+            self.tls_info.replace(info);
+        }
 
         // Say EHLO/LHLO
         let helo_verb = if path_config.use_lmtp { "LHLO" } else { "EHLO" };
@@ -661,19 +709,24 @@ impl SmtpDispatcher {
             .with_context(|| format!("{target_address}: {helo_verb} after banner"))?;
 
         let has_tls = pretls_caps.contains_key("STARTTLS");
-        let tls_enabled = self
-            .negotiate_tls(
-                dispatcher,
-                &path_config,
-                &mut client,
-                &address,
-                port,
-                &ehlo_name,
-                helo_verb,
-                has_tls,
-                enable_tls,
-            )
-            .await?;
+        let tls_enabled = match path_config.tls_mode {
+            // The handshake already ran before the banner, over the raw socket.
+            TlsMode::ImplicitTls => true,
+            TlsMode::StartTls => {
+                self.negotiate_tls(
+                    dispatcher,
+                    &path_config,
+                    &mut client,
+                    &address,
+                    port,
+                    &ehlo_name,
+                    helo_verb,
+                    has_tls,
+                    enable_tls,
+                )
+                .await?
+            }
+        };
 
         if let Some(username) = &path_config.smtp_auth_plain_username {
             if !tls_enabled {
