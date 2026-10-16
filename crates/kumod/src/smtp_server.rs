@@ -1886,7 +1886,9 @@ impl SmtpServerSession {
                     }
                     self.write_response(220, "Ready to Start TLS", None, RejectDisconnect::If421)
                         .await?;
-                    self.perform_tls_handshake().await?;
+                    if !self.perform_tls_handshake().await? {
+                        return Ok(());
+                    }
                 }
                 Ok(MaybePartialCommand::Full(Command::Auth {
                     sasl_mech,

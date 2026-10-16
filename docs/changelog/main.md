@@ -244,3 +244,6 @@
    TLS handshake with ResolvedAddress { name: "mx.example.com", addr: 192.0.2.1, is_secure: false }:25 failed: <tls error>
    ```
 
+ * SMTP listener: a failed STARTTLS handshake now drops the connection instead
+   of attempting to continue to read commands in cleartext.
+
