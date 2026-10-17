@@ -6,7 +6,9 @@ use crate::types::report_failure::ReportFailure;
 use crate::types::results::{Disposition, DispositionWithContext};
 use crate::{DmarcContext, SenderDomainAlignment};
 use bstr::ByteSlice;
+use dns_resolver::Name;
 use mailparsing::AuthenticationResult;
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
@@ -206,10 +208,22 @@ fn spf_alignment_domain<'a>(
         })
 }
 
+// Convert IDN domains to lowercase ASCII/punycode so Unicode and xn-- forms compare equal.
+fn alignment_domain(domain: &str) -> Cow<'_, str> {
+    let domain = psl_utils::normalize_domain(domain);
+    if domain.is_ascii() {
+        return domain;
+    }
+    match Name::from_str_relaxed(&domain) {
+        Ok(name) => Cow::Owned(name.to_ascii()),
+        Err(_) => domain,
+    }
+}
+
 // Relaxed alignment: organizational domain match (covers exact match too since org domain of "example.com" is "example.com")
 fn is_relaxed_aligned(from_domain: &str, signing_domain: &str) -> bool {
-    let from = psl_utils::normalize_domain(from_domain);
-    let signing = psl_utils::normalize_domain(signing_domain);
+    let from = alignment_domain(from_domain);
+    let signing = alignment_domain(signing_domain);
     psl_utils::domain_str(&from)
         .zip(psl_utils::domain_str(&signing))
         .is_some_and(|(fd, sd)| fd == sd)
@@ -217,7 +231,7 @@ fn is_relaxed_aligned(from_domain: &str, signing_domain: &str) -> bool {
 
 // Strict alignment: exact domain match only.
 fn is_strict_aligned(from_domain: &str, signing_domain: &str) -> bool {
-    psl_utils::normalize_domain(from_domain) == psl_utils::normalize_domain(signing_domain)
+    alignment_domain(from_domain) == alignment_domain(signing_domain)
 }
 
 impl FromStr for Record {
@@ -356,5 +370,25 @@ mod tests {
             "mailto:tld-test@thirdparty.example.net",
         );
         assert_eq!(record.aggregate_feedback[1].size, Some(10_485_760));
+    }
+
+    #[test]
+    fn idn_alignment() {
+        // Unicode From vs punycode signing domain, and vice versa
+        assert!(is_strict_aligned("日本語.jp", "xn--wgv71a119e.jp"));
+        assert!(is_strict_aligned("xn--wgv71a119e.jp", "日本語.jp"));
+        assert!(is_strict_aligned("日本語.jp", "日本語.jp"));
+        assert!(is_strict_aligned("Example.COM.", "example.com"));
+        assert!(!is_strict_aligned("日本語.jp", "example.jp"));
+        assert!(!is_strict_aligned("mail.日本語.jp", "xn--wgv71a119e.jp"));
+
+        assert!(is_relaxed_aligned("mail.日本語.jp", "xn--wgv71a119e.jp"));
+        assert!(is_relaxed_aligned("xn--wgv71a119e.jp", "mail.日本語.jp"));
+        // IDN public suffix (.みんな / xn--q9jyb4c)
+        assert!(is_relaxed_aligned(
+            "mail.テスト.みんな",
+            "xn--zckzah.xn--q9jyb4c"
+        ));
+        assert!(!is_relaxed_aligned("テスト.みんな", "example.xn--q9jyb4c"));
     }
 }
