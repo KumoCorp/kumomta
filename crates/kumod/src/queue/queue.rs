@@ -1741,6 +1741,11 @@ impl Queue {
             return Ok(());
         }
 
+        if context.contains(InsertReason::MxSiteChanged) {
+            // Discard the rejected route so reinsertion recomputes the ready
+            // queue name, even if the cached route has not expired.
+            self.source_selector.load().invalidate_ready_queue_names();
+        }
         match self.insert_delayed(msg.clone(), context.clone()).await? {
             InsertResult::Delayed => Ok(()),
             InsertResult::Ready(msg) => {

@@ -252,3 +252,11 @@
  * RFC3464 parsing now correctly recognizes the RFC822 address type case
    insensitively and handles extraneous spaces in the `Original-Recipient`
    and `Final-Recipient` portions of the DSN. Thanks to @Harshjha3006! #640
+
+ * When domains with different MTA-STS or DANE requirements share a ready
+   queue, each message now uses its own routing domain's TLS requirements,
+   including when an open connection is reused. Previously the domain that
+   created the queue set the requirements for every message in it, so mail
+   for an MTA-STS `enforce` domain could go out in plaintext and DANE could
+   be skipped. If the destination can't meet a message's requirements, the
+   message is now deferred instead. #612

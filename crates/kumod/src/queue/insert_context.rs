@@ -90,6 +90,8 @@ pub enum InsertReason {
     /// The egress source is unhealthy and has been auto-suspended via
     /// one of its `suspend_when_*` rules
     SourceIsUnhealthyAndSuspended,
+    /// The recipient domain's MX site changed while the message was ready.
+    MxSiteChanged,
 }
 
 #[cfg(test)]

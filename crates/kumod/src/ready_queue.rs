@@ -1693,10 +1693,14 @@ impl Drop for ReadyQueue {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum AttemptConnectionDisposition {
     ConnectedNew,
     ReusedExisting,
+    /// Return the held messages to their scheduled queues for fresh routing.
+    MessageReinsert(InsertContext),
+    /// A message-local policy failure, not a failed connection candidate.
+    MessageDeferred(String),
     PeerClosedConnectionNeedNewSession,
     PeerClosedConnectionContinueSession,
 }
@@ -1760,6 +1764,50 @@ pub struct Dispatcher {
     active_bounce: ArcSwap<Option<CachedEntry<AdminBounceEntry>>>,
     num_connections: Arc<AtomicUsize>,
     pub state: Arc<DispatcherState>,
+}
+
+/// Messages and disposition context owned independently of the dispatcher.
+struct HeldMessages {
+    messages: Vec<Message>,
+    site: String,
+    egress_pool: String,
+    egress_source: String,
+    delivery_protocol: String,
+    path_config: ConfigHandle<EgressPathConfig>,
+    session_id: Uuid,
+    metrics: DeliveryMetrics,
+}
+
+impl HeldMessages {
+    async fn defer_message(&self, msg: Message, response: Response) -> anyhow::Result<()> {
+        log_disposition(LogDisposition {
+            kind: RecordType::TransientFailure,
+            msg: msg.clone(),
+            site: &self.site,
+            peer_address: None,
+            response: response.clone(),
+            egress_pool: Some(&self.egress_pool),
+            egress_source: Some(&self.egress_source),
+            relay_disposition: None,
+            delivery_protocol: Some(&self.delivery_protocol),
+            tls_info: None,
+            source_address: None,
+            provider: self.path_config.borrow().provider_name.as_deref(),
+            session_id: Some(self.session_id),
+            recipient_list: None,
+        })
+        .await;
+        QueueManager::requeue_message(
+            msg,
+            IncrementAttempts::Yes,
+            None,
+            response,
+            InsertReason::LoggedTransientFailure.into(),
+        )
+        .await?;
+        self.metrics.inc_transfail();
+        Ok(())
+    }
 }
 
 impl Drop for Dispatcher {
@@ -2094,8 +2142,8 @@ impl Dispatcher {
                             Some(ConnectionFailureKind::Other) | None => "",
                         };
 
-                        for msg in dispatcher.msgs.drain(..) {
-                            let response = Response {
+                        dispatcher
+                            .defer_messages(Response {
                                 code: 400,
                                 enhanced_code: None,
                                 content: format!(
@@ -2105,35 +2153,8 @@ impl Dispatcher {
                                     connection_failures.join(", ")
                                 ),
                                 command: None,
-                            };
-
-                            log_disposition(LogDisposition {
-                                kind: RecordType::TransientFailure,
-                                msg: msg.clone(),
-                                site: &dispatcher.name,
-                                peer_address: None,
-                                response: response.clone(),
-                                egress_pool: Some(&dispatcher.egress_pool),
-                                egress_source: Some(&dispatcher.egress_source.name),
-                                relay_disposition: None,
-                                delivery_protocol: Some(&dispatcher.delivery_protocol),
-                                tls_info: None,
-                                source_address: None,
-                                provider: dispatcher.path_config.borrow().provider_name.as_deref(),
-                                session_id: Some(dispatcher.session_id),
-                                recipient_list: None,
                             })
-                            .await;
-                            QueueManager::requeue_message(
-                                msg,
-                                IncrementAttempts::Yes,
-                                None,
-                                response,
-                                InsertReason::LoggedTransientFailure.into(),
-                            )
                             .await?;
-                            dispatcher.metrics.inc_transfail();
-                        }
 
                         if consecutive_connection_failures.fetch_add(1, Ordering::SeqCst)
                             > dispatcher
@@ -2155,6 +2176,37 @@ impl Dispatcher {
                     | AttemptConnectionDisposition::ConnectedNew,
                 ) => {
                     // fall through to below logic to do the send
+                }
+                Ok(AttemptConnectionDisposition::MessageDeferred(reason)) => {
+                    dispatcher
+                        .defer_messages(Self::message_deferred_response(
+                            reason,
+                            &connection_failures,
+                        ))
+                        .await?;
+                    connection_failures.clear();
+                    connection_failure_classifications.clear();
+                    continue;
+                }
+                Ok(AttemptConnectionDisposition::MessageReinsert(context)) => {
+                    let failures = std::mem::take(&mut connection_failures);
+                    dispatcher
+                        .with_held_messages("reinsert message", move |mut held| async move {
+                            for msg in std::mem::take(&mut held.messages) {
+                                let result = Self::reinsert_message(msg.clone(), context.clone()).await;
+                                if let Err(err) = result {
+                                    let response = Self::message_deferred_response(
+                                        format!("failed to reinsert message after MX site change: {err:#}"),
+                                        &failures,
+                                    );
+                                    held.defer_message(msg, response).await?;
+                                }
+                            }
+                            Ok(())
+                        })
+                        .await?;
+                    connection_failure_classifications.clear();
+                    continue;
                 }
                 Ok(AttemptConnectionDisposition::PeerClosedConnectionNeedNewSession) => {
                     tracing::debug!(
@@ -2189,43 +2241,85 @@ impl Dispatcher {
             dispatcher.enter_phase(DispatcherPhase::DeliveringMessage);
             if let Err(err) = dispatcher.deliver_message(&mut *queue_dispatcher).await {
                 tracing::debug!("deliver_message: {err:#}");
-                for msg in dispatcher.msgs.drain(..) {
-                    let response = Response {
+                dispatcher
+                    .defer_messages(Response {
                         code: 400,
                         enhanced_code: None,
                         content: format!("KumoMTA internal: error in deliver_message: {err:#}"),
                         command: None,
-                    };
-
-                    log_disposition(LogDisposition {
-                        kind: RecordType::TransientFailure,
-                        msg: msg.clone(),
-                        site: &dispatcher.name,
-                        peer_address: None,
-                        response: response.clone(),
-                        egress_pool: Some(&dispatcher.egress_pool),
-                        egress_source: Some(&dispatcher.egress_source.name),
-                        relay_disposition: None,
-                        delivery_protocol: Some(&dispatcher.delivery_protocol),
-                        tls_info: None,
-                        source_address: None,
-                        provider: dispatcher.path_config.borrow().provider_name.as_deref(),
-                        session_id: Some(dispatcher.session_id),
-                        recipient_list: None,
                     })
-                    .await;
-                    QueueManager::requeue_message(
-                        msg,
-                        IncrementAttempts::Yes,
-                        None,
-                        response,
-                        InsertReason::LoggedTransientFailure.into(),
-                    )
                     .await?;
-                    dispatcher.metrics.inc_transfail();
-                }
             }
         }
+    }
+
+    /// Finish message work even if the dispatcher is aborted. A spawn failure
+    /// leaves the messages with the dispatcher for its normal recovery path.
+    async fn with_held_messages<F, FUT>(
+        &mut self,
+        name: &'static str,
+        work: F,
+    ) -> anyhow::Result<()>
+    where
+        F: FnOnce(HeldMessages) -> FUT + Send,
+        FUT: Future<Output = anyhow::Result<()>> + Send + 'static,
+    {
+        if self.msgs.is_empty() {
+            return Ok(());
+        }
+        let held = HeldMessages {
+            messages: self.msgs.clone(),
+            site: self.name.clone(),
+            egress_pool: self.egress_pool.clone(),
+            egress_source: self.egress_source.name.clone(),
+            delivery_protocol: self.delivery_protocol.clone(),
+            path_config: self.path_config.clone(),
+            session_id: self.session_id,
+            metrics: self.metrics.clone(),
+        };
+        let future = work(held);
+        let activity = self.activity.clone();
+        let task = self.readyq_spawn(name, async move {
+            let result = future.await;
+            // Report failures even if the dispatcher stopped awaiting this task.
+            if let Err(err) = &result {
+                tracing::error!("{name}: {err:#}");
+            }
+            drop(activity);
+            result
+        })?;
+        // No await between successful spawn and releasing the recovery copy.
+        // The worker retains ownership if this dispatcher is cancelled.
+        self.msgs.clear();
+        task.await.context("held-message task failed")?
+    }
+
+    fn message_deferred_response(mut reason: String, connection_failures: &[String]) -> Response {
+        if !connection_failures.is_empty() {
+            reason.push_str("; previous connection failures: ");
+            reason.push_str(&connection_failures.join(", "));
+        }
+        Response {
+            code: 451,
+            enhanced_code: Some(EnhancedStatusCode {
+                class: 4,
+                subject: 4,
+                detail: 4,
+            }),
+            content: reason,
+            command: None,
+        }
+    }
+
+    /// Log and requeue the held messages. The caller controls shared queue backoff.
+    async fn defer_messages(&mut self, response: Response) -> anyhow::Result<()> {
+        self.with_held_messages("defer messages", move |mut held| async move {
+            for msg in std::mem::take(&mut held.messages) {
+                held.defer_message(msg, response.clone()).await?;
+            }
+            Ok(())
+        })
+        .await
     }
 
     /// Returns true if we are throttled

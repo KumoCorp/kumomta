@@ -701,6 +701,10 @@ impl EgressPoolSourceSelector {
         self.name == pool.name && self.entries == pool.entries
     }
 
+    pub fn invalidate_ready_queue_names(&self) {
+        self.ready_queue_names.lock().clear();
+    }
+
     fn get_ready_queue_for_source(
         &self,
         queue_config: &ConfigHandle<QueueConfig>,
