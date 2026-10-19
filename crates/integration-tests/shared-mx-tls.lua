@@ -224,6 +224,9 @@ kumo.on('get_egress_path_config', function()
     enable_dane = true,
     enable_mta_sts = os.getenv 'KUMOD_SHARED_MX_NO_STS' ~= 'true',
     tls_prefer_openssl = os.getenv 'KUMOD_SHARED_MX_OPENSSL' == 'true',
+    remember_broken_tls = os.getenv 'KUMOD_SHARED_MX_REMEMBER_BROKEN_TLS',
+    opportunistic_tls_reconnect_on_failed_handshake = os.getenv 'KUMOD_SHARED_MX_TLS_RECONNECT'
+      == 'true',
     connection_limit = 1,
     aggressive_connection_opening = false,
     idle_timeout = '30s',

@@ -1226,7 +1226,7 @@ impl SmtpDispatcher {
                     .await?
                 {
                     TlsStatus::FailedHandshake(handshake_error) => {
-                        self.remember_broken_tls(&dispatcher.name, path_config)
+                        self.remember_broken_tls(&dispatcher.name, enable_tls, path_config)
                             .await;
 
                         // Don't try too hard to send the quit here; the connection may
@@ -1267,7 +1267,7 @@ impl SmtpDispatcher {
                 {
                     Ok(_) => true,
                     Err(err) => {
-                        self.remember_broken_tls(&dispatcher.name, path_config)
+                        self.remember_broken_tls(&dispatcher.name, enable_tls, path_config)
                             .await;
                         if enable_tls.is_opportunistic()
                             && path_config.opportunistic_tls_reconnect_on_failed_handshake
@@ -1316,7 +1316,17 @@ impl SmtpDispatcher {
             .map_err(|e| anyhow::Error::msg(e.to_string()))
     }
 
-    async fn remember_broken_tls(&mut self, site_name: &str, path_config: &EgressPathConfig) {
+    async fn remember_broken_tls(
+        &mut self,
+        site_name: &str,
+        effective_tls: Tls,
+        path_config: &EgressPathConfig,
+    ) {
+        // A mandatory-policy failure must not suppress TLS for opportunistic
+        // siblings. Use the policy after applying this message's DANE/MTA-STS.
+        if !effective_tls.is_opportunistic() {
+            return;
+        }
         let duration = match path_config.remember_broken_tls {
             Some(duration) => Some(duration),
             None if path_config.opportunistic_tls_reconnect_on_failed_handshake => {

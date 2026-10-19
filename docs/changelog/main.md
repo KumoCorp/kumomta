@@ -260,3 +260,8 @@
    for an MTA-STS `enforce` domain could go out in plaintext and DANE could
    be skipped. If the destination can't meet a message's requirements, the
    message is now deferred instead. #612
+
+ * [remember_broken_tls](../reference/kumo/make_egress_path/remember_broken_tls.md)
+   is no longer set by TLS failures under `Required` or `RequiredInsecure`,
+   including requirements raised by DANE or MTA-STS, so such a failure no
+   longer makes other messages for the same site skip STARTTLS.

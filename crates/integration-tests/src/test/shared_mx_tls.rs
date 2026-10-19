@@ -145,6 +145,18 @@ async fn assert_failure(
     Ok(())
 }
 
+async fn assert_encrypted_deliveries(
+    daemon: &DaemonWithMaildir,
+    count: usize,
+) -> anyhow::Result<()> {
+    let records = receptions(daemon).await?;
+    anyhow::ensure!(
+        records.len() == count && records.iter().all(|r| r.tls_cipher.is_some()),
+        "expected {count} encrypted deliveries: {records:?}"
+    );
+    Ok(())
+}
+
 async fn assert_reused(daemon: &DaemonWithMaildir) -> anyhow::Result<()> {
     let records = receptions(daemon).await?;
     anyhow::ensure!(
@@ -345,6 +357,85 @@ async fn testing_does_not_relax_another_domains_enforcement() -> anyhow::Result<
         "tls policy is Required but STARTTLS is not advertised",
     )
     .await
+}
+
+enum BrokenTlsMemory {
+    Configured,
+    ReconnectOption,
+}
+
+impl BrokenTlsMemory {
+    fn enable(self, options: DaemonWithMaildirOptions) -> DaemonWithMaildirOptions {
+        match self {
+            Self::Configured => options.env("KUMOD_SHARED_MX_REMEMBER_BROKEN_TLS", "1h"),
+            Self::ReconnectOption => options.env("KUMOD_SHARED_MX_TLS_RECONNECT", "true"),
+        }
+    }
+}
+
+async fn dane_failure_keeps_sibling_tls(memory: BrokenTlsMemory) -> anyhow::Result<()> {
+    let (_ca, options) = fixture("mx.shared.example")?;
+    let daemon = run_shared_queue_messages(
+        memory
+            .enable(options)
+            .env("KUMOD_SHARED_MX_TLSA", format!("3 0 1 {}", "00".repeat(32))),
+        [
+            ("first@none.example", RecordType::Delivery),
+            ("second@secure.example", RecordType::TransientFailure),
+            ("third@none.example", RecordType::Delivery),
+        ],
+    )
+    .await?;
+    assert_failure(&daemon, "second@secure.example", "TLS handshake with").await?;
+    assert_encrypted_deliveries(&daemon, 2).await
+}
+
+#[tokio::test]
+async fn dane_failure_does_not_mark_shared_tls_broken() -> anyhow::Result<()> {
+    dane_failure_keeps_sibling_tls(BrokenTlsMemory::Configured).await
+}
+
+#[tokio::test]
+async fn dane_failure_does_not_enable_reconnect_memory() -> anyhow::Result<()> {
+    dane_failure_keeps_sibling_tls(BrokenTlsMemory::ReconnectOption).await
+}
+
+#[tokio::test]
+async fn mta_sts_enforce_failure_does_not_mark_shared_tls_broken() -> anyhow::Result<()> {
+    let (_ca, options) = fixture("not-the-mx.example")?;
+    let daemon = run_shared_queue_messages(
+        BrokenTlsMemory::Configured
+            .enable(options)
+            .env("KUMOD_SHARED_MX_TLS", "OpportunisticInsecure"),
+        [
+            ("first@none.example", RecordType::Delivery),
+            ("second@enforce.example", RecordType::TransientFailure),
+            ("third@none.example", RecordType::Delivery),
+        ],
+    )
+    .await?;
+    assert_failure(&daemon, "second@enforce.example", "TLS handshake with").await?;
+    assert_encrypted_deliveries(&daemon, 2).await
+}
+
+#[tokio::test]
+async fn opportunistic_failure_still_marks_shared_tls_broken() -> anyhow::Result<()> {
+    let (_ca, options) = fixture("not-the-mx.example")?;
+    let daemon = run_shared_queue_messages(
+        BrokenTlsMemory::Configured.enable(options),
+        [
+            ("first@none.example", RecordType::TransientFailure),
+            ("second@none.example", RecordType::Delivery),
+        ],
+    )
+    .await?;
+    assert_failure(&daemon, "first@none.example", "TLS handshake with").await?;
+    let records = receptions(&daemon).await?;
+    anyhow::ensure!(
+        records.len() == 1 && records[0].tls_cipher.is_none(),
+        "opportunistic failure did not retain plaintext fallback: {records:?}"
+    );
+    Ok(())
 }
 
 async fn refreshed_dane_failure(
