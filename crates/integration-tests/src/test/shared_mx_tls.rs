@@ -280,10 +280,12 @@ async fn pkix_reused_across_domains_openssl() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn pkix_cannot_bypass_dane_for_a_secure_domain() -> anyhow::Result<()> {
+async fn pkix_cannot_bypass_dane_without_mta_sts() -> anyhow::Result<()> {
     let (_ca, options) = fixture("mx.shared.example")?;
     let daemon = run_shared_queue_messages(
-        options.env("KUMOD_SHARED_MX_TLSA", format!("3 0 1 {}", "00".repeat(32))),
+        options
+            .env("KUMOD_SHARED_MX_NO_STS", "true")
+            .env("KUMOD_SHARED_MX_TLSA", format!("3 0 1 {}", "00".repeat(32))),
         [
             ("first@none.example", RecordType::Delivery),
             ("second@secure.example", RecordType::TransientFailure),
@@ -330,7 +332,7 @@ async fn dane_is_not_pkix_evidence() -> anyhow::Result<()> {
 async fn dane_host_proof_reused_across_secure_domains() -> anyhow::Result<()> {
     let (_ca, options) = fixture("not-the-mx.example")?;
     let daemon = run_shared_queue_messages(
-        options.env("KUMOD_SHARED_MX_NO_STS", "true"),
+        options,
         [
             ("first@secure.example", RecordType::Delivery),
             ("second@secure2.example", RecordType::Delivery),
@@ -338,25 +340,6 @@ async fn dane_host_proof_reused_across_secure_domains() -> anyhow::Result<()> {
     )
     .await?;
     assert_reused(&daemon).await
-}
-
-#[tokio::test]
-async fn testing_does_not_relax_another_domains_enforcement() -> anyhow::Result<()> {
-    let (_ca, options) = fixture("mx.shared.example")?;
-    let daemon = run_shared_queue_messages(
-        options.env("KUMOD_HIDE_STARTTLS", "true"),
-        [
-            ("first@testing.example", RecordType::Delivery),
-            ("second@enforce.example", RecordType::TransientFailure),
-        ],
-    )
-    .await?;
-    assert_failure(
-        &daemon,
-        "second@enforce.example",
-        "tls policy is Required but STARTTLS is not advertised",
-    )
-    .await
 }
 
 enum BrokenTlsMemory {

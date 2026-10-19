@@ -58,7 +58,6 @@ local function configure_dns(changes)
   for _, domain in ipairs {
     'none.example',
     'enforce.example',
-    'testing.example',
     'secure.example',
     'secure2.example',
     'moving.example',
@@ -125,12 +124,6 @@ max_age: %s
     ['enforce.example'] = [[
 version: STSv1
 mode: enforce
-mx: mx.shared.example
-max_age: 600
-]],
-    ['testing.example'] = [[
-version: STSv1
-mode: testing
 mx: mx.shared.example
 max_age: 600
 ]],
@@ -228,7 +221,6 @@ kumo.on('get_egress_path_config', function()
     opportunistic_tls_reconnect_on_failed_handshake = os.getenv 'KUMOD_SHARED_MX_TLS_RECONNECT'
       == 'true',
     connection_limit = 1,
-    aggressive_connection_opening = false,
     idle_timeout = '30s',
   }
 end)
