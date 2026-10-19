@@ -606,7 +606,9 @@ impl Message {
         &self,
         duration: chrono::Duration,
     ) -> anyhow::Result<Option<DateTime<Utc>>> {
-        let due = Utc::now() + duration;
+        let due = Utc::now()
+            .checked_add_signed(duration)
+            .ok_or_else(|| anyhow::anyhow!("delay of {duration} is out of range"))?;
         self.set_due(Some(due)).await
     }
 

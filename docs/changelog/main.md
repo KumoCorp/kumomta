@@ -217,3 +217,15 @@
    lifetime of the resident body, which keeps it accurate in both directions.
    Thanks to @kayozaki! #588
 
+
+ * A message moved into an xfer queue kept the attempt count from its
+   originating queue, and the xfer queue computed its backoff from that count.
+   After one failed transfer, a message that had been retried about 15 or more
+   times was expired instead of retried, and one with 50 to 60 attempts made kumod
+   panic with ``` `TimeDelta + TimeDelta` overflowed ```. An `xfer` while the
+   target was unreachable could therefore lose messages and stop kumod part way
+   through. The attempt count now starts again from zero in the xfer queue; the
+   original count is still restored on the target node. The retry delay no
+   longer turns negative for very large attempt counts, and a delay too large to
+   represent now expires the message, or fails the requeue, instead of
+   panicking.
