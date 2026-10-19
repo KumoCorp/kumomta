@@ -79,6 +79,12 @@ impl SavedQueueInfo {
         msg.unset_meta("campaign").await?;
         msg.set_scheduling(None).await?;
         msg.set_due(None).await?;
+        // The attempts were counted by the originating queue and are
+        // restored from xfer_queue_info on the target. The xfer queue
+        // has its own backoff, which would otherwise start from that
+        // count and expire the message, or overflow, on its first
+        // failed transfer.
+        msg.set_num_attempts(0);
 
         Ok(())
     }
@@ -360,4 +366,43 @@ pub async fn inject_xfer_v1(
     QueueManager::insert_or_unwind(&queue_name, msg.clone(), deferred_spool, None).await?;
 
     Ok(Json(XferResponseV1 { id }))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use rfc5321::parser::EnvelopeAddress;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn save_info_resets_attempts_and_restore_info_brings_them_back() {
+        let msg = Message::new_dirty(
+            SpoolId::new(),
+            EnvelopeAddress::parse("sender@example.com").unwrap(),
+            vec![EnvelopeAddress::parse("recip@example.com").unwrap()],
+            serde_json::json!({"queue": "mytenant@example.com"}),
+            Arc::new(
+                "Subject: hello\r\n\r\nwoot"
+                    .as_bytes()
+                    .to_vec()
+                    .into_boxed_slice(),
+            ),
+        )
+        .unwrap();
+        msg.set_num_attempts(50);
+
+        SavedQueueInfo::save_info(&msg).await.unwrap();
+        // The xfer queue backs off from its first attempt
+        assert_eq!(msg.get_num_attempts(), 0);
+        let info: SavedQueueInfo =
+            serde_json::from_value(msg.get_meta("xfer_queue_info").await.unwrap()).unwrap();
+        assert_eq!(info.num_attempts, 50);
+
+        SavedQueueInfo::restore_info(&msg).await.unwrap();
+        assert_eq!(msg.get_num_attempts(), 50);
+        assert_eq!(
+            msg.get_meta_string("queue").await.unwrap().as_deref(),
+            Some("mytenant@example.com")
+        );
+    }
 }

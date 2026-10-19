@@ -859,7 +859,8 @@ impl Queue {
                 let now = Utc::now();
                 let max_age = self.queue_config.borrow().get_max_age();
                 let age = msg.age(now);
-                let delayed_age = age + delay;
+                // A delay too large to add is certainly beyond max_age
+                let delayed_age = age.checked_add(&delay).unwrap_or(chrono::Duration::MAX);
                 if delayed_age > max_age {
                     let delayed_age =
                         format_duration(delayed_age.to_std().unwrap_or(Duration::ZERO));

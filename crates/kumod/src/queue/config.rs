@@ -204,7 +204,9 @@ impl QueueConfig {
             Some(limit) => delay.min(limit),
         };
 
-        chrono::Duration::try_seconds((delay as i64).min(MAX_CHRONO_SECONDS))
+        // Clamp before converting: a saturated u64 would otherwise
+        // become a negative i64
+        chrono::Duration::try_seconds(delay.min(MAX_CHRONO_SECONDS as u64) as i64)
             .expect("seconds to always be <= MAX_CHRONO_SECONDS")
     }
 
@@ -279,5 +281,32 @@ impl QueueConfig {
             .checked_sub(&age)
             .unwrap_or_else(chrono::Duration::zero)
             .max(chrono::Duration::zero())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn delay_for_attempt_is_never_negative() {
+        // The xfer queue has no max_retry_interval, so the backoff
+        // saturates for large attempt counts
+        let config = QueueConfig {
+            retry_interval: Duration::from_secs(10),
+            max_retry_interval: None,
+            ..QueueConfig::default()
+        };
+
+        let mut prior = chrono::Duration::zero();
+        for attempt in 0..=u16::MAX {
+            let delay = config.delay_for_attempt(attempt);
+            assert!(
+                delay >= prior,
+                "attempt {attempt}: delay {delay} is less than {prior}"
+            );
+            prior = delay;
+        }
+        k9::assert_equal!(prior.num_seconds(), MAX_CHRONO_SECONDS);
     }
 }
