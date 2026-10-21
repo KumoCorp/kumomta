@@ -30,6 +30,8 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(toml_encode_pretty_compact_lua)?,
     )?;
 
+    serde_mod.set("load_files", lua.create_async_function(load_files)?)?;
+
     serde_mod.set("yaml_load", lua.create_async_function(yaml_load)?)?;
     serde_mod.set("yaml_parse", lua.create_function(yaml_parse)?)?;
     serde_mod.set("yaml_encode", lua.create_function(yaml_encode)?)?;
@@ -56,18 +58,64 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn parse_json(file_name: &str, data: &[u8]) -> anyhow::Result<JValue> {
+    let stripped = json_comments::StripComments::new(data);
+    serde_json::from_reader(stripped).with_context(|| format!("parsing {file_name} as json"))
+}
+
+fn parse_toml(file_name: &str, data: &str) -> anyhow::Result<toml::Value> {
+    toml::from_str(data).with_context(|| format!("parsing {file_name} as toml"))
+}
+
 async fn json_load(lua: Lua, file_name: String) -> mlua::Result<LuaValue> {
     let data = tokio::fs::read(&file_name)
         .await
         .with_context(|| format!("reading file {file_name}"))
         .map_err(any_err)?;
 
-    let stripped = json_comments::StripComments::new(&*data);
-
-    let obj: serde_json::Value = serde_json::from_reader(stripped)
-        .with_context(|| format!("parsing {file_name} as json"))
-        .map_err(any_err)?;
+    let obj = parse_json(&file_name, &data).map_err(any_err)?;
     lua.to_value_with(&obj, serialize_options())
+}
+
+/// The contents of a file parsed according to its name: `.toml` as TOML,
+/// anything else as JSON.
+#[derive(Debug)]
+enum Parsed {
+    Json(JValue),
+    Toml(toml::Value),
+}
+
+fn read_and_parse(file_name: &str) -> anyhow::Result<Parsed> {
+    let data = std::fs::read(file_name).with_context(|| format!("reading file {file_name}"))?;
+    if file_name.ends_with(".toml") {
+        let text =
+            std::str::from_utf8(&data).with_context(|| format!("decoding {file_name} as utf-8"))?;
+        Ok(Parsed::Toml(parse_toml(file_name, text)?))
+    } else {
+        Ok(Parsed::Json(parse_json(file_name, &data)?))
+    }
+}
+
+fn read_and_parse_all(file_names: &[String]) -> anyhow::Result<Vec<Parsed>> {
+    file_names
+        .iter()
+        .map(|file_name| read_and_parse(file_name))
+        .collect()
+}
+
+async fn load_files(lua: Lua, file_names: Vec<String>) -> mlua::Result<Vec<LuaValue>> {
+    let parsed = tokio::task::spawn_blocking(move || read_and_parse_all(&file_names))
+        .await
+        .map_err(any_err)?
+        .map_err(any_err)?;
+
+    parsed
+        .into_iter()
+        .map(|parsed| match parsed {
+            Parsed::Json(value) => lua.to_value_with(&value, serialize_options()),
+            Parsed::Toml(value) => lua.to_value_with(&value, serialize_options()),
+        })
+        .collect()
 }
 
 fn json_parse(lua: &Lua, text: String) -> mlua::Result<LuaValue> {
@@ -100,9 +148,7 @@ async fn toml_load(lua: Lua, file_name: String) -> mlua::Result<LuaValue> {
         .with_context(|| format!("reading file {file_name}"))
         .map_err(any_err)?;
 
-    let obj: toml::Value = toml::from_str(&data)
-        .with_context(|| format!("parsing {file_name} as toml"))
-        .map_err(any_err)?;
+    let obj = parse_toml(&file_name, &data).map_err(any_err)?;
     lua.to_value_with(&obj, serialize_options())
 }
 
@@ -210,4 +256,51 @@ fn yaml_parse(lua: &Lua, text: String) -> mlua::Result<LuaValue> {
 fn yaml_encode(lua: &Lua, value: LuaValue) -> mlua::Result<String> {
     let value = materialize_to_lua_value(lua, value)?;
     serde_yaml::to_string(&value).map_err(any_err)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn write(dir: &tempfile::TempDir, name: &str, contents: &str) -> String {
+        let path = dir.path().join(name);
+        std::fs::write(&path, contents).unwrap();
+        path.to_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn load_files_preserves_order_and_dispatches_by_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = write(&dir, "a.toml", "n = 1");
+        let b = write(&dir, "b.json", "{\"n\": 2}");
+        let c = write(&dir, "c.toml", "n = 3");
+
+        let parsed = read_and_parse_all(&[a, b, c]).unwrap();
+        let ns: Vec<i64> = parsed
+            .iter()
+            .map(|p| match p {
+                Parsed::Toml(v) => v["n"].as_integer().unwrap(),
+                Parsed::Json(v) => v["n"].as_i64().unwrap(),
+            })
+            .collect();
+        k9::assert_equal!(ns, vec![1, 2, 3]);
+        assert!(matches!(parsed[0], Parsed::Toml(_)));
+        assert!(matches!(parsed[1], Parsed::Json(_)));
+        assert!(matches!(parsed[2], Parsed::Toml(_)));
+    }
+
+    #[test]
+    fn load_files_names_the_file_that_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let ok = write(&dir, "ok.toml", "n = 1");
+        let bad = write(&dir, "bad.toml", "not = = toml");
+        let missing = dir.path().join("missing.json");
+        let missing = missing.to_str().unwrap().to_string();
+
+        let err = read_and_parse_all(&[ok.clone(), bad.clone()]).unwrap_err();
+        k9::assert_equal!(err.to_string(), format!("parsing {bad} as toml"));
+
+        let err = read_and_parse_all(&[ok, missing.clone()]).unwrap_err();
+        k9::assert_equal!(err.to_string(), format!("reading file {missing}"));
+    }
 }

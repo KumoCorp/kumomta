@@ -37,8 +37,8 @@ local SourcesHelperConfig = Record('SourcesHelperConfig', {
   source = Option(Map(String, SourceConfig)),
 })
 
-local function load_data_from_file(file_name, target)
-  local data = SourcesHelperConfig(utils.load_json_or_toml_file(file_name))
+local function merge_file_data(data, target)
+  local data = SourcesHelperConfig(data)
   -- print(kumo.serde.json_encode_pretty(data))
 
   for source, params in pairs(data.source or {}) do
@@ -71,8 +71,13 @@ local function load_data(data_files)
     pools = {},
   }
 
-  for _, file_name in ipairs(data_files) do
-    load_data_from_file(file_name, target)
+  -- Each await point in this populate is a place where a busy runtime can delay
+  -- resuming it, and a long enough delay makes other callers waiting on the
+  -- cache time out. Loading all of the files in one call keeps that risk to one
+  -- await instead of one per file.
+  local loaded = utils.load_json_or_toml_files(data_files)
+  for _, data in ipairs(loaded) do
+    merge_file_data(data, target)
   end
 
   -- print(kumo.json_encode_pretty(target))

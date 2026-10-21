@@ -105,6 +105,13 @@
    whose client disconnected) no longer cancels the cache population function.
    The new `detached` memoize option can be used to override this if needed.  #602
 
+ * New [kumo.serde.load_files](../reference/kumo.serde/load_files.md) efficiently
+   reads and parses a list of JSON and TOML files in a single call.
+   The `policy-extras.policy_utils` helper gained a matching `load_json_or_toml_files`.
+
+ * The `sources.lua` helper now loads its source and pool definition files with
+   one call to `kumo.serde.load_files` instead of one call per file.
+
  * Improved [HTTP injection API](../reference/http/kumod/api_inject_v1_post.md)
    performance for `content` fields and headers that are effectively static.
    Previously these would round-trip through the template engine, but now we
