@@ -62,6 +62,11 @@
    a [tls_mode](../reference/kumo/make_egress_path/tls_mode.md) parameter, each
    selecting `StartTls` (the default) or `ImplicitTls`. #199 #200
 
+ * New [kumo.string.psl_suffix_is_known](../reference/string/psl_suffix_is_known.md)
+   and [kumo.string.psl_domain_is_known](../reference/string/psl_domain_is_known.md)
+   report whether the resolved public suffix is explicitly listed in the Public
+   Suffix List. Thanks to @umutondersu! #592
+
  * The SOCKS5 proxy listener now accepts a
    [max_connections](../reference/proxy/start_proxy_listener/max_connections.md)
    parameter (default `32768`) that bounds the number of concurrent client
