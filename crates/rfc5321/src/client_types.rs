@@ -1,4 +1,4 @@
-use crate::parser::{Command, MaybePartialCommand};
+use crate::parser::{Command, CommandVerb, MaybePartialCommand};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -268,26 +268,35 @@ impl Response {
     /// a separate connection
     pub fn was_due_to_message(&self) -> bool {
         if let Some(command) = &self.command {
-            if let Ok(MaybePartialCommand::Full(cmd)) = Command::parse(command) {
-                return match cmd {
-                    Command::MailFrom { .. }
-                    | Command::RcptTo { .. }
-                    | Command::Data
-                    | Command::DataDot => true,
-                    Command::Ehlo(_)
-                    | Command::Helo(_)
-                    | Command::Lhlo(_)
-                    | Command::Rset
-                    | Command::Quit
-                    | Command::StartTls
-                    | Command::Vrfy(_)
-                    | Command::Expn(_)
-                    | Command::Noop(_)
-                    | Command::Help(_)
-                    | Command::Auth { .. }
-                    | Command::Unknown(_)
-                    | Command::XClient(_) => false,
-                };
+            match Command::parse(command) {
+                Ok(MaybePartialCommand::Full(cmd)) => {
+                    return match cmd {
+                        Command::MailFrom { .. }
+                        | Command::RcptTo { .. }
+                        | Command::Data
+                        | Command::DataDot => true,
+                        Command::Ehlo(_)
+                        | Command::Helo(_)
+                        | Command::Lhlo(_)
+                        | Command::Rset
+                        | Command::Quit
+                        | Command::StartTls
+                        | Command::Vrfy(_)
+                        | Command::Expn(_)
+                        | Command::Noop(_)
+                        | Command::Help(_)
+                        | Command::Auth { .. }
+                        | Command::Unknown(_)
+                        | Command::XClient(_) => false,
+                    };
+                }
+                Ok(MaybePartialCommand::Partial { verb, .. }) => {
+                    return matches!(
+                        verb,
+                        CommandVerb::Mail | CommandVerb::Rcpt | CommandVerb::Data
+                    );
+                }
+                Err(_) => {}
             }
         }
 
@@ -470,5 +479,26 @@ mod test {
         assert_eq!(parse_enhanced_status_code("2.0.0.1 w00t"), None);
 
         assert_eq!(parse_enhanced_status_code("2.0.0.1w00t"), None);
+    }
+
+    #[test]
+    fn due_to_message() {
+        fn due(command: &str) -> bool {
+            Response {
+                code: 535,
+                enhanced_code: None,
+                content: String::new(),
+                command: Some(command.to_string()),
+            }
+            .was_due_to_message()
+        }
+
+        assert!(due("MAIL FROM:<user@example.com>"));
+        assert!(due("RCPT TO:<user@example.com>"));
+        assert!(!due("EHLO example.com"));
+        assert!(!due("AUTH PLAIN dXNlcjpwYXNz"));
+        // A rejected AUTH with its base64 redacted parses only as a Partial
+        // Auth, and must classify the same as the unredacted form.
+        assert!(!due("AUTH PLAIN [REDACTED]"));
     }
 }
