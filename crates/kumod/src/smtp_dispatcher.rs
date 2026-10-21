@@ -12,7 +12,7 @@ use bounce_classify::{BounceClass, PreDefinedBounceClass};
 use config::{load_config, CallbackSignature};
 use data_loader::KeySource;
 use dns_resolver::{
-    has_colon_port, resolve_a_or_aaaa, DaneStatus, IpLookupStrategy, SecureCnameStatus,
+    has_colon_port, resolve_a_or_aaaa, DaneStatus, IpLookupStrategy, SecureCnameStatus, TLSA,
 };
 use kumo_address::socket::SocketAddress;
 use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls, TlsMode};
@@ -20,7 +20,7 @@ use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
 use kumo_prometheus::declare_metric;
 use kumo_server_lifecycle::{ShutdownSubcription, ShuttingDownError};
 use kumo_server_runtime::spawn;
-use mailexchanger::{PolicyMode, ResolvedMxAddresses};
+use mailexchanger::{MailExchanger, PolicyMode, ResolvedMxAddresses};
 use message::message::QueueNameComponents;
 use message::Message;
 use rfc5321::parser::{EnvelopeAddress, ForwardPath, ReversePath};
@@ -68,7 +68,8 @@ declare_metric! {
 ///   * `tempfail`: the TLSA lookup could not be securely resolved (SERVFAIL,
 ///     timeout, or bogus); delivery is deferred.
 ///
-/// These are counters; reason about them as rates.
+/// Counts DANE policy evaluations during connection setup and before
+/// connection reuse. These are counters; reason about them as rates.
 ///
 /// **Confirming DANE is working:** with `enable_dane = true`, a healthy
 /// deployment shows a steady stream of `not_applicable` (most DNSSEC-signed
@@ -184,6 +185,71 @@ impl MxListEntry {
     }
 }
 
+/// Requirements for one message at one candidate MX, using the existing TLS precedence.
+#[derive(Debug)]
+struct TlsRequirements {
+    enable_tls: Tls,
+    dane_tlsa: Vec<TLSA>,
+}
+
+impl TlsRequirements {
+    fn new(enable_tls: Tls, mut dane_tlsa: Vec<TLSA>) -> Self {
+        // The resolver sorts usable TLSA records. Duplicate answers do not
+        // change the authentication requirement and must not force a reconnect.
+        dane_tlsa.dedup();
+        Self {
+            enable_tls,
+            dane_tlsa,
+        }
+    }
+}
+
+/// Evidence from the live connection, never from a previous connection or merely
+/// from the requested policy. DANE proves a host/port, not a recipient domain.
+#[derive(Debug)]
+enum TlsEvidence {
+    Plaintext {
+        advertised_starttls: bool,
+    },
+    Unverified,
+    Pkix,
+    /// The normalized usable RRset supplied to a successful handshake. At least
+    /// one record authenticated the peer, not necessarily every record. Equality
+    /// permits conservative reuse without retaining the certificate chain.
+    Dane(Vec<TLSA>),
+}
+
+impl TlsEvidence {
+    fn satisfies(&self, requirements: &TlsRequirements, broken_tls: bool) -> bool {
+        let authentication_matches = if requirements.dane_tlsa.is_empty() {
+            matches!(self, Self::Pkix)
+        } else {
+            matches!(self, Self::Dane(records) if records == &requirements.dane_tlsa)
+        };
+        match requirements.enable_tls {
+            // Disabled adds no TLS requirement for reuse; do not tear down an
+            // encrypted connection just to send plaintext.
+            Tls::Disabled => true,
+            Tls::Required => authentication_matches,
+            Tls::RequiredInsecure => !matches!(self, Self::Plaintext { .. }),
+            Tls::Opportunistic | Tls::OpportunisticInsecure => match self {
+                Self::Plaintext {
+                    advertised_starttls,
+                } => !advertised_starttls || broken_tls,
+                _ => {
+                    requirements.enable_tls == Tls::OpportunisticInsecure || authentication_matches
+                }
+            },
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ConnectionSecurity {
+    port: u16,
+    evidence: TlsEvidence,
+}
+
 #[derive(Debug)]
 pub struct SmtpDispatcher {
     addresses: Vec<ResolvedAddress>,
@@ -192,6 +258,8 @@ pub struct SmtpDispatcher {
     source_address: Option<MaybeProxiedSourceAddress>,
     ehlo_name: String,
     tls_info: Option<TlsInformation>,
+    // Bound to client and client_address; reset whenever the client is replaced.
+    connection_security: Option<ConnectionSecurity>,
     tracer: Arc<SmtpClientTracerImpl>,
     site_has_broken_tls: bool,
     terminated_ok: bool,
@@ -374,6 +442,7 @@ impl SmtpDispatcher {
             client_address: None,
             ehlo_name,
             tls_info: None,
+            connection_security: None,
             source_address: None,
             tracer,
             site_has_broken_tls: false,
@@ -384,10 +453,108 @@ impl SmtpDispatcher {
         }))
     }
 
+    fn reset_connection_security(&mut self) {
+        self.connection_security = None;
+    }
+
+    fn destination_port(dispatcher: &Dispatcher, address: &ResolvedAddress) -> u16 {
+        dispatcher
+            .egress_source
+            .remote_port
+            .or_else(|| address.addr.port())
+            .unwrap_or(dispatcher.path_config.borrow().smtp_port)
+    }
+
+    async fn resolve_message_mx(
+        &self,
+        dispatcher: &Dispatcher,
+    ) -> anyhow::Result<Option<Arc<MailExchanger>>> {
+        let path = dispatcher.path_config.borrow();
+        // Explicit mx_list and implicit TLS retain their existing policy semantics.
+        if dispatcher.mx.is_none()
+            || path.tls_mode != TlsMode::StartTls
+            || !(path.enable_mta_sts || path.enable_dane)
+        {
+            return Ok(None);
+        }
+        drop(path);
+        let Some(msg) = dispatcher.msgs.first() else {
+            return Ok(None);
+        };
+        let name = msg.get_queue_name().await?;
+        let components = QueueNameComponents::parse(&name);
+        MailExchanger::resolve(components.routing_domain.unwrap_or(components.domain))
+            .await
+            .map(Some)
+    }
+
+    async fn connection_satisfies_message(
+        &self,
+        mx: &MailExchanger,
+        address: &ResolvedAddress,
+        dispatcher: &Dispatcher,
+    ) -> anyhow::Result<bool> {
+        let port = Self::destination_port(dispatcher, address);
+        let path = dispatcher.path_config.borrow().clone();
+        let requirements = self
+            .tls_requirements(&path, address, port, Some(mx))
+            .await?;
+        Ok(self.connection_security.as_ref().is_some_and(|security| {
+            security.port == port
+                && security
+                    .evidence
+                    .satisfies(&requirements, self.has_broken_tls(&dispatcher.name))
+        }))
+    }
+
     async fn attempt_connection_impl(
         &mut self,
         dispatcher: &mut Dispatcher,
     ) -> anyhow::Result<AttemptConnectionDisposition> {
+        let message_mx = match self.resolve_message_mx(dispatcher).await {
+            Ok(mx) => mx,
+            Err(err) => {
+                return Ok(AttemptConnectionDisposition::MessageDeferred(format!(
+                    "failed to resolve message MX/policy: {err:#}"
+                )))
+            }
+        };
+        if let (Some(mx), Some(site_mx)) = (&message_mx, &dispatcher.mx) {
+            // Canonical site names identify the permitted MX host set. If it
+            // changes, this queue's connection plan cannot serve the message.
+            if mx.site_name != site_mx.site_name {
+                return Ok(AttemptConnectionDisposition::MessageReinsert(
+                    InsertReason::MxSiteChanged.into(),
+                ));
+            }
+        }
+
+        // Resolve policy before checking liveness: a peer closure while DNS is in
+        // flight must still follow reconnect_strategy, not our policy reconnect.
+        let mut satisfies = true;
+        if self
+            .client
+            .as_ref()
+            .is_some_and(|client| client.is_connected())
+        {
+            if let Some(mx) = &message_mx {
+                let address = self
+                    .client_address
+                    .as_ref()
+                    .context("connected client has no address")?;
+                satisfies = match self
+                    .connection_satisfies_message(mx, address, dispatcher)
+                    .await
+                {
+                    Ok(satisfies) => satisfies,
+                    Err(err) => {
+                        return Ok(AttemptConnectionDisposition::MessageDeferred(format!(
+                            "failed to evaluate message TLS policy: {err:#}"
+                        )))
+                    }
+                };
+            }
+        }
         if let Some(client) = &mut self.client {
             if client.is_connected() {
                 // If we get a unilateral response here now it can either be:
@@ -403,8 +570,7 @@ impl SmtpDispatcher {
                 // when we try sending a message through it.
                 match client.check_unilateral_response().await {
                     Ok(None) => {
-                        // Still connected
-                        return Ok(AttemptConnectionDisposition::ReusedExisting);
+                        // Still connected; check this message's requirements below.
                     }
                     Ok(Some(response)) => {
                         // We got an explicit signal that the connection is closing
@@ -467,6 +633,23 @@ impl SmtpDispatcher {
             }
         }
 
+        if self
+            .client
+            .as_ref()
+            .is_some_and(|client| client.is_connected())
+        {
+            if satisfies {
+                return Ok(AttemptConnectionDisposition::ReusedExisting);
+            }
+            // A policy switch is not a failed connection. Retain the message and
+            // retry this host, under the same shared connection/rate limits.
+            let address = self.client_address.take();
+            self.close_connection(dispatcher).await?;
+            if let Some(address) = address {
+                self.addresses.push(address);
+            }
+        }
+        self.reset_connection_security();
         let mut shutdown = ShutdownSubcription::get();
 
         let path_config = dispatcher.path_config.borrow();
@@ -537,12 +720,7 @@ impl SmtpDispatcher {
 
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.name.to_string();
-        let enable_tls = path_config.enable_tls;
-        let port = dispatcher
-            .egress_source
-            .remote_port
-            .or_else(|| address.addr.port())
-            .unwrap_or(path_config.smtp_port);
+        let port = Self::destination_port(dispatcher, &address);
 
         let target_address: SocketAddress = match address.addr.ip() {
             Some(ip) => SocketAddr::new(ip, port).into(),
@@ -701,9 +879,15 @@ impl SmtpDispatcher {
             .with_context(|| format!("{target_address}: {helo_verb} after banner"))?;
 
         let has_tls = pretls_caps.contains_key("STARTTLS");
-        let tls_enabled = match path_config.tls_mode {
+        let evidence = match path_config.tls_mode {
             // The handshake already ran before the banner, over the raw socket.
-            TlsMode::ImplicitTls => true,
+            TlsMode::ImplicitTls => {
+                if path_config.enable_tls.allow_insecure() {
+                    TlsEvidence::Unverified
+                } else {
+                    TlsEvidence::Pkix
+                }
+            }
             TlsMode::StartTls => {
                 self.negotiate_tls(
                     dispatcher,
@@ -714,14 +898,14 @@ impl SmtpDispatcher {
                     &ehlo_name,
                     helo_verb,
                     has_tls,
-                    enable_tls,
+                    message_mx.as_deref().or(dispatcher.mx.as_deref()),
                 )
                 .await?
             }
         };
 
         if let Some(username) = &path_config.smtp_auth_plain_username {
-            if !tls_enabled {
+            if matches!(evidence, TlsEvidence::Plaintext { .. }) {
                 if !path_config.allow_smtp_auth_plain_without_tls {
                     anyhow::bail!(
                         "TLS is not enabled and AUTH PLAIN is required. Skipping ({address:?}:{port})"
@@ -770,6 +954,7 @@ impl SmtpDispatcher {
                 })?;
         }
 
+        self.connection_security = Some(ConnectionSecurity { port, evidence });
         self.client
             .replace(connection_wrapper.map_connection(client));
         self.client_address.replace(address);
@@ -777,24 +962,16 @@ impl SmtpDispatcher {
         Ok(AttemptConnectionDisposition::ConnectedNew)
     }
 
-    /// Negotiate the TLS posture for a cleartext connection and, when the
-    /// policy calls for it, upgrade to TLS via STARTTLS. Returns whether TLS
-    /// ended up enabled on the session. DANE and MTA-STS policy are applied to
-    /// the effective `enable_tls` before the decision.
-    async fn negotiate_tls(
-        &mut self,
-        dispatcher: &Dispatcher,
+    /// Use the same precedence for connection setup and reuse. The MX context
+    /// belongs to the message, while egress-path configuration remains shared.
+    async fn tls_requirements(
+        &self,
         path_config: &EgressPathConfig,
-        client: &mut SmtpClient,
         address: &ResolvedAddress,
         port: u16,
-        ehlo_name: &str,
-        helo_verb: &str,
-        has_tls: bool,
-        mut enable_tls: Tls,
-    ) -> anyhow::Result<bool> {
-        let broken_tls = self.has_broken_tls(&dispatcher.name);
-
+        mx: Option<&MailExchanger>,
+    ) -> anyhow::Result<TlsRequirements> {
+        let mut enable_tls = path_config.enable_tls;
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
         // Set when DANE published TLSA records that turned out to be unusable:
@@ -802,22 +979,6 @@ impl SmtpDispatcher {
         // cannot authenticate it, so MTA-STS may add authentication but must not
         // relax the requirement back to opportunistic.
         let mut dane_requires_starttls = false;
-
-        let mut certificate_from_pem = None;
-        let mut private_key_from_pem = None;
-
-        if let Some(pem) = &path_config.tls_certificate {
-            certificate_from_pem = self.resolve_cached_client_cert(pem).await?
-        }
-
-        if let Some(pem) = &path_config.tls_private_key {
-            private_key_from_pem = self.resolve_cached_client_cert(pem).await?
-        }
-
-        let openssl_options = path_config.openssl_options;
-        let openssl_cipher_list = path_config.openssl_cipher_list.clone();
-        let openssl_cipher_suites = path_config.openssl_cipher_suites.clone();
-        let rustls_cipher_suites = path_config.rustls_cipher_suites.clone();
 
         if path_config.enable_dane {
             // RFC 7672 sections 2.1/2.2: DANE only applies when the chain to
@@ -828,7 +989,7 @@ impl SmtpDispatcher {
             // the host's address records to have been securely (DNSSEC)
             // resolved; the TLSA records are queried against the MX host
             // (RFC 7672 section 3.2.2), not the envelope/routing domain.
-            let mx_selection_secure = match &dispatcher.mx {
+            let mx_selection_secure = match mx {
                 Some(mx) => mx.is_secure,
                 // No DNS MX RRset: a locally-configured mx_list, trusted only
                 // when the operator opted in via treat_mx_list_as_secure.
@@ -944,12 +1105,12 @@ impl SmtpDispatcher {
         // Apply the TLS posture from any MTA-STS policy that was resolved
         // during MX resolution. Host gating is already structural: resolution
         // pruned disallowed hosts and isolated impossible domains, so the
-        // pinned mx's policy is always satisfiable by the candidate hosts.
+        // message's current site must agree with the connection plan's site.
         // We consult it here only for TLS posture, and only when this egress
         // path opts in via enable_mta_sts. The `mta_sts_eligible` guard
         // preserves DANE precedence (DANE clears it when TLSA is present).
         if mta_sts_eligible && path_config.enable_mta_sts {
-            match dispatcher.mx.as_ref().map(|mx| mx.mta_sts) {
+            match mx.map(|mx| mx.mta_sts) {
                 Some(PolicyMode::Enforce) => {
                     enable_tls = Tls::Required;
                     self.tracer.diagnostic(Level::INFO, || {
@@ -970,6 +1131,40 @@ impl SmtpDispatcher {
             }
         }
 
+        Ok(TlsRequirements::new(enable_tls, dane_tlsa))
+    }
+
+    async fn negotiate_tls(
+        &mut self,
+        dispatcher: &Dispatcher,
+        path_config: &EgressPathConfig,
+        client: &mut SmtpClient,
+        address: &ResolvedAddress,
+        port: u16,
+        ehlo_name: &str,
+        helo_verb: &str,
+        has_tls: bool,
+        mx: Option<&MailExchanger>,
+    ) -> anyhow::Result<TlsEvidence> {
+        let requirements = self
+            .tls_requirements(path_config, address, port, mx)
+            .await?;
+        let enable_tls = requirements.enable_tls;
+        let dane_tlsa = requirements.dane_tlsa.clone();
+        let broken_tls = self.has_broken_tls(&dispatcher.name);
+        let advertised_starttls = has_tls;
+        let mut certificate_from_pem = None;
+        let mut private_key_from_pem = None;
+        if let Some(pem) = &path_config.tls_certificate {
+            certificate_from_pem = self.resolve_cached_client_cert(pem).await?;
+        }
+        if let Some(pem) = &path_config.tls_private_key {
+            private_key_from_pem = self.resolve_cached_client_cert(pem).await?;
+        }
+        let openssl_options = path_config.openssl_options;
+        let openssl_cipher_list = path_config.openssl_cipher_list.clone();
+        let openssl_cipher_suites = path_config.openssl_cipher_suites.clone();
+        let rustls_cipher_suites = path_config.rustls_cipher_suites.clone();
         let prefer_openssl = path_config.tls_prefer_openssl;
 
         // A couple of little helper types to make the match statement below
@@ -992,7 +1187,7 @@ impl SmtpDispatcher {
             BrokenTls::No
         };
 
-        Ok(match (enable_tls, has_tls, broken_tls) {
+        let tls_enabled = match (enable_tls, has_tls, broken_tls) {
             (Tls::Required | Tls::RequiredInsecure, AdvTls::No, _) => {
                 anyhow::bail!("tls policy is {enable_tls:?} but STARTTLS is not advertised by {address:?}:{port}");
             }
@@ -1031,7 +1226,7 @@ impl SmtpDispatcher {
                     .await?
                 {
                     TlsStatus::FailedHandshake(handshake_error) => {
-                        self.remember_broken_tls(&dispatcher.name, path_config)
+                        self.remember_broken_tls(&dispatcher.name, enable_tls, path_config)
                             .await;
 
                         // Don't try too hard to send the quit here; the connection may
@@ -1072,7 +1267,7 @@ impl SmtpDispatcher {
                 {
                     Ok(_) => true,
                     Err(err) => {
-                        self.remember_broken_tls(&dispatcher.name, path_config)
+                        self.remember_broken_tls(&dispatcher.name, enable_tls, path_config)
                             .await;
                         if enable_tls.is_opportunistic()
                             && path_config.opportunistic_tls_reconnect_on_failed_handshake
@@ -1088,6 +1283,17 @@ impl SmtpDispatcher {
                     }
                 }
             }
+        };
+        Ok(if !tls_enabled {
+            TlsEvidence::Plaintext {
+                advertised_starttls,
+            }
+        } else if enable_tls.allow_insecure() {
+            TlsEvidence::Unverified
+        } else if requirements.dane_tlsa.is_empty() {
+            TlsEvidence::Pkix
+        } else {
+            TlsEvidence::Dane(requirements.dane_tlsa)
         })
     }
 
@@ -1110,7 +1316,17 @@ impl SmtpDispatcher {
             .map_err(|e| anyhow::Error::msg(e.to_string()))
     }
 
-    async fn remember_broken_tls(&mut self, site_name: &str, path_config: &EgressPathConfig) {
+    async fn remember_broken_tls(
+        &mut self,
+        site_name: &str,
+        effective_tls: Tls,
+        path_config: &EgressPathConfig,
+    ) {
+        // A mandatory-policy failure must not suppress TLS for opportunistic
+        // siblings. Use the policy after applying this message's DANE/MTA-STS.
+        if !effective_tls.is_opportunistic() {
+            return;
+        }
         let duration = match path_config.remember_broken_tls {
             Some(duration) => Some(duration),
             None if path_config.opportunistic_tls_reconnect_on_failed_handshake => {
@@ -1179,6 +1395,7 @@ impl SmtpDispatcher {
             }
         }
         self.client.take();
+        self.reset_connection_security();
 
         // We consider our session to be terminated with "success" if
         // we got as far as trying to send a message down any of them.
@@ -1198,6 +1415,7 @@ impl SmtpDispatcher {
 #[async_trait]
 impl QueueDispatcher for SmtpDispatcher {
     async fn close_connection(&mut self, _dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
+        self.reset_connection_security();
         if let Some(mut client) = self.client.take() {
             client
                 .send_command(&rfc5321::parser::Command::Quit)
@@ -1731,4 +1949,84 @@ async fn classify_record(response: &Response) -> (RecordType, IsTooManyRecipient
     };
 
     (record_type, too_many)
+}
+
+#[cfg(test)]
+mod tls_evidence_tests {
+    use super::*;
+    use dns_resolver::{CertUsage, Matching, Selector};
+
+    fn policy(enable_tls: Tls) -> TlsRequirements {
+        TlsRequirements::new(enable_tls, vec![])
+    }
+
+    fn tlsa(byte: u8) -> TLSA {
+        TLSA::new(
+            CertUsage::DaneEe,
+            Selector::Full,
+            Matching::Sha256,
+            vec![byte; 32],
+        )
+    }
+
+    fn dane_policy(byte: u8) -> TlsRequirements {
+        TlsRequirements::new(Tls::Required, vec![tlsa(byte)])
+    }
+
+    #[test]
+    fn duplicate_tlsa_preserves_connection_compatibility() {
+        let original = TlsRequirements::new(Tls::Required, vec![tlsa(1), tlsa(2)]);
+        let proof = TlsEvidence::Dane(original.dane_tlsa);
+        let repeated =
+            TlsRequirements::new(Tls::Required, vec![tlsa(1), tlsa(1), tlsa(2), tlsa(2)]);
+        assert!(proof.satisfies(&repeated, false));
+        assert!(!proof.satisfies(&dane_policy(2), false));
+    }
+
+    #[test]
+    fn dane_and_pkix_are_independent_proofs() {
+        let dane = dane_policy(1);
+        let proof = TlsEvidence::Dane(dane.dane_tlsa.clone());
+        assert!(proof.satisfies(&dane, false));
+        assert!(!proof.satisfies(&dane_policy(2), false));
+        assert!(!proof.satisfies(&policy(Tls::Required), false));
+        assert!(!TlsEvidence::Pkix.satisfies(&dane, false));
+        assert!(TlsEvidence::Pkix.satisfies(&policy(Tls::Required), false));
+    }
+
+    #[test]
+    fn plaintext_with_starttls_requires_broken_tls_memory() {
+        let proof = TlsEvidence::Plaintext {
+            advertised_starttls: true,
+        };
+        for opportunistic in [Tls::Opportunistic, Tls::OpportunisticInsecure] {
+            assert!(!proof.satisfies(&policy(opportunistic), false));
+            assert!(proof.satisfies(&policy(opportunistic), true));
+        }
+        for required in [Tls::Required, Tls::RequiredInsecure] {
+            assert!(!proof.satisfies(&policy(required), false));
+            assert!(!proof.satisfies(&policy(required), true));
+        }
+    }
+
+    #[test]
+    fn encryption_is_not_authentication() {
+        assert!(TlsEvidence::Unverified.satisfies(&policy(Tls::RequiredInsecure), false));
+        assert!(TlsEvidence::Unverified.satisfies(&policy(Tls::OpportunisticInsecure), false));
+        assert!(!TlsEvidence::Unverified.satisfies(&policy(Tls::Required), false));
+        assert!(!TlsEvidence::Unverified.satisfies(&policy(Tls::Opportunistic), false));
+    }
+
+    #[test]
+    fn plaintext_without_starttls_remains_opportunistic() {
+        let proof = TlsEvidence::Plaintext {
+            advertised_starttls: false,
+        };
+        assert!(proof.satisfies(&policy(Tls::Opportunistic), false));
+        assert!(!proof.satisfies(&policy(Tls::RequiredInsecure), false));
+        let disabled = TlsEvidence::Plaintext {
+            advertised_starttls: true,
+        };
+        assert!(!disabled.satisfies(&policy(Tls::Opportunistic), false));
+    }
 }

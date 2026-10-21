@@ -19,10 +19,25 @@ That is where this option comes into play: when it is set to a duration
 string, that will cause `kumod` to remember that a given site has broken
 TLS for up to that duration.
 
-Subsequent connection attempts will use that information to influence how
-it should proceed; for `Opportunistic` modes we will treat the session
-as if STARTTLS was not advertised.  For `Required` modes we will log
-an error that mentions that `remember_broken_tls` is set.
+For subsequent connections in `Opportunistic` or `OpportunisticInsecure`
+mode, a remembered failure causes STARTTLS to be treated as not advertised.
+`Required` and `RequiredInsecure` never fall back to plaintext, regardless
+of this memory.
+
+Whether a TLS failure is remembered depends on the effective `enable_tls`
+for the message being delivered, after DANE and MTA-STS are applied:
+
+|Effective `enable_tls` when TLS fails|Earlier versions|{{since('dev', inline=True)}}|
+|-------------------------------------|----------------|-----------------------------|
+|`Opportunistic` or `OpportunisticInsecure`|Later opportunistic connections to the site skip STARTTLS|Later opportunistic connections to the site skip STARTTLS|
+|`Required` or `RequiredInsecure`|Later opportunistic connections to the site skip STARTTLS|Later connections still attempt STARTTLS|
+
+For example, if DANE authentication fails for one domain on a shared site,
+messages for other domains on that site keep using TLS.
+
+The same applies to the 15-minute memory enabled by
+[opportunistic_tls_reconnect_on_failed_handshake](opportunistic_tls_reconnect_on_failed_handshake.md).
+A failure that is not remembered does not clear one that already is.
 
 ```lua
 kumo.make_egress_path {
