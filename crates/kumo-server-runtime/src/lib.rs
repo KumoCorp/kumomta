@@ -47,6 +47,29 @@ pub fn get_main_runtime() -> tokio::runtime::Handle {
     MAIN_RUNTIME.lock().as_ref().map(|r| r.clone()).unwrap()
 }
 
+/// Returns the main runtime's handle, or `None` before
+/// `assign_main_runtime` has run, which is the case in unit tests.
+pub fn try_get_main_runtime() -> Option<tokio::runtime::Handle> {
+    MAIN_RUNTIME.lock().clone()
+}
+
+/// Spawn a named future onto the main runtime, or onto the current runtime
+/// when the main runtime is unassigned (eg: in unit tests).
+pub fn spawn_on_main<FUT, N: AsRef<str>>(
+    name: N,
+    fut: FUT,
+) -> std::io::Result<JoinHandle<FUT::Output>>
+where
+    FUT: Future + Send + 'static,
+    FUT::Output: Send,
+{
+    let builder = tokio::task::Builder::new().name(name.as_ref());
+    match try_get_main_runtime() {
+        Some(handle) => builder.spawn_on(fut, &handle),
+        None => builder.spawn(fut),
+    }
+}
+
 static LOCALSET_THREADS: AtomicUsize = AtomicUsize::new(0);
 
 pub fn set_localset_threads(n: usize) {

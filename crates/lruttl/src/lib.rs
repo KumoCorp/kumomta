@@ -1090,7 +1090,9 @@ impl<
             // shorter.
             self.set_pending_expiration(name, Instant::now() + populate_timeout);
 
-            kumo_server_runtime::spawn("lruttl-populate", async move {
+            // Explicitly move processing to the `main` runtime to avoid
+            // performance-impacting contention with the calling runtime.
+            kumo_server_runtime::spawn_on_main("lruttl-populate", async move {
                 // defer! closes the semaphore on every exit path, including a
                 // panic in the populate, waking any caller blocked on it.
                 defer! {
