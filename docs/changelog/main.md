@@ -112,6 +112,12 @@
  * The `sources.lua` helper now loads its source and pool definition files with
    one call to `kumo.serde.load_files` instead of one call per file.
 
+ * The `sources.lua` helper's `setup` now accepts an optional second table of
+   options that tune its data cache: `cache_ttl`,
+   `sources_data_populate_timeout`, `allow_stale_sources_data` and
+   `retry_sources_data_fetch_on_populate_timeout`, mirroring the options the
+   `shaping.lua` helper already exposes.
+
  * New metrics:
    [thread_pool_global_queue_depth](../reference/metrics/kumod/thread_pool_global_queue_depth.md),
    [thread_pool_alive_tasks](../reference/metrics/kumod/thread_pool_alive_tasks.md),

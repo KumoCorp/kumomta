@@ -123,18 +123,50 @@ local sources = require 'policy-extras.sources'
 
 sources:setup({'/opt/kumomta/etc/sources.toml'})
 ```
+
+setup accepts an optional second table of options that tune the cache
+holding the parsed source and pool data:
+
+```
+sources:setup({'/opt/kumomta/etc/sources.toml'}, {
+  -- How long the parsed data is cached before the files are read again.
+  -- Defaults to '5 minutes'.
+  cache_ttl = '5 minutes',
+
+  -- Bound how long a lookup waits for the data to be (re)loaded before it
+  -- gives up. Unset by default, which uses the built-in lruttl deadline.
+  sources_data_populate_timeout = '5s',
+
+  -- When the cached data has expired and a reload is in flight, serve the
+  -- previous data to lookups rather than making them wait for the reload.
+  -- Defaults to false. This only takes effect once a lookup has waited
+  -- sources_data_populate_timeout, so set that to a small value alongside
+  -- it. Enabling this also means edits to the source files are not picked
+  -- up on a config reload; they apply only once cache_ttl expires.
+  allow_stale_sources_data = false,
+
+  -- Retry the load once more if it hits sources_data_populate_timeout.
+  -- Defaults to false.
+  retry_sources_data_fetch_on_populate_timeout = false,
+})
+```
 ]]
 
-function mod:setup(data_files)
+function mod:setup(data_files, options)
   if mod.CONFIGURED then
     error 'sources module has already been configured'
   end
 
+  options = options or {}
+
   local cached_load_data = kumo.memoize(load_data, {
     name = 'sources_data',
-    ttl = '5 minutes',
+    ttl = options.cache_ttl or '5 minutes',
     capacity = 10,
     invalidate_with_epoch = true,
+    retry_on_populate_timeout = options.retry_sources_data_fetch_on_populate_timeout,
+    populate_timeout = options.sources_data_populate_timeout,
+    allow_stale_reads = options.allow_stale_sources_data or false,
   })
 
   mod.CONFIGURED = {
