@@ -3,10 +3,15 @@
 Controls whether and how TLS will be used when connecting to the destination.
 
 !!! note
-    This setting is overriden by [enable_mta_sts](enable_mta_sts.md) and/or
-    [enable_dane](enable_dane.md) when either of those options are enabled and
-    an MTA-STS or DANE policy (respectively) is published by the destination
-    site.
+    When [enable_mta_sts](enable_mta_sts.md) and/or [enable_dane](enable_dane.md)
+    are enabled and the destination publishes a policy, that policy adjusts
+    the effective value of this setting as follows.
+
+|Behavior|Since|
+|--------|-----|
+|The policy can raise the effective value, such as from `Opportunistic` to `Required`, but never lowers it: it cannot make STARTTLS optional, or skip certificate verification, where your configured value demands them|{{since('dev', inline=True)}}|
+|The policy replaces this setting's value. DANE `TLSA` records that are present but unusable lower it to `RequiredInsecure`. An MTA-STS `testing` policy lowers it to `OpportunisticInsecure`, except that it stays `RequiredInsecure` when those unusable DANE records were found|{{since('2026.09.22-a276d4a8', inline=True)}}|
+|The policy replaces your configured value. An MTA-STS `testing` policy lowers it to `OpportunisticInsecure`|Releases before 2026.09.22-a276d4a8|
 
 Possible values are:
 

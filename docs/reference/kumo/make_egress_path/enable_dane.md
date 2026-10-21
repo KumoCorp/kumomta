@@ -17,13 +17,13 @@ are looked up against the MX hostname (the DANE reference identifier), not the
 envelope/routing domain. A destination given as an IP address literal is never
 DANE-eligible (there is no name to query).
 
-| DNSSEC chain to MX host | `TLSA` lookup result | Effective `enable_tls` | Outcome |
-|---|---|---|---|
-| Not secure | *(not queried)* | your configured value | DANE does not apply; MTA-STS may still apply |
-| Secure | usable DANE-TA(2)/DANE-EE(3) record(s) | `Required`, with the server certificate checked against the `TLSA` records | deliver only if the certificate matches a record; otherwise defer and try the next host |
-| Secure | record(s) present but none usable | `RequiredInsecure` | STARTTLS required, but the server certificate is **not** checked |
-| Secure | securely absent (NODATA / NXDOMAIN) | your configured value | DANE does not apply; MTA-STS may still apply |
-| Secure | lookup failed (`SERVFAIL`, timeout, or bogus) | — | delivery is deferred (downgrade resistance); nothing is sent in the clear |
+| DNSSEC chain to MX host | `TLSA` lookup result | Effective `enable_tls`, earlier versions | Effective `enable_tls` {{since('dev', inline=True)}} | Outcome |
+|---|---|---|---|---|
+| Not secure | *(not queried)* | your configured value | your configured value | DANE does not apply. MTA-STS may still apply. |
+| Secure | usable DANE-TA(2)/DANE-EE(3) record(s) | `Required`, with the server certificate checked against the `TLSA` records | `Required`, with the server certificate checked against the `TLSA` records | deliver only if the certificate matches a record; otherwise defer and try the next host |
+| Secure | record(s) present but none usable {{since('2026.09.22-a276d4a8', inline=True)}} | `RequiredInsecure` | `RequiredInsecure`, raised to your configured value if that is stronger | STARTTLS required. The certificate is checked only when the effective value checks it |
+| Secure | securely absent (NODATA / NXDOMAIN) | your configured value | your configured value | DANE does not apply. MTA-STS may still apply. |
+| Secure | lookup failed (`SERVFAIL`, timeout, or bogus) | -- | -- | delivery is deferred (downgrade resistance). Nothing is sent in the clear |
 
 Notes:
 
@@ -38,8 +38,8 @@ Notes:
 * [`Required`](enable_tls.md) and [`RequiredInsecure`](enable_tls.md) differ
   only in whether the server certificate is checked; `RequiredInsecure` still
   mandates STARTTLS, it just does not check the peer's certificate.
-* On the `RequiredInsecure` row the certificate is not validated, so by default
-  SMTP AUTH PLAIN is not sent; see
+* When `RequiredInsecure` leaves the certificate unchecked, SMTP AUTH
+  PLAIN is not sent by default. See
   [allow_smtp_auth_plain_without_valid_certificate](allow_smtp_auth_plain_without_valid_certificate.md).
 
 The outcome of each of these decisions is counted by the

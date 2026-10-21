@@ -424,7 +424,7 @@ Outcome {
     kind: Delivery,
     response: "250 OK ids=ID",
     dane_diagnostics: [
-        "DANE TLSA records for mx.dane.example. exist but none are usable; requiring unauthenticated STARTTLS",
+        "DANE TLSA records for mx.dane.example. exist but none are usable; requiring STARTTLS without DANE authentication",
     ],
     tls_authenticated: Some(
         false,

@@ -780,8 +780,8 @@ impl SmtpDispatcher {
 
     /// Negotiate the TLS posture for a cleartext connection and, when the
     /// policy calls for it, upgrade to TLS via STARTTLS. Returns whether TLS
-    /// ended up enabled on the session. DANE and MTA-STS policy are applied to
-    /// the effective `enable_tls` before the decision.
+    /// ended up enabled on the session. DANE and MTA-STS policy may raise, but
+    /// never lower, the configured `enable_tls` before the decision.
     async fn negotiate_tls(
         &mut self,
         dispatcher: &Dispatcher,
@@ -798,11 +798,6 @@ impl SmtpDispatcher {
 
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
-        // Set when DANE published TLSA records that turned out to be unusable:
-        // STARTTLS is then mandatory (the host committed to TLS) even though we
-        // cannot authenticate it, so MTA-STS may add authentication but must not
-        // relax the requirement back to opportunistic.
-        let mut dane_requires_starttls = false;
 
         let mut certificate_from_pem = None;
         let mut private_key_from_pem = None;
@@ -884,27 +879,23 @@ impl SmtpDispatcher {
                         self.tracer.diagnostic(Level::INFO, || {
                             format!("DANE records for {} are: {dane_tlsa:?}", address.name)
                         });
-                        enable_tls = Tls::Required;
+                        enable_tls = enable_tls.at_least(Tls::Required);
                         // Do not use MTA-STS when we have usable DANE records
                         mta_sts_eligible = false;
                     }
                     DaneStatus::Unusable => {
                         record_dane_result("unusable");
                         // RFC 7672 section 4.1: TLSA records are published
-                        // but none are usable; STARTTLS is required but we
-                        // cannot authenticate the peer. The domain has no
-                        // usable DANE policy, so MTA-STS may still apply as
-                        // an authentication fallback (but must not relax the
-                        // mandatory STARTTLS).
+                        // but none are usable. STARTTLS is required, but DANE
+                        // cannot authenticate the peer.
                         self.tracer.diagnostic(Level::INFO, || {
                             format!(
                                 "DANE TLSA records for {} exist but none are usable; \
-                                     requiring unauthenticated STARTTLS",
+                                     requiring STARTTLS without DANE authentication",
                                 address.name
                             )
                         });
-                        enable_tls = Tls::RequiredInsecure;
-                        dane_requires_starttls = true;
+                        enable_tls = enable_tls.at_least(Tls::RequiredInsecure);
                     }
                     DaneStatus::TempFail(reason) => {
                         record_dane_result("tempfail");
@@ -952,19 +943,16 @@ impl SmtpDispatcher {
         if mta_sts_eligible && path_config.enable_mta_sts {
             match dispatcher.mx.as_ref().map(|mx| mx.mta_sts) {
                 Some(PolicyMode::Enforce) => {
-                    enable_tls = Tls::Required;
+                    enable_tls = enable_tls.at_least(Tls::Required);
                     self.tracer.diagnostic(Level::INFO, || {
                         "MTA-STS enforce policy in effect; requiring TLS".to_string()
                     });
                 }
                 Some(PolicyMode::Testing) => {
-                    // Don't relax a mandatory STARTTLS established by
-                    // unusable DANE TLSA records.
-                    if !dane_requires_starttls {
-                        enable_tls = Tls::OpportunisticInsecure;
-                    }
+                    // RFC 8461 section 5: a testing policy is reported but
+                    // must not change delivery.
                     self.tracer.diagnostic(Level::INFO, || {
-                        "MTA-STS testing policy in effect".to_string()
+                        "MTA-STS testing policy in effect; TLS posture unchanged".to_string()
                     });
                 }
                 None | Some(PolicyMode::None) => {}

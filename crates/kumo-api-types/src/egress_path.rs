@@ -36,7 +36,46 @@ pub enum Tls {
     Disabled,
 }
 
+/// How insistent a [`Tls`] policy is about negotiating STARTTLS, ordered
+/// from least to most demanding.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+enum Starttls {
+    Never,
+    IfOffered,
+    Mandatory,
+}
+
 impl Tls {
+    /// Merges `self` with `floor`, taking the stronger of the two on each
+    /// of STARTTLS-mandatory and peer-certificate-verified independently.
+    /// Used to raise a configured policy to a destination-published floor
+    /// (MTA-STS, DANE) without ever lowering it.
+    pub fn at_least(self, floor: Tls) -> Tls {
+        let (starttls, verify) = self.axes();
+        let (floor_starttls, floor_verify) = floor.axes();
+        Self::from_axes(starttls.max(floor_starttls), verify || floor_verify)
+    }
+
+    fn axes(self) -> (Starttls, bool) {
+        match self {
+            Self::Disabled => (Starttls::Never, false),
+            Self::OpportunisticInsecure => (Starttls::IfOffered, false),
+            Self::Opportunistic => (Starttls::IfOffered, true),
+            Self::RequiredInsecure => (Starttls::Mandatory, false),
+            Self::Required => (Starttls::Mandatory, true),
+        }
+    }
+
+    fn from_axes(starttls: Starttls, verify: bool) -> Tls {
+        match (starttls, verify) {
+            (Starttls::Never, _) => Self::Disabled,
+            (Starttls::IfOffered, false) => Self::OpportunisticInsecure,
+            (Starttls::IfOffered, true) => Self::Opportunistic,
+            (Starttls::Mandatory, false) => Self::RequiredInsecure,
+            (Starttls::Mandatory, true) => Self::Required,
+        }
+    }
+
     pub fn allow_insecure(&self) -> bool {
         match self {
             Self::OpportunisticInsecure | Self::RequiredInsecure => true,
@@ -966,6 +1005,65 @@ fn merge_optional(a: &mut Option<EffectiveCeiling>, b: &Option<EffectiveCeiling>
         (Some(av), Some(bv)) if bv.value.total_cmp(&av.value).is_lt() => *av = bv.clone(),
         (None, Some(bv)) => *a = Some(bv.clone()),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tls_tests {
+    use super::*;
+
+    const ALL: [Tls; 5] = [
+        Tls::Disabled,
+        Tls::OpportunisticInsecure,
+        Tls::Opportunistic,
+        Tls::RequiredInsecure,
+        Tls::Required,
+    ];
+
+    #[test]
+    fn at_least_never_weakens_either_axis() {
+        for a in ALL {
+            for b in ALL {
+                let result = a.at_least(b);
+                k9::assert_equal!(result, b.at_least(a));
+                let (starttls, verify) = result.axes();
+                for input in [a, b] {
+                    let (in_starttls, in_verify) = input.axes();
+                    assert!(
+                        starttls >= in_starttls,
+                        "{a:?}.at_least({b:?}) = {result:?}"
+                    );
+                    assert!(verify || !in_verify, "{a:?}.at_least({b:?}) = {result:?}");
+                }
+            }
+            k9::assert_equal!(a.at_least(a), a);
+        }
+    }
+
+    #[test]
+    fn published_policy_floors() {
+        // `RequiredInsecure` as the floor models an unusable DANE TLSA record.
+        k9::assert_equal!(
+            Tls::Opportunistic.at_least(Tls::RequiredInsecure),
+            Tls::Required
+        );
+        k9::assert_equal!(Tls::Required.at_least(Tls::RequiredInsecure), Tls::Required);
+        k9::assert_equal!(
+            Tls::OpportunisticInsecure.at_least(Tls::RequiredInsecure),
+            Tls::RequiredInsecure
+        );
+        k9::assert_equal!(
+            Tls::Disabled.at_least(Tls::RequiredInsecure),
+            Tls::RequiredInsecure
+        );
+        // A floor of `Required` models MTA-STS enforce or a usable DANE
+        // TLSA record, both of which mandate verified STARTTLS. Since
+        // `Required` is already the strongest value on both axes, every
+        // local policy raised to it ends up `Required`, regardless of how
+        // weak the local policy started out.
+        for local in ALL {
+            k9::assert_equal!(local.at_least(Tls::Required), Tls::Required);
+        }
     }
 }
 

@@ -159,6 +159,16 @@
    in the meantime.  You only need to consider this if you require DNSSEC
    validation to be enabled (such as for DANE support).  Most users are unaffected.
 
+ * A destination's published MTA-STS or DANE policy can no longer lower the
+   [enable_tls](../reference/kumo/make_egress_path/enable_tls.md) configured for
+   an egress path. Previously an MTA-STS `testing` policy replaced the
+   configured value with `OpportunisticInsecure`, and DANE `TLSA` records that
+   were present but unusable replaced it with `RequiredInsecure`. Both dropped
+   certificate verification that the configured value required. The `testing`
+   case also made STARTTLS optional. A published policy now only raises the
+   effective posture, and a `testing` policy has no effect on it. Thanks to
+   @terrorobe! #616
+
  * `AUTH PLAIN` credentials are now redacted from both inbound rejection logs
    and outbound delivery failure records, replaced with `[REDACTED]` in all log
    and diagnostic output. Thanks to @terrorobe! #636

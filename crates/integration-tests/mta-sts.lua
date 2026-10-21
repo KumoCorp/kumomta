@@ -36,7 +36,10 @@ kumo.on('init', function()
   -- broken.example.com publishes MX records, but its (mocked) MTA-STS policy
   -- is in enforce mode and permits none of those MX hosts, making it
   -- undeliverable until the policy is corrected. good.example.com publishes a
-  -- policy that covers its MX host, so delivery proceeds normally.
+  -- policy that covers its MX host. Delivery to good.example.com proceeds
+  -- normally. testing.example.com publishes a testing-mode policy. Its tests
+  -- vary the configured enable_tls to check that a testing policy never
+  -- changes it.
   kumo.dns.configure_test_resolver {
     [[
 $ORIGIN broken.example.com.
@@ -46,6 +49,11 @@ mail 600 A  127.0.0.1
     [[
 $ORIGIN good.example.com.
 @    600 MX 10 mail.good.example.com.
+mail 600 A  127.0.0.1
+]],
+    [[
+$ORIGIN testing.example.com.
+@    600 MX 10 mail.testing.example.com.
 mail 600 A  127.0.0.1
 ]],
   }
@@ -63,6 +71,12 @@ mode: enforce
 mx: mail.good.example.com
 max_age: 86400
 ]],
+    ['testing.example.com'] = [[
+version: STSv1
+mode: testing
+mx: mail.testing.example.com
+max_age: 86400
+]],
   }
 end)
 
@@ -75,14 +89,14 @@ kumo.on('get_queue_config', function(domain)
   }
 end)
 
-kumo.on('get_egress_path_config', function()
+kumo.on('get_egress_path_config', function(domain)
   return kumo.make_egress_path {
-    enable_tls = 'OpportunisticInsecure',
+    enable_tls = os.getenv 'KUMOD_TESTING_TLS' or 'OpportunisticInsecure',
     prohibited_hosts = {},
     -- Direct the resolved 127.0.0.1 MX host at the sink.
     smtp_port = SINK_PORT,
-    -- The matching enforce policy is evaluated during resolution; we don't
-    -- additionally raise the TLS posture here, keeping the sink hop simple.
-    enable_mta_sts = false,
+    -- Only testing.example.com needs enable_mta_sts set, to verify that its
+    -- testing-mode policy leaves the configured enable_tls unchanged.
+    enable_mta_sts = domain == 'testing.example.com',
   }
 end)
