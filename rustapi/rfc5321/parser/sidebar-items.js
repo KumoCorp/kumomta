@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["REDACTED"],"enum":["Command","CommandVerb","Domain","EnvelopeAddress","ForwardPath","MaybePartialCommand","PartialReason","ReversePath"],"fn":["redacted_auth_command"],"struct":["EsmtpParameter","MailPath","Mailbox","XClientParameter"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DiagnosticFormat"],"fn":["set_diagnostic_log_filter"],"struct":["LoggingConfig"]};
