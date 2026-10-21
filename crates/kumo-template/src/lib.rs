@@ -28,7 +28,7 @@ enum Engine {
 
 /// Returns true when `source` contains none of the expansion markers of
 /// `dialect`, meaning the engine would render it with no substitution.
-fn source_is_static(dialect: TemplateDialect, source: &str) -> bool {
+pub fn source_is_static(dialect: TemplateDialect, source: &str) -> bool {
     match dialect {
         TemplateDialect::Static => true,
         TemplateDialect::Handlebars => !source.contains("{{"),
@@ -152,6 +152,103 @@ pub enum PreparedContext {
     Jinja(JinjaValue),
     Static,
     Handlebars(handlebars::Context),
+}
+
+/// A single compiled template that owns its engine.
+///
+/// Unlike [`Template`], which borrows from a [`TemplateEngine`], this has no
+/// lifetime parameters and is `Send + Sync`, so it can be cached and shared
+/// across requests.
+pub struct StandaloneTemplate {
+    name: String,
+    inner: StandaloneInner,
+}
+
+enum StandaloneInner {
+    /// A marker-free source, held as the text it renders to, with no engine
+    Literal(String),
+    Compiled(EngineAndTemplate),
+}
+
+type SingleTemplate<'a> = Template<'a, 'a>;
+
+self_cell!(
+    /// The engine together with its template, resolved once at compile time
+    /// so that rendering does not look the template up again.
+    struct EngineAndTemplate {
+        owner: TemplateEngine,
+        #[covariant]
+        dependent: SingleTemplate,
+    }
+);
+
+impl StandaloneTemplate {
+    /// Compile `source` as a template named `name`. If name ends with `.html`
+    /// then automatic escaping of html entities will be performed on
+    /// substitutions.
+    ///
+    /// A source that is free of expansion markers for `dialect` is held as a
+    /// literal, without creating an engine.
+    pub fn compile<N, S>(dialect: TemplateDialect, name: N, source: S) -> anyhow::Result<Self>
+    where
+        N: Into<String>,
+        S: Into<String>,
+    {
+        let name = name.into();
+        let mut source = source.into();
+
+        if source_is_static(dialect, &source) {
+            source.truncate(trim_static_source(dialect, &source).len());
+            return Ok(Self {
+                name,
+                inner: StandaloneInner::Literal(source),
+            });
+        }
+
+        let mut engine = TemplateEngine::with_dialect(dialect);
+        engine.add_template(name.clone(), source)?;
+        let compiled = EngineAndTemplate::try_new(engine, |engine| engine.get_template(&name))?;
+        Ok(Self {
+            name,
+            inner: StandaloneInner::Compiled(compiled),
+        })
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Returns true when the source had no expansion markers, so rendering
+    /// returns it verbatim.
+    pub fn is_static(&self) -> bool {
+        matches!(self.inner, StandaloneInner::Literal(_))
+    }
+
+    pub fn render<S: Serialize>(&self, ctx: S) -> anyhow::Result<String> {
+        match &self.inner {
+            StandaloneInner::Literal(s) => Ok(s.clone()),
+            StandaloneInner::Compiled(compiled) => compiled.borrow_dependent().render(ctx),
+        }
+    }
+
+    /// Renders against a context prepared by a [`TemplateEngine`] of the same
+    /// dialect. For Handlebars, the globals of the engine that prepared the
+    /// context are the ones that apply.
+    pub fn render_prepared(&self, ctx: &PreparedContext) -> anyhow::Result<String> {
+        match &self.inner {
+            StandaloneInner::Literal(s) => Ok(s.clone()),
+            StandaloneInner::Compiled(compiled) => compiled.borrow_dependent().render_prepared(ctx),
+        }
+    }
+}
+
+impl std::fmt::Debug for StandaloneTemplate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StandaloneTemplate")
+            .field("name", &self.name)
+            .field("is_static", &self.is_static())
+            .finish_non_exhaustive()
+    }
 }
 
 /// Holds a set of templates
@@ -542,6 +639,73 @@ mod tests {
         k9::assert_equal!(
             dynamic_template.render(json!({"v": "a & b"})).unwrap(),
             "<b>a &amp; b</b>".to_string()
+        );
+    }
+
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    #[test]
+    fn standalone_template_is_send_sync() {
+        assert_send_sync::<StandaloneTemplate>();
+    }
+
+    /// A standalone template renders identically to the same source added to
+    /// a TemplateEngine, for dynamic and static sources in every dialect,
+    /// whether rendered with a serde context or a prepared context.
+    #[test]
+    fn standalone_renders_like_engine() {
+        let ctx = json!({"name": "Tom & <Jerry>", "items": [1, 2]});
+        for dialect in [
+            TemplateDialect::Jinja,
+            TemplateDialect::Handlebars,
+            TemplateDialect::Static,
+        ] {
+            for (name, source) in [
+                ("text_body.txt", "Hi {{ name }}"),
+                ("html_body.html", "<p>Hi {{ name }}</p>"),
+                ("text_body.txt", "no markers here\n"),
+            ] {
+                let mut engine = TemplateEngine::with_dialect(dialect);
+                engine.add_template(name, source).unwrap();
+                let expected = engine.get_template(name).unwrap().render(&ctx).unwrap();
+                let prepared = engine.prepare_context(&ctx).unwrap();
+
+                let standalone = StandaloneTemplate::compile(dialect, name, source).unwrap();
+                k9::assert_equal!(standalone.name(), name);
+                k9::assert_equal!(standalone.render(&ctx).unwrap(), expected);
+                k9::assert_equal!(standalone.render_prepared(&prepared).unwrap(), expected);
+            }
+        }
+    }
+
+    /// A marker-free source becomes a literal that needs no engine; a source
+    /// with markers is compiled.
+    #[test]
+    fn standalone_static_source_is_literal() {
+        for dialect in [
+            TemplateDialect::Jinja,
+            TemplateDialect::Handlebars,
+            TemplateDialect::Static,
+        ] {
+            let literal =
+                StandaloneTemplate::compile(dialect, "text_body.txt", "no markers").unwrap();
+            assert!(literal.is_static(), "{dialect:?}");
+        }
+        for dialect in [TemplateDialect::Jinja, TemplateDialect::Handlebars] {
+            let compiled =
+                StandaloneTemplate::compile(dialect, "text_body.txt", "hi {{ name }}").unwrap();
+            assert!(!compiled.is_static(), "{dialect:?}");
+        }
+    }
+
+    #[test]
+    fn standalone_reports_syntax_errors() {
+        let err =
+            StandaloneTemplate::compile(TemplateDialect::Jinja, "text_body.txt", "Hi {{ name")
+                .unwrap_err();
+        assert!(
+            format!("{err:#}").contains("(in template 'text_body.txt' line 1: 'Hi {{ name')"),
+            "{err:#}"
         );
     }
 }

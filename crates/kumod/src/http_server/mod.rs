@@ -14,6 +14,7 @@ pub mod admin_suspend_v1;
 pub mod admin_trace_smtp_client_v1;
 pub mod admin_trace_smtp_server_v1;
 pub mod check_liveness_v1;
+pub mod inject_template_cache;
 pub mod inject_v1;
 pub mod inspect_ready_q_v1;
 pub mod queue_name_multi_index;

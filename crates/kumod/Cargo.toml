@@ -69,6 +69,7 @@ rustls = {workspace=true}
 secrecy = {workspace=true}
 serde = {workspace=true, features=["rc"]}
 serde_json = {workspace=true}
+sha2 = {workspace=true}
 smallvec.workspace = true
 socksv5 = {workspace=true}
 spool = {path="../spool", features=["rocksdb"]}
