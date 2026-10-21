@@ -4351,6 +4351,7 @@ dependencies = [
  "reqwest",
  "rfc5321",
  "rustls",
+ "secrecy",
  "serde",
  "serde_json",
  "smallvec 1.16.2",
@@ -7502,6 +7503,15 @@ dependencies = [
  "proc-macro2 1.0.107",
  "quote 1.0.47",
  "syn 3.0.6",
+]
+
+[[package]]
+name = "secrecy"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e891af845473308773346dc847b2c23ee78fe442e0472ac50e22a18a93d3ae5a"
+dependencies = [
+ "zeroize",
 ]
 
 [[package]]

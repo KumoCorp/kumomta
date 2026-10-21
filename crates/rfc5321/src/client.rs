@@ -77,7 +77,8 @@ pub enum ClientError {
 }
 
 impl ClientError {
-    /// Returns the command(s) string suitable for passing into a Response
+    /// Returns the command(s) string suitable for passing into a Response,
+    /// with any AUTH credential masked (see [`Command::encode_for_logging`]).
     pub fn command(&self) -> Option<String> {
         match self {
             Self::TimeOutResponse {
@@ -87,13 +88,13 @@ impl ClientError {
             | Self::ReadError {
                 command: Some(command),
                 ..
-            } => Some(command.encode().to_string()),
+            } => Some(command.encode_for_logging().to_string()),
             Self::TimeOutRequest { commands, .. } | Self::WriteError { commands, .. }
                 if !commands.is_empty() =>
             {
                 let s: String = commands
                     .iter()
-                    .map(|cmd| cmd.encode().to_string())
+                    .map(|cmd| cmd.encode_for_logging().to_string())
                     .collect();
                 Some(s)
             }
@@ -484,7 +485,8 @@ impl SmtpClient {
                 .map_err(ClientError::MalformedResponseLine)?;
         }
 
-        let response = response_builder.build(command.map(|cmd| cmd.encode().to_string()));
+        let response =
+            response_builder.build(command.map(|cmd| cmd.encode_for_logging().to_string()));
 
         tracing::trace!("{}: {response:?}", self.hostname);
 

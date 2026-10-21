@@ -28,6 +28,7 @@ use rfc5321::{
     ClientError, EnhancedStatusCode, IsTooManyRecipients, Response, SmtpClient, TlsInformation,
     TlsOptions, TlsStatus,
 };
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use spool::SpoolId;
 use std::collections::HashMap;
@@ -755,21 +756,21 @@ impl SmtpDispatcher {
             }
 
             let password = if let Some(pw) = &path_config.smtp_auth_plain_password {
-                Some(
+                Some(SecretString::from(
                     String::from_utf8(
                         pw.get()
                             .await
                             .context("fetching smtp_auth_plain_password")?,
                     )
                     .context("smtp_auth_plain_password is not UTF8")?,
-                )
+                ))
             } else {
                 None
             };
 
             dispatcher.set_detail("AUTH PLAIN");
             client
-                .auth_plain(username, password.as_deref())
+                .auth_plain(username, password.as_ref().map(|p| p.expose_secret()))
                 .await
                 .with_context(|| {
                     format!(
@@ -1504,7 +1505,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             detail: 2,
                         }),
                         content: reason.clone(),
-                        command: command.as_ref().map(|c| c.encode().to_string()),
+                        command: command.as_ref().map(|c| c.encode_for_logging().to_string()),
                     });
                 }
             }

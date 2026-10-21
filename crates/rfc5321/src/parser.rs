@@ -797,10 +797,27 @@ pub enum Command {
     Unknown(BString),
 }
 
+/// Placeholder substituted for a secret when a command is rendered for logs
+/// or diagnostics rather than the wire.
+pub const REDACTED: &str = "[REDACTED]";
+
+/// Render an `AUTH` command line with its SASL initial-response
+/// masked as [`REDACTED`].  When `has_initial_response` is false,
+/// the returned line is just the verb and mechanism, matching the wire form
+/// for a command with no initial-response.
+pub fn redacted_auth_command(sasl_mech: &str, has_initial_response: bool) -> String {
+    if has_initial_response {
+        format!("AUTH {sasl_mech} {REDACTED}")
+    } else {
+        format!("AUTH {sasl_mech}")
+    }
+}
+
 impl std::fmt::Debug for Command {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Use Command::encode to get the wire format, then escape_bytes for Debug output
-        let encoded = self.encode();
+        // Route through encode_for_logging, not encode: the Debug of an AUTH
+        // command must not expose the credential in its SASL initial-response.
+        let encoded = self.encode_for_logging();
         write!(f, "Command(\"{}\")", encoded.escape_bytes())
     }
 }
@@ -1124,6 +1141,22 @@ impl Command {
         }
         buf.extend_from_slice(b"\r\n");
         BString::from(buf)
+    }
+
+    /// Encode the command for a log or diagnostic render,
+    /// and it will mask AUTH credentials.
+    pub fn encode_for_logging(&self) -> BString {
+        match self {
+            Self::Auth {
+                sasl_mech,
+                initial_response,
+            } => {
+                let mut line = redacted_auth_command(sasl_mech, initial_response.is_some());
+                line.push_str("\r\n");
+                BString::from(line)
+            }
+            _ => self.encode(),
+        }
     }
 
     /// Timeout for reading the response to this command.
@@ -2371,6 +2404,21 @@ Ok(
     }
 
     #[test]
+    fn test_auth_trailing_garbage_is_partial_auth() {
+        // A malformed AUTH line still parses as Partial with the Auth verb
+        // and a non-empty `remainder`.
+        match Command::parse("AUTH PLAIN dXNlcjpwYXNz garbage") {
+            Ok(MaybePartialCommand::Partial {
+                verb, remainder, ..
+            }) => {
+                k9::assert_equal!(verb, CommandVerb::Auth);
+                assert!(!remainder.is_empty());
+            }
+            other => panic!("expected Partial AUTH, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_auth_empty_initial_response() {
         // "=" signals an empty initial response (RFC 4954)
         k9::assert_equal!(
@@ -3290,6 +3338,43 @@ Ok(
     #[test]
     fn test_encode_auth_with_response() {
         assert_encode("AUTH PLAIN dXNlcjpwYXNz", "AUTH PLAIN dXNlcjpwYXNz\r\n");
+    }
+
+    #[test]
+    fn test_auth_redacts_for_logging_not_wire() {
+        let cmd = Command::Auth {
+            sasl_mech: "PLAIN".to_string(),
+            initial_response: Some("dXNlcjpwYXNz".to_string()),
+        };
+        // encode is the wire form and must contain the real credential.
+        k9::assert_equal!(cmd.encode(), BString::from("AUTH PLAIN dXNlcjpwYXNz\r\n"));
+        // Logging and Debug must not.
+        k9::assert_equal!(
+            cmd.encode_for_logging(),
+            BString::from("AUTH PLAIN [REDACTED]\r\n")
+        );
+        k9::assert_equal!(
+            format!("{cmd:?}"),
+            r#"Command("AUTH\x20PLAIN\x20[REDACTED]\r\n")"#
+        );
+    }
+
+    #[test]
+    fn test_auth_no_response_has_nothing_to_redact() {
+        let cmd = Command::Auth {
+            sasl_mech: "PLAIN".to_string(),
+            initial_response: None,
+        };
+        k9::assert_equal!(cmd.encode_for_logging(), BString::from("AUTH PLAIN\r\n"));
+    }
+
+    #[test]
+    fn test_non_auth_logging_matches_wire() {
+        let cmd = Command::RcptTo {
+            address: ForwardPath::Postmaster,
+            parameters: vec![],
+        };
+        k9::assert_equal!(cmd.encode_for_logging(), cmd.encode());
     }
 
     #[test]

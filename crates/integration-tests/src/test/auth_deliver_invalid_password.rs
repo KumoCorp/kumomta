@@ -28,6 +28,31 @@ async fn auth_deliver_invalid_password() -> anyhow::Result<()> {
         )
         .await;
 
+    // credential_b64 is the base64 of "\0daniel\0incorrect-password", the
+    // AUTH PLAIN payload the source sends inline. The sink's rejection of that
+    // payload produces both records under test: a TransientFailure logged by
+    // the source and a Rejection logged by the sink. Check both the base64
+    // payload and the plaintext password, to catch a path that logs the
+    // password undecoded as well as one that logs the encoded payload.
+    let credential_b64 = "AGRhbmllbABpbmNvcnJlY3QtcGFzc3dvcmQ=";
+    let mut saw_redacted_command = false;
+    for daemon in [&daemon.source, &daemon.sink] {
+        for record in daemon.collect_logs().await? {
+            let json = serde_json::to_string(&record)?;
+            anyhow::ensure!(
+                !json.contains(credential_b64) && !json.contains("incorrect-password"),
+                "credential leaked into a log record: {json}"
+            );
+            if record.response.command.as_deref() == Some("AUTH PLAIN [REDACTED]") {
+                saw_redacted_command = true;
+            }
+        }
+    }
+    anyhow::ensure!(
+        saw_redacted_command,
+        "expected a record whose command was the redacted AUTH PLAIN line"
+    );
+
     daemon.stop_both().await?;
     println!("Stopped!");
 

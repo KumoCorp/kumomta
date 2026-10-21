@@ -119,6 +119,10 @@
 
 ## Fixes
 
+ * `AUTH PLAIN` credentials are now redacted from both inbound rejection logs
+   and outbound delivery failure records, replaced with `[REDACTED]` in all log
+   and diagnostic output. Thanks to @terrorobe! #636
+
  * DKIM relaxed body canonicalization now reduces an empty body, or a body
    consisting only of empty or whitespace-only lines, to zero octets as required
    by RFC 6376 section 3.4.4. Previously it retained a CRLF, producing a body

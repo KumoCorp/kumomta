@@ -37,7 +37,8 @@ use openssl::x509::X509;
 use parking_lot::FairMutex as Mutex;
 use ppp::{HeaderResult, PartialResult};
 use rfc5321::parser::{
-    Command, EnvelopeAddress, MaybePartialCommand, PartialReason, XClientParameter,
+    redacted_auth_command, Command, CommandVerb, EnvelopeAddress, MaybePartialCommand,
+    PartialReason, XClientParameter, REDACTED,
 };
 use rfc5321::{subject_name, AsyncReadAndWrite, BoxedAsyncReadAndWrite, Response, TlsInformation};
 use rustls::ServerConfig;
@@ -1831,7 +1832,11 @@ impl SmtpServerSession {
                     )
                     .await?;
                 }
-                Ok(MaybePartialCommand::Partial { reason, .. }) => {
+                Ok(MaybePartialCommand::Partial {
+                    reason,
+                    verb,
+                    remainder,
+                }) => {
                     let msg = match reason {
                         PartialReason::InvalidRecipientAddress => {
                             "5.1.3 Invalid recipient address syntax"
@@ -1841,7 +1846,21 @@ impl SmtpServerSession {
                         }
                         PartialReason::Syntax => "Syntax error in command or arguments",
                     };
-                    self.write_response(501, msg, Some(line), RejectDisconnect::If421)
+                    // The bytes that failed to parse can still contain the SASL
+                    // initial-response of the client, the credential, when AUTH
+                    // parsing only got partway through. Log a redacted stand-in
+                    // instead of the raw line to keep that credential out of the
+                    // Rejection log.
+                    let command = if verb == CommandVerb::Auth {
+                        Some(if remainder.is_empty() {
+                            "AUTH".to_string()
+                        } else {
+                            format!("AUTH {REDACTED}")
+                        })
+                    } else {
+                        Some(line)
+                    };
+                    self.write_response(501, msg, command, RejectDisconnect::If421)
                         .await?;
                 }
                 Ok(MaybePartialCommand::Full(Command::Quit)) => {
@@ -1873,7 +1892,7 @@ impl SmtpServerSession {
                     sasl_mech,
                     initial_response,
                 })) => {
-                    if self.process_auth(line, sasl_mech, initial_response).await?
+                    if self.process_auth(sasl_mech, initial_response).await?
                         == CommandDisposition::Terminate
                     {
                         return Ok(());
@@ -2623,10 +2642,18 @@ impl SmtpServerSession {
 
     async fn process_auth(
         &mut self,
-        line: String,
         sasl_mech: String,
         initial_response: Option<String>,
     ) -> anyhow::Result<CommandDisposition> {
+        let had_initial_response = initial_response.is_some();
+        // Masks the credential for failures reported against this command line.
+        let line = redacted_auth_command(&sasl_mech, had_initial_response);
+        let redacted_response = if had_initial_response {
+            line.clone()
+        } else {
+            REDACTED.to_string()
+        };
+
         if self.authentication_id.is_some() {
             self.write_response(
                 503,
@@ -2668,14 +2695,16 @@ impl SmtpServerSession {
             return Ok(CommandDisposition::Continue);
         }
 
-        let response = if let Some(r) = initial_response {
+        let raw_response = if let Some(r) = initial_response {
             r
         } else {
             self.write_response(334, " ", None, RejectDisconnect::If421)
                 .await?;
+            // The client's credential arrives on this continuation line;
+            // redacted_response, computed above, already masks it.
             match self.read_line(Some(16384)).await? {
                 ReadLine::Disconnected => return Ok(CommandDisposition::Terminate),
-                ReadLine::Line(line) => line,
+                ReadLine::Line(raw) => raw,
                 ReadLine::InvalidUtf8 => {
                     self.write_response(
                         501,
@@ -2719,7 +2748,7 @@ impl SmtpServerSession {
             }
         };
 
-        if response == "*" {
+        if raw_response == "*" {
             self.write_response(
                 501,
                 "5.5.0 AUTH cancelled by client",
@@ -2730,7 +2759,10 @@ impl SmtpServerSession {
             return Ok(CommandDisposition::Continue);
         }
 
-        let Ok(payload) = BASE64.decode(response.as_bytes()) else {
+        // Keep decoding raw_response for the credential fields below, but log
+        // only the redacted `response` from here on.
+        let response = redacted_response;
+        let Ok(payload) = BASE64.decode(raw_response.as_bytes()) else {
             self.write_response(
                 501,
                 "5.5.2 Invalid base64 response",
