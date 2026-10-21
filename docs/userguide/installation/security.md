@@ -99,15 +99,15 @@ The default configuration in the shaping helper for outgoing SMTP is to enable
 `Opportunistic` TLS, which is to make use of TLS if the destination host
 advertises it, but only if the certificate is trusted.
 
-Unfortunately, there are a large number of destination sites with poorly
-maintained TLS, so many KumoMTA users choose to deploy with
-`OpportunisticInsecure` TLS as a default, which will try to use TLS if
-available, but will allow communicating in clear text if there are any issues
-trying to establish the connection.  That rationale for this choice is that
-having an encrypted transport is more private than not having it, even if that
-means that you cannot assert that the connection is to the intended
-destination, especially if you are prepared to send the message in clear text
-as a fallback anyway.
+Unfortunately, a large number of destination sites have self-signed,
+expired, or mismatched certificates, which causes plain `Opportunistic` TLS
+to fail delivery to them. Many KumoMTA users deploy with
+`OpportunisticInsecure` TLS as a default instead: it accepts those same
+certificates, giving an encrypted but unauthenticated session with those
+sites. Clear text is used only when the destination does not advertise
+`STARTTLS` at all. The rationale is that an encrypted transport is more
+private than none, even though you cannot assert that the connection is to
+the intended destination.
 
 Care needs to be taken when employing `OpportunisticInsecure` as it
 introduces the risk of a Man-in-the-Middle attack that can intercept
