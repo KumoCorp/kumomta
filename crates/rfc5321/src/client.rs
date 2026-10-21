@@ -785,11 +785,15 @@ impl SmtpClient {
         Ok(())
     }
 
-    /// Upgrade the connection to TLS using the STARTTLS verb.
-    /// Returns Err if the server rejects the STARTTLS command, or for an IO
-    /// error. A TLS handshake failure after STARTTLS is accepted is reported
-    /// as `Ok(TlsStatus::FailedHandshake(_))` rather than as Err, leaving the
-    /// choice of whether to continue in cleartext up to the caller.
+    /// Send the STARTTLS command and, if the server accepts it, perform the TLS
+    /// handshake to upgrade the connection.
+    ///
+    /// Returns Err if the server rejects STARTTLS or a transport error occurs.
+    /// A failed handshake is instead reported as
+    /// `Ok(TlsStatus::FailedHandshake(_))` rather than Err. On success the
+    /// socket is upgraded to TLS and the client remains usable. On a failed
+    /// handshake the client is unusable. A new connection is required to send
+    /// further commands.
     pub async fn starttls(&mut self, options: TlsOptions) -> Result<TlsStatus, ClientError> {
         let resp = self.send_command(&Command::StartTls).await?;
         if resp.code != 220 {
@@ -810,7 +814,7 @@ impl SmtpClient {
         let mut handshake_error = None;
         let mut tls_info = TlsInformation::default();
 
-        let stream: BoxedAsyncReadAndWrite = if options.prefer_openssl
+        let stream: Option<BoxedAsyncReadAndWrite> = if options.prefer_openssl
             || !options.dane_tlsa.is_empty()
         {
             let connector = options
@@ -820,11 +824,8 @@ impl SmtpClient {
                 })?;
             let ssl = connector.into_ssl(self.hostname.as_str())?;
 
-            let (stream, dup_stream) = match self.socket.take() {
-                Some(s) => {
-                    let d = s.try_dup();
-                    (s, d)
-                }
+            let stream = match self.socket.take() {
+                Some(s) => s,
                 None => return Err(ClientError::NotConnected),
             };
 
@@ -841,9 +842,6 @@ impl SmtpClient {
                     handshake_error.replace(format!("{err:#}"));
                 }
                 Err(_elapsed) => {
-                    // The plaintext fallback below cannot succeed against
-                    // a peer whose TLS state is mid-handshake; hard-fail
-                    // like the rustls path does.
                     if let Some(tracer) = &self.tracer {
                         tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
                             level: Level::ERROR,
@@ -877,16 +875,10 @@ impl SmtpClient {
                 }
             }
 
-            match (&handshake_error, dup_stream) {
-                (Some(_), Some(dup_stream)) if !ssl_stream.ssl().is_init_finished() => {
-                    // Try falling back to clear text on the duplicate stream.
-                    // This is imperfect: in a failed validation scenario we will
-                    // end up trying to read binary data as a string and get a UTF-8
-                    // error if the peer thinks the session is encrypted.
-                    drop(ssl_stream);
-                    Box::new(dup_stream)
-                }
-                _ => Box::new(ssl_stream),
+            if handshake_error.is_some() {
+                None
+            } else {
+                Some(Box::new(ssl_stream) as BoxedAsyncReadAndWrite)
             }
         } else {
             tls_info.provider_name = "rustls".to_string();
@@ -902,7 +894,7 @@ impl SmtpClient {
                 None => return Err(ClientError::NotConnected),
             };
 
-            let connect_future = connector.connect(server_name, socket).into_fallible();
+            let connect_future = connector.connect(server_name, socket);
             match timeout(self.timeouts.starttls_timeout, connect_future).await {
                 Ok(Ok(stream)) => {
                     let (_, conn) = stream.get_ref();
@@ -922,11 +914,11 @@ impl SmtpClient {
                         }
                     }
 
-                    Box::new(stream)
+                    Some(Box::new(stream) as BoxedAsyncReadAndWrite)
                 }
-                Ok(Err((err, stream))) => {
+                Ok(Err(err)) => {
                     handshake_error.replace(format!("{err:#}"));
-                    stream
+                    None
                 }
                 Err(_elapsed) => {
                     if let Some(tracer) = &self.tracer {
@@ -962,7 +954,9 @@ impl SmtpClient {
             });
         }
 
-        self.socket.replace(stream);
+        if let Some(stream) = stream {
+            self.socket.replace(stream);
+        }
         Ok(match handshake_error {
             Some(error) => TlsStatus::FailedHandshake(error),
             None => TlsStatus::Info(tls_info),
