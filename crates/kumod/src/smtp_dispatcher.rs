@@ -677,6 +677,7 @@ impl SmtpDispatcher {
         };
 
         self.source_address.take();
+        self.tls_info.take();
         dispatcher.set_detail("connect+banner");
         let (mut client, source_address, implicit_tls_info) = tokio::select! {
             _ = shutdown.shutting_down() => {

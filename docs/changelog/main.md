@@ -290,3 +290,6 @@
  * RFC3464 parsing now correctly recognizes the RFC822 address type case
    insensitively and handles extraneous spaces in the `Original-Recipient`
    and `Final-Recipient` portions of the DSN. Thanks to @Harshjha3006! #640
+
+ * smtp_dispatcher: now correctly clears the reported `tls_info` when establishing
+   a fallback connection.
