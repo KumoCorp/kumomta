@@ -4260,7 +4260,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hickory-proto",
- "libc",
  "linkme",
  "lruttl",
  "openssl",
