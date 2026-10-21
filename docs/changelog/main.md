@@ -224,6 +224,9 @@
    egress source and pool loading and `kumo.secrets` loading
    by reusing the cached context. Thanks to @edgarsendernet! #632
 
+ * Improved performance of Lua context destruction by processing on a dedicated
+   thread. This reduces contention especially when a config epoch is bumped.
+
  * The
    [message_data_resident_count](../reference/metrics/kumod/message_data_resident_count.md)
    metric could drift away from the true number of messages holding their body

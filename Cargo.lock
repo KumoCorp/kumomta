@@ -1348,6 +1348,7 @@ dependencies = [
  "anyhow",
  "data-encoding",
  "filenamegen",
+ "k9",
  "kumo-prometheus",
  "linkme",
  "mlua",
