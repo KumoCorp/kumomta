@@ -249,3 +249,6 @@
    On the inbound SMTP listener, a failed STARTTLS handshake now drops the
    connection instead of continuing to read commands in cleartext.
 
+ * RFC3464 parsing now correctly recognizes the RFC822 address type case
+   insensitively and handles extraneous spaces in the `Original-Recipient`
+   and `Final-Recipient` portions of the DSN. Thanks to @Harshjha3006! #640

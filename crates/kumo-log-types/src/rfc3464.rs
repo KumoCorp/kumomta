@@ -158,6 +158,10 @@ impl FromStr for RemoteMta {
     }
 }
 
+/// A recipient address from an `Original-Recipient` or `Final-Recipient` DSN
+/// field. Per RFC 3464 section 2.1.2 the type is matched case-insensitively;
+/// an `rfc822` recipient is normalized to a bare SMTP envelope address, while
+/// any other type is preserved verbatim.
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct Recipient {
     pub recipient_type: String,
@@ -176,19 +180,23 @@ impl FromStr for Recipient {
         let (recipient_type, recipient) = input
             .split_once(";")
             .ok_or_else(|| anyhow!("expected 'recipient-type; recipient', got {input}"))?;
+        let recipient_type = recipient_type.trim();
+        let recipient = recipient.trim();
 
-        let recipient = if recipient_type == "rfc822" {
-            recipient
-                .trim()
-                .parse::<EnvelopeAddress>()
-                .map_err(|err| anyhow!("{err}"))?
-                .to_string()
+        let (recipient_type, recipient) = if recipient_type.eq_ignore_ascii_case("rfc822") {
+            (
+                "rfc822",
+                recipient
+                    .parse::<EnvelopeAddress>()
+                    .map_err(|err| anyhow!("{err}"))?
+                    .to_string(),
+            )
         } else {
-            recipient.trim().to_string()
+            (recipient_type, recipient.to_string())
         };
 
         Ok(Self {
-            recipient_type: recipient_type.trim().to_string(),
+            recipient_type: recipient_type.to_string(),
             recipient,
         })
     }
@@ -727,6 +735,69 @@ mod test {
     use crate::ResolvedAddress;
     use mailparsing::MessageConformance;
     use rfc5321::{EnhancedStatusCode, Response};
+
+    #[test]
+    fn recipient_address_type_is_case_insensitive() {
+        for input in [
+            "rfc822;User+Tag@Example.COM",
+            "RFC822 ; User+Tag@Example.COM",
+            "Rfc822; <User+Tag@Example.COM>",
+            "rfc822 ; <User+Tag@Example.COM>",
+            " RFC822 ; <User+Tag@Example.COM> ",
+            "\tRFC822\t;\t<User+Tag@Example.COM>\t",
+        ] {
+            let recipient: Recipient = input.parse().unwrap();
+            k9::snapshot!(
+                recipient,
+                r#"
+Recipient {
+    recipient_type: "rfc822",
+    recipient: "User+Tag@example.com",
+}
+"#
+            );
+        }
+    }
+
+    #[test]
+    fn parse_recipient_fields_with_uppercase_address_type() {
+        let report = PerRecipientReportEntry::parse(
+            "Original-Recipient: RFC822 ; <Original+Tag@Example.COM>\r\n\
+             Final-Recipient: Rfc822 ; <Final+Tag@Example.COM>\r\n\
+             Action: failed\r\n\
+             Status: 5.2.2\r\n",
+        )
+        .unwrap();
+        k9::snapshot!(
+            (report.original_recipient.unwrap(), report.final_recipient),
+            r#"
+(
+    Recipient {
+        recipient_type: "rfc822",
+        recipient: "Original+Tag@example.com",
+    },
+    Recipient {
+        recipient_type: "rfc822",
+        recipient: "Final+Tag@example.com",
+    },
+)
+"#
+        );
+    }
+
+    #[test]
+    fn recipient_preserves_other_address_types() {
+        let recipient: Recipient = "unknown; <User@Example.COM> ".parse().unwrap();
+        k9::snapshot!(
+            recipient,
+            r#"
+Recipient {
+    recipient_type: "unknown",
+    recipient: "<User@Example.COM>",
+}
+"#
+        );
+    }
 
     #[test]
     fn parse_ses_obsolete_arrival_date() {
