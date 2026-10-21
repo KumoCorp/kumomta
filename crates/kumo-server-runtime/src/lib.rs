@@ -1,5 +1,6 @@
 use anyhow::Context;
 use kumo_prometheus::declare_metric;
+use kumo_prometheus::prometheus::IntGaugeVec;
 use parking_lot::Mutex;
 #[cfg(target_os = "linux")]
 use std::collections::BTreeMap;
@@ -8,7 +9,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Once};
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
@@ -30,6 +31,119 @@ static NUM_THREADS: IntGaugeVec(
         &["pool"]);
 }
 
+declare_metric! {
+/// number of tasks waiting in a thread pool's global queue for a worker
+/// to pick them up. A sustained non-zero value means the pool's workers
+/// cannot keep up with the work scheduled on that pool.
+///
+/// {{since('dev')}}
+static GLOBAL_QUEUE_DEPTH: IntGaugeVec(
+        "thread_pool_global_queue_depth",
+        &["pool"]);
+}
+
+declare_metric! {
+/// number of tasks currently alive in a thread pool
+///
+/// {{since('dev')}}
+static ALIVE_TASKS: IntGaugeVec(
+        "thread_pool_alive_tasks",
+        &["pool"]);
+}
+
+declare_metric! {
+/// total time in seconds that a thread pool's workers have spent running
+/// tasks, summed across its workers. Refreshed once per second by the
+/// runtime metrics sampler.
+///
+/// {{since('dev')}}
+static BUSY_SECONDS: CounterVec(
+        "thread_pool_busy_seconds",
+        &["pool"]);
+}
+
+declare_metric! {
+/// number of threads in a thread pool's blocking pool, which runs
+/// spawn_blocking work and file IO
+///
+/// {{since('dev')}}
+static BLOCKING_THREADS: IntGaugeVec(
+        "thread_pool_blocking_threads",
+        &["pool"]);
+}
+
+declare_metric! {
+/// number of idle threads in a thread pool's blocking pool
+///
+/// {{since('dev')}}
+static IDLE_BLOCKING_THREADS: IntGaugeVec(
+        "thread_pool_idle_blocking_threads",
+        &["pool"]);
+}
+
+declare_metric! {
+/// number of blocking tasks waiting for a thread in a thread pool's
+/// blocking pool
+///
+/// {{since('dev')}}
+static BLOCKING_QUEUE_DEPTH: IntGaugeVec(
+        "thread_pool_blocking_queue_depth",
+        &["pool"]);
+}
+
+/// Refreshes the per-pool gauges for one runtime from tokio's runtime
+/// metrics. Call this repeatedly with the same `last_busy` map for a given
+/// pool to get correct busy-seconds deltas.
+fn sample_runtime_metrics(last_busy: &mut HashMap<String, Duration>, pool: &str, handle: &Handle) {
+    let metrics = handle.metrics();
+    let set = |gauge: &IntGaugeVec, value: usize| {
+        if let Ok(gauge) = gauge.get_metric_with_label_values(&[pool]) {
+            gauge.set(value as i64);
+        }
+    };
+    set(&GLOBAL_QUEUE_DEPTH, metrics.global_queue_depth());
+    set(&ALIVE_TASKS, metrics.num_alive_tasks());
+    set(&BLOCKING_THREADS, metrics.num_blocking_threads());
+    set(&IDLE_BLOCKING_THREADS, metrics.num_idle_blocking_threads());
+    set(&BLOCKING_QUEUE_DEPTH, metrics.blocking_queue_depth());
+
+    let busy: Duration = (0..metrics.num_workers())
+        .map(|worker| metrics.worker_total_busy_duration(worker))
+        .sum();
+    let previous = last_busy.insert(pool.to_string(), busy).unwrap_or_default();
+    if let Ok(counter) = BUSY_SECONDS.get_metric_with_label_values(&[pool]) {
+        counter.inc_by(busy.saturating_sub(previous).as_secs_f64());
+    }
+}
+
+static METRICS_SAMPLER: Once = Once::new();
+
+/// Starts the thread that samples every runtime's metrics once per second.
+fn ensure_metrics_sampler() {
+    METRICS_SAMPLER.call_once(|| {
+        std::thread::Builder::new()
+            .name("runtime metrics sampler".to_string())
+            .spawn(|| {
+                let mut last_busy = HashMap::new();
+                loop {
+                    std::thread::sleep(Duration::from_secs(1));
+                    if let Some(main) = try_get_main_runtime() {
+                        sample_runtime_metrics(&mut last_busy, "main", &main);
+                    }
+                    let handles: Vec<(String, Handle)> = RUNTIMES
+                        .lock()
+                        .iter()
+                        .map(|(name, runtime)| (name.clone(), runtime.handle().clone()))
+                        .collect();
+                    for (name, handle) in handles {
+                        sample_runtime_metrics(&mut last_busy, &name, &handle);
+                    }
+                }
+            })
+            .expect("create runtime metrics sampler thread");
+    });
+}
+
 static RUNTIMES: LazyLock<Mutex<HashMap<String, Runtime>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -41,6 +155,7 @@ pub static MAIN_RUNTIME: Mutex<Option<tokio::runtime::Handle>> = Mutex::new(None
 
 pub fn assign_main_runtime(handle: tokio::runtime::Handle) {
     MAIN_RUNTIME.lock().replace(handle);
+    ensure_metrics_sampler();
 }
 
 pub fn get_main_runtime() -> tokio::runtime::Handle {
@@ -148,10 +263,15 @@ pub struct Runtime {
 
 impl Drop for RuntimeInner {
     fn drop(&mut self) {
-        PARKED_THREADS
-            .remove_label_values(&[&self.name_prefix])
-            .ok();
-        NUM_THREADS.remove_label_values(&[&self.name_prefix]).ok();
+        let name = self.name_prefix.as_str();
+        PARKED_THREADS.remove_label_values(&[name]).ok();
+        NUM_THREADS.remove_label_values(&[name]).ok();
+        GLOBAL_QUEUE_DEPTH.remove_label_values(&[name]).ok();
+        ALIVE_TASKS.remove_label_values(&[name]).ok();
+        BUSY_SECONDS.remove_label_values(&[name]).ok();
+        BLOCKING_THREADS.remove_label_values(&[name]).ok();
+        IDLE_BLOCKING_THREADS.remove_label_values(&[name]).ok();
+        BLOCKING_QUEUE_DEPTH.remove_label_values(&[name]).ok();
     }
 }
 
@@ -164,6 +284,13 @@ impl Runtime {
     where
         F: FnOnce(usize) -> usize,
     {
+        // `main` is the label the sampler assigns to the main runtime. A named
+        // pool using that name would record its metrics under the same
+        // `pool="main"` label, mixing its numbers into the main runtime's series.
+        if name_prefix == "main" {
+            anyhow::bail!("thread pool runtime name `main` is reserved for the main runtime");
+        }
+
         let env_name = format!("KUMOD_{}_THREADS", name_prefix.to_uppercase());
         let n_threads = match std::env::var(env_name) {
             Ok(n) => n.parse()?,
@@ -246,7 +373,9 @@ impl Runtime {
         }
 
         runtimes.insert(name_prefix.to_string(), runtime.clone());
+        drop(runtimes);
 
+        ensure_metrics_sampler();
         Ok(runtime)
     }
 

@@ -104,3 +104,22 @@ pub(crate) static CACHE_SIZE: IntGaugeVec(
         "lruttl_cache_size",
         &["cache_name"]);
 }
+
+declare_metric! {
+/// how long, in seconds, the work to populate a lruttl cache entry took,
+/// from starting it until it produced a value or an error. A lookup that
+/// finds the entry already being populated waits for this duration before
+/// it sees a value, and fails once it reaches the populate deadline. A
+/// populate that approaches that deadline is the direct cause of a lookup
+/// timeout for that cache.
+///
+/// {{since('dev')}}
+///
+#[doc = extra!()]
+pub(crate) static CACHE_POPULATE_DURATION: HistogramVec(
+        "lruttl_populate_duration",
+        &["cache_name"],
+        // The top bucket matches the default 120 second populate deadline
+        // (sema_timeout).
+        vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0]);
+}

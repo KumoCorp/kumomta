@@ -639,6 +639,30 @@
     "pruning": "NonPruning"
   },
   {
+    "name": "lruttl_populate_duration",
+    "help": "how long, in seconds, the work to populate a lruttl cache entry took,\nfrom starting it until it produced a value or an error. A lookup that\nfinds the entry already being populated waits for this duration before\nit sees a value, and fails once it reaches the populate deadline. A\npopulate that approaches that deadline is the direct cause of a lookup\ntimeout for that cache.",
+    "doc": "{{since('dev')}}\n\nThe `cache_name` label identifies which cache.  See [kumo.set_lruttl_cache_capacity](../../kumo/set_lruttl_cache_capacity.md) for a list of caches.",
+    "metric_type": "Histogram",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [
+      0.01,
+      0.05,
+      0.1,
+      0.25,
+      0.5,
+      1.0,
+      2.5,
+      5.0,
+      10.0,
+      30.0,
+      60.0,
+      120.0
+    ],
+    "pruning": "NonPruning"
+  },
+  {
     "name": "lruttl_populated_count",
     "help": "how many times a lruttl cache lookup resulted in performing the work to populate the entry",
     "doc": "The `cache_name` label identifies which cache.  See [kumo.set_lruttl_cache_capacity](../../kumo/set_lruttl_cache_capacity.md) for a list of caches.",
@@ -1362,6 +1386,72 @@
     "doc": "Each CPU has a value from 0-100% busy; a value of 100% in this metric\nindicates that the load is equivalent to one fully utilized CPU.\n\nA multi-CPU system can report more than 100% in this metric; a dual-CPU\nsystem reporting 200% indicates that both CPUs are fully utilized.\n\nSee system_cpu_usage_normalized for a version of this metric that scales from\n0% (totally idle) to 100% (totally saturated).\n\nThis metric is scoped to the system, reflecting the total load on the\nsystem, not just from the kumo related process(es).",
     "metric_type": "Gauge",
     "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "thread_pool_alive_tasks",
+    "help": "number of tasks currently alive in a thread pool",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Gauge",
+    "label_names": [
+      "pool"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "thread_pool_blocking_queue_depth",
+    "help": "number of blocking tasks waiting for a thread in a thread pool's\nblocking pool",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Gauge",
+    "label_names": [
+      "pool"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "thread_pool_blocking_threads",
+    "help": "number of threads in a thread pool's blocking pool, which runs\nspawn_blocking work and file IO",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Gauge",
+    "label_names": [
+      "pool"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "thread_pool_busy_seconds",
+    "help": "total time in seconds that a thread pool's workers have spent running\ntasks, summed across its workers. Refreshed once per second by the\nruntime metrics sampler.",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Counter",
+    "label_names": [
+      "pool"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "thread_pool_global_queue_depth",
+    "help": "number of tasks waiting in a thread pool's global queue for a worker\nto pick them up. A sustained non-zero value means the pool's workers\ncannot keep up with the work scheduled on that pool.",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Gauge",
+    "label_names": [
+      "pool"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "thread_pool_idle_blocking_threads",
+    "help": "number of idle threads in a thread pool's blocking pool",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Gauge",
+    "label_names": [
+      "pool"
+    ],
     "buckets": [],
     "pruning": "NonPruning"
   },

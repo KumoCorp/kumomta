@@ -112,6 +112,17 @@
  * The `sources.lua` helper now loads its source and pool definition files with
    one call to `kumo.serde.load_files` instead of one call per file.
 
+ * New metrics:
+   [thread_pool_global_queue_depth](../reference/metrics/kumod/thread_pool_global_queue_depth.md),
+   [thread_pool_alive_tasks](../reference/metrics/kumod/thread_pool_alive_tasks.md),
+   [thread_pool_busy_seconds](../reference/metrics/kumod/thread_pool_busy_seconds.md),
+   [thread_pool_blocking_threads](../reference/metrics/kumod/thread_pool_blocking_threads.md),
+   [thread_pool_idle_blocking_threads](../reference/metrics/kumod/thread_pool_idle_blocking_threads.md),
+   [thread_pool_blocking_queue_depth](../reference/metrics/kumod/thread_pool_blocking_queue_depth.md)
+   report the state of each thread pool, and
+   [lruttl_populate_duration](../reference/metrics/kumod/lruttl_populate_duration.md)
+   reports how long each cache population takes.
+
  * Improved [HTTP injection API](../reference/http/kumod/api_inject_v1_post.md)
    performance for `content` fields and headers that are effectively static.
    Previously these would round-trip through the template engine, but now we

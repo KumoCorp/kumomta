@@ -57,6 +57,7 @@ mod rebind_port;
 mod resolve_egress_path;
 mod retry_schedule;
 mod rewrite_server_response;
+mod runtime_and_populate_metrics;
 mod source_health;
 mod source_selection_rate;
 mod source_selection_rate_pool;

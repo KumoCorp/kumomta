@@ -1,6 +1,6 @@
 use crate::metrics::*;
 use dashmap::DashMap;
-use kumo_prometheus::prometheus::{IntCounter, IntGauge};
+use kumo_prometheus::prometheus::{Histogram, IntCounter, IntGauge};
 use kumo_server_memory::subscribe_to_memory_status_changes_async;
 pub use linkme;
 use parking_lot::Mutex;
@@ -35,6 +35,7 @@ struct Inner<K: Clone + Hash + Eq + Debug, V: Clone + Send + Sync + Debug> {
     hit_counter: IntCounter,
     miss_counter: IntCounter,
     populate_counter: IntCounter,
+    populate_histogram: Histogram,
     insert_counter: IntCounter,
     stale_counter: IntCounter,
     error_counter: IntCounter,
@@ -575,6 +576,9 @@ impl<
         let populate_counter = CACHE_POPULATED
             .get_metric_with_label_values(&[&name])
             .expect("failed to get counter");
+        let populate_histogram = CACHE_POPULATE_DURATION
+            .get_metric_with_label_values(&[&name])
+            .expect("failed to get histogram");
         let insert_counter = CACHE_INSERT
             .get_metric_with_label_values(&[&name])
             .expect("failed to get counter");
@@ -602,6 +606,7 @@ impl<
             hit_counter,
             miss_counter,
             populate_counter,
+            populate_histogram,
             error_counter,
             wait_gauge,
             insert_counter,
@@ -1006,7 +1011,9 @@ impl<
 
         self.inner.populate_counter.inc();
         let mut ttl = Duration::from_secs(60);
+        let populate_timer = self.inner.populate_histogram.start_timer();
         let future_result = fut.await;
+        populate_timer.observe_duration();
         let now = Instant::now();
 
         let (item_result, return_value) = match future_result {
@@ -1105,7 +1112,10 @@ impl<
                 let our_sema = permit.semaphore();
 
                 this.inner.populate_counter.inc();
-                let (item, ttl) = match timeout(populate_timeout, fut).await {
+                let populate_timer = this.inner.populate_histogram.start_timer();
+                let populate_result = timeout(populate_timeout, fut).await;
+                populate_timer.observe_duration();
+                let (item, ttl) = match populate_result {
                     Ok(Ok(value)) => {
                         let ttl = ttl_func(&value);
                         (ItemState::Present(value), ttl)
