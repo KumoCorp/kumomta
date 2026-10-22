@@ -1123,36 +1123,6 @@ mod test {
         ));
     }
 
-    /// Builds a DNSSEC-validating hickory resolver that queries `server` over
-    /// both UDP and TCP on port 53. TCP matters because DNSKEY/RRSIG responses
-    /// are large and validation needs them.
-    #[cfg(feature = "live-dns-tests")]
-    fn validating_hickory(server: &str) -> HickoryResolver {
-        use hickory_resolver::config::{
-            ConnectionConfig, NameServerConfig, ProtocolConfig, ResolverConfig,
-        };
-        use hickory_resolver::net::runtime::TokioRuntimeProvider;
-        use hickory_resolver::TokioResolver;
-
-        let mut udp = ConnectionConfig::new(ProtocolConfig::Udp);
-        udp.port = 53;
-        let mut tcp = ConnectionConfig::new(ProtocolConfig::Tcp);
-        tcp.port = 53;
-        let config = ResolverConfig::from_parts(
-            None,
-            vec![],
-            vec![NameServerConfig::new(
-                server.parse().unwrap(),
-                true,
-                vec![udp, tcp],
-            )],
-        );
-        let mut builder =
-            TokioResolver::builder_with_config(config, TokioRuntimeProvider::default());
-        builder.options_mut().validate = true;
-        HickoryResolver::from(builder.build().unwrap())
-    }
-
     /// Confirms that a DNSSEC-validating hickory resolver, via our adapter,
     /// reports signed records as secure and resolves unsigned records as
     /// insecure (rather than failing). Validation requires a DNSSEC-capable
@@ -1160,7 +1130,7 @@ mod test {
     #[cfg(feature = "live-dns-tests")]
     #[tokio::test]
     async fn hickory_dnssec_validation() {
-        let resolver = validating_hickory("1.1.1.1");
+        let resolver = HickoryResolver::for_live_test("1.1.1.1", true);
 
         let tlsa = resolver
             .resolve(
@@ -1193,7 +1163,7 @@ mod test {
     #[cfg(feature = "live-dns-tests")]
     #[tokio::test]
     async fn hickory_negative_answer_secure_bit() {
-        let resolver = validating_hickory("1.1.1.1");
+        let resolver = HickoryResolver::for_live_test("1.1.1.1", true);
 
         // Signed zone with no TLSA at the apex: a securely proven NODATA.
         let secure_nodata = resolver
@@ -1227,7 +1197,7 @@ mod test {
     #[cfg(feature = "live-dns-tests")]
     #[tokio::test]
     async fn hickory_insecure_delegation_below_unsigned() {
-        let resolver = validating_hickory("1.1.1.1");
+        let resolver = HickoryResolver::for_live_test("1.1.1.1", true);
 
         let answer = resolver
             .resolve(

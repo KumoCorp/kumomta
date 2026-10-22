@@ -7,7 +7,7 @@ edition = "2021"
 # Enable this feature to run real DNS lookups.
 # Resulting tests may be flaky and, if the upstream
 # has changed their records, may be wrong.
-live-dns-tests = []
+live-dns-tests = ["dns-resolver/live-dns-tests"]
 
 [dependencies]
 bstr.workspace = true

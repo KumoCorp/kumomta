@@ -654,8 +654,7 @@ async fn no_records_for_exists_should_not_block_otherwise_satisfied_eval() {
 #[cfg(feature = "live-dns-tests")]
 #[tokio::test]
 async fn live_no_records_for_exists_should_not_block_otherwise_satisfied_eval() {
-    use dns_resolver::HickoryResolver;
-    let resolver = HickoryResolver::new().unwrap();
+    let resolver = dns_resolver::HickoryResolver::for_live_test("1.1.1.1", false);
     let cx = SpfContext::new(
         "sender@greenhouse.io",
         "greenhouse.io",

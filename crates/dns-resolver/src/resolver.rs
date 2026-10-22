@@ -663,6 +663,36 @@ impl HickoryResolver {
             inner: TokioResolver::builder_tokio()?.build()?,
         })
     }
+
+    /// Builds a resolver that queries `server` over both UDP and TCP on port
+    /// 53, bypassing the system resolver. TCP matters because responses that
+    /// exceed the UDP size limit (large TXT RRsets, DNSKEY/RRSIG) truncate
+    /// over UDP. With `validate` set, answers are DNSSEC-validated.
+    #[cfg(feature = "live-dns-tests")]
+    pub fn for_live_test(server: &str, validate: bool) -> Self {
+        use hickory_resolver::config::{
+            ConnectionConfig, NameServerConfig, ProtocolConfig, ResolverConfig,
+        };
+        use hickory_resolver::net::runtime::TokioRuntimeProvider;
+
+        let mut udp = ConnectionConfig::new(ProtocolConfig::Udp);
+        udp.port = 53;
+        let mut tcp = ConnectionConfig::new(ProtocolConfig::Tcp);
+        tcp.port = 53;
+        let config = ResolverConfig::from_parts(
+            None,
+            vec![],
+            vec![NameServerConfig::new(
+                server.parse().expect("server must be a valid IP address"),
+                true,
+                vec![udp, tcp],
+            )],
+        );
+        let mut builder =
+            TokioResolver::builder_with_config(config, TokioRuntimeProvider::default());
+        builder.options_mut().validate = validate;
+        Self::from(builder.build().expect("failed to build resolver"))
+    }
 }
 
 #[async_trait]

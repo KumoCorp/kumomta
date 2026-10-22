@@ -33,7 +33,7 @@ test: build test-lua test-live-dns
 	RUST_BACKTRACE=1 cargo nextest run --no-fail-fast
 
 test-live-dns:
-	RUST_BACKTRACE=1 cargo nextest run --no-fail-fast --features live-dns-tests -p dns-resolver
+	RUST_BACKTRACE=1 cargo nextest run --no-fail-fast --features live-dns-tests -p dns-resolver -p kumo-spf
 
 int-test: build
 	RUST_BACKTRACE=1 cargo nextest run --no-fail-fast
