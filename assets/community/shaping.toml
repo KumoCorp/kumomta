@@ -30,13 +30,13 @@
 
 #===== GMAIL 
 # default provider configs in policy-extra/shaping.toml
-[[provider."gmail".automation]]
+[[provider."google".automation]]
 regex = "Our system has detected that this message"
 trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "1 hour"
 
-[[provider."gmail".automation]]
+[[provider."google".automation]]
 regex = "Our system has detected an unusual rate"
 trigger = {Threshold="2/hr"}
 action = {SetConfig={name="max_message_rate", value="10/minute"}}
