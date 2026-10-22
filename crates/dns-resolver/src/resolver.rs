@@ -120,6 +120,34 @@ impl Answer {
         }
         result
     }
+
+    /// Returns a view of the answer that is compatible
+    /// with snapshot testing.
+    pub fn into_answer_view(self) -> AnswerView {
+        AnswerView {
+            canon_name: self.canon_name,
+            records: self.records,
+            nxdomain: self.nxdomain,
+            secure: self.secure,
+            bogus: self.bogus,
+            why_bogus: self.why_bogus,
+            response_code: self.response_code,
+        }
+    }
+}
+
+/// A view of an Answer that is compatible with snapshot
+/// testing because it doesn't include the variable `expires`
+/// field found in Answer.
+#[derive(Debug)]
+pub struct AnswerView {
+    pub canon_name: Option<String>,
+    pub records: Vec<RData>,
+    pub nxdomain: bool,
+    pub secure: bool,
+    pub bogus: bool,
+    pub why_bogus: Option<String>,
+    pub response_code: ResponseCode,
 }
 
 #[derive(Clone, Debug, Error, PartialEq)]

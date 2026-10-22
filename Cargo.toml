@@ -314,4 +314,8 @@ zstd-safe = {version="7.0", features=["std"]}
 openssl = { version="0.10.80", git="https://github.com/KumoCorp/rust-openssl.git", branch="dane-openssl-v0.10.80" }
 # Can be removed once dane support is upstreamed
 openssl-sys = { version="0.9.116", git="https://github.com/KumoCorp/rust-openssl.git", branch="dane-openssl-v0.10.80" }
+# Pinning hickory until https://github.com/hickory-dns/hickory-dns/issues/3974 lands in a proper release
+hickory-proto = { git="https://github.com/hickory-dns/hickory-dns.git", rev="b178d6d51a7db4b0bfd9bee24ea50151ab1415a6" }
+hickory-net = { git="https://github.com/hickory-dns/hickory-dns.git", rev="b178d6d51a7db4b0bfd9bee24ea50151ab1415a6" }
+hickory-resolver = { git="https://github.com/hickory-dns/hickory-dns.git", rev="b178d6d51a7db4b0bfd9bee24ea50151ab1415a6" }
 

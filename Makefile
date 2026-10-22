@@ -28,9 +28,12 @@ fc:
 test-lua:
 	cargo run -p run-lua-tests
 
-test: build test-lua
+test: build test-lua test-live-dns
 	./docs/update-openapi.sh
 	RUST_BACKTRACE=1 cargo nextest run --no-fail-fast
+
+test-live-dns:
+	RUST_BACKTRACE=1 cargo nextest run --no-fail-fast --features live-dns-tests -p dns-resolver
 
 int-test: build
 	RUST_BACKTRACE=1 cargo nextest run --no-fail-fast

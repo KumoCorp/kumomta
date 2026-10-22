@@ -1220,6 +1220,40 @@ mod test {
         );
     }
 
+    /// An unsigned name below an unsigned delegation must validate
+    /// as insecure, not bogus. hickory 0.26.1 through 0.26.3 are affected
+    /// by that bug; this test helps to detect regressions. See
+    /// hickory-dns#3974.
+    #[cfg(feature = "live-dns-tests")]
+    #[tokio::test]
+    async fn hickory_insecure_delegation_below_unsigned() {
+        let resolver = validating_hickory("1.1.1.1");
+
+        let answer = resolver
+            .resolve(
+                fully_qualify("_25._tcp.aspmx.l.google.com").unwrap(),
+                RecordType::TLSA,
+            )
+            .await
+            .expect("insecure delegation must resolve, not error as bogus")
+            .into_answer_view();
+
+        k9::snapshot!(
+            answer,
+            "
+AnswerView {
+    canon_name: None,
+    records: [],
+    nxdomain: true,
+    secure: false,
+    bogus: false,
+    why_bogus: None,
+    response_code: NXDomain,
+}
+"
+        );
+    }
+
     // Requires DNSSEC-validated TLSA records, so it only holds when the default
     // resolver validates, i.e. the unbound backend.
     #[cfg(all(feature = "live-dns-tests", feature = "default-unbound"))]

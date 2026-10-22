@@ -148,6 +148,17 @@
 
 ## Fixes
 
+ * With DNSSEC validation enabled, the hickory resolver backend could
+   misclassify unsigned zones as DNSSEC-bogus and prevent delivery to the
+   affected domains, due to an upstream hickory bug
+   <https://github.com/hickory-dns/hickory-dns/issues/3974>. We now build
+   against a pre-release hickory, from its `release/0.26` branch,
+   until it is published as `0.26.4`. If you are a user of KumoMTA
+   release `2026.09.22-a276d4a8` or `2026.09.29-b90d8bc1` you can switch to
+   [kumo.dns.configure_unbound_resolver](../reference/kumo.dns/configure_unbound_resolver.md)
+   in the meantime.  You only need to consider this if you require DNSSEC
+   validation to be enabled (such as for DANE support).  Most users are unaffected.
+
  * `AUTH PLAIN` credentials are now redacted from both inbound rejection logs
    and outbound delivery failure records, replaced with `[REDACTED]` in all log
    and diagnostic output. Thanks to @terrorobe! #636
