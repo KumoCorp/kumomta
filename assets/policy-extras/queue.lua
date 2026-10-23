@@ -775,7 +775,10 @@ kumo.on('validate_config', function()
     end
   end
 
-  if my_reg ~= #reg then
+  -- With skip_queue_config_hook the helper registers no handler of its
+  -- own; the user's handler is expected to call resolve_config, so the
+  -- ordering requirement does not apply.
+  if not mod.CONFIGURED.options.skip_queue_config_hook and my_reg ~= #reg then
     -- Don't use show_context() here, as this error is independent of
     -- the contents of the queue data files and instead about interactions
     -- between modules
