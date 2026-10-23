@@ -290,3 +290,10 @@
  * RFC3464 parsing now correctly recognizes the RFC822 address type case
    insensitively and handles extraneous spaces in the `Original-Recipient`
    and `Final-Recipient` portions of the DSN. Thanks to @Harshjha3006! #640
+
+ * The `community/shaping.toml` file defined two automation rules for 
+   `provider."gmail"` that do not match the provider defined in the default
+   `policy-extras/shaping.toml` file (`provider."google"`), causing them to
+    not fire. These rules have been changed to `provider."google"` which
+    may change shaping behavior as they will now potentially fire and
+    suspend or throttle traffic.
