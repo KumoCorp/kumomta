@@ -26,8 +26,8 @@ See also [kumo.make_queue_config](../kumo/make_queue_config/index.md).
 {{since('2023.11.28-b5252a41', indent=True)}}
     It is now possible to use `kumo.on` to register multiple handlers for
     this event.  The handlers will be called in the order that they were
-    registered.  If a handler returns `nil` then the next handler will be
-    called. Conversely, if a handler returns a queue configuration object,
+    registered.  If a handler returns empty then the next handler will be
+    called. Conversely, if a handler returns a `nil` or a queue configuration object,
     no further handlers will be called.
 
     This behavior is intended to make it easier to compose multiple helpers
