@@ -18,7 +18,7 @@ Usage documentation is at `/opt/kumomta/sbin/proxy-server --help`
 
 KumoProxy can be configured as a systemd service
 
-Note that this has only been tested for Ubuntu 24.  Your OS may require slightly different configuration.
+Note that the instructions here were tested on Ubuntu 24, your OS may require slightly different configuration.
 
 You will need sudo access to perform these changes.  Start by creating a service file.
 
@@ -33,17 +33,16 @@ After=syslog.target network.target
 [Service]
 Type=simple
 Restart=always
-EnvironmentFile=-/opt/kumomta/etc/kumoproxy.env
-ExecStart=/opt/kumomta/sbin/proxy-server --listen ${PROXY_IP}:${PROXY_PORT}
+ExecStart=/opt/kumomta/sbin/proxy-server --proxy-config /opt/kumomta/etc/policy/proxy_init.lua
 TimeoutStopSec=10
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Next, create an environment file where you can add your system variables.
+Next, create an lua config file where you can add your proxy config.
 
-`sudo vi /opt/kumomta/etc/kumoproxy.env`
+`sudo vi /opt/kumomta/etc/policy/proxy_init.lua`
 
 Populate with your IP and Port
 
