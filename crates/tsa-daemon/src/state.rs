@@ -1,7 +1,6 @@
 use crate::http_server::{
     import_bounces_from_sqlite, import_configs_from_sqlite, import_suspensions_from_sqlite,
-    open_history_db, regex_list_to_string, toml_to_toml_edit_value, PreferRollup, Sha256Hasher,
-    DB_PATH,
+    open_history_db, toml_to_toml_edit_value, PreferRollup, Sha256Hasher, DB_PATH,
 };
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -242,13 +241,14 @@ impl TsaState {
         &self,
         scope: &ActionHash,
         rule: &Rule,
+        matched_regex: &str,
         record: &JsonLogRecord,
         config: &EgressPathConfigValue,
         domain: &str,
         source: &str,
         prefer_rollup: PreferRollup,
     ) {
-        let reason = format!("automation rule: {}", regex_list_to_string(&rule.regex));
+        let reason = format!("automation rule: {matched_regex}");
         self.insert_config_override(
             scope.clone(),
             ConfigurationOverride {
@@ -902,5 +902,95 @@ pub async fn state_pruner() -> anyhow::Result<()> {
             }
             last_save = Instant::now();
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use kumo_api_types::shaping::{Regex, Trigger};
+    use serde_json::json;
+
+    fn make_record(timestamp: DateTime<Utc>) -> JsonLogRecord {
+        serde_json::from_value(json!({
+            "type": "TransientFailure",
+            "id": "",
+            "sender": "",
+            "recipient": "user@example.com",
+            "queue": "",
+            "site": "example.com",
+            "size": 0,
+            "response": {
+                "code": 400,
+                "content": "smtp replied with second pattern",
+                "command": null,
+                "enhanced_code": null
+            },
+            "peer_address": null,
+            "timestamp": timestamp.timestamp(),
+            "event_time": timestamp,
+            "created": timestamp.timestamp(),
+            "created_time": timestamp,
+            "num_attempts": 1,
+            "bounce_classification": "Uncategorized",
+            "egress_pool": null,
+            "egress_source": null,
+            "source_address": null,
+            "feedback_report": null,
+            "meta": {},
+            "headers": {},
+            "delivery_protocol": null,
+            "reception_protocol": null,
+            "nodeid": "00000000-0000-0000-0000-000000000000",
+            "tls_cipher": null,
+            "tls_protocol_version": null,
+            "tls_peer_subject_name": null,
+            "provider_name": null,
+            "session_id": null
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn config_override_reason_uses_matched_regex() {
+        let config: EgressPathConfigValue = EgressPathConfigValueUnchecked {
+            name: "connection_limit".to_string(),
+            value: toml::Value::Integer(1),
+        }
+        .try_into()
+        .unwrap();
+        let rule = Rule {
+            regex: vec![
+                Regex::try_from("first pattern".to_string()).unwrap(),
+                Regex::try_from("second pattern".to_string()).unwrap(),
+                Regex::try_from("third pattern".to_string()).unwrap(),
+            ],
+            action: vec![Action::SetConfig(config.clone())],
+            trigger: Trigger::Immediate,
+            duration: std::time::Duration::from_secs(3600),
+            was_rollup: false,
+            match_internal: false,
+        };
+        let record = make_record(Utc::now());
+        let action_hash = ActionHash::from_rule_and_record(&rule, &rule.action[0], &record);
+        let state = TsaState::default();
+
+        state.create_config_override(
+            &action_hash,
+            &rule,
+            "second pattern",
+            &record,
+            &config,
+            "example.com",
+            "unspecified",
+            PreferRollup::No,
+        );
+
+        let over = state.config_overrides.get(&action_hash).unwrap();
+        assert_eq!(
+            over.reason.as_str(),
+            "automation rule: second pattern",
+            "uses only the matched regex in automation reasons"
+        );
     }
 }
