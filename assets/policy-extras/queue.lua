@@ -53,6 +53,20 @@ retry_interval = '17 mins'
 
 [queue.'gmail.com'.'mytenant'.'welcome-campaign']
 # options here for domain=gmail.com, tenant=mytenant, and campaign='welcome-campaign'
+
+# Settings for any destination whose provider, as assigned by the
+# shaping layer (the provider_name of its egress path config), is 'outlook'.
+# Domain-level settings take precedence over provider-level settings
+# at the same tenant/campaign scope.
+[provider.'outlook']
+max_age = '12 hours'
+
+[provider.'outlook'.'mytenant']
+# options here for provider=outlook AND tenant=mytenant for any unmatched campaign
+egress_pool = 'pool-outlook'
+
+[provider.'outlook'.'mytenant'.'welcome-campaign']
+# options here for provider=outlook, tenant=mytenant, and campaign='welcome-campaign'
 ```
 
 ---
@@ -134,6 +148,7 @@ local QueueHelperConfig = Record('QueueHelperConfig', {
 
   tenants = Option(Map(String, TenantConfig)),
   queues = Option(Map(String, DomainConfig)),
+  providers = Option(Map(String, DomainConfig)),
 })
 
 local QueueHelperSetup = Record('QueueHelperSetup', {
@@ -192,6 +207,7 @@ local function parse_config(data)
   local result = QueueHelperConfig {
     tenants = {},
     queues = {},
+    providers = {},
   }
 
   for k, v in pairs(data) do
@@ -209,6 +225,14 @@ local function parse_config(data)
           domain_options
         )
         result.queues[domain_name] = domain_options
+      end
+    elseif k == 'provider' then
+      -- Same shape as [queue.DOMAIN], but keyed by the provider name
+      -- assigned by the shaping layer rather than by destination domain
+      for provider_name, provider_options in pairs(v) do
+        local options = result.providers[provider_name] or {}
+        utils.recursive_merge_into(parse_domain(provider_options), options)
+        result.providers[provider_name] = options
       end
     else
       result[k] = v
@@ -239,65 +263,81 @@ local function load_queue_config(file_names, no_compile)
   return merge_data(data, no_compile)
 end
 
+-- Returns true if any [provider.NAME] blocks are defined, in which case
+-- the provider of the destination needs to be resolved in order to
+-- resolve the queue config.
+local function has_provider_config(data)
+  return not utils.table_is_empty(data.providers or {})
+end
+
+-- Merge the values of layer into params.
+-- If allow_all is true, all fields are merged.
+-- Otherwise, only valid make_queue_config option values are merged.
+local function merge_layer(params, layer, allow_all)
+  if layer then
+    for k, v in pairs(layer) do
+      if allow_all or is_queue_config_option(k, v) then
+        params[k] = v
+      end
+    end
+  end
+end
+
 -- Resolve the merged value of the config that matches the provided
--- domain, tenant and campaign.
+-- domain, tenant, campaign and provider.
+-- provider is the provider name assigned by the shaping layer to the
+-- destination (see mod:resolve_provider); it can be nil.
 -- If allow_all is true, all fields are merged and returned.
 -- Otherwise (the default), only valid make_queue_config option values
 -- are returned.
-local function resolve_config(data, domain, tenant, campaign, allow_all)
-  -- print('resolve_config', domain, tenant, campaign)
+--
+-- Precedence, from lowest to highest:
+--   [queue.default]
+--   [provider.PROVIDER]
+--   [queue.DOMAIN]
+--   [tenant.TENANT]
+--   [provider.PROVIDER.TENANT]
+--   [queue.DOMAIN.TENANT]
+--   [provider.PROVIDER.TENANT.CAMPAIGN]
+--   [queue.DOMAIN.TENANT.CAMPAIGN]
+-- A domain is more specific than a provider, so domain-level settings
+-- override provider-level settings at the same tenant/campaign scope.
+local function resolve_config(
+  data,
+  domain,
+  tenant,
+  campaign,
+  allow_all,
+  provider
+)
+  -- print('resolve_config', domain, tenant, campaign, provider)
 
   local params = {
     refresh_strategy = 'Epoch',
   }
 
-  local default_config = data.queues.default
-  if default_config then
-    for k, v in pairs(default_config) do
-      if allow_all or is_queue_config_option(k, v) then
-        params[k] = v
-      end
-    end
-  end
-
   local domain_config = data.queues[domain]
-  if domain_config then
-    for k, v in pairs(domain_config) do
-      if allow_all or is_queue_config_option(k, v) then
-        params[k] = v
-      end
-    end
-  end
+  local provider_config = provider and (data.providers or {})[provider]
 
-  local tenant_definition = data.tenants[tenant]
-  if tenant_definition then
-    for k, v in pairs(tenant_definition) do
-      if allow_all or is_queue_config_option(k, v) then
-        params[k] = v
-      end
-    end
-  end
+  local domain_tenant = domain_config and domain_config.tenants[tenant]
+  local provider_tenant = provider_config and provider_config.tenants[tenant]
 
-  if domain_config then
-    local tenant_config = domain_config.tenants[tenant]
-    if tenant_config then
-      for k, v in pairs(tenant_config) do
-        if allow_all or is_queue_config_option(k, v) then
-          params[k] = v
-        end
-      end
-
-      local campaign = tenant_config.campaigns[campaign]
-
-      if campaign then
-        for k, v in pairs(campaign) do
-          if allow_all or is_queue_config_option(k, v) then
-            params[k] = v
-          end
-        end
-      end
-    end
-  end
+  merge_layer(params, data.queues.default, allow_all)
+  merge_layer(params, provider_config, allow_all)
+  merge_layer(params, domain_config, allow_all)
+  merge_layer(params, data.tenants[tenant], allow_all)
+  merge_layer(params, provider_tenant, allow_all)
+  merge_layer(params, domain_tenant, allow_all)
+  merge_layer(
+    params,
+    provider_tenant and provider_tenant.campaigns[campaign],
+    allow_all
+  )
+  merge_layer(
+    params,
+    domain_tenant and domain_tenant.campaigns[campaign],
+    allow_all
+  )
 
   if utils.table_is_empty(params) then
     return nil
@@ -479,9 +519,16 @@ function mod:setup_with_options(options)
     file_names = options.file_names,
   }
 
-  function helper:resolve_config(domain, tenant, campaign)
+  -- routing_domain is optional; it is only used to resolve the provider
+  -- of the destination when [provider.NAME] blocks are defined.
+  function helper:resolve_config(domain, tenant, campaign, routing_domain)
     local data = cached_load_data(options.file_names)
-    local params = resolve_config(data, domain, tenant, campaign)
+    local provider = nil
+    if has_provider_config(data) then
+      provider = cached_resolve_provider(domain, routing_domain)
+    end
+    local params =
+      resolve_config(data, domain, tenant, campaign, nil, provider)
     return params
   end
 
@@ -498,13 +545,18 @@ function mod:setup_with_options(options)
       'get_queue_config',
       function(domain, tenant, campaign, routing_domain)
         local data = cached_load_data(options.file_names)
-        local params = resolve_config(data, domain, tenant, campaign)
+        local provider = nil
+        if has_provider_config(data) then
+          provider = cached_resolve_provider(domain, routing_domain)
+        end
+        local params =
+          resolve_config(data, domain, tenant, campaign, nil, provider)
         if params then
           if params.provider_name == nil then
             -- Back-propagate the provider_name from the probable
             -- egress path configuration for this routing domain.
-            params.provider_name =
-              cached_resolve_provider(domain, routing_domain)
+            params.provider_name = provider
+              or cached_resolve_provider(domain, routing_domain)
           end
           return kumo.make_queue_config(params)
         end
@@ -558,6 +610,36 @@ function mod:setup_with_options(options)
   end
 
   return helper
+end
+
+-- Returns a list of { label, config } for each [provider.NAME],
+-- [provider.NAME.TENANT] and [provider.NAME.TENANT.CAMPAIGN] block.
+local function provider_scopes(providers)
+  local scopes = {}
+  for provider, provider_data in pairs(providers or {}) do
+    table.insert(scopes, {
+      string.format("provider '%s'", provider),
+      provider_data,
+    })
+    for tenant, tenant_data in pairs(provider_data.tenants or {}) do
+      table.insert(scopes, {
+        string.format("provider '%s' tenant '%s'", provider, tenant),
+        tenant_data,
+      })
+      for campaign, campaign_data in pairs(tenant_data.campaigns or {}) do
+        table.insert(scopes, {
+          string.format(
+            "provider '%s' tenant '%s' campaign '%s'",
+            provider,
+            tenant,
+            campaign
+          ),
+          campaign_data,
+        })
+      end
+    end
+  end
+  return scopes
 end
 
 kumo.on('validate_config', function()
@@ -639,6 +721,38 @@ kumo.on('validate_config', function()
           )
         end
       end
+    end
+
+    for _, scope in ipairs(provider_scopes(data.providers)) do
+      local label, scope_data = scope[1], scope[2]
+      if
+        scope_data.egress_pool
+        and not source_data.pools[scope_data.egress_pool]
+      then
+        show_context()
+        print(
+          string.format(
+            "%s uses pool '%s' which is not present in your sources helper data",
+            label,
+            scope_data.egress_pool
+          )
+        )
+      end
+    end
+  end
+
+  -- routing_domain is applied to the message at reception time by
+  -- queue_helper:apply(), which does not resolve the provider of the
+  -- destination, so it has no effect at the provider level.
+  for _, scope in ipairs(provider_scopes(data.providers)) do
+    if scope[2].routing_domain then
+      show_context()
+      print(
+        string.format(
+          '%s sets routing_domain, which is not supported at the provider level',
+          scope[1]
+        )
+      )
     end
   end
 
@@ -748,6 +862,112 @@ egress_pool = "bar"
   utils.assert_eq(
     resolve_config(data, 'gmail.com', 'mytenant', 'campaign', nil).egress_pool,
     'bar'
+  )
+  utils.assert_eq(has_provider_config(data), false)
+
+  -- Provider-level configuration
+  local provider_base_data = [=[
+[queue.default]
+max_age = '24 hours'
+
+[tenant.'t1']
+egress_pool = 'tpool'
+
+[provider.'outlook']
+max_age = '12 hours'
+retry_interval = '5 mins'
+
+[provider.'outlook'.'t1']
+egress_pool = 'outlook-pool'
+
+[provider.'outlook'.'t1'.'camp']
+egress_pool = 'outlook-camp-pool'
+
+[queue.'hotmail.com']
+max_age = '6 hours'
+
+[queue.'hotmail.com'.'t1']
+egress_pool = 'hotmail-pool'
+]=]
+
+  local provider_user_data = [=[
+[provider.'apple'.'t1']
+egress_pool = 'apple-pool'
+
+[provider.'outlook'.'t2']
+egress_pool = 'outlook-t2-pool'
+]=]
+
+  local pdata = merge_data {
+    kumo.toml_parse(provider_base_data),
+    kumo.toml_parse(provider_user_data),
+  }
+  utils.assert_eq(has_provider_config(pdata), true)
+
+  local function resolve(domain, tenant, campaign, provider)
+    return resolve_config(pdata, domain, tenant, campaign, nil, provider)
+  end
+
+  -- [provider.PROVIDER] overrides [queue.default]
+  utils.assert_eq(
+    resolve('outlook.com', nil, nil, 'outlook').max_age,
+    '12 hours'
+  )
+  utils.assert_eq(
+    resolve('outlook.com', nil, nil, 'outlook').egress_pool,
+    nil
+  )
+  -- [provider.PROVIDER.TENANT] overrides [tenant.TENANT]
+  utils.assert_eq(
+    resolve('outlook.com', 't1', nil, 'outlook').egress_pool,
+    'outlook-pool'
+  )
+  -- [provider.PROVIDER.TENANT.CAMPAIGN] overrides [provider.PROVIDER.TENANT]
+  utils.assert_eq(
+    resolve('outlook.com', 't1', 'camp', 'outlook').egress_pool,
+    'outlook-camp-pool'
+  )
+  -- Blocks from multiple files are merged
+  utils.assert_eq(
+    resolve('outlook.com', 't2', nil, 'outlook').egress_pool,
+    'outlook-t2-pool'
+  )
+  utils.assert_eq(
+    resolve('icloud.com', 't1', nil, 'apple').egress_pool,
+    'apple-pool'
+  )
+  -- A tenant without a provider block keeps its tenant pool
+  utils.assert_eq(
+    resolve('outlook.com', 't3', nil, 'outlook').egress_pool,
+    nil
+  )
+  utils.assert_eq(resolve('icloud.com', 't2', nil, 'apple').egress_pool, nil)
+  -- No provider, or a provider without a block: unchanged behavior
+  utils.assert_eq(resolve('outlook.com', 't1', nil, nil).egress_pool, 'tpool')
+  utils.assert_eq(resolve('outlook.com', 't1', nil, nil).max_age, '24 hours')
+  utils.assert_eq(
+    resolve('example.com', 't1', nil, 'google').egress_pool,
+    'tpool'
+  )
+  -- [queue.DOMAIN] overrides [provider.PROVIDER]; values not set at the
+  -- domain level still come from the provider level
+  utils.assert_eq(
+    resolve('hotmail.com', nil, nil, 'outlook').max_age,
+    '6 hours'
+  )
+  utils.assert_eq(
+    resolve('hotmail.com', nil, nil, 'outlook').retry_interval,
+    '5 mins'
+  )
+  -- [queue.DOMAIN.TENANT] overrides [provider.PROVIDER.TENANT]
+  utils.assert_eq(
+    resolve('hotmail.com', 't1', nil, 'outlook').egress_pool,
+    'hotmail-pool'
+  )
+  -- [provider.PROVIDER.TENANT.CAMPAIGN] overrides [queue.DOMAIN.TENANT]
+  utils.assert_eq(
+    resolve('hotmail.com', 't1', 'camp', 'outlook').egress_pool,
+    'outlook-camp-pool'
   )
 
   utils.assert_eq(resolve_overall_throttle_specs(data, nil, nil), {})
