@@ -9,3 +9,15 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+  # Routine cargo version updates are handled by the cargo-cooldown workflow.
+  # Setting the PR limit to 0 disables Dependabot version updates for this
+  # ecosystem while still allowing Dependabot security updates.
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0

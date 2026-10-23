@@ -1,3 +1,4 @@
+use charset_normalizer_rs::Encoding as CharsetEncoding;
 use config::{any_err, get_or_create_sub_module};
 use data_encoding::{
     Encoding, BASE32, BASE32HEX, BASE32HEX_NOPAD, BASE32_NOPAD, BASE64, BASE64URL, BASE64URL_NOPAD,
@@ -63,6 +64,44 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             })?,
         )?;
     }
+
+    digest_mod.set(
+        "charset_decode",
+        lua.create_function(
+            move |_lua, (charset, input_bytes): (String, mlua::String)| {
+                let encoding = CharsetEncoding::by_name(&charset)
+                    .ok_or_else(|| mlua::Error::external(format!("unknown charset {charset}")))?;
+                encoding
+                    .decode_simple(&input_bytes.as_bytes())
+                    .map_err(|err| {
+                        mlua::Error::external(format!(
+                            "input string did not decode from {charset} bytes: {err}"
+                        ))
+                    })
+            },
+        )?,
+    )?;
+
+    digest_mod.set(
+        "charset_encode",
+        lua.create_function(
+            move |lua, (charset, input_string, ignore_errors): (String, String, Option<bool>)| {
+                let encoding = CharsetEncoding::by_name(&charset)
+                    .ok_or_else(|| mlua::Error::external(format!("unknown charset {charset}")))?;
+                let ignore_errors = ignore_errors.unwrap_or(true);
+                let output_bytes =
+                    encoding
+                        .encode(&input_string, ignore_errors)
+                        .map_err(|err| {
+                            mlua::Error::external(format!(
+                                "input string did not encode into {charset} bytes: {err}"
+                            ))
+                        })?;
+                lua.create_string(output_bytes)
+            },
+        )?,
+    )?;
+
     Ok(())
 }
 

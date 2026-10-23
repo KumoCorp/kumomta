@@ -16,5 +16,10 @@ the check.
 The `IP` parameter is a string representation of the IP address; for example,
 `"127.0.0.1"` for an IPv4 address of `"::1"` for an IPv6 address.
 
+At most 10 of the PTR names are followed with forward A/AAAA lookups; names
+beyond that are ignored. [RFC 8601 Section
+3](https://datatracker.ietf.org/doc/html/rfc8601#section-3) requires such a
+limit and cites the value of 10 used by SPF.
+
 See [mail_auth.iprev_msg](iprev_msg.md) for a version of this check at accepts
 a [Message](../message/index.md) object instead.

@@ -1,3 +1,7 @@
+---
+description: Implement shared throttles across a KumoMTA cluster with Redis so nodes sending from shared IPs enforce common traffic shaping counters and rate limits.
+---
+
 # Implementing Shared Throttles
 
 When KumoMTA is deployed in a clustered environment using shared IPs the nodes will need to be able to use shared counters in order to adhere to traffic shaping rules.

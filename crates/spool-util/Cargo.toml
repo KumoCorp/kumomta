@@ -13,3 +13,6 @@ human_bytes = {workspace=true}
 incr_stats = {workspace=true}
 spool = {path="../spool", features=["rocksdb"]}
 tokio = {workspace=true, features=["full", "tracing"]}
+
+[lints]
+workspace = true

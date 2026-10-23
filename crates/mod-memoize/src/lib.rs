@@ -1,8 +1,9 @@
 use config::epoch::{get_current_epoch, ConfigEpoch};
-use config::{any_err, from_lua_value, get_or_create_module, serialize_options};
+use config::{any_err, from_lua_value, get_or_create_module, load_config, serialize_options};
 use dashmap::DashMap;
 use kumo_prometheus::declare_metric;
-use lruttl::LruCacheWithTtl;
+use kumo_prometheus::prometheus::Counter;
+use lruttl::{ItemLookup, LruCacheWithTtl};
 use mlua::{
     FromLua, Function, IntoLua, Lua, LuaSerdeExt, MetaMethod, MultiValue, UserData,
     UserDataMethods, UserDataRef,
@@ -73,6 +74,8 @@ pub struct MemoizeParams {
     pub populate_timeout: Option<Duration>,
     #[serde(default)]
     pub allow_stale_reads: bool,
+    #[serde(default)]
+    pub detached: Option<bool>,
 }
 
 #[derive(Clone, Hash, Eq, PartialEq)]
@@ -366,6 +369,23 @@ static CACHE_POPULATED: CounterVec(
         &["cache_name"]);
 }
 
+/// Returns the call arguments as a JSON array with one entry per argument,
+/// preserving the argument count, unlike the collapsed JSON value that
+/// `multi_value_to_json_value` builds for the cache key.
+fn multi_value_to_json_args(lua: &Lua, multi: MultiValue) -> mlua::Result<Vec<serde_json::Value>> {
+    multi
+        .into_vec()
+        .into_iter()
+        .map(|v| from_lua_value(lua, v))
+        .collect()
+}
+
+/// Returns the name of the event handler the current call is running inside,
+/// or None when the call is running at top-level policy scope.
+fn calling_event_handler(lua: &Lua) -> Option<String> {
+    lua.globals().get::<String>("_KUMO_CURRENT_EVENT").ok()
+}
+
 fn multi_value_to_json_value(lua: &Lua, multi: MultiValue) -> mlua::Result<serde_json::Value> {
     let mut values = multi.into_vec();
     if values.is_empty() {
@@ -379,6 +399,94 @@ fn multi_value_to_json_value(lua: &Lua, multi: MultiValue) -> mlua::Result<serde
         }
         Ok(serde_json::Value::Array(jvalues))
     }
+}
+
+/// Looks up `key`, populating it on the calling task on a miss. Has no
+/// timeout of its own: a slow populate runs for as long as it takes and its
+/// result is still cached. If the caller is cancelled while the populate is
+/// running, the populate is aborted and nothing is cached.
+async fn populate_inline(
+    cache: &LruCacheWithTtl<CacheKey, CacheEntry>,
+    key: &CacheKey,
+    ttl: Duration,
+    lua: &Lua,
+    func: Function,
+    params: &MultiValue,
+    populate_counter: &Counter,
+) -> Result<ItemLookup<CacheEntry>, Arc<anyhow::Error>> {
+    cache
+        .get_or_try_insert(key, |_| ttl, async {
+            tracing::trace!("populate {key:?}");
+            populate_counter.inc();
+            let result: MultiValue = func.call_async(params.clone()).await?;
+            CacheEntry::from_multi_value(lua, result)
+        })
+        .await
+}
+
+/// Looks up `key`, populating it on a miss. The populate runs on a task of its
+/// own: if the caller's own task is later dropped, such as an HTTP handler
+/// whose client disconnected, the populate keeps running to completion and
+/// other callers waiting on the same `key` still get its result. `args` must be
+/// the JSON form of the call arguments (see `multi_value_to_json_args`), and
+/// `registry_name` must name the populate function in the Lua registry. The
+/// populate is bounded by `populate_timeout`. Once it elapses, the entry is
+/// cached as failed and this call returns that failure as an error, even
+/// though the populate task itself keeps running to completion.
+async fn populate_detached(
+    cache: &LruCacheWithTtl<CacheKey, CacheEntry>,
+    key: &CacheKey,
+    ttl: Duration,
+    cache_name: String,
+    registry_name: String,
+    args: Vec<serde_json::Value>,
+    populate_counter: Counter,
+) -> Result<ItemLookup<CacheEntry>, Arc<anyhow::Error>> {
+    // populate_timeout reuses the sema timeout of the cache, set from
+    // MemoizeParams::populate_timeout. get_or_try_insert_detached hard-cancels
+    // the populate once it elapses: it caches a Failed entry with a 60-second
+    // TTL in place of a result, and the next lookup spawns a new populate.
+    let populate_timeout = cache.get_sema_timeout();
+    let make_fut = move || {
+        let registry_name = registry_name.clone();
+        let args = args.clone();
+        let populate_counter = populate_counter.clone();
+        let cache_name = cache_name.clone();
+        async move {
+            let config = load_config().await?;
+            let entry = {
+                let lua = config.lua()?;
+                // The function called here can be the newer policy's version
+                // if a reload re-ran the kumo.memoize call before this point.
+                // We still cache its result under the key built from
+                // epoch_at_start, not the newer epoch: we want a result
+                // produced under an older policy never mistaken for one that
+                // reflects the current policy, which is what tagging it with
+                // the newer epoch would do.
+                let func: Function = lua.named_registry_value(&registry_name).map_err(|_| {
+                    anyhow::anyhow!(
+                        "memoize populate function for cache {cache_name} is not registered in \
+                         a freshly loaded config context. This usually means the kumo.memoize \
+                         call does not run at top-level policy scope, where a config reload \
+                         would re-run it and re-register the function; it can also happen if a \
+                         policy reload removed the kumo.memoize call"
+                    )
+                })?;
+                let mut arg_vec = Vec::with_capacity(args.len());
+                for a in &args {
+                    arg_vec.push(lua.to_value_with(a, serialize_options())?);
+                }
+                populate_counter.inc();
+                let result: MultiValue = func.call_async(MultiValue::from_vec(arg_vec)).await?;
+                CacheEntry::from_multi_value(lua, result)?
+            };
+            config.put();
+            Ok::<_, anyhow::Error>(entry)
+        }
+    };
+    cache
+        .get_or_try_insert_detached(key, move |_| ttl, make_fut, populate_timeout)
+        .await
 }
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
@@ -434,11 +542,32 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 .map_err(any_err)?;
             let retry_on_populate_timeout = params.retry_on_populate_timeout;
             let allow_stale_reads = params.allow_stale_reads;
+            let detached = match params.detached {
+                Some(true) => {
+                    if let Some(event) = calling_event_handler(lua) {
+                        return Err(mlua::Error::external(format!(
+                            "kumo.memoize cache `{cache_name}` sets `detached = true`, but is \
+                            being called from within the `{event}` event handler. A detached \
+                            populate reloads the policy to re-establish the populate function, \
+                            and reloading runs only top-level policy code, not event handlers. \
+                            Move this kumo.memoize call to top-level policy scope, or set \
+                            `detached = false` if the populate is fast enough to run inline."
+                        )));
+                    }
+                    true
+                }
+                Some(false) => false,
+                None => calling_event_handler(lua).is_none(),
+            };
+
+            let registry_name = format!("kumo-memoize-fn.{cache_name}");
+            lua.set_named_registry_value(&registry_name, func.clone())?;
 
             let func_ref = lua.create_registry_value(func)?;
 
             lua.create_async_function(move |lua, params: MultiValue| {
                 let cache_name = cache_name.clone();
+                let registry_name = registry_name.clone();
                 let func = lua.registry_value::<mlua::Function>(&func_ref);
                 let lookup_counter = lookup_counter.clone();
                 let hit_counter = hit_counter.clone();
@@ -477,15 +606,30 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                         let key = serde_json::to_string(&key).map_err(any_err)?;
                         let key = (epoch_key, key);
 
-                        let value_result = cache
-                            .get_or_try_insert(&key, |_| ttl, async {
-                                tracing::trace!("populate {key:?}");
-                                populate_counter.inc();
-                                let result: MultiValue =
-                                    (func.clone()).call_async(params.clone()).await?;
-                                CacheEntry::from_multi_value(&lua, result.clone())
-                            })
-                            .await;
+                        let value_result = if detached {
+                            let args = multi_value_to_json_args(&lua, params.clone())?;
+                            populate_detached(
+                                &cache,
+                                &key,
+                                ttl,
+                                cache_name.clone(),
+                                registry_name.clone(),
+                                args,
+                                populate_counter.clone(),
+                            )
+                            .await
+                        } else {
+                            populate_inline(
+                                &cache,
+                                &key,
+                                ttl,
+                                &lua,
+                                func.clone(),
+                                &params,
+                                &populate_counter,
+                            )
+                            .await
+                        };
 
                         match value_result {
                             Ok(lookup) => {
@@ -553,6 +697,9 @@ mod test {
                 ttl = "1s",
                 capacity = 4,
                 name = "test_memoize_do_thing",
+                -- bare test Lua has no policy for load_config to reload, so
+                -- exercise the inline populate
+                detached = false,
             })
             return cached_do_thing() + cached_do_thing() + cached_do_thing()
         "#,
@@ -620,6 +767,9 @@ mod test {
                 ttl = "1s",
                 capacity = 4,
                 name = "test_memoize_make_foo",
+                -- bare test Lua has no policy for load_config to reload, so
+                -- exercise the inline populate
+                detached = false,
             })
             return cached_make_foo():get_value() +
                    cached_make_foo():get_value() +
@@ -631,5 +781,114 @@ mod test {
 
         assert_eq!(result, 0);
         assert_eq!(call_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    #[test_log::test]
+    async fn test_memoize_blocked() {
+        use std::sync::Mutex;
+        use tokio::sync::Notify;
+
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let notify = Arc::new(Notify::new());
+        let shared_notify = Arc::new(Mutex::new(Some(Arc::clone(&notify))));
+
+        async fn setup_lua(
+            call_count: &Arc<AtomicUsize>,
+            notify: Arc<Mutex<Option<Arc<Notify>>>>,
+        ) -> Lua {
+            let lua = Lua::new();
+            register(&lua).unwrap();
+            let globals = lua.globals();
+            let counter = Arc::clone(&call_count);
+
+            fn take_notify(n: &Arc<Mutex<Option<Arc<Notify>>>>) -> Option<Arc<Notify>> {
+                n.lock().unwrap().take()
+            }
+
+            globals
+                .set(
+                    "do_thing",
+                    lua.create_async_function(move |_lua, _: ()| {
+                        let counter = counter.clone();
+                        let notify = notify.clone();
+                        async move {
+                            eprintln!("do_thing called!");
+                            match dbg!(take_notify(&notify)) {
+                                Some(notify) => {
+                                    eprintln!("do_thing: wait for notify");
+                                    notify.notified().await;
+                                    eprintln!("notified!");
+                                }
+                                None => {
+                                    eprintln!("do_thing: sleeping");
+                                    tokio::time::sleep(Duration::from_secs(1)).await;
+                                    eprintln!("do_thing: slept");
+                                }
+                            };
+                            eprintln!("do_thing: increment");
+                            let count = counter.fetch_add(1, Ordering::SeqCst);
+                            Ok(count)
+                        }
+                    })
+                    .unwrap(),
+                )
+                .unwrap();
+
+            let init = r#"
+            local kumo = require 'kumo';
+            -- make cached_do_thing a global for use in the expiry test below
+            cached_do_thing = kumo.memoize(do_thing, {
+                ttl = "1s",
+                capacity = 4,
+                name = "test_memoize_do_thing",
+                populate_timeout = "2s",
+                -- bare test Lua has no policy for load_config to reload, so
+                -- exercise the inline populate
+                detached = false,
+            })
+        "#;
+
+            let () = lua.load(init).eval_async().await.unwrap();
+            lua
+        }
+
+        let lua = setup_lua(&call_count, shared_notify.clone()).await;
+        async fn do_thing(lua: Lua) -> mlua::Result<usize> {
+            lua.load("return cached_do_thing()").eval_async().await
+        }
+
+        // Set up a future that will get far enough to own the lookup,
+        // but that won't complete until we notify it to do so.
+        eprintln!("spawning first call to do_thing");
+        let first_future = tokio::spawn(do_thing(lua));
+        // Let it progress to await on the notifier
+        tokio::task::yield_now().await;
+
+        // Now setup a second call; we expect this one to time out
+        // because the first one owns the lookup
+        let lua = setup_lua(&call_count, shared_notify.clone()).await;
+        eprintln!("second call to do_thing");
+
+        let res = do_thing(lua).await;
+        eprintln!("second_future is done!");
+        let error = res.unwrap_err().to_string();
+        assert!(
+            error.contains(
+                "timed out after 2s on semaphore acquire while waiting for cache to populate"
+            ),
+            "error: {error}"
+        );
+
+        // The third call will succeed because we've de-coupled the
+        // original lookup from the herd protection
+        eprintln!("third call to do_thing");
+        let lua = setup_lua(&call_count, shared_notify.clone()).await;
+        let result = do_thing(lua).await.unwrap();
+        assert_eq!(result, 0);
+
+        // Now wake up the original future and verify what it returns
+        notify.notify_one();
+        assert_eq!(first_future.await.unwrap().unwrap(), 1);
     }
 }

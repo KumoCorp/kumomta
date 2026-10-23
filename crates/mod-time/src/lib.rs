@@ -156,7 +156,7 @@ impl Time {
 
     fn parse_rfc2822(_lua: &Lua, spec: String) -> mlua::Result<Self> {
         Ok(Self {
-            t: DateTime::parse_from_rfc2822(&spec)
+            t: mailparsing::parse_rfc2822_date(&spec)
                 .map_err(any_err)?
                 .to_utc(),
         })
@@ -236,7 +236,9 @@ impl UserData for Time {
         fields.add_field_method_get("unix_timestamp_millis", |_, this| {
             Ok(this.t.timestamp_millis())
         });
-        fields.add_field_method_get("rfc2822", |_, this| Ok(this.t.to_rfc2822()));
+        fields.add_field_method_get("rfc2822", |_, this| {
+            Ok(mailparsing::format_rfc2822_date(this.t))
+        });
         fields.add_field_method_get("rfc3339", |_, this| Ok(this.t.to_rfc3339()));
         fields.add_field_method_get("elapsed", |_, this| {
             let now = Utc::now();

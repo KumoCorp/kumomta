@@ -1,3 +1,7 @@
+---
+description: "Test TLS (and SMTP AUTH) injection into KumoMTA with Swaks instead of telnet, since encrypted sessions can't be tested over a plain telnet connection."
+---
+
 # How Can I Test TLS Injection?
 
 While it is straightforward to test SMTP message injection against KumoMTA using telnet to port 25 on the KumoMTA instance, you cannot test a session involving TLS (or SMTP AUTH, which requires TLS), using telnet due to the encrypted nature of a TLS connection.

@@ -39,3 +39,6 @@ toml_edit = {workspace=true}
 tracing = {workspace=true}
 utoipa = {workspace=true}
 version-info = {path="../version-info"}
+
+[lints]
+workspace = true

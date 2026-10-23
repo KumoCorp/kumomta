@@ -18,3 +18,9 @@ serde_json = {workspace=true}
 sha2 = {workspace=true}
 tokio = {workspace=true, features=["fs", "rt", "sync", "time"]}
 tracing = {workspace=true}
+
+[dev-dependencies]
+k9 = {workspace=true}
+
+[lints]
+workspace = true

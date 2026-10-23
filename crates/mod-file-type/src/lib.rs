@@ -10,20 +10,12 @@ struct FileTypeResult {
     pub media_types: Vec<String>,
 }
 
-impl Into<FileTypeResult> for &FileType {
-    fn into(self) -> FileTypeResult {
+impl From<&FileType> for FileTypeResult {
+    fn from(val: &FileType) -> Self {
         FileTypeResult {
-            name: self.name().to_string(),
-            extensions: self
-                .extensions()
-                .into_iter()
-                .map(|s| s.to_string())
-                .collect(),
-            media_types: self
-                .media_types()
-                .into_iter()
-                .map(|s| s.to_string())
-                .collect(),
+            name: val.name().to_string(),
+            extensions: val.extensions().iter().map(|s| s.to_string()).collect(),
+            media_types: val.media_types().iter().map(|s| s.to_string()).collect(),
         }
     }
 }
@@ -40,7 +32,7 @@ fn ft_to_lua(ft: &FileType, lua: &Lua) -> mlua::Result<mlua::Value> {
 }
 
 fn fts_to_lua(ft: &[&FileType], lua: &Lua) -> mlua::Result<mlua::Value> {
-    let fts: Vec<FileTypeResult> = ft.into_iter().map(|&ft| ft.into()).collect();
+    let fts: Vec<FileTypeResult> = ft.iter().map(|&ft| ft.into()).collect();
     lua.to_value_with(&fts, serialize_options())
 }
 

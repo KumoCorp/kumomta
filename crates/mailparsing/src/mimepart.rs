@@ -2,25 +2,45 @@ use crate::header::{HeaderParseResult, MessageConformance};
 use crate::headermap::HeaderMap;
 use crate::strings::IntoSharedString;
 use crate::{
-    has_lone_cr_or_lf, Header, MailParsingError, MessageID, MimeParameterEncoding, MimeParameters,
-    Result, SharedString,
+    has_lone_cr_or_lf, BStringUtf8, Header, MailParsingError, MessageID, MimeParameterEncoding,
+    MimeParameters, Result, SharedString,
 };
+use bstr::{BStr, BString, ByteSlice};
 use charset_normalizer_rs::entity::NormalizerSettings;
 use charset_normalizer_rs::Encoding;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use std::borrow::Cow;
 use std::str::FromStr;
 use std::sync::Arc;
 
+const MAX_MIME_NESTING_DEPTH: usize = 100;
+
+/// Returns true if `boundary` is usable as a multipart delimiter. Only the obviously
+/// broken forms are rejected:
+///
+///  * an empty boundary matches everywhere
+///  * one containing whitespace cannot be written back as a `--boundary` line
+///
+/// This is deliberately permissive to avoid reclassifying otherwise splittable,
+/// if non-conforming, real-world boundaries.
+fn is_valid_boundary(boundary: &[u8]) -> bool {
+    !boundary.is_empty() && !boundary.iter().any(|b| b.is_ascii_whitespace())
+}
+
 /// Define our own because data_encoding::BASE64_MIME, despite its name,
-/// is not RFC2045 compliant, and will not ignore spaces
+/// is not RFC2045 compliant, and will not ignore spaces.
+/// check_trailing_bits is disabled because real-world MIME producers emit
+/// final quantums whose discarded padding bits are non-zero; a strict decoder
+/// would reject those otherwise-decodable bodies.
 const BASE64_RFC2045: data_encoding::Encoding = data_encoding_macro::new_encoding! {
     symbols: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
     padding: '=',
     ignore: " \r\n\t",
     wrap_width: 76,
     wrap_separator: "\r\n",
+    check_trailing_bits: false,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -57,7 +77,12 @@ impl Rfc2045Info {
     fn new(headers: &HeaderMap) -> Self {
         let mut invalid_mime_headers = false;
         let encoding = match headers.content_transfer_encoding() {
-            Ok(Some(cte)) => match ContentTransferEncoding::from_str(&cte.value) {
+            Ok(Some(cte)) => match cte
+                .value
+                .to_str()
+                .map_err(|_| ())
+                .and_then(|s| ContentTransferEncoding::from_str(s).map_err(|_| ()))
+            {
                 Ok(encoding) => encoding,
                 Err(_) => {
                     invalid_mime_headers = true;
@@ -86,10 +111,16 @@ impl Rfc2045Info {
         } else {
             None
         };
-        let charset = charset.unwrap_or_else(|| "us-ascii".to_string());
+        let charset = charset.unwrap_or_else(|| "us-ascii".into());
 
-        let charset = Encoding::by_name(&*charset)
-            .ok_or_else(|| MailParsingError::BodyParse(format!("unsupported charset {charset}")));
+        let charset = match charset.to_str() {
+            Ok(charset) => Encoding::by_name(&*charset).ok_or_else(|| {
+                MailParsingError::BodyParse(format!("unsupported charset {charset}"))
+            }),
+            Err(_) => Err(MailParsingError::BodyParse(format!(
+                "non-ascii charset name {charset}"
+            ))),
+        };
 
         let (is_text, is_multipart) = if let Some(ct) = &content_type {
             (ct.is_text(), ct.is_multipart())
@@ -148,7 +179,7 @@ impl Rfc2045Info {
     pub fn content_type(&self) -> Option<&str> {
         self.content_type
             .as_ref()
-            .map(|params| params.value.as_str())
+            .and_then(|params| params.value.to_str().ok())
     }
 }
 
@@ -159,7 +190,7 @@ impl<'a> MimePart<'a> {
         S: IntoSharedString<'a>,
     {
         let (bytes, base_conformance) = bytes.into_shared_string();
-        Self::parse_impl(bytes, base_conformance, true)
+        Self::parse_impl(bytes, base_conformance, true, 0)
     }
 
     /// Obtain a version of self that has a static lifetime
@@ -180,6 +211,7 @@ impl<'a> MimePart<'a> {
         bytes: SharedString<'a>,
         base_conformance: MessageConformance,
         is_top_level: bool,
+        nesting_depth: usize,
     ) -> Result<Self> {
         let HeaderParseResult {
             headers,
@@ -191,7 +223,7 @@ impl<'a> MimePart<'a> {
 
         let body_len = bytes.len();
 
-        if !bytes.is_ascii() {
+        if !bytes.as_bytes().is_ascii() {
             conformance.set(MessageConformance::NEEDS_TRANSFER_ENCODING, true);
         }
         {
@@ -221,7 +253,7 @@ impl<'a> MimePart<'a> {
             conformance.set(
                 MessageConformance::MISSING_MIME_VERSION,
                 match headers.mime_version() {
-                    Ok(Some(v)) => v.as_str() != "1.0",
+                    Ok(Some(v)) => v != "1.0",
                     _ => true,
                 },
             );
@@ -234,33 +266,56 @@ impl<'a> MimePart<'a> {
             body_len,
             conformance,
             parts: vec![],
-            intro: SharedString::Borrowed(""),
-            outro: SharedString::Borrowed(""),
+            intro: SharedString::Borrowed(b""),
+            outro: SharedString::Borrowed(b""),
         };
 
-        part.recursive_parse()?;
+        part.recursive_parse(nesting_depth)?;
 
         Ok(part)
     }
 
-    fn recursive_parse(&mut self) -> Result<()> {
+    fn recursive_parse(&mut self, nesting_depth: usize) -> Result<()> {
         let info = Rfc2045Info::new(&self.headers);
         if info.invalid_mime_headers {
             self.conformance |= MessageConformance::INVALID_MIME_HEADERS;
         }
-        if let Some((boundary, true)) = info
-            .content_type
-            .as_ref()
-            .and_then(|ct| ct.get("boundary").map(|b| (b, info.is_multipart)))
-        {
+        if info.is_multipart {
+            let boundary = info.content_type.as_ref().and_then(|ct| ct.get("boundary"));
+
+            let boundary = match boundary {
+                Some(b) if is_valid_boundary(b.as_bytes()) => b,
+                _ => {
+                    // Retain the part as an opaque leaf, because it has an
+                    // invalid boundary.
+                    self.conformance |= MessageConformance::MIME_INVALID_BOUNDARY;
+                    return Ok(());
+                }
+            };
+
             let boundary = format!("\n--{boundary}");
-            let raw_body = self
-                .bytes
-                .slice(self.body_offset.saturating_sub(1)..self.bytes.len());
+            // Begin the boundary search one byte ahead of the body so that the
+            // leading \n of the `\n--boundary` needle can match a boundary that
+            // sits at the very start of the body.
+            let raw_body_start = self.body_offset.saturating_sub(1);
+            // Offset of the real body within raw_body: 1 when we stepped back
+            // over a preceding byte, 0 when the body starts the message.
+            let body_start_in_raw = self.body_offset - raw_body_start;
+            let raw_body = self.bytes.slice(raw_body_start..self.bytes.len());
 
             let mut iter = memchr::memmem::find_iter(raw_body.as_bytes(), &boundary);
             if let Some(first_boundary_pos) = iter.next() {
-                self.intro = raw_body.slice(0..first_boundary_pos);
+                if nesting_depth >= MAX_MIME_NESTING_DEPTH {
+                    self.conformance |= MessageConformance::MIME_NESTING_LIMIT_EXCEEDED;
+                    return Ok(());
+                }
+
+                // first_boundary_pos is the \n that ends the line before the
+                // boundary. The intro is the body up to and including that \n,
+                // excluding the synthetic byte we stepped back over. Keeping
+                // the \n preserves the line ending the boundary must start
+                // after.
+                self.intro = raw_body.slice(body_start_in_raw..first_boundary_pos + 1);
 
                 // When we create parts, we ignore the original body span in
                 // favor of what we're parsing out here now
@@ -285,6 +340,7 @@ impl<'a> MimePart<'a> {
                         raw_body.slice(part_start..part_end),
                         MessageConformance::default(),
                         false,
+                        nesting_depth + 1,
                     )?;
                     self.conformance |= child.conformance;
                     self.parts.push(child);
@@ -374,25 +430,33 @@ impl<'a> MimePart<'a> {
         Ok(body)
     }
 
-    fn extract_body(
-        &'_ self,
-        options: Option<&CheckFixSettings>,
-    ) -> Result<(DecodedBody<'_>, MessageConformance)> {
+    /// Undo the Content-Transfer-Encoding and return the resulting octets. The
+    /// bytes are those that the transfer encoding produced because charset
+    /// decoding is not performed. This is the right choice when the
+    /// content is itself a message or set of headers whose own charset must be
+    /// preserved, rather than something to be rendered as text.
+    pub fn transfer_decoded_body(&self) -> Result<Vec<u8>> {
         let info = Rfc2045Info::new(&self.headers);
-
-        let bytes = match info.encoding {
+        match info.encoding {
             ContentTransferEncoding::Base64 => {
                 let data = self.raw_body();
                 let bytes = data.as_bytes();
                 BASE64_RFC2045.decode(bytes).map_err(|err| {
-                    let b = bytes[err.position] as char;
                     let region =
                         &bytes[err.position.saturating_sub(8)..(err.position + 8).min(bytes.len())];
                     let region = String::from_utf8_lossy(region);
-                    MailParsingError::BodyParse(format!(
-                        "base64 decode: {err:#} b={b:?} in {region}"
-                    ))
-                })?
+                    match bytes.get(err.position) {
+                        Some(b) => {
+                            let b = *b as char;
+                            MailParsingError::BodyParse(format!(
+                                "base64 decode: {err:#} b={b:?} in {region}"
+                            ))
+                        }
+                        None => MailParsingError::BodyParse(format!(
+                            "base64 decode: {err:#} at end of input in {region}"
+                        )),
+                    }
+                })
             }
             ContentTransferEncoding::QuotedPrintable => quoted_printable::decode(
                 self.raw_body().as_bytes(),
@@ -400,11 +464,20 @@ impl<'a> MimePart<'a> {
             )
             .map_err(|err| {
                 MailParsingError::BodyParse(format!("quoted printable decode: {err:#}"))
-            })?,
+            }),
             ContentTransferEncoding::SevenBit
             | ContentTransferEncoding::EightBit
-            | ContentTransferEncoding::Binary => self.raw_body().as_bytes().to_vec(),
-        };
+            | ContentTransferEncoding::Binary => Ok(self.raw_body().as_bytes().to_vec()),
+        }
+    }
+
+    fn extract_body(
+        &'_ self,
+        options: Option<&CheckFixSettings>,
+    ) -> Result<(DecodedBody<'_>, MessageConformance)> {
+        let info = Rfc2045Info::new(&self.headers);
+
+        let bytes = self.transfer_decoded_body()?;
 
         if info.is_text {
             let charset = info.charset?;
@@ -484,28 +557,42 @@ impl<'a> MimePart<'a> {
     pub fn rebuild(&self, settings: Option<&CheckFixSettings>) -> Result<Self> {
         let info = Rfc2045Info::new(&self.headers);
 
+        // When we declined to split a multipart part (nesting limit reached, or
+        // an invalid boundary), its body is still the original raw multipart
+        // content. Copy it through unchanged rather than trying to decode and
+        // reconstruct it as a leaf below.
+        let is_opaque_multipart = self.parts.is_empty()
+            && self.conformance.intersects(
+                MessageConformance::MIME_NESTING_LIMIT_EXCEEDED
+                    | MessageConformance::MIME_INVALID_BOUNDARY,
+            );
+
         let mut children = vec![];
         for part in &self.parts {
             children.push(part.rebuild(settings)?);
         }
 
-        let mut rebuilt = if children.is_empty() {
+        let mut rebuilt = if is_opaque_multipart {
+            let mut rebuilt = self.clone();
+            rebuilt.headers = HeaderMap::default();
+            rebuilt
+        } else if children.is_empty() {
             let (body, _conformance) = self.extract_body(settings)?;
             match body {
                 DecodedBody::Text(text) => {
                     let ct = info
                         .content_type
                         .as_ref()
-                        .map(|ct| ct.value.as_str())
-                        .unwrap_or("text/plain");
-                    Self::new_text(ct, text.as_str())?
+                        .map(|ct| ct.value.as_bstr())
+                        .unwrap_or_else(|| BStr::new("text/plain"));
+                    Self::new_text(ct, text.as_bytes())?
                 }
                 DecodedBody::Binary(data) => {
                     let ct = info
                         .content_type
                         .as_ref()
-                        .map(|ct| ct.value.as_str())
-                        .unwrap_or("application/octet-stream");
+                        .map(|ct| ct.value.as_bstr())
+                        .unwrap_or_else(|| BStr::new("application/octet-stream"));
                     Self::new_binary(ct, &data, info.attachment_options.as_ref())?
                 }
             }
@@ -515,60 +602,64 @@ impl<'a> MimePart<'a> {
                     "multipart message has no content-type information!?".to_string(),
                 )
             })?;
-            Self::new_multipart(&ct.value, children, ct.get("boundary").as_deref())?
+            Self::new_multipart(
+                &ct.value,
+                children,
+                ct.get("boundary").as_deref().map(|b| b.as_bytes()),
+            )?
         };
 
         for hdr in self.headers.iter() {
             let name = hdr.get_name();
-            if name.eq_ignore_ascii_case("Content-ID") {
+            if name.eq_ignore_ascii_case(b"Content-ID") {
+                continue;
+            }
+
+            if is_opaque_multipart {
+                if let Ok(hdr) = hdr.rebuild() {
+                    rebuilt.headers_mut().push(hdr);
+                }
                 continue;
             }
 
             // Merge in any MimeParameters that we might otherwise have lost
             // in the rebuild
-            if name.eq_ignore_ascii_case("Content-Type") {
+            if name.eq_ignore_ascii_case(b"Content-Type") {
                 if let Ok(params) = hdr.as_content_type() {
                     let Some(mut dest) = rebuilt.headers_mut().content_type()? else {
                         continue;
                     };
 
-                    for (k, v) in params.parameter_map() {
-                        if dest.get(&k).is_none() {
-                            dest.set(&k, &v);
-                        }
-                    }
+                    dest.merge_missing_parameters(params.parameter_map());
 
                     rebuilt.headers_mut().set_content_type(dest)?;
                 }
                 continue;
             }
-            if name.eq_ignore_ascii_case("Content-Transfer-Encoding") {
+            if name.eq_ignore_ascii_case(b"Content-Transfer-Encoding") {
                 if let Ok(params) = hdr.as_content_transfer_encoding() {
                     let Some(mut dest) = rebuilt.headers_mut().content_transfer_encoding()? else {
                         continue;
                     };
 
-                    for (k, v) in params.parameter_map() {
-                        if dest.get(&k).is_none() {
-                            dest.set(&k, &v);
-                        }
-                    }
+                    dest.merge_missing_parameters(params.parameter_map());
 
                     rebuilt.headers_mut().set_content_transfer_encoding(dest)?;
                 }
                 continue;
             }
-            if name.eq_ignore_ascii_case("Content-Disposition") {
+            if name.eq_ignore_ascii_case(b"Content-Disposition") {
                 if let Ok(params) = hdr.as_content_disposition() {
-                    let Some(mut dest) = rebuilt.headers_mut().content_disposition()? else {
-                        continue;
-                    };
-
-                    for (k, v) in params.parameter_map() {
-                        if dest.get(&k).is_none() {
-                            dest.set(&k, &v);
+                    // Merge the original parameters into the rebuilt header,
+                    // or, when the rebuild doesn't produce a
+                    // Content-Disposition at all, use the original unchanged.
+                    let dest = match rebuilt.headers_mut().content_disposition()? {
+                        Some(mut dest) => {
+                            dest.merge_missing_parameters(params.parameter_map());
+                            dest
                         }
-                    }
+                        None => params,
+                    };
 
                     rebuilt.headers_mut().set_content_disposition(dest)?;
                 }
@@ -631,13 +722,17 @@ impl<'a> MimePart<'a> {
 
     /// Convenience method wrapping write_message that returns
     /// the formatted message as a standalone string
-    pub fn to_message_string(&self) -> String {
+    pub fn to_message_bytes(&self) -> Result<Vec<u8>> {
         let mut out = vec![];
-        self.write_message(&mut out).unwrap();
-        String::from_utf8_lossy(&out).to_string()
+        self.write_message(&mut out)?;
+        Ok(out)
     }
 
-    pub fn replace_text_body(&mut self, content_type: &str, content: &str) -> Result<()> {
+    pub fn replace_text_body(
+        &mut self,
+        content_type: impl AsRef<[u8]>,
+        content: impl AsRef<BStr>,
+    ) -> Result<()> {
         let mut new_part = Self::new_text(content_type, content)?;
         self.bytes = new_part.bytes;
         self.body_offset = new_part.body_offset;
@@ -652,7 +747,7 @@ impl<'a> MimePart<'a> {
         Ok(())
     }
 
-    pub fn replace_binary_body(&mut self, content_type: &str, content: &[u8]) -> Result<()> {
+    pub fn replace_binary_body(&mut self, content_type: &[u8], content: &[u8]) -> Result<()> {
         let mut new_part = Self::new_binary(content_type, content, None)?;
         self.bytes = new_part.bytes;
         self.body_offset = new_part.body_offset;
@@ -695,21 +790,19 @@ impl<'a> MimePart<'a> {
     /// Constructs a new part with textual utf8 content.
     /// quoted-printable transfer encoding will be applied,
     /// unless it is smaller to represent the text in base64
-    pub fn new_text(content_type: &str, content: &str) -> Result<Self> {
+    pub fn new_text(content_type: impl AsRef<[u8]>, content: impl AsRef<BStr>) -> Result<Self> {
+        let content = content.as_ref();
         // We'll probably use qp, so speculatively do the work
         let qp_encoded = quoted_printable::encode(content);
 
-        let (mut encoded, encoding) = if qp_encoded == content.as_bytes() {
+        let (mut encoded, encoding) = if qp_encoded == content {
             (qp_encoded, None)
         } else if qp_encoded.len() <= BASE64_RFC2045.encode_len(content.len()) {
             (qp_encoded, Some("quoted-printable"))
         } else {
             // Turns out base64 will be smaller; perhaps the content
             // is dominated by non-ASCII text?
-            (
-                BASE64_RFC2045.encode(content.as_bytes()).into_bytes(),
-                Some("base64"),
-            )
+            (BASE64_RFC2045.encode(content).into_bytes(), Some("base64"))
         };
 
         if !encoded.ends_with(b"\r\n") {
@@ -748,25 +841,28 @@ impl<'a> MimePart<'a> {
         })
     }
 
-    pub fn new_text_plain(content: &str) -> Result<Self> {
+    pub fn new_text_plain(content: impl AsRef<BStr>) -> Result<Self> {
         Self::new_text("text/plain", content)
     }
 
-    pub fn new_html(content: &str) -> Result<Self> {
+    pub fn new_html(content: impl AsRef<BStr>) -> Result<Self> {
         Self::new_text("text/html", content)
     }
 
     pub fn new_multipart(
-        content_type: &str,
+        content_type: impl AsRef<[u8]>,
         parts: Vec<Self>,
-        boundary: Option<&str>,
+        boundary: Option<&[u8]>,
     ) -> Result<Self> {
         let mut headers = HeaderMap::default();
 
         let mut ct = MimeParameters::new(content_type);
         match boundary {
-            Some(b) => {
+            Some(b) if is_valid_boundary(b) => {
                 ct.set("boundary", b);
+            }
+            Some(_) => {
+                return Err(MailParsingError::BuildError("invalid multipart boundary"));
             }
             None => {
                 // Generate a random boundary
@@ -790,7 +886,7 @@ impl<'a> MimePart<'a> {
     }
 
     pub fn new_binary(
-        content_type: &str,
+        content_type: impl AsRef<[u8]>,
         content: &[u8],
         options: Option<&AttachmentOptions>,
     ) -> Result<Self> {
@@ -816,7 +912,7 @@ impl<'a> MimePart<'a> {
             headers.set_content_disposition(cd)?;
 
             if let Some(id) = &opts.content_id {
-                headers.set_content_id(MessageID(id.to_string()))?;
+                headers.set_content_id(MessageID(id.clone()))?;
             }
         }
 
@@ -987,7 +1083,7 @@ impl<'a> MimePart<'a> {
                 }
             }
 
-            if ct.value.starts_with("multipart/") {
+            if ct.value.starts_with_str("multipart/") {
                 let mut text_part = None;
                 let mut html_part = None;
                 let mut amp_html_part = None;
@@ -995,29 +1091,34 @@ impl<'a> MimePart<'a> {
 
                 for (i, p) in self.parts.iter().enumerate() {
                     let part_idx = i.try_into().map_err(|_| MailParsingError::TooManyParts)?;
-                    if let Ok(mut s) = p.simplified_structure_pointers_impl(Some(part_idx)) {
+                    if let Ok(s) = p.simplified_structure_pointers_impl(Some(part_idx)) {
                         if let Some(p) = s.text_part {
+                            let ptr = PartPointer::root_or_nth(my_idx).append(p);
                             if text_part.is_none() {
-                                text_part.replace(PartPointer::root_or_nth(my_idx).append(p));
+                                text_part.replace(ptr);
                             } else {
-                                attachments.push(p);
+                                attachments.push(ptr);
                             }
                         }
                         if let Some(p) = s.html_part {
+                            let ptr = PartPointer::root_or_nth(my_idx).append(p);
                             if html_part.is_none() {
-                                html_part.replace(PartPointer::root_or_nth(my_idx).append(p));
+                                html_part.replace(ptr);
                             } else {
-                                attachments.push(p);
+                                attachments.push(ptr);
                             }
                         }
                         if let Some(p) = s.amp_html_part {
+                            let ptr = PartPointer::root_or_nth(my_idx).append(p);
                             if amp_html_part.is_none() {
-                                amp_html_part.replace(PartPointer::root_or_nth(my_idx).append(p));
+                                amp_html_part.replace(ptr);
                             } else {
-                                attachments.push(p);
+                                attachments.push(ptr);
                             }
                         }
-                        attachments.append(&mut s.attachments);
+                        for attachment in s.attachments {
+                            attachments.push(PartPointer::root_or_nth(my_idx).append(attachment));
+                        }
                     }
                 }
 
@@ -1124,7 +1225,7 @@ impl<'a> MimePart<'a> {
         if to_fix.contains(MessageConformance::MISSING_MESSAGE_ID_HEADER) {
             if let Some(message_id) = &settings.message_id {
                 msg.headers_mut()
-                    .set_message_id(MessageID(message_id.clone()))?;
+                    .set_message_id(MessageID(message_id.clone().into()))?;
             }
         }
 
@@ -1208,7 +1309,7 @@ pub struct SimplifiedStructurePointers {
     pub attachments: Vec<PartPointer>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SimplifiedStructure<'a> {
     pub text: Option<SharedString<'a>>,
     pub html: Option<SharedString<'a>>,
@@ -1217,15 +1318,18 @@ pub struct SimplifiedStructure<'a> {
     pub attachments: Vec<MimePart<'a>>,
 }
 
+#[serde_as]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AttachmentOptions {
+    #[serde_as(as = "Option<BStringUtf8>")]
     #[serde(default)]
-    pub file_name: Option<String>,
+    pub file_name: Option<BString>,
     #[serde(default)]
     pub inline: bool,
+    #[serde_as(as = "Option<BStringUtf8>")]
     #[serde(default)]
-    pub content_id: Option<String>,
+    pub content_id: Option<BString>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1268,7 +1372,7 @@ pub enum DecodedBody<'a> {
 impl<'a> DecodedBody<'a> {
     pub fn to_string_lossy(&'a self) -> Cow<'a, str> {
         match self {
-            Self::Text(s) => Cow::Borrowed(s),
+            Self::Text(s) => s.to_str_lossy(),
             Self::Binary(b) => String::from_utf8_lossy(b),
         }
     }
@@ -1277,6 +1381,113 @@ impl<'a> DecodedBody<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::fmt::Write;
+
+    fn nested_multipart(depth: usize) -> String {
+        let mut message = "Subject: outer header\r\n".to_string();
+
+        for level in 0..depth {
+            write!(
+                message,
+                "Content-Type: multipart/mixed; boundary=\"boundary-{level:04}\"\r\nX-Level: {level}\r\nContent-ID: <part-{level:04}>\r\n\r\n--boundary-{level:04}\r\n"
+            )
+            .expect("writing to a String cannot fail");
+        }
+
+        message.push_str("Content-Type: text/plain\r\n\r\nleaf");
+        for level in (0..depth).rev() {
+            write!(message, "\r\n--boundary-{level:04}--\r\n")
+                .expect("writing to a String cannot fail");
+        }
+
+        message
+    }
+
+    #[test]
+    fn deeply_nested_multipart_becomes_an_opaque_part() {
+        let message = nested_multipart(5_000);
+        let root = MimePart::parse(message.as_bytes()).unwrap();
+
+        k9::assert_equal!(root.headers().subject().unwrap().unwrap(), "outer header");
+        k9::assert_equal!(
+            root.conformance(),
+            MessageConformance::MIME_NESTING_LIMIT_EXCEEDED
+                | MessageConformance::MISSING_DATE_HEADER
+                | MessageConformance::MISSING_MESSAGE_ID_HEADER
+                | MessageConformance::MISSING_MIME_VERSION
+        );
+
+        let mut cutoff = &root;
+        let mut parsed_depth = 0;
+        while let [child] = cutoff.child_parts() {
+            cutoff = child;
+            parsed_depth += 1;
+        }
+
+        k9::assert_equal!(parsed_depth, MAX_MIME_NESTING_DEPTH);
+        k9::assert_equal!(cutoff.child_parts().len(), 0);
+        k9::assert_equal!(
+            cutoff.conformance(),
+            MessageConformance::MIME_NESTING_LIMIT_EXCEEDED
+        );
+        k9::assert_equal!(message.as_bytes(), root.to_message_bytes().unwrap());
+
+        let rebuilt = root.rebuild(None).unwrap();
+        let mut rebuilt_cutoff = &rebuilt;
+        while let [child] = rebuilt_cutoff.child_parts() {
+            rebuilt_cutoff = child;
+        }
+        k9::assert_equal!(rebuilt_cutoff.child_parts().len(), 0);
+        k9::assert_equal!(
+            rebuilt_cutoff.conformance(),
+            MessageConformance::MIME_NESTING_LIMIT_EXCEEDED
+        );
+        // Header formatting changes during rebuild, but the opaque body must not.
+        k9::assert_equal!(cutoff.raw_body(), rebuilt_cutoff.raw_body());
+        // Content-ID is omitted when rebuilding every other kind of part.
+        k9::assert_equal!(rebuilt_cutoff.headers().content_id().unwrap(), None);
+        // Other headers must appear exactly once.
+        k9::assert_equal!(
+            rebuilt_cutoff.headers().iter().count(),
+            cutoff.headers().iter().count() - 1
+        );
+    }
+
+    fn max_tree_depth(part: &MimePart) -> usize {
+        part.child_parts()
+            .iter()
+            .map(|child| 1 + max_tree_depth(child))
+            .max()
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn multipart_nesting_at_the_limit_parses_in_full() {
+        let message = nested_multipart(MAX_MIME_NESTING_DEPTH);
+        let root = MimePart::parse(message.as_bytes()).unwrap();
+
+        k9::assert_equal!(
+            root.conformance()
+                .contains(MessageConformance::MIME_NESTING_LIMIT_EXCEEDED),
+            false
+        );
+        k9::assert_equal!(max_tree_depth(&root), MAX_MIME_NESTING_DEPTH);
+        k9::assert_equal!(message.as_bytes(), root.to_message_bytes().unwrap());
+    }
+
+    #[test]
+    fn multipart_nesting_one_over_the_limit_cuts_off_at_the_limit() {
+        let message = nested_multipart(MAX_MIME_NESTING_DEPTH + 1);
+        let root = MimePart::parse(message.as_bytes()).unwrap();
+
+        k9::assert_equal!(
+            root.conformance()
+                .contains(MessageConformance::MIME_NESTING_LIMIT_EXCEEDED),
+            true
+        );
+        k9::assert_equal!(max_tree_depth(&root), MAX_MIME_NESTING_DEPTH);
+        k9::assert_equal!(message.as_bytes(), root.to_message_bytes().unwrap());
+    }
 
     #[test]
     fn msg_parsing() {
@@ -1288,7 +1499,7 @@ mod test {
         );
 
         let part = MimePart::parse(message).unwrap();
-        k9::assert_equal!(message, part.to_message_string());
+        k9::assert_equal!(message.as_bytes(), part.to_message_bytes().unwrap());
         assert_eq!(part.raw_body(), "I am the body");
         k9::snapshot!(
             part.body(),
@@ -1302,7 +1513,7 @@ Ok(
         );
 
         k9::snapshot!(
-            part.rebuild(None).unwrap().to_message_string(),
+            BString::from(part.rebuild(None).unwrap().to_message_bytes().unwrap()),
             r#"
 Content-Type: text/plain;\r
 \tcharset="us-ascii"\r
@@ -1349,7 +1560,7 @@ I am the body\r
         );
 
         let part = MimePart::parse(message).unwrap();
-        k9::assert_equal!(message, part.to_message_string());
+        k9::assert_equal!(message.as_bytes(), part.to_message_bytes().unwrap());
         assert_eq!(part.raw_body(), "aGVsbG8K\n");
         k9::snapshot!(
             part.body(),
@@ -1364,14 +1575,14 @@ Ok(
         );
 
         k9::snapshot!(
-            part.rebuild(None).unwrap().to_message_string(),
+            BString::from(part.rebuild(None).unwrap().to_message_bytes().unwrap()),
             r#"
 Content-Type: text/plain;\r
 \tcharset="us-ascii"\r
 Content-Transfer-Encoding: quoted-printable\r
 Subject: hello there\r
 From: Someone <someone@example.com>\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 \r
 hello=0A\r
 
@@ -1404,7 +1615,7 @@ hello=0A\r
 
         let part = MimePart::parse(message).unwrap();
 
-        k9::assert_equal!(message, part.to_message_string());
+        k9::assert_equal!(message.as_bytes(), part.to_message_bytes().unwrap());
 
         let children = part.child_parts();
         k9::assert_equal!(children.len(), 2);
@@ -1457,16 +1668,16 @@ Ok(
         );
 
         let mut part = MimePart::parse(message).unwrap();
-        k9::assert_equal!(message, part.to_message_string());
+        k9::assert_equal!(message.as_bytes(), part.to_message_bytes().unwrap());
         fn munge(part: &mut MimePart) {
             let headers = part.headers_mut();
             headers.push(Header::with_name_value("X-Woot", "Hello"));
             headers.insert(0, Header::with_name_value("X-First", "at the top"));
-            headers.retain(|hdr| !hdr.get_name().eq_ignore_ascii_case("date"));
+            headers.retain(|hdr| !hdr.get_name().eq_ignore_ascii_case(b"date"));
         }
         munge(&mut part);
 
-        let re_encoded = part.to_message_string();
+        let re_encoded = BString::from(part.to_message_bytes().unwrap());
         k9::snapshot!(
             re_encoded,
             r#"
@@ -1502,7 +1713,7 @@ After the final boundary stuff gets ignored.\r
 
         eprintln!("part with html removed is:\n{part:#?}");
 
-        let re_encoded = part.to_message_string();
+        let re_encoded = BString::from(part.to_message_bytes().unwrap());
         k9::snapshot!(
             re_encoded,
             r#"
@@ -1528,7 +1739,7 @@ After the final boundary stuff gets ignored.\r
     #[test]
     fn replace_text_body() {
         let mut part = MimePart::new_text_plain("Hello 👻\r\n").unwrap();
-        let encoded = part.to_message_string();
+        let encoded = BString::from(part.to_message_bytes().unwrap());
         k9::snapshot!(
             &encoded,
             r#"
@@ -1543,7 +1754,7 @@ SGVsbG8g8J+Ruw0K\r
 
         part.replace_text_body("text/plain", "Hello 🚀\r\n")
             .unwrap();
-        let encoded = part.to_message_string();
+        let encoded = BString::from(part.to_message_bytes().unwrap());
         k9::snapshot!(
             &encoded,
             r#"
@@ -1558,12 +1769,30 @@ SGVsbG8g8J+agA0K\r
     }
 
     #[test]
+    fn transfer_decoded_body_preserves_octets() {
+        // A quoted-printable text part whose declared charset differs from the
+        // octets it contains. transfer_decoded_body must undo the QP but leave
+        // the raw bytes untouched.
+        let input = concat!(
+            "Content-Type: text/rfc822-headers; charset=\"shift_jis\"\r\n",
+            "Content-Transfer-Encoding: quoted-printable\r\n",
+            "\r\n",
+            "Subject: =93=FA=96=7B=8C=EA\r\n",
+        );
+        let part = MimePart::parse(input).unwrap();
+        k9::assert_equal!(
+            part.transfer_decoded_body().unwrap(),
+            b"Subject: \x93\xFA\x96\x7B\x8C\xEA\r\n".to_vec()
+        );
+    }
+
+    #[test]
     fn construct_1() {
         let input_text = "Well, hello there! This is the plaintext version, in utf-8. Here's a Euro: €, and here are some emoji 👻 🍉 💩 and this long should be long enough that we wrap it in the returned part, let's see how that turns out!\r\n";
 
         let part = MimePart::new_text_plain(input_text).unwrap();
 
-        let encoded = part.to_message_string();
+        let encoded = BString::from(part.to_message_bytes().unwrap());
         k9::snapshot!(
             &encoded,
             r#"
@@ -1580,7 +1809,7 @@ t's see how that turns out!\r
         );
 
         let parsed_part = MimePart::parse(encoded.clone()).unwrap();
-        k9::assert_equal!(encoded.as_str(), parsed_part.to_message_string().as_str());
+        k9::assert_equal!(encoded, parsed_part.to_message_bytes().unwrap());
         k9::assert_equal!(part.body().unwrap(), DecodedBody::Text(input_text.into()));
         k9::snapshot!(
             parsed_part.simplified_structure_pointers(),
@@ -1615,18 +1844,18 @@ Ok(
                     "application/octet-stream",
                     &[0, 1, 2, 3],
                     Some(&AttachmentOptions {
-                        file_name: Some("woot.bin".to_string()),
+                        file_name: Some("woot.bin".into()),
                         inline: false,
-                        content_id: Some("woot.id".to_string()),
+                        content_id: Some("woot.id".into()),
                     }),
                 )
                 .unwrap(),
             ],
-            Some("my-boundary"),
+            Some(b"my-boundary"),
         )
         .unwrap();
         k9::snapshot!(
-            msg.to_message_string(),
+            BString::from(msg.to_message_bytes().unwrap()),
             r#"
 Content-Type: multipart/mixed;\r
 \tboundary="my-boundary"\r
@@ -1720,7 +1949,7 @@ Ok(
             Some(AttachmentOptions {
                 content_id: None,
                 inline: false,
-                file_name: Some("cdname".to_string()),
+                file_name: Some("cdname".into()),
             })
         );
     }
@@ -1753,7 +1982,7 @@ Ok(
             Some(AttachmentOptions {
                 content_id: None,
                 inline: false,
-                file_name: Some("ctname".to_string()),
+                file_name: Some("ctname".into()),
             })
         );
     }
@@ -1834,7 +2063,7 @@ Ok(
         let rebuilt = part.rebuild(None).unwrap();
 
         k9::snapshot!(
-            rebuilt.to_message_string(),
+            BString::from(rebuilt.to_message_bytes().unwrap()),
             r#"
 Content-Type: multipart/mixed;\r
 \tboundary="8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3"\r
@@ -1860,6 +2089,8 @@ Content-Type: text/calendar;\r
 \tcharset="us-ascii";\r
 \tmethod="REQUEST";\r
 \tname="Invitation.ics"\r
+Content-Disposition: inline;\r
+\tname="Invitation.ics"\r
 \r
 Invitation\r
 --8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3\r
@@ -1871,6 +2102,160 @@ Content-Transfer-Encoding: base64\r
 \r
 RXZlbnQNCg==\r
 --8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3--\r
+
+"#
+        );
+    }
+
+    /// Verify that a text part with an explicit
+    /// `Content-Disposition: attachment; filename="invite.ics"` retains that
+    /// disposition after a rebuild.
+    #[test]
+    fn rebuild_preserves_content_disposition_for_text_calendar_attachment() {
+        let long_description = format!("DESCRIPTION:{}", "x".repeat(1100));
+        let message = format!(
+            "Content-Type: multipart/mixed; boundary=cal-boundary\r\n\
+             \r\n\
+             --cal-boundary\r\n\
+             Content-Type: text/plain; charset=us-ascii\r\n\
+             \r\n\
+             Please confirm.\r\n\
+             --cal-boundary\r\n\
+             Content-Disposition: attachment; filename=\"invite.ics\"\r\n\
+             Content-Type: text/calendar; charset=utf-8; method=REQUEST\r\n\
+             \r\n\
+             BEGIN:VCALENDAR\r\n\
+             VERSION:2.0\r\n\
+             PRODID:-//Example//EN\r\n\
+             BEGIN:VEVENT\r\n\
+             UID:12345@example.com\r\n\
+             {long_description}\r\n\
+             END:VEVENT\r\n\
+             END:VCALENDAR\r\n\
+             --cal-boundary--\r\n"
+        );
+
+        let part = MimePart::parse(message.as_str()).unwrap();
+        let rebuilt = part.rebuild(None).unwrap();
+
+        k9::snapshot!(
+            BString::from(rebuilt.to_message_bytes().unwrap()),
+            r#"
+Content-Type: multipart/mixed;\r
+\tboundary="cal-boundary"\r
+\r
+--cal-boundary\r
+Content-Type: text/plain;\r
+\tcharset="us-ascii"\r
+\r
+Please confirm.\r
+--cal-boundary\r
+Content-Type: text/calendar;\r
+\tcharset="us-ascii";\r
+\tmethod="REQUEST"\r
+Content-Transfer-Encoding: quoted-printable\r
+Content-Disposition: attachment;\r
+\tfilename="invite.ics"\r
+\r
+BEGIN:VCALENDAR\r
+VERSION:2.0\r
+PRODID:-//Example//EN\r
+BEGIN:VEVENT\r
+UID:12345@example.com\r
+DESCRIPTION:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\r
+END:VEVENT\r
+END:VCALENDAR\r
+--cal-boundary--\r
+
+"#
+        );
+    }
+
+    // https://github.com/KumoCorp/kumomta/issues/584
+    // A text/calendar part declares 7bit but contains a UTF-8 byte
+    // sequence (the `ä` in the DESCRIPTION). Fixing NEEDS_TRANSFER_ENCODING
+    // re-encodes the part, and its Content-Disposition must survive.
+    #[test]
+    fn check_fix_preserves_content_disposition_on_reencoded_calendar() {
+        let message = concat!(
+            "Content-Type: multipart/mixed; boundary=\"mixed-boundary\"\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Subject: Test\r\n",
+            "From: test-from@example.com\r\n",
+            "To: test-to@example.com\r\n",
+            "Date: Thu, 13 Aug 2026 14:46:19 -0000\r\n",
+            "Message-ID: <178601317973@localhost>\r\n",
+            "\r\n",
+            "--mixed-boundary\r\n",
+            "Content-Type: text/calendar; charset=\"utf-8\"\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Content-Transfer-Encoding: 7bit\r\n",
+            "Content-Disposition: attachment; filename=\"Calendar invite.ics\"\r\n",
+            "\r\n",
+            "BEGIN:VCALENDAR\r\n",
+            "VERSION:2.0\r\n",
+            "BEGIN:VEVENT\r\n",
+            "UID:test-uid@example.com\r\n",
+            "DESCRIPTION:Organizer: T\u{00e4}st\r\n",
+            "SUMMARY:Mailtest\r\n",
+            "END:VEVENT\r\n",
+            "END:VCALENDAR\r\n",
+            "--mixed-boundary--\r\n",
+        );
+
+        let msg = MimePart::parse(message).unwrap();
+        let rebuilt = msg
+            .check_fix_conformance(
+                MessageConformance::default(),
+                MessageConformance::NEEDS_TRANSFER_ENCODING,
+                CheckFixSettings::default(),
+            )
+            .unwrap()
+            .unwrap();
+
+        k9::snapshot!(
+            BString::from(rebuilt.to_message_bytes().unwrap()),
+            r#"
+Content-Type: multipart/mixed;\r
+\tboundary="mixed-boundary"\r
+MIME-Version: 1.0\r
+Subject: Test\r
+From: <test-from@example.com>\r
+To: <test-to@example.com>\r
+Date: Thu, 13 Aug 2026 14:46:19 +0000\r
+Message-ID: <178601317973@localhost>\r
+\r
+--mixed-boundary\r
+Content-Type: text/calendar;\r
+\tcharset="utf-8"\r
+Content-Transfer-Encoding: quoted-printable\r
+MIME-Version: 1.0\r
+Content-Disposition: attachment;\r
+\tfilename="Calendar invite.ics"\r
+\r
+BEGIN:VCALENDAR\r
+VERSION:2.0\r
+BEGIN:VEVENT\r
+UID:test-uid@example.com\r
+DESCRIPTION:Organizer: T=C3=A4st\r
+SUMMARY:Mailtest\r
+END:VEVENT\r
+END:VCALENDAR\r
+--mixed-boundary--\r
 
 "#
         );
@@ -1894,8 +2279,8 @@ Hello";
             "Message has conformance issues: MISSING_MESSAGE_ID_HEADER"
         );
 
-        let rebuilt = msg
-            .check_fix_conformance(
+        let rebuilt = BString::from(
+            msg.check_fix_conformance(
                 MessageConformance::MISSING_MESSAGE_ID_HEADER,
                 MessageConformance::MISSING_MESSAGE_ID_HEADER,
                 CheckFixSettings {
@@ -1905,7 +2290,9 @@ Hello";
             )
             .unwrap()
             .unwrap()
-            .to_message_string();
+            .to_message_bytes()
+            .unwrap(),
+        );
 
         k9::snapshot!(
             rebuilt,
@@ -1929,8 +2316,8 @@ Hello this is a really long line Hello this is a really long line \
 Hello this is a really long line Hello this is a really long line
 ";
         let msg = MimePart::parse(DOUBLE_ANGLE_AND_LONG_LINE).unwrap();
-        let rebuilt = msg
-            .check_fix_conformance(
+        let rebuilt = BString::from(
+            msg.check_fix_conformance(
                 MessageConformance::MISSING_COLON_VALUE,
                 MessageConformance::MISSING_MESSAGE_ID_HEADER | MessageConformance::LINE_TOO_LONG,
                 CheckFixSettings {
@@ -1940,7 +2327,9 @@ Hello this is a really long line Hello this is a really long line
             )
             .unwrap()
             .unwrap()
-            .to_message_string();
+            .to_message_bytes()
+            .unwrap(),
+        );
 
         k9::snapshot!(
             rebuilt,
@@ -1963,21 +2352,142 @@ y long line=0A\r
         );
     }
 
+    // https://github.com/KumoCorp/kumomta/issues/607
+    // Adding a missing Date/Message-ID header to a multipart message whose
+    // body begins with a blank line before the first boundary must not
+    // disturb the body. Previously the leading `\r\n` was rewritten as
+    // `\n\r`, moving the boundary off the start of its line and altering
+    // the bytes covered by a DKIM signature.
+    #[test]
+    fn check_fix_missing_headers_preserves_leading_blank_line() {
+        const CONTENT: &str = concat!(
+            "From: sender@example.com\r\n",
+            "To: recipient@example.com\r\n",
+            "Subject: test\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/alternative; boundary=b1\r\n",
+            "\r\n",
+            "\r\n",
+            "--b1\r\n",
+            "Content-Type: text/plain\r\n",
+            "\r\n",
+            "hello\r\n",
+            "--b1--\r\n",
+        );
+        let msg = MimePart::parse(CONTENT).unwrap();
+        let rebuilt = BString::from(
+            msg.check_fix_conformance(
+                MessageConformance::default(),
+                MessageConformance::MISSING_DATE_HEADER
+                    | MessageConformance::MISSING_MESSAGE_ID_HEADER,
+                CheckFixSettings {
+                    message_id: Some("id@example.com".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .unwrap()
+            .to_message_bytes()
+            .unwrap(),
+        );
+
+        // The header/body separator is followed by the untouched body: a
+        // blank line and then the boundary at the start of its own line.
+        k9::assert_equal!(
+            rebuilt.find("\r\n\r\n").map(|pos| &rebuilt[pos..]),
+            Some(&b"\r\n\r\n\r\n--b1\r\nContent-Type: text/plain\r\n\r\nhello\r\n--b1--\r\n"[..])
+        );
+    }
+
+    // The intro (the preamble before the first boundary) must survive a
+    // parse/serialize round-trip unchanged, whether it is a blank line or
+    // textual preamble text. The fixed slicing had previously shifted every
+    // nonempty intro by one byte; this covers the textual-preamble case,
+    // not just the blank-line variant checked above.
+    #[test]
+    fn multipart_preamble_round_trip() {
+        const CONTENT: &str = concat!(
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/alternative; boundary=b1\r\n",
+            "\r\n",
+            "This is a multi-part message in MIME format.\r\n",
+            "--b1\r\n",
+            "Content-Type: text/plain\r\n",
+            "\r\n",
+            "hello\r\n",
+            "--b1--\r\n",
+        );
+        let msg = MimePart::parse(CONTENT).unwrap();
+        k9::assert_equal!(
+            BString::from(msg.to_message_bytes().unwrap()),
+            BString::from(CONTENT)
+        );
+    }
+
+    // The epilogue (the text after the closing boundary) must survive a
+    // parse/serialize round-trip unchanged, alongside a leading preamble.
+    #[test]
+    fn multipart_epilogue_round_trip() {
+        const CONTENT: &str = concat!(
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/alternative; boundary=b1\r\n",
+            "\r\n",
+            "This is a multi-part message in MIME format.\r\n",
+            "--b1\r\n",
+            "Content-Type: text/plain\r\n",
+            "\r\n",
+            "hello\r\n",
+            "--b1--\r\n",
+            "This is the epilogue, ignored by conformant readers.\r\n",
+        );
+        let msg = MimePart::parse(CONTENT).unwrap();
+        k9::assert_equal!(
+            BString::from(msg.to_message_bytes().unwrap()),
+            BString::from(CONTENT)
+        );
+    }
+
+    // A message using bare LF line endings throughout, with a preamble and an
+    // epilogue, must round-trip byte-identical. The LF-only line ending is
+    // preserved rather than canonicalized to CRLF.
+    #[test]
+    fn multipart_lf_only_round_trip() {
+        const CONTENT: &str = concat!(
+            "MIME-Version: 1.0\n",
+            "Content-Type: multipart/alternative; boundary=b1\n",
+            "\n",
+            "This is a multi-part message in MIME format.\n",
+            "--b1\n",
+            "Content-Type: text/plain\n",
+            "\n",
+            "hello\n",
+            "--b1--\n",
+            "epilogue\n",
+        );
+        let msg = MimePart::parse(CONTENT).unwrap();
+        k9::assert_equal!(
+            BString::from(msg.to_message_bytes().unwrap()),
+            BString::from(CONTENT)
+        );
+    }
+
     #[test]
     fn check_conformance() {
         const MULTI_HEADER_CONTENT: &str =
         "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nX-Header: another value\r\nFrom :Someone@somewhere\r\n\r\nBody";
 
         let msg = MimePart::parse(MULTI_HEADER_CONTENT).unwrap();
-        let rebuilt = msg
-            .check_fix_conformance(
+        let rebuilt = BString::from(
+            msg.check_fix_conformance(
                 MessageConformance::default(),
                 MessageConformance::MISSING_MIME_VERSION,
                 CheckFixSettings::default(),
             )
             .unwrap()
             .unwrap()
-            .to_message_string();
+            .to_message_bytes()
+            .unwrap(),
+        );
         k9::snapshot!(
             rebuilt,
             r#"
@@ -1986,22 +2496,24 @@ X-Header: value\r
 Subject: Hello\r
 X-Header: another value\r
 From :Someone@somewhere\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 \r
 Body
 "#
         );
 
         let msg = MimePart::parse(MULTI_HEADER_CONTENT).unwrap();
-        let rebuilt = msg
-            .check_fix_conformance(
+        let rebuilt = BString::from(
+            msg.check_fix_conformance(
                 MessageConformance::default(),
                 MessageConformance::MISSING_MIME_VERSION | MessageConformance::NAME_ENDS_WITH_SPACE,
                 CheckFixSettings::default(),
             )
             .unwrap()
             .unwrap()
-            .to_message_string();
+            .to_message_bytes()
+            .unwrap(),
+        );
         k9::snapshot!(
             rebuilt,
             r#"
@@ -2012,7 +2524,7 @@ X-Header: value\r
 Subject: Hello\r
 X-Header: another value\r
 From: <Someone@somewhere>\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 \r
 Body\r
 
@@ -2176,5 +2688,142 @@ Body\r
 
         eprintln!("{rebuilt:?}");
         assert_eq!(rebuilt.body().unwrap().to_string_lossy().trim(), "�");
+    }
+
+    #[test]
+    fn nested_multipart_mixed_related() {
+        // Reproduces the structure: multipart/mixed -> multipart/related -> [text/html, image/png]
+        let message = concat!(
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/mixed;\r\n",
+            "\tboundary=\"----=_Part_602641_1899404624.1775349148919\"\r\n",
+            "\r\n",
+            "------=_Part_602641_1899404624.1775349148919\r\n",
+            "Content-Type: multipart/related;\r\n",
+            "\tboundary=\"----=_Part_602642_1070442961.1775349148920\"\r\n",
+            "\r\n",
+            "------=_Part_602642_1070442961.1775349148920\r\n",
+            "Content-Type: text/html;charset=UTF-8\r\n",
+            "Content-Transfer-Encoding: quoted-printable\r\n",
+            "\r\n",
+            "<html><body>Test HTML</body></html>\r\n",
+            "------=_Part_602642_1070442961.1775349148920\r\n",
+            "Content-Type: image/png; name=inline\r\n",
+            "Content-Transfer-Encoding: base64\r\n",
+            "Content-Disposition: inline; filename=inline\r\n",
+            "Content-ID: <dell-aiops>\r\n",
+            "\r\n",
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==\r\n",
+            "------=_Part_602642_1070442961.1775349148920--\r\n",
+            "------=_Part_602641_1899404624.1775349148919--\r\n"
+        );
+
+        let root = MimePart::parse(message).unwrap();
+
+        /// Extract content-type from part
+        fn ct(p: &MimePart) -> String {
+            p.headers()
+                .content_type()
+                .unwrap()
+                .unwrap()
+                .value
+                .to_string()
+        }
+
+        assert_eq!(ct(&root), "multipart/mixed");
+
+        // Structure check: root should have 1 part (multipart/related)
+        let [related_part] = &root.child_parts()[..] else {
+            panic!("root must have one child")
+        };
+        assert_eq!(ct(related_part), "multipart/related");
+
+        // multipart/related should have 2 parts (text/html and image)
+        let [html_part, image_part] = &related_part.child_parts()[..] else {
+            panic!("related part must have two children")
+        };
+
+        // Check content types
+        assert_eq!(ct(html_part), "text/html");
+        assert_eq!(ct(image_part), "image/png");
+
+        // Verify simplified structure can be retrieved (this tests the PartRef resolution path)
+        let simplified = root.simplified_structure().unwrap();
+        let DecodedBody::Text(html) = html_part.body().unwrap() else {
+            panic!("must be text")
+        };
+        assert_eq!(
+            simplified,
+            SimplifiedStructure {
+                text: None,
+                html: Some(html),
+                amp_html: None,
+                headers: &root.headers(),
+                attachments: vec![image_part.clone()],
+            }
+        );
+    }
+
+    /// Test the use case of check_trailing_bits being false.
+    /// This accepts a final quantum whose discarded padding bits are non-zero,
+    /// which a strict base64 decoder would reject.
+    /// For reference, valid base64 is aHRtbD4NCg==
+    #[test]
+    fn check_trailing_bits_test() {
+        // The low 4 trailing bits before `==` are non-zero in this sample.
+        // With check_trailing_bits=false we should still accept and decode it.
+        let decoded = BASE64_RFC2045.decode(b"aHRtbD4NCi==").unwrap();
+        assert_eq!(decoded, b"html>\r\n");
+    }
+
+    // Assert that an empty boundary doesn't parse into nonsense parts and
+    // instead is represented as an opaque leaf that can be successfully
+    // rendered and rebuilt.
+    #[test]
+    fn multipart_empty_boundary_becomes_opaque_leaf() {
+        const CONTENT: &[u8] = b"Content-Type:multipart/0 boundary=\n\n--\n\n";
+
+        let part = MimePart::parse(CONTENT).unwrap();
+        assert!(part
+            .conformance()
+            .contains(MessageConformance::MIME_INVALID_BOUNDARY));
+        assert!(part.child_parts().is_empty());
+        k9::assert_equal!(part.to_message_bytes().unwrap(), CONTENT.to_vec());
+
+        let rebuilt = part.rebuild(None).unwrap();
+        rebuilt.to_message_bytes().unwrap();
+    }
+
+    // Assert that a boundary containing whitespace is represented as
+    // an opaque leaf.
+    #[test]
+    fn multipart_whitespace_boundary_becomes_opaque_leaf() {
+        const CONTENT: &[u8] = concat!(
+            "Content-Type: multipart/mixed; boundary=\"bad boundary\"\r\n",
+            "\r\n",
+            "--bad boundary\r\n",
+            "Content-Type: text/plain\r\n",
+            "\r\n",
+            "hi\r\n",
+            "--bad boundary--\r\n",
+        )
+        .as_bytes();
+
+        let part = MimePart::parse(CONTENT).unwrap();
+        assert!(part
+            .conformance()
+            .contains(MessageConformance::MIME_INVALID_BOUNDARY));
+        assert!(part.child_parts().is_empty());
+        k9::assert_equal!(part.to_message_bytes().unwrap(), CONTENT.to_vec());
+    }
+
+    #[test]
+    fn new_multipart_rejects_invalid_boundary() {
+        let child = MimePart::new_text_plain("hi\r\n").unwrap();
+        let err = MimePart::new_multipart("multipart/mixed", vec![child], Some(b"")).unwrap_err();
+        k9::assert_equal!(
+            err.to_string(),
+            "Error building message: invalid multipart boundary"
+        );
     }
 }

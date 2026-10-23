@@ -12,3 +12,6 @@ log = {workspace=true}
 rfc5321 = {path="../rfc5321"}
 tokio = {workspace=true, features=["full"]}
 tracing = {workspace=true, features=["log"]}
+
+[lints]
+workspace = true

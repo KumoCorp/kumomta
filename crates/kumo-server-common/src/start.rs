@@ -35,6 +35,7 @@ impl StartConfig<'_> {
         self.logging.init()?;
 
         start_cpu_usage_monitor();
+        crate::log_backlog::start_monitor();
 
         rustls::crypto::aws_lc_rs::default_provider()
             .install_default()
@@ -69,7 +70,7 @@ impl StartConfig<'_> {
             if let Err(err) = init_future.await {
                 let err = format!("{err:#}");
                 tracing::error!("problem initializing: {err}");
-                LifeCycle::request_shutdown().await;
+                LifeCycle::request_shutdown(Ok(())).await;
                 error.replace(err);
             }
             // This log line is depended upon by the integration
@@ -79,7 +80,7 @@ impl StartConfig<'_> {
             error
         })?;
 
-        life_cycle.wait_for_shutdown().await;
+        let final_result = life_cycle.wait_for_shutdown().await;
 
         // after waiting for those to idle out, shut down logging
         shutdown_future.await;
@@ -88,6 +89,9 @@ impl StartConfig<'_> {
 
         if let Some(error) = init_handle.await? {
             anyhow::bail!("Initialization raised an error: {error}");
+        }
+        if let Some(Err(error)) = final_result {
+            anyhow::bail!("Shutdown due to error: {error}");
         }
         Ok(())
     }
@@ -151,8 +155,8 @@ fn start_cpu_usage_monitor() {
     std::thread::spawn(|| {
         use std::time::Duration;
         use sysinfo::{
-            get_current_pid, CpuRefreshKind, Pid, ProcessRefreshKind, ProcessesToUpdate,
-            RefreshKind, System,
+            get_current_pid, CpuRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind,
+            System,
         };
 
         let mut sys = System::new_with_specifics(
@@ -182,7 +186,7 @@ fn start_cpu_usage_monitor() {
             SYS_CPU_USAGE.set(sys_usage);
             SYS_CPU_USAGE_NORM.set(sys_usage / num_cpus);
 
-            if let Some(p) = sys.process(Pid::from(my_pid)) {
+            if let Some(p) = sys.process(my_pid) {
                 let proc_usage = p.cpu_usage() as i64;
                 PROC_CPU_USAGE.set(proc_usage);
                 PROC_CPU_USAGE_NORM.set(proc_usage / num_cpus);

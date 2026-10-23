@@ -1,3 +1,7 @@
+---
+description: Start KumoMTA with systemctl, restart it to apply config changes, enable it to launch at boot, or run the kumod daemon manually from the command line.
+---
+
 # Starting KumoMTA
 
 If you followed all the instructions above without errors, you should now have a working MTA on a properly sized server.

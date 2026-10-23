@@ -62,11 +62,13 @@ kumo.on('init', function()
   local slot = os.getenv 'SWARM_SLOT'
 
   kumo.define_spool {
+    kind = 'RocksDB',
     name = 'data',
     path = string.format('/var/spool/kumomta/data-%d', slot),
   }
 
   kumo.define_spool {
+    kind = 'RocksDB',
     name = 'meta',
     path = string.format('/var/spool/kumomta/meta-%d', slot),
   }

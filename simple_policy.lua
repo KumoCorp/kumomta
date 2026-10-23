@@ -177,11 +177,6 @@ kumo.on('init', function()
   -- triggered after each store to the spool.
   -- The increased durability comes at the cost of throughput.
   --
-  -- kind can be 'LocalDisk' (currently the default) or 'RocksDB'.
-  --
-  -- LocalDisk stores one file per message in a filesystem hierarchy.
-  -- RocksDB is a key-value datastore.
-  --
   -- RocksDB has >4x the throughput of LocalDisk, and enabling
   -- flush has a marginal (<10%) impact in early testing.
   kumo.define_spool {

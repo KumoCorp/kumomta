@@ -1,4 +1,5 @@
 use crate::kumod::{generate_message_text, KumoDaemon, MailGenParams};
+use bstr::ByteSlice;
 use rfc5321::{ClientError, Response};
 use std::time::Duration;
 
@@ -77,7 +78,7 @@ async fn spf_basic() -> anyhow::Result<()> {
                 assert_eq!(results[0].result, "none");
                 assert_eq!(results[0].method, "spf");
                 assert_eq!(
-                    results[0].reason.as_deref().unwrap(),
+                    results[0].reason.as_ref().unwrap().as_bstr(),
                     "no SPF records found for example.com"
                 );
                 assert_eq!(
@@ -90,7 +91,7 @@ async fn spf_basic() -> anyhow::Result<()> {
                 assert_eq!(results[0].result, "pass");
                 assert_eq!(results[0].method, "spf");
                 assert_eq!(
-                    results[0].reason.as_deref().unwrap(),
+                    results[0].reason.as_ref().unwrap().as_bstr(),
                     "matched 'all' directive"
                 );
                 assert_eq!(

@@ -1,13 +1,12 @@
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
-use crate::queue::{InsertReason, Queue, QueueManager};
-use crate::smtp_server::ShuttingDownError;
+use crate::queue::{IncrementAttempts, InsertContext, InsertReason, Queue, QueueManager};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
 use humansize::{format_size, DECIMAL};
 use humantime::format_duration;
 use kumo_server_common::disk_space::{MinFree, MonitoredPath};
-use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription};
+use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription, ShuttingDownError};
 use kumo_server_memory::subscribe_to_memory_status_changes_async;
 use kumo_server_runtime::spawn;
 use message::Message;
@@ -24,6 +23,7 @@ use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
+use uuid::Uuid;
 
 static MANAGER: LazyLock<SpoolManager> = LazyLock::new(SpoolManager::new);
 static SPOOLIN_THREADS: AtomicUsize = AtomicUsize::new(0);
@@ -64,15 +64,10 @@ impl Drop for Spool {
 
 impl Spool {}
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Copy, Clone, Debug)]
 pub enum SpoolKind {
     LocalDisk,
     RocksDB,
-}
-impl Default for SpoolKind {
-    fn default() -> Self {
-        Self::LocalDisk
-    }
 }
 
 #[derive(Deserialize)]
@@ -81,7 +76,7 @@ pub struct DefineSpoolParams {
     pub name: String,
     pub path: PathBuf,
     #[serde(default)]
-    pub kind: SpoolKind,
+    pub kind: Option<SpoolKind>,
     #[serde(default)]
     pub flush: bool,
     #[serde(default)]
@@ -91,6 +86,42 @@ pub struct DefineSpoolParams {
     pub min_free_space: MinFree,
     #[serde(default)]
     pub min_free_inodes: MinFree,
+}
+
+/// Returns whether `path` holds any existing spooled data. A missing
+/// directory, or one that contains no entries, counts as empty. Any other
+/// error reading the directory is propagated rather than mistaken for empty,
+/// which would misdirect the omitted-`kind` diagnostic toward RocksDB.
+fn spool_path_is_empty(path: &std::path::Path) -> anyhow::Result<bool> {
+    match std::fs::read_dir(path) {
+        Ok(mut entries) => Ok(entries.next().is_none()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(err) => Err(anyhow::Error::new(err).context(format!("reading {}", path.display()))),
+    }
+}
+
+/// Returns the effective `SpoolKind`. If `kind` is `None`, returns an error
+/// recommending `RocksDB` when `path` is empty, or `LocalDisk` when `path`
+/// already holds spooled data.
+fn resolve_spool_kind(
+    kind: Option<SpoolKind>,
+    name: &str,
+    path: &std::path::Path,
+) -> anyhow::Result<SpoolKind> {
+    if let Some(kind) = kind {
+        return Ok(kind);
+    }
+    // The old default of LocalDisk is deprecated, so an omitted `kind` is an error
+    // rather than a silent fallback that would bind a new spool to a backend we
+    // plan to remove.
+    if spool_path_is_empty(path)? {
+        anyhow::bail!("spool '{name}' must specify `kind = 'RocksDB'` for future compatibility.");
+    }
+    anyhow::bail!(
+        "spool '{name}' must specify `kind = 'LocalDisk'`.  Note that LocalDisk is \
+         deprecated and slated for removal in a future release, so you should plan \
+         to migrate to RocksDB."
+    );
 }
 
 async fn define_spool(params: DefineSpoolParams) -> anyhow::Result<()> {
@@ -107,6 +138,67 @@ async fn define_spool(params: DefineSpoolParams) -> anyhow::Result<()> {
         .await
 }
 
+/// When true (the default), an unhealthy spool also pauses delivery,
+/// not just ingress, in order to limit the duplicate-delivery
+/// exposure window if rocksdb cannot satisfy `remove()` after a
+/// successful SMTP transaction.
+static SUSPEND_DELIVERY_WHEN_UNHEALTHY: AtomicBool = AtomicBool::new(true);
+
+/// Returns `Some(reason)` when the `suspend_delivery_when_spool_unhealthy`
+/// toggle is enabled AND the spool is currently unhealthy.
+/// Returns `None` when either condition is false.
+pub fn delivery_suspension_reason() -> Option<&'static str> {
+    if !SUSPEND_DELIVERY_WHEN_UNHEALTHY.load(Ordering::Relaxed) {
+        return None;
+    }
+    SpoolManager::get().spool_unhealthy_reason()
+}
+
+/// Helper for generating an appropriate log record for messages
+/// that we're delaying when the spool is unhealthy.
+pub async fn log_and_requeue_for_unhealthy_spool(
+    msg: Message,
+    site: &str,
+    session_id: Option<Uuid>,
+    reason: &str,
+) -> anyhow::Result<()> {
+    let response = Response {
+        code: 451,
+        enhanced_code: Some(EnhancedStatusCode {
+            class: 4,
+            subject: 4,
+            detail: 4,
+        }),
+        content: format!("KumoMTA internal: delivery suspended: spool unhealthy: {reason}"),
+        command: None,
+    };
+    log_disposition(LogDisposition {
+        kind: RecordType::Delayed,
+        msg: msg.clone(),
+        site,
+        peer_address: None,
+        response: response.clone(),
+        egress_pool: None,
+        egress_source: None,
+        relay_disposition: None,
+        delivery_protocol: None,
+        tls_info: None,
+        source_address: None,
+        provider: None,
+        session_id,
+        recipient_list: None,
+    })
+    .await;
+    Box::pin(QueueManager::requeue_message(
+        msg,
+        IncrementAttempts::Yes,
+        None,
+        response,
+        InsertContext::from(InsertReason::SpoolUnhealthy),
+    ))
+    .await
+}
+
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let kumo_mod = get_or_create_module(lua, "kumo")?;
     kumo_mod.set(
@@ -120,12 +212,19 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             spawn("define_spool", async move {
                 if let Err(err) = define_spool(params).await {
                     tracing::error!("Error in spool: {err:#}");
-                    LifeCycle::request_shutdown().await;
+                    LifeCycle::request_shutdown(Err(err)).await;
                 }
             })
             .map_err(any_err)?
             .await
             .map_err(any_err)
+        })?,
+    )?;
+    kumo_mod.set(
+        "suspend_delivery_when_spool_unhealthy",
+        lua.create_function(|_, enabled: bool| {
+            SUSPEND_DELIVERY_WHEN_UNHEALTHY.store(enabled, Ordering::Relaxed);
+            Ok(())
         })?,
     )?;
     Ok(())
@@ -195,19 +294,28 @@ impl SpoolManager {
             params.name,
             params.path.display()
         );
+        let kind = resolve_spool_kind(params.kind, &params.name, &params.path)?;
         self.named.lock().await.insert(
             params.name.to_string(),
             SpoolHandle(Arc::new(Spool {
                 maintainer: StdMutex::new(None),
-                spool: match params.kind {
-                    SpoolKind::LocalDisk => Arc::new(
-                        LocalDiskSpool::new(
-                            &params.path,
-                            params.flush,
-                            kumo_server_runtime::get_main_runtime(),
+                spool: match kind {
+                    SpoolKind::LocalDisk => {
+                        tracing::error!(
+                            "spool '{}' uses the deprecated LocalDisk kind, which will \
+                             be removed in a future release. Plan your migration to \
+                             RocksDB.",
+                            params.name
+                        );
+                        Arc::new(
+                            LocalDiskSpool::new(
+                                &params.path,
+                                params.flush,
+                                kumo_server_runtime::get_main_runtime(),
+                            )
+                            .with_context(|| format!("Opening spool {}", params.name))?,
                         )
-                        .with_context(|| format!("Opening spool {}", params.name))?,
-                    ),
+                    }
                     SpoolKind::RocksDB => Arc::new(
                         RocksSpool::new(
                             &params.path,
@@ -246,6 +354,21 @@ impl SpoolManager {
 
     pub fn spool_started(&self) -> bool {
         self.started.load(Ordering::SeqCst)
+    }
+
+    /// Returns `None` when both the data and meta spools are healthy.
+    /// Returns `Some(reason)` when either is unhealthy, where `reason`
+    /// is the externally visible explanation suitable for inclusion in
+    /// an SMTP 421 or HTTP 503 response.
+    ///
+    /// Intended for hot-path load-shedding checks; the underlying Spool
+    /// implementations promise this is cheap (atomic load or similar).
+    pub fn spool_unhealthy_reason(&self) -> Option<&'static str> {
+        if !self.started.load(Ordering::SeqCst) {
+            return None;
+        }
+        let (data, meta) = Self::get_data_meta();
+        data.unhealthy_reason().or_else(|| meta.unhealthy_reason())
     }
 
     pub async fn remove_from_spool(id: SpoolId) -> anyhow::Result<()> {
@@ -408,7 +531,7 @@ impl SpoolManager {
 
         loop {
             let entry = tokio::select! {
-                _ = shutdown.shutting_down() => return Err(ShuttingDownError.into()),
+                _ = shutdown.shutting_down() => return Err(ShuttingDownError::new("spool_in_thread").into()),
                 entry = rx.recv_async() => { entry },
             }?;
 
@@ -693,5 +816,44 @@ impl SpoolManager {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn omitted_kind_on_empty_dir_recommends_rocksdb() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = resolve_spool_kind(None, "data", dir.path()).unwrap_err();
+        k9::assert_equal!(
+            format!("{err:#}"),
+            "spool 'data' must specify `kind = 'RocksDB'` for future compatibility."
+        );
+    }
+
+    #[test]
+    fn omitted_kind_on_missing_dir_recommends_rocksdb() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("does-not-exist");
+        let err = resolve_spool_kind(None, "data", &missing).unwrap_err();
+        k9::assert_equal!(
+            format!("{err:#}"),
+            "spool 'data' must specify `kind = 'RocksDB'` for future compatibility."
+        );
+    }
+
+    #[test]
+    fn omitted_kind_on_populated_dir_recommends_localdisk() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("existing"), b"data").unwrap();
+        let err = resolve_spool_kind(None, "data", dir.path()).unwrap_err();
+        k9::assert_equal!(
+            format!("{err:#}"),
+            "spool 'data' must specify `kind = 'LocalDisk'`.  Note that LocalDisk is \
+             deprecated and slated for removal in a future release, so you should plan \
+             to migrate to RocksDB."
+        );
     }
 }

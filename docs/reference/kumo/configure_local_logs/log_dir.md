@@ -15,4 +15,10 @@ kumo.configure_local_logs {
 }
 ```
 
+!!! note
+    A `log_dir` must hold one log stream. Use a separate directory for
+    each stream, whether the streams come from `per_record`
+    [`suffix`](per_record.md) values or from more than one
+    [`kumo.jsonl.new_writer`](../../kumo.jsonl/new_writer.md).
+
 

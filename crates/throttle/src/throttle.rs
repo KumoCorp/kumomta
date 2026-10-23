@@ -182,25 +182,23 @@ async fn redis_script_throttle(
     })
 }
 
-/// It is very important for `key` to be used with the same `limit`,
-/// `period` and `max_burst` values in order to produce meaningful
-/// results.
+/// It is very important for `key` to be used with the same `limit`, `period`
+/// and `max_burst` values to produce meaningful results.
 ///
-/// This interface cannot detect or report that kind of misuse.
-/// It is recommended that those parameters be encoded into the
-/// key to make it impossible to misuse.
+/// This interface cannot detect or report that kind of misuse. It is
+/// recommended that those parameters be encoded into the key to make it
+/// impossible to misuse.
 ///
-/// * `limit` - specifies the maximum number of tokens allow
-///             over the specified `period`
+/// * `limit` - specifies the maximum number of tokens allow over the specified
+///   `period`
 /// * `period` - the time period over which `limit` is allowed.
-/// * `max_burst` - the maximum initial burst that will be permitted.
-///                 set this smaller than `limit` to prevent using
-///                 up the entire budget immediately and force it
-///                 to spread out across time.
-/// * `quantity` - how many tokens to add to the throttle. If omitted,
-///                1 token is added.
+/// * `max_burst` - the maximum initial burst that will be permitted. set this
+///   smaller than `limit` to prevent using up the entire budget immediately and
+///   force it to spread out across time.
+/// * `quantity` - how many tokens to add to the throttle. If omitted, 1 token
+///   is added.
 /// * `force_local` - if true, always use the in-memory store on the local
-///                   machine even if the redis backend has been configured.
+///   machine even if the redis backend has been configured.
 pub async fn throttle(
     key: &str,
     limit: u64,

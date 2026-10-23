@@ -42,6 +42,26 @@ pub static TOTAL_CONNECTIONS_FAILED: CounterRegistry<ListenerKey>(
 }
 
 declare_metric! {
+/// Total number of connections closed immediately for exceeding the
+/// `max_connections` limit of the listener.
+///
+/// {{since('dev')}}
+pub static TOTAL_CONNECTIONS_DENIED: CounterRegistry<ListenerKey>(
+    "proxy_connections_denied_total"
+);
+}
+
+declare_metric! {
+/// Total number of accept() errors that caused the listener to pause before
+/// retrying, such as file-descriptor exhaustion.
+///
+/// {{since('dev')}}
+pub static TOTAL_ACCEPT_ERRORS: CounterRegistry<ListenerKey>(
+    "proxy_accept_errors_total"
+);
+}
+
+declare_metric! {
 /// Total number of TLS handshake failures.
 ///
 /// This counter increments when TLS is enabled on a listener and
@@ -111,6 +131,22 @@ pub fn tls_handshake_failures_for_listener(listener: SocketAddr) -> AtomicCounte
         listener: &listener_str,
     };
     TOTAL_TLS_HANDSHAKE_FAILURES.get_or_create(&key as &dyn ListenerKeyTrait)
+}
+
+pub fn connections_denied_for_listener(listener: SocketAddr) -> AtomicCounter {
+    let listener_str = listener.to_string();
+    let key = BorrowedListenerKey {
+        listener: &listener_str,
+    };
+    TOTAL_CONNECTIONS_DENIED.get_or_create(&key as &dyn ListenerKeyTrait)
+}
+
+pub fn accept_errors_for_listener(listener: SocketAddr) -> AtomicCounter {
+    let listener_str = listener.to_string();
+    let key = BorrowedListenerKey {
+        listener: &listener_str,
+    };
+    TOTAL_ACCEPT_ERRORS.get_or_create(&key as &dyn ListenerKeyTrait)
 }
 
 pub fn outbound_connections_for(listener: SocketAddr, destination: SocketAddr) -> AtomicCounter {

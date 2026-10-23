@@ -79,21 +79,25 @@ impl ARC {
 
         if !self.sets.is_empty() {
             props.insert(
-                "header.oldest-pass".to_string(),
+                "header.oldest-pass".into(),
                 if status == ChainValidationStatus::Fail {
                     self.last_validated_instance
                 } else {
                     0
                 }
-                .to_string(),
+                .to_string()
+                .into(),
             );
         }
 
         AuthenticationResult {
-            method: "arc".to_string(),
+            method: "arc".into(),
             method_version: None,
             result: status.to_string(),
-            reason: self.issues.first().map(|issue| issue.reason.to_string()),
+            reason: self
+                .issues
+                .first()
+                .map(|issue| issue.reason.to_string().into()),
             props,
         }
     }
@@ -161,7 +165,11 @@ impl ARC {
         let mut issues = vec![];
 
         for hdr in headers.iter_named(ARC_SEAL_HEADER_NAME) {
-            match ARCSealHeader::parse(hdr.get_raw_value()) {
+            match hdr
+                .get_raw_value_string()
+                .map_err(Into::into)
+                .and_then(ARCSealHeader::parse)
+            {
                 Ok(seal) => {
                     let instance = seal.arc_instance().expect("validated by parse");
                     seals
@@ -182,7 +190,11 @@ impl ARC {
         }
 
         for hdr in headers.iter_named(ARC_MESSAGE_SIGNATURE_HEADER_NAME) {
-            match ARCMessageSignatureHeader::parse(hdr.get_raw_value()) {
+            match hdr
+                .get_raw_value_string()
+                .map_err(Into::into)
+                .and_then(ARCMessageSignatureHeader::parse)
+            {
                 Ok(sig) => {
                     let instance = sig.arc_instance().expect("validated by parse");
                     sigs.entry(instance)
@@ -312,7 +324,7 @@ impl ARC {
         }
 
         let mut arc = ARC {
-            sets: arc_sets.into_iter().map(|(_k, set)| set).collect(),
+            sets: arc_sets.into_values().collect(),
             last_validated_instance: 0,
             issues,
         };
@@ -527,7 +539,7 @@ mod test {
             .unwrap();
 
         for instance in 1..=5 {
-            let email = ParsedEmail::parse(email_content.as_str()).unwrap();
+            let email = ParsedEmail::parse(&*email_content).unwrap();
             let arc = ARC::verify(&email, &resolver).await;
             assert_eq!(
                 arc.chain_validation_status(),
@@ -541,7 +553,7 @@ mod test {
                 .seal(
                     &email,
                     AuthenticationResults {
-                        serv_id: "localhost".to_string(),
+                        serv_id: "localhost".into(),
                         version: None,
                         results: vec![arc.authentication_result()],
                     },
@@ -570,5 +582,41 @@ mod test {
 
             email_content = sealed;
         }
+    }
+
+    /// A malformed ARC-Authentication-Results header (e.g. the non-standard
+    /// `action=none` token Microsoft 365 emits) makes the parser fail, and the
+    /// nom diagnostic stored in the issue reason spans several lines. That
+    /// multi-line reason flows unmodified into the `reason=` field of the
+    /// Authentication-Results header we emit. Encoding must remove those
+    /// newlines before the value reaches the header.
+    #[tokio::test]
+    async fn arc_verify_malformed_aar_reason_does_not_split_header() {
+        let message = concat!(
+            "ARC-Authentication-Results: i=1; example.com;\r\n",
+            "\tdmarc=pass action=none header.from=example.com\r\n",
+            "\r\n",
+            "Body\r\n",
+        );
+
+        let email = ParsedEmail::parse(message).unwrap();
+        let resolver = TestResolver::default();
+        let arc = ARC::verify(&email, &resolver).await;
+
+        assert_eq!(arc.chain_validation_status(), ChainValidationStatus::Fail);
+        // The diagnostic that is merged into the reason is multi-line.
+        assert!(arc.issues[0].reason.contains('\n'));
+
+        let ar = AuthenticationResults {
+            serv_id: "mx.example.com".into(),
+            version: None,
+            results: vec![arc.authentication_result()],
+        };
+        let encoded = mailparsing::EncodeHeaderValue::encode_value(&ar).to_string();
+
+        // Remove the structural folds. No other CR/LF may remain.
+        let unfolded = encoded.replace("\r\n\t", "");
+        assert!(!unfolded.contains('\r'), "residual CR in {encoded:?}");
+        assert!(!unfolded.contains('\n'), "residual LF in {encoded:?}");
     }
 }

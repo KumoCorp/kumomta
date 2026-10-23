@@ -13,8 +13,24 @@ local QueueConfig = Record('QueueConfig', {
   _dynamic = queue_module.is_queue_config_option,
 })
 
+-- The per_record option of kumo.configure_log_disposition_hook takes the same
+-- LogRecordParams shape as file-based logging. A disposition hook does not
+-- write log files or render templates. `enable` is the only field that affects
+-- it, and the others are deliberately left untyped here.
+local DispPerRecord = Record('DispPerRecord', {
+  enable = typing.boolean,
+})
+
+-- Record type names are kept as plain strings here, rather than a local
+-- enum, because the core adds new record types over time and we do not want
+-- this helper to reject a valid new type until it is updated to match.
+local DispHookParameters = Record('DispHookParameters', {
+  per_record = Option(Map(String, DispPerRecord)),
+})
+
 local DispHookOptions = Record('DispHookOptions', {
   name = String,
+  log_parameters = Option(DispHookParameters),
   hook = typing.Function,
 })
 
@@ -35,7 +51,7 @@ function mod:new_disposition_hook(options)
     local log_parameters = {
       name = options.name,
     }
-    -- utils.merge_into(options.log_parameters, log_parameters)
+    utils.merge_into(options.log_parameters, log_parameters)
     kumo.configure_log_disposition_hook(log_parameters)
   end)
 
@@ -51,6 +67,7 @@ local LogHookOptions = Record('LogHookOptions', {
   batch_size = Option(typing.number),
   min_batch_size = Option(typing.number),
   max_batch_latency = Option(String),
+  filter = Option(typing.Function),
 })
 
 --[[
@@ -72,6 +89,20 @@ log_hooks:new {
     retry_interval = "1m",
     max_retry_interval = "20m",
   },
+
+  -- Optional pre-filter function.
+  -- This is called as part of processing the should_enqueue_log_record
+  -- event callback after we have applied the default filter; the msg
+  -- is considered to be eligible to enqueue unless this function
+  -- returns true to indicate that "yes, it should be filtered out".
+  filter = function(msg, hook_name)
+     if should_filter_out(msg) then
+       -- We do not want this record
+       return true
+     end
+     return false
+  end),
+
   constructor = function(domain, tenant, campaign)
     local connection = {}
     local client = kumo.http.build_client {}
@@ -146,6 +177,12 @@ function mod:new(options)
     -- avoid an infinite loop caused by logging that we logged that we logged...
     if log_record.reception_protocol == 'LogRecord' then
       return false
+    end
+
+    if options.filter then
+      if options.filter(msg, hook_name) then
+        return false
+      end
     end
 
     -- was some other event that we want to log via the webhook

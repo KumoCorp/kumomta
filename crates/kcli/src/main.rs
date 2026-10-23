@@ -4,15 +4,19 @@ use reqwest::Url;
 use std::collections::HashMap;
 use std::time::Duration;
 
+mod abort_ready_q_conn;
 mod bounce;
 mod bounce_cancel;
 mod bounce_list;
 mod inspect_message;
+mod inspect_ready_q;
 mod inspect_sched_q;
 mod logfilter;
 mod provider_summary;
 mod queue_summary;
 mod rebind;
+mod resolve_egress_path;
+mod spool_compact;
 mod suspend;
 mod suspend_cancel;
 mod suspend_list;
@@ -39,10 +43,9 @@ mod xfer_cancel;
 #[derive(Debug, Parser)]
 #[command(about, version=version_info::kumo_version())]
 struct Opt {
-    /// URL to reach the KumoMTA HTTP API.
-    /// You may set KUMO_KCLI_ENDPOINT in the environment to
-    /// specify this without explicitly using --endpoint.
-    /// If not specified, http://127.0.0.1:8000 will be assumed.
+    /// URL to reach the KumoMTA HTTP API. You may set KUMO_KCLI_ENDPOINT in the
+    /// environment to specify this without explicitly using --endpoint. If not
+    /// specified, http://127.0.0.1:8000 is assumed.
     #[arg(long)]
     endpoint: Option<String>,
 
@@ -60,6 +63,7 @@ enum SubCommand {
     BounceList(bounce_list::BounceListCommand),
     BounceCancel(bounce_cancel::BounceCancelCommand),
     Rebind(rebind::RebindCommand),
+    SpoolCompact(spool_compact::SpoolCompactCommand),
     Suspend(suspend::SuspendCommand),
     SuspendList(suspend_list::SuspendListCommand),
     SuspendCancel(suspend_cancel::SuspendCancelCommand),
@@ -67,8 +71,11 @@ enum SubCommand {
     SuspendReadyQList(suspend_ready_q_list::SuspendReadyQListCommand),
     SuspendReadyQCancel(suspend_ready_q_cancel::SuspendReadyQCancelCommand),
     SetLogFilter(logfilter::SetLogFilterCommand),
+    AbortReadyQConn(abort_ready_q_conn::AbortReadyQConnCommand),
     InspectMessage(inspect_message::InspectMessageCommand),
+    InspectReadyQ(inspect_ready_q::InspectReadyQCommand),
     InspectSchedQ(inspect_sched_q::InspectQueueCommand),
+    ResolveEgressPath(resolve_egress_path::ResolveEgressPathCommand),
     ProviderSummary(provider_summary::ProviderSummaryCommand),
     QueueSummary(queue_summary::QueueSummaryCommand),
     TraceSmtpClient(trace_smtp_client::TraceSmtpClientCommand),
@@ -76,6 +83,12 @@ enum SubCommand {
     Top(top::TopCommand),
     Xfer(xfer::XferCommand),
     XferCancel(xfer_cancel::XferCancelCommand),
+}
+
+// Split the marker token across two literals. One literal here would make
+// tooling treat this source as a generated file.
+fn generated_note() -> String {
+    format!("{} by kcli markdown-help", concat!("@", "generated"))
 }
 
 impl SubCommand {
@@ -103,50 +116,59 @@ impl SubCommand {
                     ("suspend-ready-q-list", &["suspend"]),
                     ("suspend-ready-q-cancel", &["suspend"]),
                     ("set-log-filter", &["logging", "debugging"]),
+                    ("abort-ready-q-conn", &["ops", "debugging"]),
                     ("inspect-message", &["message", "debugging"]),
+                    ("inspect-ready-q", &["ops", "debugging"]),
                     ("inspect-sched-q", &["debugging"]),
                     ("provider-summary", &["ops"]),
                     ("queue-summary", &["ops"]),
                     ("trace-smtp-client", &["ops", "debugging"]),
                     ("trace-smtp-server", &["ops", "debugging"]),
                     ("top", &["ops", "debugging"]),
+                    ("spool-compact", &["ops", "debugging"]),
                     ("xfer", &["ops", "xfer"]),
                     ("xfer-cancel", &["ops", "xfer"]),
                 ];
                 let doc_tags: HashMap<&str, &[&str]> =
-                    doc_tags.into_iter().map(|(k, v)| (*k, &v[..])).collect();
+                    doc_tags.iter().map(|(k, v)| (*k, &v[..])).collect();
 
-                // We want a separate markdown page per sub-command, so we're
-                // doing a bit of grubbing around to split that out here
+                // We want a separate markdown page per sub-command. Split the
+                // overall help on the sub-command headings to produce them.
 
                 for (idx, chunk) in overall_help.split("## `kcli ").enumerate() {
-                    // Fixup the markdown to work better in the context of
-                    // mkdocs-material
+                    // The heading levels and list spacing clap generates render
+                    // incorrectly under mkdocs-material. We normalize them here
+                    // to render correctly instead.
                     let chunk = chunk
                         .replace("###### **Options:**", "## Options")
                         .replace("###### **Arguments:**", "## Arguments")
                         .replace("\n  ", "\n    ")
                         .replace("\n*", "\n\n*");
 
+                    let note = generated_note();
                     if idx == 0 {
                         std::fs::write(
                             "docs/reference/kcli/_index.md",
                             format!(
-                                "{chunk}\n\n## Available Subcommands {{ data-search-exclude }}"
+                                "<!-- {note} -->\n{chunk}\n\n## Available Subcommands {{ data-search-exclude }}"
                             ),
                         )?;
                     } else {
                         let (sub_command, remainder) = chunk.split_once('`').unwrap();
                         let filename = format!("docs/reference/kcli/{sub_command}.md");
 
-                        let tags = match doc_tags.get(sub_command) {
-                            Some(tags) => {
-                                format!("---\ntags:\n  - {}\n---\n", tags.join("\n  - "))
-                            }
-                            None => String::new(),
+                        // With front matter the marker is a YAML comment on the
+                        // first line inside the block; without it, an HTML comment
+                        // above the heading.
+                        let (marker, tags) = match doc_tags.get(sub_command) {
+                            Some(tags) => (
+                                String::new(),
+                                format!("---\n# {note}\ntags:\n  - {}\n---\n", tags.join("\n  - ")),
+                            ),
+                            None => (format!("<!-- {note} -->\n"), String::new()),
                         };
 
-                        let help = format!("{tags}# kcli {sub_command}\n{remainder}");
+                        let help = format!("{marker}{tags}# kcli {sub_command}\n{remainder}");
                         std::fs::write(&filename, &help)?;
                     }
                 }
@@ -157,6 +179,7 @@ impl SubCommand {
             Self::BounceCancel(cmd) => cmd.run(endpoint).await,
             Self::BounceList(cmd) => cmd.run(endpoint).await,
             Self::Rebind(cmd) => cmd.run(endpoint).await,
+            Self::SpoolCompact(cmd) => cmd.run(endpoint).await,
             Self::Suspend(cmd) => cmd.run(endpoint).await,
             Self::SuspendCancel(cmd) => cmd.run(endpoint).await,
             Self::SuspendList(cmd) => cmd.run(endpoint).await,
@@ -164,8 +187,11 @@ impl SubCommand {
             Self::SuspendReadyQCancel(cmd) => cmd.run(endpoint).await,
             Self::SuspendReadyQList(cmd) => cmd.run(endpoint).await,
             Self::SetLogFilter(cmd) => cmd.run(endpoint).await,
+            Self::AbortReadyQConn(cmd) => cmd.run(endpoint).await,
             Self::InspectMessage(cmd) => cmd.run(endpoint).await,
+            Self::InspectReadyQ(cmd) => cmd.run(endpoint).await,
             Self::InspectSchedQ(cmd) => cmd.run(endpoint).await,
+            Self::ResolveEgressPath(cmd) => cmd.run(endpoint).await,
             Self::ProviderSummary(cmd) => cmd.run(endpoint).await,
             Self::QueueSummary(cmd) => cmd.run(endpoint).await,
             Self::TraceSmtpClient(cmd) => cmd.run(endpoint).await,

@@ -1,0 +1,1066 @@
+use crate::batch::LogBatch;
+use crate::checkpoint::{
+    is_reserved_checkpoint_name, sweep_orphaned_temp_files, CheckpointData, CHECKPOINT_TEMP_MAX_AGE,
+};
+use crate::decompress::{FileDecompressor, NextLine, DEFAULT_MAX_LINE_SIZE};
+use anyhow::Context;
+use camino::Utf8PathBuf;
+use filenamegen::Glob;
+use futures::Stream;
+use notify::event::{CreateKind, ModifyKind};
+use notify::{Event, EventKind, Watcher};
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tokio::sync::Notify;
+use tracing::warn;
+
+// ---------------------------------------------------------------------------
+// Default helpers
+// ---------------------------------------------------------------------------
+
+fn default_pattern() -> String {
+    "*".to_string()
+}
+
+fn default_max_batch_size() -> usize {
+    100
+}
+
+fn default_max_batch_latency() -> Duration {
+    Duration::from_secs(1)
+}
+
+fn default_max_line_size() -> usize {
+    DEFAULT_MAX_LINE_SIZE
+}
+
+// ---------------------------------------------------------------------------
+// ConsumerConfig
+// ---------------------------------------------------------------------------
+
+/// Per-consumer batching, checkpoint, and filter configuration.
+pub struct ConsumerConfig {
+    /// A name that identifies this consumer.  Returned by
+    /// [`LogBatch::consumer_name`].
+    pub name: String,
+    /// Maximum number of records per batch.
+    pub max_batch_size: usize,
+    /// Maximum time to wait for a partial batch to fill before yielding it.
+    pub max_batch_latency: Duration,
+    /// If set, enables checkpoint persistence with this name.
+    /// The checkpoint file will be stored as `.<name>` in the log directory.
+    pub checkpoint_name: Option<String>,
+    /// Optional filter applied to each record.  If the filter returns
+    /// `Ok(false)` the record is not added to this consumer's batch.
+    pub filter: Option<Box<dyn Fn(&serde_json::Value) -> anyhow::Result<bool> + Send>>,
+}
+
+impl ConsumerConfig {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            max_batch_size: default_max_batch_size(),
+            max_batch_latency: default_max_batch_latency(),
+            checkpoint_name: None,
+            filter: None,
+        }
+    }
+
+    pub fn max_batch_size(mut self, size: usize) -> Self {
+        self.max_batch_size = size;
+        self
+    }
+
+    pub fn max_batch_latency(mut self, latency: Duration) -> Self {
+        self.max_batch_latency = latency;
+        self
+    }
+
+    pub fn checkpoint_name(mut self, name: impl Into<String>) -> Self {
+        self.checkpoint_name = Some(name.into());
+        self
+    }
+
+    pub fn filter<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&serde_json::Value) -> anyhow::Result<bool> + Send + 'static,
+    {
+        self.filter = Some(Box::new(f));
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MultiConsumerTailerConfig
+// ---------------------------------------------------------------------------
+
+/// Configuration for a tailer that fans out records to multiple consumers.
+pub struct MultiConsumerTailerConfig {
+    /// The directory containing zstd-compressed JSONL log files.
+    pub directory: Utf8PathBuf,
+    /// Glob pattern for matching log filenames.
+    pub pattern: String,
+    /// If set, use a polling-based filesystem watcher.
+    pub poll_watcher: Option<Duration>,
+    /// If true, ignore checkpoints and start from the most recent segment.
+    pub tail: bool,
+    /// Largest a decompressed record may be before the segment is treated as
+    /// corrupt. Bounds the transient memory used to decompress an unusually
+    /// large record.
+    pub max_line_size: usize,
+    /// The set of consumers that receive records.
+    pub consumers: Vec<ConsumerConfig>,
+}
+
+impl MultiConsumerTailerConfig {
+    pub fn new(directory: Utf8PathBuf, consumers: Vec<ConsumerConfig>) -> Self {
+        Self {
+            directory,
+            pattern: default_pattern(),
+            poll_watcher: None,
+            tail: false,
+            max_line_size: default_max_line_size(),
+            consumers,
+        }
+    }
+
+    pub fn pattern(mut self, pattern: impl Into<String>) -> Self {
+        self.pattern = pattern.into();
+        self
+    }
+
+    pub fn poll_watcher(mut self, interval: Duration) -> Self {
+        self.poll_watcher = Some(interval);
+        self
+    }
+
+    pub fn tail(mut self, enable: bool) -> Self {
+        self.tail = enable;
+        self
+    }
+
+    pub fn max_line_size(mut self, size: usize) -> Self {
+        self.max_line_size = size;
+        self
+    }
+
+    /// Build the multi-consumer tailer.
+    pub async fn build(self) -> anyhow::Result<MultiConsumerTailer> {
+        for c in &self.consumers {
+            if let Some(name) = &c.checkpoint_name {
+                if is_reserved_checkpoint_name(name) {
+                    anyhow::bail!(
+                        "checkpoint_name {name:?} is not allowed because \
+                         it would collide with temporary file names \
+                         created during checkpoint writes"
+                    );
+                }
+            }
+        }
+
+        // We run the sweep on the blocking pool because its synchronous std::fs
+        // calls would block an async worker thread.
+        let sweep_dir = self.directory.clone();
+        tokio::task::spawn_blocking(move || {
+            sweep_orphaned_temp_files(&sweep_dir, CHECKPOINT_TEMP_MAX_AGE)
+        })
+        .await
+        .ok();
+
+        // Collect checkpoint paths without borrowing consumers across
+        // an await (consumers contains non-Sync filter closures).
+        let cp_paths: Vec<Option<Utf8PathBuf>> = self
+            .consumers
+            .iter()
+            .map(|c| {
+                c.checkpoint_name
+                    .as_ref()
+                    .map(|name| self.directory.join(format!(".{name}")))
+            })
+            .collect();
+
+        // Now load checkpoints (async) without borrowing consumers.
+        let mut consumer_checkpoints: Vec<Option<CheckpointData>> =
+            Vec::with_capacity(cp_paths.len());
+        let mut earliest_checkpoint: Option<CheckpointData> = None;
+
+        for cp_path in &cp_paths {
+            let cp = if self.tail {
+                resolve_tail_checkpoint(&self.directory, &self.pattern)?
+            } else if let Some(cp_path) = cp_path {
+                CheckpointData::load(cp_path).await?
+            } else {
+                None
+            };
+
+            match (&earliest_checkpoint, &cp) {
+                (None, Some(cp)) => {
+                    earliest_checkpoint = Some(cp.clone());
+                }
+                (Some(existing), Some(cp)) => {
+                    if cp.file < existing.file
+                        || (cp.file == existing.file && cp.line < existing.line)
+                    {
+                        earliest_checkpoint = Some(cp.clone());
+                    }
+                }
+                _ => {}
+            }
+
+            consumer_checkpoints.push(cp);
+        }
+
+        let closed = Arc::new(AtomicBool::new(false));
+        let close_notify = Arc::new(Notify::new());
+
+        let fs_notify = Arc::new(Notify::new());
+        let fs_notify_tx = fs_notify.clone();
+        let event_handler = move |res: Result<Event, _>| match res {
+            Ok(event) => match event.kind {
+                EventKind::Create(CreateKind::File) | EventKind::Modify(ModifyKind::Data(_)) => {
+                    fs_notify_tx.notify_one();
+                }
+                _ => {}
+            },
+            Err(_) => {}
+        };
+        let mut watcher: Box<dyn Watcher + Send> = if let Some(interval) = self.poll_watcher {
+            Box::new(notify::PollWatcher::new(
+                event_handler,
+                notify::Config::default().with_poll_interval(interval),
+            )?)
+        } else {
+            Box::new(notify::recommended_watcher(event_handler)?)
+        };
+        watcher.watch(
+            &self.directory.clone().into_std_path_buf(),
+            notify::RecursiveMode::NonRecursive,
+        )?;
+
+        let shared = Arc::new(TailerShared {
+            closed,
+            close_notify,
+        });
+
+        let stream = make_multi_stream(
+            self.directory,
+            self.pattern,
+            self.max_line_size,
+            self.consumers,
+            earliest_checkpoint,
+            consumer_checkpoints,
+            cp_paths,
+            fs_notify,
+            shared.clone(),
+        );
+
+        Ok(MultiConsumerTailer {
+            close_handle: CloseHandle { shared },
+            _watcher: watcher,
+            stream: Box::pin(stream),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared internals
+// ---------------------------------------------------------------------------
+
+struct TailerShared {
+    closed: Arc<AtomicBool>,
+    close_notify: Arc<Notify>,
+}
+
+/// A `Send + Sync` handle that can close a tailer from any context.
+#[derive(Clone)]
+pub struct CloseHandle {
+    shared: Arc<TailerShared>,
+}
+
+impl CloseHandle {
+    /// Signal the stream to terminate.
+    pub fn close(&self) {
+        self.shared.closed.store(true, Ordering::SeqCst);
+        self.shared.close_notify.notify_waiters();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MultiConsumerTailer
+// ---------------------------------------------------------------------------
+
+/// An async Stream that yields vectors of [`LogBatch`], one per consumer
+/// whose batch is ready.
+pub struct MultiConsumerTailer {
+    close_handle: CloseHandle,
+    _watcher: Box<dyn Watcher + Send>,
+    stream: std::pin::Pin<Box<dyn Stream<Item = anyhow::Result<Vec<LogBatch>>> + Send>>,
+}
+
+impl MultiConsumerTailer {
+    pub fn close_handle(&self) -> CloseHandle {
+        self.close_handle.clone()
+    }
+
+    pub fn close(&self) {
+        self.close_handle.close();
+    }
+}
+
+impl Stream for MultiConsumerTailer {
+    type Item = anyhow::Result<Vec<LogBatch>>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        if self.close_handle.shared.closed.load(Ordering::SeqCst) {
+            return std::task::Poll::Ready(None);
+        }
+        self.stream.as_mut().poll_next(cx)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Single-consumer LogTailerConfig / LogTailer (delegates to multi-consumer)
+// ---------------------------------------------------------------------------
+
+/// Configuration for constructing a single-consumer [`LogTailer`].
+#[derive(Deserialize, Serialize)]
+pub struct LogTailerConfig {
+    pub directory: Utf8PathBuf,
+    #[serde(default = "default_pattern")]
+    pub pattern: String,
+    #[serde(default = "default_max_batch_size")]
+    pub max_batch_size: usize,
+    #[serde(default = "default_max_batch_latency", with = "duration_serde")]
+    pub max_batch_latency: Duration,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_name: Option<String>,
+    #[serde(
+        default,
+        with = "duration_serde",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub poll_watcher: Option<Duration>,
+    #[serde(default)]
+    pub tail: bool,
+    #[serde(default = "default_max_line_size")]
+    pub max_line_size: usize,
+}
+
+impl LogTailerConfig {
+    pub fn new(directory: Utf8PathBuf) -> Self {
+        Self {
+            directory,
+            pattern: default_pattern(),
+            max_batch_size: default_max_batch_size(),
+            max_batch_latency: default_max_batch_latency(),
+            checkpoint_name: None,
+            poll_watcher: None,
+            tail: false,
+            max_line_size: default_max_line_size(),
+        }
+    }
+
+    pub fn pattern(mut self, pattern: impl Into<String>) -> Self {
+        self.pattern = pattern.into();
+        self
+    }
+
+    pub fn max_batch_size(mut self, size: usize) -> Self {
+        self.max_batch_size = size;
+        self
+    }
+
+    pub fn max_line_size(mut self, size: usize) -> Self {
+        self.max_line_size = size;
+        self
+    }
+
+    pub fn max_batch_latency(mut self, latency: Duration) -> Self {
+        self.max_batch_latency = latency;
+        self
+    }
+
+    pub fn checkpoint_name(mut self, name: impl Into<String>) -> Self {
+        self.checkpoint_name = Some(name.into());
+        self
+    }
+
+    pub fn poll_watcher(mut self, interval: Duration) -> Self {
+        self.poll_watcher = Some(interval);
+        self
+    }
+
+    pub fn tail(mut self, enable: bool) -> Self {
+        self.tail = enable;
+        self
+    }
+
+    /// Build a single-consumer tailer.
+    pub async fn build(self) -> anyhow::Result<LogTailer> {
+        self.build_with_filter(None::<fn(&serde_json::Value) -> anyhow::Result<bool>>)
+            .await
+    }
+
+    /// Build a single-consumer tailer with an optional record filter.
+    pub async fn build_with_filter<F>(self, filter: Option<F>) -> anyhow::Result<LogTailer>
+    where
+        F: Fn(&serde_json::Value) -> anyhow::Result<bool> + Send + 'static,
+    {
+        let mut consumer = ConsumerConfig::new("default")
+            .max_batch_size(self.max_batch_size)
+            .max_batch_latency(self.max_batch_latency);
+        if let Some(name) = self.checkpoint_name.clone() {
+            consumer = consumer.checkpoint_name(name);
+        }
+        if let Some(f) = filter {
+            consumer = consumer.filter(f);
+        }
+
+        let multi_config = MultiConsumerTailerConfig {
+            directory: self.directory,
+            pattern: self.pattern,
+            poll_watcher: self.poll_watcher,
+            tail: self.tail,
+            max_line_size: self.max_line_size,
+            consumers: vec![consumer],
+        };
+
+        let multi = multi_config.build().await?;
+
+        Ok(LogTailer { inner: multi })
+    }
+}
+
+/// A single-consumer async Stream that yields one [`LogBatch`] at a time.
+///
+/// This is a convenience wrapper around [`MultiConsumerTailer`] with
+/// exactly one consumer.
+pub struct LogTailer {
+    inner: MultiConsumerTailer,
+}
+
+impl LogTailer {
+    pub fn close_handle(&self) -> CloseHandle {
+        self.inner.close_handle()
+    }
+
+    pub fn close(&self) {
+        self.inner.close();
+    }
+}
+
+impl Stream for LogTailer {
+    type Item = anyhow::Result<LogBatch>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        use std::task::Poll;
+        // The inner multi-consumer stream yields Vec<LogBatch> with exactly
+        // one element.  Unwrap it.
+        match std::pin::Pin::new(&mut self.inner).poll_next(cx) {
+            Poll::Ready(Some(Ok(mut batches))) => Poll::Ready(Some(Ok(batches
+                .pop()
+                .expect("single consumer yields one batch")))),
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared utilities
+// ---------------------------------------------------------------------------
+
+fn resolve_tail_checkpoint(
+    directory: &Utf8PathBuf,
+    pattern: &str,
+) -> anyhow::Result<Option<CheckpointData>> {
+    let glob = Glob::new(pattern)?;
+    let mut files = vec![];
+    for path in glob.walk(directory) {
+        let path = directory.join(Utf8PathBuf::try_from(path).map_err(|e| anyhow::anyhow!("{e}"))?);
+        if path.is_file() {
+            files.push(path);
+        }
+    }
+    files.sort();
+    Ok(files.last().map(|f| CheckpointData {
+        file: f.to_string(),
+        line: 0,
+    }))
+}
+
+/// Build the file plan: sorted list of matching files in the directory.
+fn build_plan(
+    directory: &Utf8PathBuf,
+    pattern: &str,
+    checkpoint_paths: &[Option<Utf8PathBuf>],
+    last_processed: &Option<Utf8PathBuf>,
+    checkpoint: &Option<CheckpointData>,
+    bad_files: &HashSet<Utf8PathBuf>,
+) -> anyhow::Result<Vec<Utf8PathBuf>> {
+    let glob = Glob::new(pattern)?;
+    let mut result = vec![];
+    for path in glob.walk(directory) {
+        let path = directory.join(Utf8PathBuf::try_from(path).map_err(|e| anyhow::anyhow!("{e}"))?);
+        // Skip checkpoint files
+        if checkpoint_paths.iter().any(|cp| cp.as_ref() == Some(&path)) {
+            continue;
+        }
+        // Skip files we've previously determined to be unreadable
+        // (foreign content or unrecoverable corruption).
+        if bad_files.contains(&path) {
+            continue;
+        }
+        if path.is_file() {
+            result.push(path);
+        }
+    }
+    result.sort();
+
+    if let Some(last) = last_processed {
+        result.retain(|item| item > last);
+    } else if let Some(cp) = checkpoint {
+        let cp_file = &cp.file;
+        result.retain(|item| item.as_str() >= cp_file.as_str());
+    }
+
+    Ok(result)
+}
+
+fn is_file_done(path: &Utf8PathBuf) -> bool {
+    path.metadata()
+        .map(|m| m.permissions().readonly())
+        .unwrap_or(false)
+}
+
+/// Number of lines that a consumer may scan and discard via its filter before
+/// we persist its checkpoint, bounding checkpoint writes for a consumer that
+/// matches little or nothing in a busy segment.
+const FILTERED_PROGRESS_FLUSH_INTERVAL: usize = 10_000;
+
+/// Orders consumer progress by segment and line.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct ScanPosition {
+    file: Utf8PathBuf,
+    line: usize,
+}
+
+/// Flush checkpoint writes, ensuring that checkpoints make progress
+/// even for consumers that filter out large portions of a segment.
+async fn flush_filtered_progress(
+    cp_paths: &[Option<Utf8PathBuf>],
+    last_handed_out: &[Option<ScanPosition>],
+    committed_through: &[Mutex<Option<ScanPosition>>],
+    file: &Utf8PathBuf,
+    line: usize,
+    last_persisted: &mut [Option<ScanPosition>],
+) -> anyhow::Result<()> {
+    let mut pending: Vec<(usize, Utf8PathBuf)> = vec![];
+    for (i, (cp_path, last)) in cp_paths.iter().zip(last_persisted.iter()).enumerate() {
+        let Some(cp_path) = cp_path else {
+            continue;
+        };
+        // Exclude consumers with uncommitted records from checkpoint advancement
+        // because a restart must read those records again.
+        let blocked = {
+            let committed = committed_through[i]
+                .lock()
+                .expect("committed_through mutex poisoned");
+            last_handed_out[i] > *committed
+        };
+        if blocked {
+            continue;
+        }
+        let pos = ScanPosition {
+            file: file.clone(),
+            line,
+        };
+        // Preserve a later persisted position because lowering it would repeat
+        // records already processed by the consumer.
+        if last.as_ref().is_some_and(|prev| pos <= *prev) {
+            continue;
+        }
+        pending.push((i, cp_path.clone()));
+    }
+    if pending.is_empty() {
+        return Ok(());
+    }
+
+    let segment = file.clone();
+    let written = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<usize>> {
+        let mut written = Vec::with_capacity(pending.len());
+        for (i, cp_path) in pending {
+            // `cp_path` and `segment` live on the same filesystem. A failure
+            // writing `cp_path` is evidence that the filesystem the writer is
+            // actively producing `segment` on is also failing, not an isolated
+            // fluke of this one write. We would rather stop tailing than keep
+            // reporting progress we can no longer trust to be durable.
+            CheckpointData::save_atomic(&cp_path, &segment, line)
+                .with_context(|| format!("persisting filtered-progress checkpoint {cp_path}"))?;
+            written.push(i);
+        }
+        Ok(written)
+    })
+    .await
+    .context("filtered-progress checkpoint task")??;
+
+    for i in written {
+        last_persisted[i] = Some(ScanPosition {
+            file: file.clone(),
+            line,
+        });
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Per-consumer state used during stream construction
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Multi-consumer stream
+// ---------------------------------------------------------------------------
+
+fn make_multi_stream(
+    directory: Utf8PathBuf,
+    pattern: String,
+    max_line_size: usize,
+    consumers: Vec<ConsumerConfig>,
+    earliest_checkpoint: Option<CheckpointData>,
+    mut consumer_checkpoints: Vec<Option<CheckpointData>>,
+    cp_paths: Vec<Option<Utf8PathBuf>>,
+    fs_notify: Arc<Notify>,
+    shared: Arc<TailerShared>,
+) -> impl Stream<Item = anyhow::Result<Vec<LogBatch>>> + Send {
+    let num_consumers = consumers.len();
+
+    // Extract per-consumer config into parallel vecs
+    let consumer_names: Vec<String> = consumers.iter().map(|c| c.name.clone()).collect();
+    let max_batch_sizes: Vec<usize> = consumers.iter().map(|c| c.max_batch_size).collect();
+    let max_batch_latencies: Vec<Duration> =
+        consumers.iter().map(|c| c.max_batch_latency).collect();
+    let filters: Vec<Option<Box<dyn Fn(&serde_json::Value) -> anyhow::Result<bool> + Send>>> =
+        consumers.into_iter().map(|c| c.filter).collect();
+
+    async_stream::try_stream! {
+        let mut last_processed: Option<Utf8PathBuf> = None;
+        let mut global_checkpoint = earliest_checkpoint;
+        let mut skip_lines: usize;
+        let retry_delay = Duration::from_millis(200);
+        // Files that produced unrecoverable read errors (foreign content,
+        // corruption, etc).  Kept in-memory for the lifetime of the tailer
+        // so we don't re-attempt them on every directory rescan.  Unlike
+        // `last_processed`, this does not interact with file ordering, so
+        // a bad file whose name sorts after future legitimate segments
+        // does not hide them.
+        let mut bad_files: HashSet<Utf8PathBuf> = HashSet::new();
+
+        // Per-consumer skip lines (for the first file only, when
+        // resuming from checkpoint).  The global skip_lines is the
+        // minimum across all consumers for that file, and individual
+        // consumers that are further ahead will have their records
+        // filtered out by index comparison.
+        let mut consumer_skip: Vec<usize> = vec![0; num_consumers];
+
+        // Scan position of the newest record handed out, per consumer,
+        // whether or not its batch has been committed yet.
+        let mut last_handed_out: Vec<Option<ScanPosition>> = vec![None; num_consumers];
+        // Scan position of the newest batch committed, per consumer. Once
+        // this reaches `last_handed_out[i]`, `flush_filtered_progress`
+        // advances the checkpoint of that consumer.
+        let committed_through: Arc<Vec<Mutex<Option<ScanPosition>>>> =
+            Arc::new((0..num_consumers).map(|_| Mutex::new(None)).collect());
+
+        // Track the greatest persisted position for each consumer to prevent a
+        // flush from moving a resumed checkpoint backward.
+        let mut last_persisted: Vec<Option<ScanPosition>> = consumer_checkpoints
+            .iter()
+            .map(|cp| {
+                cp.as_ref().map(|c| ScanPosition {
+                    file: Utf8PathBuf::from(&c.file),
+                    line: c.line,
+                })
+            })
+            .collect();
+
+        let mut lines_since_flush: usize = 0;
+
+        'outer: loop {
+            if shared.closed.load(Ordering::SeqCst) {
+                break;
+            }
+
+            let plan = build_plan(
+                &directory,
+                &pattern,
+                &cp_paths,
+                &last_processed,
+                &global_checkpoint,
+                &bad_files,
+            )?;
+
+            if plan.is_empty() {
+                tokio::select! {
+                    _ = shared.close_notify.notified() => break,
+                    _ = fs_notify.notified() => continue,
+                }
+            }
+
+            // Determine skip_lines from the earliest checkpoint
+            if let Some(cp) = &global_checkpoint {
+                if plan.first().map(|p| p.as_str()) == Some(cp.file.as_str()) {
+                    skip_lines = cp.line;
+                } else {
+                    skip_lines = 0;
+                }
+            } else {
+                skip_lines = 0;
+            }
+
+            // Determine per-consumer skip lines
+            for i in 0..num_consumers {
+                if let Some(cp) = &consumer_checkpoints[i] {
+                    if plan.first().map(|p| p.as_str()) == Some(cp.file.as_str()) {
+                        consumer_skip[i] = cp.line;
+                    } else {
+                        consumer_skip[i] = 0;
+                    }
+                } else {
+                    consumer_skip[i] = 0;
+                }
+            }
+            global_checkpoint.take();
+            for cp in consumer_checkpoints.iter_mut() {
+                cp.take();
+            }
+
+            let mut plan_index = 0;
+            let mut decomp: Option<FileDecompressor> = None;
+            let mut current_path: Option<&Utf8PathBuf> = None;
+            let mut last_lines_consumed: usize = 0;
+            // Track the global line number for the current file so we
+            // can apply per-consumer skip logic.
+            let mut global_line_in_file: usize = skip_lines;
+
+            if let Some(path) = plan.get(plan_index) {
+                let path_std = path.as_std_path().to_owned();
+                decomp = Some(FileDecompressor::open_with_max_line_size(
+                    &path_std,
+                    max_line_size,
+                )?);
+                current_path = Some(path);
+            }
+
+            // Per-consumer batches and deadlines persist across
+            // fill/yield cycles.  A consumer's batch is "ready" when
+            // it is full or its deadline has expired.  Only ready
+            // batches are yielded; others keep accumulating.
+            let mut batches: Vec<LogBatch> = (0..num_consumers)
+                .map(|i| LogBatch::with_consumer_name(consumer_names[i].clone()))
+                .collect();
+            let mut deadlines: Vec<Option<tokio::time::Instant>> = vec![None; num_consumers];
+
+            while decomp.is_some() {
+                if shared.closed.load(Ordering::SeqCst) {
+                    break 'outer;
+                }
+
+                // Fill batches until at least one is ready
+                'fill: loop {
+                    if shared.closed.load(Ordering::SeqCst) {
+                        break 'outer;
+                    }
+
+                    // Check if any consumer already has a ready batch
+                    let now = tokio::time::Instant::now();
+                    let any_ready = (0..num_consumers).any(|i| {
+                        !batches[i].is_empty()
+                            && (batches[i].len() >= max_batch_sizes[i]
+                                || deadlines[i].map_or(false, |d| now >= d))
+                    });
+                    if any_ready {
+                        break 'fill;
+                    }
+
+                    let d = decomp.as_mut().expect("checked above");
+                    let path = current_path.expect("set with decomp");
+
+                    // When set after processing the current decompressor
+                    // call, advance to the next file in the plan.
+                    // `Some(true)`  -> mark the file as bad (foreign or
+                    //                  unrecoverable corruption); do not
+                    //                  update `last_processed`.
+                    // `Some(false)` -> file completed normally; update
+                    //                  `last_processed`.
+                    let mut advance_file: Option<bool> = None;
+
+                    match d.next_line(skip_lines) {
+                        Ok(NextLine::Line(line)) => {
+                            match serde_json::from_str::<serde_json::Value>(&line.text) {
+                                Ok(value) => {
+                                    for i in 0..num_consumers {
+                                        if global_line_in_file < consumer_skip[i] {
+                                            continue;
+                                        }
+                                        if let Some(ref f) = filters[i] {
+                                            if !f(&value)? {
+                                                continue;
+                                            }
+                                        }
+                                        batches[i].push_value(
+                                            value.clone(),
+                                            path,
+                                            line.byte_offset,
+                                        );
+                                        if cp_paths[i].is_some() {
+                                            last_handed_out[i] = Some(ScanPosition {
+                                                file: path.clone(),
+                                                line: d.lines_consumed,
+                                            });
+                                        }
+                                        // Start the deadline timer on first record
+                                        if deadlines[i].is_none() {
+                                            deadlines[i] = Some(
+                                                tokio::time::Instant::now() + max_batch_latencies[i],
+                                            );
+                                        }
+                                    }
+                                    global_line_in_file += 1;
+                                    lines_since_flush += 1;
+                                    if lines_since_flush >= FILTERED_PROGRESS_FLUSH_INTERVAL {
+                                        flush_filtered_progress(
+                                            &cp_paths,
+                                            &last_handed_out,
+                                            committed_through.as_slice(),
+                                            path,
+                                            d.lines_consumed,
+                                            &mut last_persisted,
+                                        )
+                                        .await?;
+                                        lines_since_flush = 0;
+                                    }
+                                }
+                                Err(err) => {
+                                    warn!(
+                                        "Failed to parse a line from {path} (byte offset {}) \
+                                         as json: {err}. Skipping remainder of this file; \
+                                         move it aside if it is not a kumo-jsonl segment.",
+                                        line.byte_offset
+                                    );
+                                    advance_file = Some(true);
+                                }
+                            }
+                        }
+                        Ok(NextLine::Skipped { byte_offset, bytes }) => {
+                            // A record exceeded max_line_size and was
+                            // discarded, but the stream is intact, so the rest
+                            // of the segment is still readable. Count it as a
+                            // consumed line (the decompressor already advanced
+                            // its checkpoint) and keep going.
+                            warn!(
+                                "Skipping a record from {path} at byte offset {byte_offset} \
+                                 ({bytes} bytes) that exceeds max_line_size; the rest of the \
+                                 segment is still processed."
+                            );
+                            global_line_in_file += 1;
+                        }
+                        Ok(NextLine::None) => {
+                            // EOF on current file
+                            if is_file_done(path) {
+                                if d.is_discarding_oversized_record() {
+                                    // The final record was still being
+                                    // discarded for exceeding max_line_size
+                                    // when the segment ended, without ever
+                                    // reaching its terminating newline. Drop
+                                    // it and treat the file as complete.
+                                    warn!(
+                                        "segment {path} ended while discarding a trailing record \
+                                         that exceeds max_line_size; the record is dropped and \
+                                         the segment is treated as complete."
+                                    );
+                                } else if d.has_partial_data() {
+                                    // The writer was killed before it
+                                    // could finish the zstd stream and the
+                                    // segment was later marked done by the
+                                    // producer's startup sweep over
+                                    // abandoned segments.  Discard the
+                                    // partial trailing line and treat the
+                                    // file as complete.
+                                    warn!(
+                                        "unexpected EOF for {} with partial line data remaining; \
+                                         the writer exited without flushing the zstd stream. \
+                                         Discarding partial trailing data and advancing to next \
+                                         segment.",
+                                        path
+                                    );
+                                }
+                                advance_file = Some(false);
+                            } else {
+                                // Flush before blocking to wait for the
+                                // open segment to grow.
+                                flush_filtered_progress(
+                                    &cp_paths,
+                                    &last_handed_out,
+                                    committed_through.as_slice(),
+                                    path,
+                                    d.lines_consumed,
+                                    &mut last_persisted,
+                                )
+                                .await?;
+                                lines_since_flush = 0;
+                                // File not done; find the earliest deadline
+                                // among non-empty batches to bound the wait.
+                                let earliest_deadline = (0..num_consumers)
+                                    .filter(|&i| !batches[i].is_empty())
+                                    .filter_map(|i| deadlines[i])
+                                    .min();
+
+                                if let Some(deadline) = earliest_deadline {
+                                    let remaining = deadline.saturating_duration_since(
+                                        tokio::time::Instant::now(),
+                                    );
+                                    if remaining.is_zero() {
+                                        break 'fill;
+                                    }
+                                    tokio::select! {
+                                        _ = shared.close_notify.notified() => break 'outer,
+                                        _ = tokio::time::sleep(remaining.min(retry_delay)) => {},
+                                        _ = fs_notify.notified() => {},
+                                    }
+                                } else {
+                                    // All batches empty, file not done — wait
+                                    tokio::select! {
+                                        _ = shared.close_notify.notified() => break 'outer,
+                                        _ = tokio::time::sleep(retry_delay) => {},
+                                        _ = fs_notify.notified() => {},
+                                    }
+                                }
+                                d.reset_eof();
+                            }
+                        }
+                        Err(e) => {
+                            // Any decompression error means this file is
+                            // not consumable -- either it is foreign
+                            // content that was dropped into the directory,
+                            // or its bytes are corrupt in a way that
+                            // waiting cannot resolve (an incomplete-but-
+                            // well-formed stream surfaces as Ok(None), not
+                            // Err).  Log and skip.
+                            warn!(
+                                "Error decompressing {path}: {e:#}. Skipping this file; \
+                                 move it aside if it is not a kumo-jsonl segment."
+                            );
+                            advance_file = Some(true);
+                        }
+                    }
+
+                    if let Some(mark_bad) = advance_file {
+                        if mark_bad {
+                            bad_files.insert(path.clone());
+                        } else {
+                            last_lines_consumed = d.lines_consumed;
+                            last_processed = Some(path.clone());
+                            flush_filtered_progress(
+                                &cp_paths,
+                                &last_handed_out,
+                                committed_through.as_slice(),
+                                path,
+                                d.lines_consumed,
+                                &mut last_persisted,
+                            )
+                            .await?;
+                            lines_since_flush = 0;
+                        }
+                        skip_lines = 0;
+                        global_line_in_file = 0;
+                        for cs in consumer_skip.iter_mut() {
+                            *cs = 0;
+                        }
+                        plan_index += 1;
+                        if let Some(next_path) = plan.get(plan_index) {
+                            let path_std = next_path.as_std_path().to_owned();
+                            decomp = Some(FileDecompressor::open_with_max_line_size(
+                                &path_std,
+                                max_line_size,
+                            )?);
+                            current_path = Some(next_path);
+                            continue 'fill;
+                        } else {
+                            decomp = None;
+                            current_path = None;
+                            break 'fill;
+                        }
+                    }
+                }
+
+                // Determine which batches are ready to yield
+                let now = tokio::time::Instant::now();
+                let mut ready: Vec<LogBatch> = Vec::new();
+                for i in 0..num_consumers {
+                    let is_ready = !batches[i].is_empty()
+                        && (batches[i].len() >= max_batch_sizes[i]
+                            || deadlines[i].map_or(false, |d| now >= d)
+                            || decomp.is_none()); // end of plan: flush all
+
+                    if !is_ready {
+                        continue;
+                    }
+
+                    // Swap out the ready batch, replace with a fresh one
+                    let mut batch = std::mem::replace(
+                        &mut batches[i],
+                        LogBatch::with_consumer_name(consumer_names[i].clone()),
+                    );
+                    deadlines[i] = None;
+
+                    // Set the commit callback
+                    if let Some(ref cp_path) = cp_paths[i] {
+                        let (cp_file, cp_line) = if let Some(d) = &decomp {
+                            let path = current_path.expect("set with decomp");
+                            (path.clone(), d.lines_consumed)
+                        } else if let Some(last) = &last_processed {
+                            (last.clone(), last_lines_consumed)
+                        } else {
+                            unreachable!("non-empty batch without a source");
+                        };
+                        let cp_path = cp_path.clone();
+                        let committed_i = committed_through.clone();
+                        batch.set_commit_fn(Box::new(move || {
+                            // Update committed state only after the checkpoint
+                            // write succeeds because failed writes must remain
+                            // eligible for replay.
+                            CheckpointData::save_atomic(&cp_path, &cp_file, cp_line)?;
+                            let pos = ScanPosition {
+                                file: cp_file.clone(),
+                                line: cp_line,
+                            };
+                            let mut committed = committed_i[i]
+                                .lock()
+                                .expect("committed_through mutex poisoned");
+                            if committed.as_ref().map_or(true, |c| *c < pos) {
+                                *committed = Some(pos);
+                            }
+                            Ok(())
+                        }));
+                    }
+                    ready.push(batch);
+                }
+
+                if !ready.is_empty() {
+                    skip_lines = 0;
+                    yield ready;
+                }
+            }
+        }
+    }
+}

@@ -1,13 +1,15 @@
 use crate::PartRef;
+use bstr::BString;
 use config::{SerdeWrappedValue, any_err};
 use mailparsing::{
-    AddressList, Header, HeaderMap, MailParsingError, Mailbox, MailboxList, MessageID,
-    MimeParameters,
+    AddressList, BStringUtf8, Header, HeaderMap, MailParsingError, Mailbox, MailboxList, MessageID,
+    MimeParameters, ParsedHeader,
 };
 use mlua::{
     IntoLua, Lua, MetaMethod, MultiValue, UserData, UserDataFields, UserDataMethods, Value,
 };
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use std::collections::BTreeMap;
 
 #[derive(Clone)]
@@ -22,7 +24,7 @@ impl HeaderMapRef {
 struct HeaderIterInner {
     part: PartRef,
     idx: usize,
-    name: Option<String>,
+    name: Option<mlua::String>,
 }
 
 impl UserData for HeaderMapRef {
@@ -37,23 +39,31 @@ impl UserData for HeaderMapRef {
             lua.create_string(&out)
         });
 
-        methods.add_method("append", |_lua, this, (name, value): (String, String)| {
-            this.0
-                .mutate(|part| {
-                    part.headers_mut().append_header(&name, value);
-                    Ok(())
-                })
-                .map_err(any_err)
-        });
+        methods.add_method(
+            "append",
+            |_lua, this, (name, value): (String, mlua::String)| {
+                this.0
+                    .mutate(|part| {
+                        part.headers_mut()
+                            .append_header(&name, BString::new(value.as_bytes().to_vec()));
+                        Ok(())
+                    })
+                    .map_err(any_err)
+            },
+        );
 
-        methods.add_method("prepend", |_lua, this, (name, value): (String, String)| {
-            this.0
-                .mutate(|part| {
-                    part.headers_mut().prepend(&name, value);
-                    Ok(())
-                })
-                .map_err(any_err)
-        });
+        methods.add_method(
+            "prepend",
+            |_lua, this, (name, value): (String, mlua::String)| {
+                this.0
+                    .mutate(|part| {
+                        part.headers_mut()
+                            .prepend(&name, BString::new(value.as_bytes().to_vec()));
+                        Ok(())
+                    })
+                    .map_err(any_err)
+            },
+        );
 
         methods.add_method("remove_all_named", |_lua, this, name: String| {
             this.0
@@ -72,7 +82,7 @@ impl UserData for HeaderMapRef {
                 .map(|hdr| HeaderWrap(hdr.to_owned())))
         });
 
-        methods.add_method("iter", |lua, this, name: Option<String>| {
+        methods.add_method("iter", |lua, this, name: Option<mlua::String>| {
             let mut iter = HeaderIterInner {
                 part: this.0.clone(),
                 idx: 0,
@@ -91,7 +101,10 @@ impl UserData for HeaderMapRef {
                         let matched = iter
                             .name
                             .as_ref()
-                            .map(|name| hdr.get_name().eq_ignore_ascii_case(name))
+                            .map(|name| {
+                                hdr.get_name()
+                                    .eq_ignore_ascii_case(name.as_bytes().as_ref())
+                            })
                             .unwrap_or(true);
 
                         if matched {
@@ -124,22 +137,22 @@ impl UserData for HeaderMapRef {
 
         fn setter_unstructured<APPLY>(
             apply: APPLY,
-        ) -> impl Fn(&Lua, &HeaderMapRef, String) -> mlua::Result<()>
+        ) -> impl Fn(&Lua, &HeaderMapRef, mlua::String) -> mlua::Result<()>
         where
-            APPLY: Fn(&mut HeaderMap, &str) -> Result<(), MailParsingError>,
+            APPLY: Fn(&mut HeaderMap, &[u8]) -> Result<(), MailParsingError>,
         {
-            move |_lua, this, value: String| {
+            move |_lua, this, value: mlua::String| {
                 this.0
-                    .mutate(|part| Ok(apply(part.headers_mut(), &value)?))
+                    .mutate(|part| Ok(apply(part.headers_mut(), &value.as_bytes())?))
                     .map_err(any_err)
             }
         }
 
         fn getter_unstructured<GET>(
             get: GET,
-        ) -> impl Fn(&Lua, &HeaderMapRef, ()) -> mlua::Result<Option<String>>
+        ) -> impl Fn(&Lua, &HeaderMapRef, ()) -> mlua::Result<Option<BString>>
         where
-            GET: Fn(&HeaderMap) -> Result<Option<String>, MailParsingError>,
+            GET: Fn(&HeaderMap) -> Result<Option<BString>, MailParsingError>,
         {
             move |_lua, this, ()| {
                 let part = this.0.resolve().map_err(any_err)?;
@@ -332,11 +345,14 @@ impl UserData for HeaderMapRef {
 
 /// A fully-decoded representation of the underlying MimeParameters value,
 /// to make it more convenient to inspect from lua
+#[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MimeParams {
-    pub value: String,
-    pub parameters: BTreeMap<String, String>,
+    #[serde_as(as = "BStringUtf8")]
+    pub value: BString,
+    #[serde_as(as = "BTreeMap<BStringUtf8, BStringUtf8>")]
+    pub parameters: BTreeMap<BString, BString>,
 }
 
 impl From<MimeParameters> for MimeParams {
@@ -363,69 +379,36 @@ impl From<MimeParams> for MimeParameters {
 #[derive(Clone)]
 pub struct HeaderWrap(Header<'static>);
 
-fn get_mailbox_list(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    SerdeWrappedValue(header.as_mailbox_list().map_err(any_err)?).to_lua_value(lua)
-}
-fn get_address_list(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    SerdeWrappedValue(header.as_address_list().map_err(any_err)?).to_lua_value(lua)
-}
-fn get_mailbox(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    SerdeWrappedValue(header.as_mailbox().map_err(any_err)?).to_lua_value(lua)
-}
-fn get_message_id(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    SerdeWrappedValue(header.as_message_id().map_err(any_err)?).to_lua_value(lua)
-}
-fn get_content_id(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    SerdeWrappedValue(header.as_content_id().map_err(any_err)?).to_lua_value(lua)
-}
-fn get_message_id_list(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    SerdeWrappedValue(header.as_message_id_list().map_err(any_err)?).to_lua_value(lua)
-}
-fn get_unstructured(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    SerdeWrappedValue(header.as_unstructured().map_err(any_err)?).to_lua_value(lua)
-}
-fn get_content_transfer_encoding(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    let params: MimeParams = header
-        .as_content_transfer_encoding()
-        .map_err(any_err)?
-        .into();
-    SerdeWrappedValue(params).to_lua_value(lua)
-}
-fn get_content_disposition(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    let params: MimeParams = header.as_content_disposition().map_err(any_err)?.into();
-    SerdeWrappedValue(params).to_lua_value(lua)
-}
-fn get_content_type(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    let params: MimeParams = header.as_content_type().map_err(any_err)?.into();
-    SerdeWrappedValue(params).to_lua_value(lua)
-}
-fn get_authentication_results(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
-    SerdeWrappedValue(header.as_authentication_results().map_err(any_err)?).to_lua_value(lua)
-}
+/// Parse `header` according to the grammar implied by its name (see
+/// `mailparsing::ParsedHeader`) and convert the result to a Lua value.
+fn header_value_to_lua(lua: &Lua, header: &Header) -> mlua::Result<mlua::Value> {
+    // For backwards compatibility, Date is returned as its raw string rather
+    // than a parsed timestamp: `value` yields what should be an RFC 2822
+    // compatible string, whereas parsing would produce an RFC 3339 string or a
+    // kumo.time Time object. We return the value as-is, without parsing, which
+    // means that a non-conforming Date is not detected here.
+    if header.get_name().eq_ignore_ascii_case(b"Date") {
+        return SerdeWrappedValue(header.as_unstructured().map_err(any_err)?).to_lua_value(lua);
+    }
 
-const NAME_GETTER: &[(&str, fn(&Lua, &Header) -> mlua::Result<mlua::Value>)] = &[
-    ("From", get_mailbox_list),
-    ("Reply-To", get_address_list),
-    ("To", get_address_list),
-    ("Cc", get_address_list),
-    ("Bcc", get_address_list),
-    ("Message-ID", get_message_id),
-    ("Subject", get_unstructured),
-    ("Mime-Version", get_unstructured),
-    ("Content-Transfer-Encoding", get_content_transfer_encoding),
-    ("Content-Type", get_content_type),
-    ("Content-Disposition", get_content_disposition),
-    ("Authentication-Results", get_authentication_results),
-    ("Resent-From", get_mailbox_list),
-    ("Resent-To", get_address_list),
-    ("Resent-Cc", get_address_list),
-    ("Resent-Bcc", get_address_list),
-    ("Resent-Sender", get_mailbox),
-    ("Sender", get_mailbox),
-    ("Content-ID", get_content_id),
-    ("References", get_message_id_list),
-    ("Comments", get_unstructured),
-];
+    match header.structured().map_err(any_err)? {
+        ParsedHeader::MailboxList(v) => SerdeWrappedValue(v).to_lua_value(lua),
+        ParsedHeader::Mailbox(v) => SerdeWrappedValue(v).to_lua_value(lua),
+        ParsedHeader::AddressList(v) => SerdeWrappedValue(v).to_lua_value(lua),
+        ParsedHeader::MessageId(v) => SerdeWrappedValue(v).to_lua_value(lua),
+        ParsedHeader::MessageIdList(v) => SerdeWrappedValue(v).to_lua_value(lua),
+        ParsedHeader::MimeParameters(v) => SerdeWrappedValue(MimeParams::from(v)).to_lua_value(lua),
+        ParsedHeader::AuthenticationResults(v) => SerdeWrappedValue(v).to_lua_value(lua),
+        // The early return above intercepts every Date header before
+        // structured() runs, so this arm is not reached in practice; it keeps
+        // the match exhaustive and returns the same raw string rather than
+        // introduce a panic path.
+        ParsedHeader::Date(_) => {
+            SerdeWrappedValue(header.as_unstructured().map_err(any_err)?).to_lua_value(lua)
+        }
+        ParsedHeader::Unstructured(v) => SerdeWrappedValue(v).to_lua_value(lua),
+    }
+}
 
 impl UserData for HeaderWrap {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
@@ -437,15 +420,7 @@ impl UserData for HeaderWrap {
     fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("name", |lua, this| lua.create_string(this.0.get_name()));
 
-        fields.add_field_method_get("value", |lua, this| {
-            let name = this.0.get_name();
-            for (candidate, getter) in NAME_GETTER {
-                if candidate.eq_ignore_ascii_case(name) {
-                    return (getter)(lua, &this.0);
-                }
-            }
-            get_unstructured(lua, &this.0)
-        });
+        fields.add_field_method_get("value", |lua, this| header_value_to_lua(lua, &this.0));
 
         fields.add_field_method_get("raw_value", |lua, this| {
             lua.create_string(this.0.get_raw_value())

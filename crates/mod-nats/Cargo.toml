@@ -19,3 +19,6 @@ mlua = { workspace = true, features = [
 parking_lot.workspace = true
 serde.workspace = true
 serde_bytes.workspace = true
+
+[lints]
+workspace = true

@@ -23,11 +23,13 @@ kumo.on('init', function()
   }
 
   kumo.define_spool {
+    kind = 'RocksDB',
     name = 'data',
     path = '/var/spool/kumomta/data',
   }
 
   kumo.define_spool {
+    kind = 'RocksDB',
     name = 'meta',
     path = '/var/spool/kumomta/meta',
   }

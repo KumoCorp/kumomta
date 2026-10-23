@@ -54,6 +54,14 @@ pub static CONN_DENIED: PruningCounterRegistry<ServiceKey>("total_connections_de
 }
 
 declare_metric! {
+/// total number of accept() errors that caused the listener to pause before
+/// retrying, such as file-descriptor exhaustion
+///
+/// {{since('dev')}}
+pub static ACCEPT_ERRORS: PruningCounterRegistry<ServiceKey>("total_accept_errors");
+}
+
+declare_metric! {
 /// total number of active connections ever made
 pub static TOTAL_CONN: PruningCounterRegistry<ServiceKey>("total_connection_count");
 }
@@ -71,6 +79,14 @@ pub static TOTAL_MSGS_TRANSFAIL: PruningCounterRegistry<ServiceKey>("total_messa
 declare_metric! {
 /// total number of message delivery attempts that permanently failed
 pub static TOTAL_MSGS_FAIL: PruningCounterRegistry<ServiceKey>("total_messages_fail");
+}
+
+declare_metric! {
+/// total number of dispatcher tasks aborted by the progress watchdog
+///
+/// {{since('2026.09.22-a276d4a8')}}
+pub static DISPATCHER_WATCHDOG_ABORTED: PruningCounterRegistry<ServiceKey>(
+        "dispatcher_watchdog_aborted_total");
 }
 
 declare_metric! {
@@ -173,6 +189,11 @@ pub fn connection_denied_for_service(service: &str) -> AtomicCounter {
     CONN_DENIED.get_or_create(&service as &dyn ServiceKeyTrait)
 }
 
+pub fn accept_errors_for_service(service: &str) -> AtomicCounter {
+    let service = BorrowedServiceKey { service };
+    ACCEPT_ERRORS.get_or_create(&service as &dyn ServiceKeyTrait)
+}
+
 pub fn ready_full_counter_for_service(service: &str) -> AtomicCounter {
     let service = BorrowedServiceKey { service };
     READY_FULL_COUNTER.get_or_create(&service as &dyn ServiceKeyTrait)
@@ -206,6 +227,11 @@ pub fn total_msgs_delivered_for_service(service: &str) -> AtomicCounter {
 pub fn total_msgs_transfail_for_service(service: &str) -> AtomicCounter {
     let service = BorrowedServiceKey { service };
     TOTAL_MSGS_TRANSFAIL.get_or_create(&service as &dyn ServiceKeyTrait)
+}
+
+pub fn dispatcher_watchdog_aborted_for_service(service: &str) -> AtomicCounter {
+    let service = BorrowedServiceKey { service };
+    DISPATCHER_WATCHDOG_ABORTED.get_or_create(&service as &dyn ServiceKeyTrait)
 }
 
 pub fn total_msgs_fail_for_service(service: &str) -> AtomicCounter {

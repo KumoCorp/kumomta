@@ -1,3 +1,7 @@
+---
+description: Install KumoMTA on Linux from prebuilt repositories for Rocky, Ubuntu, and Amazon Linux, with steps for the initial config file and starting the server.
+---
+
 # Installing on Linux
 
 Pre-built releases are available for Rocky Linux 8/9, Ubuntu 20.04/22.04, and Amazon Linux 2/2023.

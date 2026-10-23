@@ -7,9 +7,10 @@ edition = "2021"
 # Enable this feature to run real DNS lookups.
 # Resulting tests may be flaky and, if the upstream
 # has changed their records, may be wrong.
-live-dns-tests = []
+live-dns-tests = ["dns-resolver/live-dns-tests"]
 
 [dependencies]
+bstr.workspace = true
 dns-resolver = {path="../dns-resolver"}
 hickory-resolver = {workspace=true}
 instant-xml = {workspace=true}
@@ -19,3 +20,6 @@ thiserror = {workspace=true}
 [dev-dependencies]
 k9 = {workspace=true}
 tokio = {workspace = true, features = ["full", "tracing"]}
+
+[lints]
+workspace = true

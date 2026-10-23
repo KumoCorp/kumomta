@@ -17,3 +17,9 @@ serde = {workspace=true}
 tokio = {workspace=true}
 tokio-tungstenite = {workspace=true}
 mod-aws-sigv4 = {path="../mod-aws-sigv4"}
+
+[dev-dependencies]
+k9 = {workspace=true}
+
+[lints]
+workspace = true

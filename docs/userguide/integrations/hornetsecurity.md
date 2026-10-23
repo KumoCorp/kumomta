@@ -1,20 +1,24 @@
+---
+description: Integrate Hornetsecurity Email Protection with KumoMTA to scan messages for spam and malware in real time using the Hornetsecurity Filter Engine.
+---
+
 # Hornetsecurity Spam and Malware Protection integration
 
 ## Introduction
 
 This integration makes **Hornetsecurity Email Protection** and the
 **Hornetsecurity Filter Engine** available for KumoMTA to scan messages in
-real-time.
+real time.
 
 Only the "scan" function is implemented for in-line use with KumoMTA.
 
 ## Install
 
 If you have not already done so, contact
-[Hornetsecurity](https://www.hornetsecure.com/) for documentation, binary and
+[Hornetsecurity](https://www.hornetsecurity.com/) for documentation, binary and
 license.  Configure Hornetsecurity Email Protection as per their documentation.
 
-EG:
+For example:
 
 ```console
 $ sudo dpkg -i hornetsecurity-emailprotection_5.0.0_amd64.deb
@@ -41,7 +45,7 @@ This key must be appended to the Email Protection configuration file.
 
 To connect to a **Hornetsecurity Email Protection** service use `hornethost = hornet:connect(host, params)` in the top level of init.lua.
 
-```
+```txt
 Inputs:
   host: Hornet Service hostname or IP address (string)
   params: Array of options including
@@ -59,10 +63,10 @@ These API functions are not necessary and are not directly supported within Kumo
 
 ### hornet:scan
 
-To scan a message, use `result = hornet:scan(hornethost,extraparams,msg)` in any event that can access the full message content. EG: `smtp_server_message_received`
+To scan a message, use `result = hornet:scan(hornethost,extraparams,msg)` in any event that can access the full message content, e.g. `smtp_server_message_received`.
 
 Note that `hornet:connect` must be called prior to `hornet:scan`.
-```
+```txt
 Inputs:
   hornethost: Hornet service host object
   extraparams: Table of:
@@ -72,13 +76,14 @@ Inputs:
   msg: The KumoMTA message variable
 
 Returns: array containing the result of the scan
-IE: "200 OK: {"state":1,"score":250,"verdict":"spam:low","spamcause":"gggr...omh","elapsed":"14ms"}"
+e.g. "200 OK: {"state":1,"score":250,"verdict":"spam:low","spamcause":"gggr...omh","elapsed":"14ms"}"
 ```
 
 If the extra parameter `addheaders` = `true`, then the scan result headers will be added directly to the message before delivery.
 
-```
-IE:
+For example:
+
+```txt
 X-Hornet-spamcause: gggr...omh
 X-Hornet-verdict: malware
 X-Hornet-elapsed: 6ms

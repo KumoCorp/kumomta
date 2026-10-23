@@ -1,0 +1,11 @@
+[package]
+name = "mailparsing-codegen"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+chrono-tz = "0.10"
+phf_codegen = "0.13.1"

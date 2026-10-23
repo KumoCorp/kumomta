@@ -1,9 +1,12 @@
-use crate::kumod::{generate_message_text, DaemonWithMaildir, MailGenParams};
+use crate::kumod::{
+    generate_message_text, DaemonWithMaildir, DaemonWithMaildirOptions, MailGenParams,
+};
 use kumo_log_types::RecordType::TransientFailure;
 use std::time::Duration;
 
 const VALID_DOMAIN: &str = "foo.mx-sink.wezfurlong.org";
-/// this nxdomain string is coupled with logic in source.lua
+/// A domain that the source's test resolver deliberately fails to resolve;
+/// see retry-schedule-source.lua.
 const NO_DOMAIN: &str = "nxdomain";
 
 #[tokio::test]
@@ -28,16 +31,28 @@ async fn retry_schedule_singleton_wheel_v2() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn retry_schedule_nxdomain() -> anyhow::Result<()> {
-    retry_schedule_impl("SingletonTimerWheel", NO_DOMAIN).await
+    // Resolution of NO_DOMAIN fails, so this exercises the retry schedule for a
+    // message that never gets as far as connecting to a host. The dedicated
+    // source policy uses a test resolver to make that failure deterministic.
+    let daemon = DaemonWithMaildirOptions::new()
+        .policy_file("retry-schedule-source.lua")
+        .env("KUMOD_RETRY_INTERVAL", "5s")
+        .env("KUMOD_QUEUE_STRATEGY", "SingletonTimerWheel")
+        .start()
+        .await?;
+    retry_schedule_run(daemon, NO_DOMAIN).await
 }
 
 async fn retry_schedule_impl(strategy: &str, domain: &str) -> anyhow::Result<()> {
-    let mut daemon = DaemonWithMaildir::start_with_env(vec![
+    let daemon = DaemonWithMaildir::start_with_env(vec![
         ("KUMOD_RETRY_INTERVAL", "5s"),
         ("KUMOD_QUEUE_STRATEGY", strategy),
     ])
     .await?;
+    retry_schedule_run(daemon, domain).await
+}
 
+async fn retry_schedule_run(mut daemon: DaemonWithMaildir, domain: &str) -> anyhow::Result<()> {
     let mut client = daemon.smtp_client().await?;
 
     let body = generate_message_text(1024, 78);

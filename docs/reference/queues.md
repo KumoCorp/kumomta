@@ -138,13 +138,42 @@ The parameters to that event are:
 * *egress_source* - the selected egress source
 * *site_name* - a string deterministically derived from the MX record for *domain*.
 
+## Site Names
+
 The *site_name* concept allows managing traffic more effectively for domains
 that have several or even a great many aliases. Rather than treating each
 domain as a separate destination, the traffic can be grouped together and
 managed more closely to how the receiving site sees it: as one source.
 
-With that in mind, the egress path is internally identified by the combination
-of the *egress_source* and the *site_name*.
+The ready queue and egress path are identified by the combination of
+*egress_source* and *site_name*. Domains sharing a ready queue also share its
+connections, shaping limits and failure backoff.
+
+MX-derived site names represent the exact set of MX hosts used for delivery,
+independent of record order and MX preference. Earlier versions can give
+different host sets the same name by combining hostname labels independently:
+
+```text
+MX hosts: a.x.example, b.x.example, c.y.example
+```
+
+| Earlier releases | {{since('dev', inline=True)}} |
+| --- | --- |
+| `(a|b|c).(x|y).example` | `((a|b).x|c.y).example` |
+
+The earlier form also describes host combinations absent from the MX records,
+allowing different sets to share a queue. The `|` notation lists alternatives
+and `?` marks an optional component or group.
+
+Domains with the same MX hosts share a site name even when their preferred
+or backup MX arrangements differ. A shared ready queue uses the MX preference
+order of the domain that created it until the queue is idle and removed.
+
+A site name is a derived identifier, not a DNS name or a regular expression for
+host authorization. Obtain it through [lookup_mx](kumo.dns/lookup_mx.md) rather
+than hard-coding its representation; see
+[traffic shaping scopes](../userguide/trafficshaping/scoping.md) for configuration
+guidance.
 
 ```lua
 -- Build a mapping from a domain name to the "site name"

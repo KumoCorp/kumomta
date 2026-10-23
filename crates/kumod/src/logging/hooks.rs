@@ -7,7 +7,8 @@ use flume::Receiver;
 pub use kumo_log_types::*;
 use kumo_prometheus::declare_metric;
 use kumo_template::{Template, TemplateEngine};
-use message::{EnvelopeAddress, Message};
+use message::Message;
+use rfc5321::parser::EnvelopeAddress;
 use serde::Deserialize;
 use spool::SpoolId;
 use std::collections::HashMap;
@@ -175,11 +176,12 @@ impl LogHookState {
 
         LOGGING_RUNTIME.spawn("log-hook".to_string(), async move {
             let result: anyhow::Result<()> = async move {
-                let mut lua_config = load_config().await?;
+                let mut lua_config = load_config().await.context("load_config")?;
 
                 let enqueue: bool = lua_config
                     .async_call_callback(&SHOULD_ENQ_LOG_RECORD_SIG, (msg.clone(), name))
-                    .await?;
+                    .await
+                    .context("async_call_callback")?;
                 lua_config.put();
 
                 // Release permit before we insert, as insertion itself can generate
@@ -188,11 +190,13 @@ impl LogHookState {
                 drop(permit);
 
                 if enqueue {
-                    let queue_name = msg.get_queue_name().await?;
+                    let queue_name = msg.get_queue_name().await.context("get_queue_name")?;
                     if !deferred_spool {
-                        msg.save(None).await?;
+                        msg.save(None).await.context("save")?;
                     }
-                    QueueManager::insert(&queue_name, msg, InsertReason::Received.into()).await?;
+                    QueueManager::insert(&queue_name, msg, InsertReason::Received.into())
+                        .await
+                        .context("insert")?;
                 }
                 Ok(())
             }

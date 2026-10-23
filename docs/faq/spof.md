@@ -1,3 +1,7 @@
+---
+description: "Avoid a single point of failure in KumoMTA with load balancers, cluster-aware tenants and throttles, highly available IPs, and load-balanced webhooks."
+---
+
 # How Do I Avoid Having a Single Point of Failure?
 
 In high-volume sending environment uptime becomes critical, and one key to that is to avoid having a Single Point of Failure (SPOF).

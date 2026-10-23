@@ -1,0 +1,10 @@
+[package]
+name = "psl-utils"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+psl = {workspace=true}
+
+[lints]
+workspace = true

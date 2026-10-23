@@ -1,6 +1,10 @@
+---
+description: Secure your KumoMTA installation with guidance on service accounts, privilege dropping, directory permissions, SMTP relaying, authentication, and TLS.
+---
+
 # Security Considerations
 
-This page summarizies the key considerations for deploying a secure installation of KumoMTA.
+This page summarizes the key considerations for deploying a secure installation of KumoMTA.
 
 ## Operating System
 
@@ -8,11 +12,12 @@ The `.deb` and `.rpm` packages that we provide are preconfigured to create a
 service account named `kumod` and grant that user write access to the
 suggested default spool and log locations.
 
-The service is launched as the root user in order to bind to the privileged
-SMTP (port 25). The service immediately on startup, before taking any other
-action, drops all of the root privileges except for `CAP_NET_BIND_SERVICE`
-(which is required to bind to port 25) and then switches its user id to the
-`kumod` user.
+The service packaging is designed to run as the `kumod` user.  The systemd unit
+grants it the `CAP_NET_BIND_SERVICE` capability ambiently, which enables the
+service to bind the privileged SMTP port (25) without retaining full root
+privilege.  Older versions of kumomta spawned with root privileges and then
+internally established the same configuration; retaining `CAP_NET_BIND_SERVICE`
+and dropping root privileges.
 
 ## Spool, Log and DKIM Directory Permissions
 
@@ -94,15 +99,15 @@ The default configuration in the shaping helper for outgoing SMTP is to enable
 `Opportunistic` TLS, which is to make use of TLS if the destination host
 advertises it, but only if the certificate is trusted.
 
-Unfortunately, there are a large number of destination sites with poorly
-maintained TLS, so many kumomta users choose to deploy with
-`OpportunisticInsecure` TLS as a default, which will try to use TLS if
-available, but will allow communicating in clear text if there are any issues
-trying to establish the connection.  That rationale for this choice is that
-having an encrypted transport is more private than not having it, even if that
-means that you cannot assert that the connection is to the intended
-destination, especially if you are prepared to send the message in clear text
-as a fallback anyway.
+Unfortunately, a large number of destination sites have self-signed,
+expired, or mismatched certificates, which causes plain `Opportunistic` TLS
+to fail delivery to them. Many KumoMTA users deploy with
+`OpportunisticInsecure` TLS as a default instead: it accepts those same
+certificates, giving an encrypted but unauthenticated session with those
+sites. Clear text is used only when the destination does not advertise
+`STARTTLS` at all. The rationale is that an encrypted transport is more
+private than none, even though you cannot assert that the connection is to
+the intended destination.
 
 Care needs to be taken when employing `OpportunisticInsecure` as it
 introduces the risk of a Man-in-the-Middle attack that can intercept
@@ -116,7 +121,7 @@ There are three main ways in which you can manage that risk:
   ensure that the TLS is set to required even if your default policy is
   opportunistic.
 * For well-known sites with working TLS, such as Google, override the
-  opportunistic TLS with required TLS in your [shaping configuration](../configuration/trafficshaping.md).
+  opportunistic TLS with required TLS in your [shaping configuration](../trafficshaping/shapingfiles.md).
 * Consider enabling [DANE](../../reference/kumo/make_egress_path/enable_dane.md), which is
   similar in effect to MTA-STS, using signed DNS records instead of publishing
   its policy via HTTPS. It requires working and trusted DNSSEC

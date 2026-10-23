@@ -71,6 +71,42 @@
     "pruning": "NonPruning"
   },
   {
+    "name": "dns_mx_resolve_mta_sts_impossible",
+    "help": "Total number of MailExchanger::resolve calls that failed because the\ndomain published an MTA-STS enforce policy that permits none of its own\nMX hosts. Such domains are undeliverable until they fix their policy.",
+    "doc": null,
+    "metric_type": "Counter",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "dns_mx_resolve_permit_timeout",
+    "help": "Total number of MX lookups that timed out while waiting for an MX\nconcurrency permit before any query could be sent. Counts local\nconcurrency pressure, not any response from the destination.",
+    "doc": null,
+    "metric_type": "Counter",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "dns_mx_resolve_permit_waiters",
+    "help": "Number of MX lookups currently blocked waiting for an MX concurrency\npermit before their query can be sent.",
+    "doc": null,
+    "metric_type": "Gauge",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "dns_mx_resolve_query_timeout",
+    "help": "Total number of MX lookups that timed out after the query was sent, while\nwaiting for the resolver to answer.",
+    "doc": null,
+    "metric_type": "Counter",
+    "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
     "name": "dns_mx_resolve_status_fail",
     "help": "Total number of failed `MailExchanger::resolve` calls.",
     "doc": "Spikes may indicate an issue with your DNS configuration\nor infrastructure, or may simply indicate that the traffic\nis destined for bogus addresses.",
@@ -85,6 +121,42 @@
     "doc": null,
     "metric_type": "Counter",
     "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "log_consumer_bytes_behind",
+    "help": "The compressed size, in bytes, of whole log segments awaiting processing by\na consumer.",
+    "doc": "This counts whole unread segments only, not the remainder of the segment\nthat the consumer is partway through processing.\n\nLabelled by:\n* `log_dir` - the log directory being scanned\n* `checkpoint_name` - the name set by the tailer of the consumer for its\n  checkpoint.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "log_dir",
+      "checkpoint_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "log_consumer_lag_seconds",
+    "help": "Age in seconds of the oldest log segment not yet started by a consumer,\ncounted from the modification time of that segment.",
+    "doc": "Such a segment does not exist once the consumer has reached the newest log\nsegment. The gauge reports 0 in that case.\n\nLabelled by:\n\n* `log_dir` - the log directory being scanned\n* `checkpoint_name` - the name set by the tailer of the consumer for its\n  checkpoint.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "log_dir",
+      "checkpoint_name"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "log_consumer_segments_behind",
+    "help": "The number of whole log segments not yet processed by a consumer.",
+    "doc": "Labelled by:\n* `log_dir` - the log directory being scanned\n* `checkpoint_name` - the name set by the tailer of the consumer for its\n  checkpoint.\n\nA sample value is\n`log_consumer_segments_behind{log_dir=\"/var/log/kumomta\",checkpoint_name=\"cp\"} 3`.",
+    "metric_type": "Gauge",
+    "label_names": [
+      "log_dir",
+      "checkpoint_name"
+    ],
     "buckets": [],
     "pruning": "NonPruning"
   },
@@ -174,6 +246,30 @@
       "cache_name"
     ],
     "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "lruttl_populate_duration",
+    "help": "how long, in seconds, the work to populate a lruttl cache entry took,\nfrom starting it until it produced a value or an error. A lookup that\nfinds the entry already being populated waits for this duration before\nit sees a value, and fails once it reaches the populate deadline. A\npopulate that approaches that deadline is the direct cause of a lookup\ntimeout for that cache.",
+    "doc": "{{since('dev')}}\n\nThe `cache_name` label identifies which cache.  See [kumo.set_lruttl_cache_capacity](../../kumo/set_lruttl_cache_capacity.md) for a list of caches.",
+    "metric_type": "Histogram",
+    "label_names": [
+      "cache_name"
+    ],
+    "buckets": [
+      0.01,
+      0.05,
+      0.1,
+      0.25,
+      0.5,
+      1.0,
+      2.5,
+      5.0,
+      10.0,
+      30.0,
+      60.0,
+      120.0
+    ],
     "pruning": "NonPruning"
   },
   {
@@ -352,7 +448,7 @@
   },
   {
     "name": "memory_usage",
-    "help": "number of bytes of used memory (Resident Set Size)",
+    "help": "number of bytes of used memory that drives memory limit decisions.\nWhen sourced from a cgroup this is the working set\n(memory.current - inactive_file, floored by anonymous memory);\notherwise it is the Resident Set Size from /proc/self/statm.",
     "doc": null,
     "metric_type": "Gauge",
     "label_names": [],
@@ -383,6 +479,17 @@
     "doc": "Each CPU has a value from 0-100% busy; a value of 100% in this metric\nindicates that the load is equivalent to one fully utilized CPU.\n\nA multi-CPU system can report more than 100% in this metric; a dual-CPU\nsystem reporting 200% indicates that both CPUs are fully utilized.\n\nSee process_cpu_usage_normalized for a version of this metric that scales from\n0% (totally idle) to 100% (totally saturated).\n\nThis metric is scoped to the service process, reflecting the CPU used only\nby the process and not the system as a whole.",
     "metric_type": "Gauge",
     "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "proxy_accept_errors_total",
+    "help": "Total number of accept() errors that caused the listener to pause before\nretrying, such as file-descriptor exhaustion.",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Counter",
+    "label_names": [
+      "listener"
+    ],
     "buckets": [],
     "pruning": "NonPruning"
   },
@@ -434,6 +541,17 @@
     "name": "proxy_connections_completed_total",
     "help": "Total number of proxy sessions that completed successfully.",
     "doc": "This counter increments when a proxy session completes without error,\nmeaning the client connected, was proxied to the destination, and\nboth sides closed cleanly.",
+    "metric_type": "Counter",
+    "label_names": [
+      "listener"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "proxy_connections_denied_total",
+    "help": "Total number of connections closed immediately for exceeding the\n`max_connections` limit of the listener.",
+    "doc": "{{since('dev')}}",
     "metric_type": "Counter",
     "label_names": [
       "listener"
@@ -515,6 +633,72 @@
     "doc": "Each CPU has a value from 0-100% busy; a value of 100% in this metric\nindicates that the load is equivalent to one fully utilized CPU.\n\nA multi-CPU system can report more than 100% in this metric; a dual-CPU\nsystem reporting 200% indicates that both CPUs are fully utilized.\n\nSee system_cpu_usage_normalized for a version of this metric that scales from\n0% (totally idle) to 100% (totally saturated).\n\nThis metric is scoped to the system, reflecting the total load on the\nsystem, not just from the kumo related process(es).",
     "metric_type": "Gauge",
     "label_names": [],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "thread_pool_alive_tasks",
+    "help": "number of tasks currently alive in a thread pool",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Gauge",
+    "label_names": [
+      "pool"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "thread_pool_blocking_queue_depth",
+    "help": "number of blocking tasks waiting for a thread in a thread pool's\nblocking pool",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Gauge",
+    "label_names": [
+      "pool"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "thread_pool_blocking_threads",
+    "help": "number of threads in a thread pool's blocking pool, which runs\nspawn_blocking work and file IO",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Gauge",
+    "label_names": [
+      "pool"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "thread_pool_busy_seconds",
+    "help": "total time in seconds that a thread pool's workers have spent running\ntasks, summed across its workers. Refreshed once per second by the\nruntime metrics sampler.",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Counter",
+    "label_names": [
+      "pool"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "thread_pool_global_queue_depth",
+    "help": "number of tasks waiting in a thread pool's global queue for a worker\nto pick them up. A sustained non-zero value means the pool's workers\ncannot keep up with the work scheduled on that pool.",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Gauge",
+    "label_names": [
+      "pool"
+    ],
+    "buckets": [],
+    "pruning": "NonPruning"
+  },
+  {
+    "name": "thread_pool_idle_blocking_threads",
+    "help": "number of idle threads in a thread pool's blocking pool",
+    "doc": "{{since('dev')}}",
+    "metric_type": "Gauge",
+    "label_names": [
+      "pool"
+    ],
     "buckets": [],
     "pruning": "NonPruning"
   },

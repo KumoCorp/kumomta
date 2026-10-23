@@ -19,3 +19,6 @@ tokio.workspace = true
 tokio-executor-trait = {workspace=true}
 tokio-reactor-trait = {workspace=true}
 tracing = {workspace=true}
+
+[lints]
+workspace = true

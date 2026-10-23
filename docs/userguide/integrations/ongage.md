@@ -1,8 +1,12 @@
+---
+description: Integrate the Ongage email marketing platform with KumoMTA as your delivery engine, configuring SMTP AUTH with TLS and the required sending DNS records.
+---
+
 # Ongage SMTP integration  
 
 ## Introduction
 
-[Ongage](https://www.ongage.com/) is an email marketing platform that allows you to create and manage content and campaigns then deliver them through your favourite sending engine. This integration describes how to use KumoMTA as the delivery engine for Ongage.
+[Ongage](https://www.ongage.com/) is an email marketing platform that allows you to create and manage content and campaigns, then deliver them through your favorite sending engine. This integration describes how to use KumoMTA as the delivery engine for Ongage.
 
 ## Instructions
 
@@ -44,8 +48,8 @@ Once registered, you can add a vendor by selecting Vendors > My Connections in t
 Create a new connection and add “Private SMTP” as the connection type.
 
 !!! note
-    If you do not see this as an option, jump back up to step 4 and ask Ongage
-    Support to add it for you.
+    If you do not see this as an option, return to the support ticket step
+    above and ask Ongage Support to add it for you.
 
 Now fill in all the required fields and test.
 
@@ -54,7 +58,7 @@ Now fill in all the required fields and test.
 * Select YES for “Use TLS”
 * The SMTP Port should match what your listener is listening on.  Remember to update your public firewall too.
 
-If you have done everything right, you will see a positive notification that credentials were verified.
+You should see a notification that credentials were verified.
 
-Pat yourself on the back then start using Ongage with KumoMTA.
+You can now start using Ongage with KumoMTA.
 

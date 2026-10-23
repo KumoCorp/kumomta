@@ -1,3 +1,7 @@
+---
+description: "Skip IPv6 MX hosts for outbound SMTP in KumoMTA with the ip_lookup_strategy option, set per egress path or as a default in your shaping.toml."
+---
+
 # How do I skip IPv6 MX hosts for outbound SMTP?
 
 Depending on the version of KumoMTA, you have two options:

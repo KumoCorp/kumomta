@@ -5,10 +5,14 @@ edition = "2021"
 
 [dependencies]
 anyhow.workspace = true
-chrono.workspace = true
+chrono = {workspace=true, default-features=false, features=["clock", "serde", "std"]}
 config = {path="../config"}
 humantime.workspace = true
 linkme.workspace = true
 kumo-prometheus = { path = "../kumo-prometheus" }
+mailparsing = { path = "../mailparsing" }
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 tokio.workspace = true
+
+[lints]
+workspace = true

@@ -5,11 +5,12 @@ edition = "2021"
 
 [features]
 default = ["impl"]
-impl = ["dep:kumo-dkim", "dep:data-loader", "data-loader/impl", "dep:lruttl", "dep:mlua", "dep:mod-mimepart"]
+impl = ["dep:kumo-dkim", "dep:data-loader", "data-loader/impl", "dep:lruttl", "dep:mlua", "dep:mod-mimepart", "rfc5321/lua"]
 
 [dependencies]
 anyhow = {workspace=true}
 bitflags = {workspace=true}
+bstr.workspace = true
 kumo-dkim = {path="../dkim", optional=true}
 charset-normalizer-rs.workspace = true
 config = {path="../config"}
@@ -44,3 +45,6 @@ tokio = {workspace=true, features=["sync"]}
 [dev-dependencies]
 k9 = {workspace=true}
 tokio = {workspace=true, features=["test-util"]}
+
+[lints]
+workspace = true

@@ -20,3 +20,6 @@ vaultrs = {workspace=true, optional=true}
 [dev-dependencies]
 tokio = {workspace=true, features=["fs", "io-std", "process", "macros", "time", "io-util", "rt"]}
 which = {workspace=true}
+
+[lints]
+workspace = true

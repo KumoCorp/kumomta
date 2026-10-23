@@ -1,3 +1,7 @@
+---
+description: Configure SMTP listeners in KumoMTA with kumo.start_esmtp_listener, defining IP, port, banner, relay hosts, and SMTP AUTH to secure inbound injection.
+---
+
 # Configuring SMTP Listeners
 
 An SMTP listener can be defined using the `kumo.start_esmtp_listener` function.
@@ -31,7 +35,7 @@ for more information.
 
 While the `relay_hosts` option is often sufficient when receiving mail from
 internal systems, those environments that receive messages from external hosts
-should considering implementing SMTP AUTH authentication using
+should consider implementing SMTP AUTH using
 username/password.
 
 For more information, see the [Checking Inbound SMTP

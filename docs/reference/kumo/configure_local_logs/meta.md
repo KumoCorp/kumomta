@@ -13,7 +13,7 @@ empty.
 kumo.on('init', function()
   kumo.configure_local_logs {
     -- ..
-    meta = { 'my-meta-1', 'subject' },
+    meta = { 'x_my_meta_1', 'subject' },
   }
 end)
 
@@ -26,9 +26,10 @@ kumo.on('smtp_server_message_received', function(msg, conn_meta)
   msg:import_x_headers { 'subject' }
 
   -- set an arbitrary meta item; it will be logged because
-  -- `my-meta-1` is listed in the logging configuration
-  -- above.
-  msg:set_meta('my-meta-1', 'some value')
+  -- `x_my_meta_1` is listed in the logging configuration
+  -- above. The `x_` prefix is the recommended convention for
+  -- user-defined meta keys; see msg:set_meta for details.
+  msg:set_meta('x_my_meta_1', 'some value')
 end)
 ```
 

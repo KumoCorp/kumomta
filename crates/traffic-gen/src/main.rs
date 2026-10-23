@@ -12,6 +12,7 @@ use num_format::{Locale, ToFormattedString};
 use rand::distributions::WeightedIndex;
 use rand::prelude::*;
 use reqwest::{Client as HttpClient, Url};
+use rfc5321::parser::{Command, ForwardPath, ReversePath};
 use rfc5321::*;
 use serde::Serialize;
 use std::io::Write;
@@ -246,27 +247,25 @@ impl Client {
         match self {
             Self::Smtp(client) => {
                 let result = client.send_mail(sender, recip, body).await;
-                match result
-                {
+                match result {
                     Ok(_) => SendDisposition::Ok,
                     Err(
-                        ClientError::Rejected(Response { code: 421, .. }) |
-                        ClientError::TimeOutResponse{..} |
-                        ClientError::TimeOutRequest{..} |
-                        ClientError::TimeOutData |
-                        ClientError::Rejected(Response {
-                        code: 451,
-                        enhanced_code:
+                        ClientError::Rejected(Response { code: 421, .. })
+                        | ClientError::TimeOutResponse { .. }
+                        | ClientError::TimeOutRequest { .. }
+                        | ClientError::TimeOutData
+                        | ClientError::Rejected(Response {
+                            code: 451,
                             // Too many recipients
-                            Some(EnhancedStatusCode {
-                                class: 4,
-                                subject: 5,
-                                detail: 3,
-                            }),
-                        ..
-                    })) => {
-                        SendDisposition::Reconnect
-                    }
+                            enhanced_code:
+                                Some(EnhancedStatusCode {
+                                    class: 4,
+                                    subject: 5,
+                                    detail: 3,
+                                }),
+                            ..
+                        }),
+                    ) => SendDisposition::Reconnect,
                     err @ Err(_) => {
                         SendDisposition::Failed(err.context("Failed to send mail").unwrap_err())
                     }
@@ -385,7 +384,7 @@ impl Opt {
         }
 
         let now = Utc::now();
-        let datestamp = now.to_rfc2822();
+        let datestamp = mailparsing::format_rfc2822_date(now);
         let id = Uuid::new_v4().simple().to_string();
 
         let body = self.body_size_content.get().unwrap();

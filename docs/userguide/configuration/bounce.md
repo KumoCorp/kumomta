@@ -1,3 +1,7 @@
+---
+description: Configure bounce classification and out-of-band (OOB) bounce processing in KumoMTA, capturing SMTP response and enhanced status codes in your logs.
+---
+
 # Configuring Bounce Classification
 
 By default, the logs will contain extensive information on the responses
@@ -51,7 +55,7 @@ end)
 ```
 
 Once configured, the Bounce Classifier will populate the
-*bounce_classification* field in the logs with the applicable category.
+`bounce_classification` field in the logs with the applicable category.
 
 An example of classification rules:
 
@@ -69,8 +73,8 @@ BadDomain = [
 {% endcall %}
 
 Users can create their own classification rules file by copying the default
-file, editing it, and adding the path to their custom rules file to the *files*
-option in the **kumo.configure_bounce_classifier** function call. Each defined
+file, editing it, and adding the path to their custom rules file to the `files`
+option in the `kumo.configure_bounce_classifier` function call. Each defined
 rules file will be merged into the full ruleset.
 
 For additional information, see the [reference manual page on bounce
@@ -83,13 +87,13 @@ not uncommon for a remote host to accept a message, perform further processing,
 and then determine that the message should be rejected. This can be because of
 user validation, AntiVirus/AntiSpam processing, or other post-connection logic.
 When a remote host rejects a message after accepting it, RFCs require that a
-Message Disposition Notification (MDN) message be sent to the return path
+Delivery Status Notification (DSN) message be sent to the return path
 address of the message specified in the MAIL FROM command during the relay
 session. See
 [https://en.wikipedia.org/wiki/Bounce_message](https://en.wikipedia.org/wiki/Bounce_message)
 for more information.
 
-The KumoMTA server can process these MDN messages, but must be configured to
+The KumoMTA server can process these DSN messages, but must be configured to
 know which domains are candidates for OOB bounce processing.  This is most
 simply accomplished using the [listener domains policy
 helper](domains.md#using-the-listener_domainslua-policy-helper), with a snippet

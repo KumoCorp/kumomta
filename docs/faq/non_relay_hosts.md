@@ -1,3 +1,7 @@
+---
+description: "Why KumoMTA may accept connections from hosts not in relay_hosts — how listener relay_hosts and listener_domains interact to control relaying."
+---
+
 # Why is KumoMTA Accepting Connections From Systems Not Listed in relay_hosts?
 
 Let's say you have the following configured for your listeners:

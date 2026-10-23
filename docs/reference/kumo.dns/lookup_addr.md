@@ -28,7 +28,7 @@ specifies the name of a alternate resolver defined via
 [define_resolver](define_resolver.md).  You can omit this parameter and the
 default resolver will be used.
 
-{{since('dev')}}
+{{since('2026.04.09-ea3b2a9b')}}
 
 The `OPT_STRATEGY` parameter is an optional string parameter that specifies the
 IPv4 vs. IPv6 lookup strategy.  Allowable values and default behavior (if you

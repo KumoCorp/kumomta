@@ -58,6 +58,11 @@ Values may be predefined by KumoMTA or may be set by policy scripts using `conn_
 Sets the value associated with *name* to *value*.  Value must be serializable as JSON; it can be simple
 strings or numbers, but may also be an array or object value.
 
+To avoid collisions with current and future predefined keys, prefix your own
+meta keys with `x_`. See the
+[set_meta naming convention](message/set_meta.md#naming-convention-for-user-defined-keys)
+for the rationale.
+
 ### `conn_meta:auth_info()`
 
 {{since('2026.03.04-bb93ecb1')}}

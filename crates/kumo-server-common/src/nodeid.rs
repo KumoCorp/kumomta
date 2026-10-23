@@ -114,7 +114,7 @@ impl NodeId {
                                 // timestamp. It looks like:
                                 // 00000000-0000-1000-8000-XXXXXXXXXXXX
                                 // where the X's are the hex digits from the mac address
-                                uuid_helper::new_v1(uuid::Timestamp::from_gregorian(0, 0))
+                                uuid_helper::new_v1(uuid::Timestamp::from_gregorian_time(0, 0))
                             }
                             Err(err) => panic!("Failed to write node id to {uuid_path:?}: {err:#}"),
                         }

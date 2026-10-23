@@ -12,3 +12,6 @@ kumo-prometheus = {path="../kumo-prometheus"}
 reqwest = {workspace=true, default-features=false, features=["json", "rustls-tls", "stream"]}
 serde.workspace = true
 serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -65,7 +65,7 @@ Hello, I am the main message content
 Content-Disposition: attachment;
 	filename*=UTF-8''%F0%9F%91%BE.dat
 Content-Type: application/octet-stream;
-	name="=?UTF-8?q?=F0=9F=91=BE.dat?="
+	name="=?UTF-8?q?=F0=9F=91=BE=2Edat?="
 Content-Transfer-Encoding: base64
 
 u6o=

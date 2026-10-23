@@ -7,7 +7,7 @@ use rfc5321::DeferredTracer;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::LazyLock;
 use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::broadcast::{channel, Sender};
+use tokio::sync::broadcast::{channel, Receiver, Sender};
 use tracing::Level;
 
 static MGR: LazyLock<SmtpClientTraceManager> = LazyLock::new(SmtpClientTraceManager::new);
@@ -224,8 +224,10 @@ fn is_excluded(meta: &serde_json::Value, entries: &[(&str, &[String])]) -> bool 
     false
 }
 
-async fn process_websocket_inner(mut socket: WebSocket) -> anyhow::Result<()> {
-    let mut rx = MGR.tx.subscribe();
+async fn process_websocket_inner(
+    mut socket: WebSocket,
+    mut rx: Receiver<SmtpClientTraceEvent>,
+) -> anyhow::Result<()> {
     let mut has_lagged = false;
 
     let request: TraceSmtpClientV1Request = match socket
@@ -303,8 +305,8 @@ async fn process_websocket_inner(mut socket: WebSocket) -> anyhow::Result<()> {
     }
 }
 
-async fn process_websocket(socket: WebSocket) {
-    if let Err(err) = process_websocket_inner(socket).await {
+async fn process_websocket(socket: WebSocket, rx: Receiver<SmtpClientTraceEvent>) {
+    if let Err(err) = process_websocket_inner(socket, rx).await {
         tracing::error!("error in websocket: {err:#}");
     }
 }
@@ -313,5 +315,12 @@ async fn process_websocket(socket: WebSocket) {
 /// It cannot be described via auto-generated docs extracted from the JSON Schema.
 #[utoipa::path(get, tags = ["debugging", "kcli:trace-smtp-client"], path = "/api/admin/trace-smtp-client/v1")]
 pub async fn trace(ws: WebSocketUpgrade) -> impl IntoResponse {
-    ws.on_upgrade(|socket| process_websocket(socket))
+    // Subscribe before completing the upgrade handshake. The handshake
+    // response is what unblocks the connecting client, so subscribing here
+    // guarantees this session is counted as a receiver before the client can
+    // return and start generating traceable activity; otherwise events
+    // produced in that window would be dropped by the receiver-count check in
+    // SmtpClientTraceManager::submit.
+    let rx = MGR.tx.subscribe();
+    ws.on_upgrade(move |socket| process_websocket(socket, rx))
 }

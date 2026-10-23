@@ -1,3 +1,7 @@
+---
+description: "Yes — migrating from PowerMTA to KumoMTA is our most requested move. Follow the migration primer, or get help from KumoMTA's professional services team."
+---
+
 # Can I Migrate From PowerMTA to KumoMTA?
 
 Yes, a PowerMTA to KumoMTA migration is the most common migration our users have inquired about.

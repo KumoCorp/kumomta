@@ -16,3 +16,8 @@ for _, address in ipairs(msg:to_header().list) do
   -- to entry      {"name":"John Smith","address":"john.smith@example.com"}
 end
 ```
+
+{{since('2026.04.09-ea3b2a9b')}}
+
+The `user` field on each list entry now returns the *normalized/decoded*
+local part.  See [addressheader.user](user.md) for details.

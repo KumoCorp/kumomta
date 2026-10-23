@@ -8,6 +8,16 @@ import subprocess
 import sys
 
 
+# Split the marker token across two literals. One literal here would make
+# tooling treat this script as a generated file.
+GENERATED = "@" + "generated"
+
+
+def generated_comment():
+    """Return an HTML comment marking an index page as generated."""
+    return f"<!-- {GENERATED} by docs/generate-toc.py -->\n"
+
+
 class Page(object):
     """A page in the TOC, and its optional children"""
 
@@ -60,11 +70,19 @@ class Gen(object):
 
             if self.extract_title:
                 with open(filename, "r") as f:
-                    # Find the title; it is usually the first line,
-                    # but we may have front-matter containing tags
-                    # that we need to skip, so we look for a line
-                    # starting with # to identify the title
-                    for line in f:
+                    # The title is the first markdown heading. Skip a leading
+                    # YAML front-matter block first; it can contain '#' comment
+                    # lines that must not be mistaken for the heading.
+                    in_front_matter = False
+                    for lineno, line in enumerate(f):
+                        stripped = line.strip()
+                        if lineno == 0 and stripped == "---":
+                            in_front_matter = True
+                            continue
+                        if in_front_matter:
+                            if stripped == "---":
+                                in_front_matter = False
+                            continue
                         if line.startswith("#"):
                             title = line.strip("#").strip()
                             break
@@ -75,6 +93,7 @@ class Gen(object):
         index_page = Page(self.title, index_filename, children=children)
         index_page.render(output, depth)
         with open(index_filename, "w") as idx:
+            idx.write(generated_comment())
             if self.index:
                 idx.write(self.index)
                 idx.write("\n\n")
@@ -118,6 +137,7 @@ class RustDoc(object):
         index_page = Page(self.title, index_filename, children=children)
         index_page.render(output, depth)
         with open(index_filename, "w") as idx:
+            idx.write(generated_comment())
             idx.write(
                 """
 This section contains automatically generated documentation from
@@ -238,11 +258,41 @@ TOC = [
                         "Configuring Queue Rollup",
                         "userguide/configuration/rollup.md",
                     ),
-                    Page(
-                        "Configuring Traffic Shaping",
-                        "userguide/configuration/trafficshaping.md",
-                    ),
                     Page("Configuring DKIM Signing", "userguide/configuration/dkim.md"),
+                ],
+            ),
+            Page(
+                "Traffic Shaping",
+                "userguide/trafficshaping/index.md",
+                children=[
+                    Page(
+                        "Scoping Traffic Shaping Rules",
+                        "userguide/trafficshaping/scoping.md",
+                    ),
+                    Page(
+                        "MX Rollups and Provider Blocks",
+                        "userguide/trafficshaping/rollups.md",
+                    ),
+                    Page(
+                        "Traffic Shaping Configuration Files",
+                        "userguide/trafficshaping/shapingfiles.md",
+                    ),
+                    Page(
+                        "Shaping Option Resolution Order and Precedence",
+                        "userguide/trafficshaping/resolution.md",
+                    ),
+                    Page(
+                        "Writing Custom Shaping Files",
+                        "userguide/trafficshaping/customshaping.md",
+                    ),
+                    Page(
+                        "Traffic Shaping Automation",
+                        "userguide/trafficshaping/automation.md",
+                    ),
+                    Page(
+                        "Testing Your Shaping Files",
+                        "userguide/trafficshaping/testing.md",
+                    ),
                 ],
             ),
             Page(
@@ -452,6 +502,10 @@ TOC = [
                 "reference/kumo.cidr",
             ),
             Gen(
+                "module: kumo.counter_series",
+                "reference/kumo.counter_series",
+            ),
+            Gen(
                 "module: kumo.domain_map",
                 "reference/kumo.domain_map",
             ),
@@ -462,6 +516,10 @@ TOC = [
             Gen(
                 "module: kumo.fs",
                 "reference/kumo.fs",
+            ),
+            Gen(
+                "module: kumo.jsonl",
+                "reference/kumo.jsonl",
             ),
             Gen(
                 "module: kumo.http",
@@ -603,6 +661,11 @@ TOC = [
         ],
     ),
     Gen(
+        "Glossary",
+        "glossary",
+        extract_title=True,
+    ),
+    Gen(
         "FAQ",
         "faq",
         extract_title=True,
@@ -613,7 +676,7 @@ TOC = [
 os.chdir("docs")
 
 with open("../mkdocs.yml", "w") as f:
-    f.write("# this is auto-generated by docs/generate-toc.py, do not edit\n")
+    f.write(f"# {GENERATED} by docs/generate-toc.py, do not edit\n")
     f.write("INHERIT: mkdocs-base.yml\n")
     f.write("nav:\n")
     for page in TOC:

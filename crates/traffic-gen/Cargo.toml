@@ -24,3 +24,6 @@ textwrap = {workspace=true}
 throttle = {path="../throttle"}
 tokio = {workspace=true, features=["full"]}
 uuid = {workspace=true, features=["v4", "rng"]}
+
+[lints]
+workspace = true

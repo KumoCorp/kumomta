@@ -18,27 +18,29 @@ use config::{
 use data_encoding::BASE64;
 use data_loader::KeySource;
 use derive_where::derive_where;
+use kumo_api_types::egress_path::TlsMode;
 use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::prometheus::HistogramTimer;
 use kumo_prometheus::{declare_metric, AtomicCounter};
 use kumo_server_common::acct::{log_authn, AuthnAuditRecord};
 use kumo_server_common::authn_authz::{AuthInfo, Identity, IdentityContext};
 use kumo_server_common::http_server::auth::AuthKindResult;
-use kumo_server_lifecycle::{Activity, ShutdownSubcription};
-use kumo_server_runtime::{spawn, Runtime};
+use kumo_server_lifecycle::{Activity, ShutdownSubcription, ShuttingDownError};
+use kumo_server_runtime::{accept_error_pause, spawn, Runtime};
 use lruttl::declare_cache;
 use mailparsing::ConformanceDisposition;
 use memchr::memmem::Finder;
-use message::{EnvelopeAddress, Message};
+use message::Message;
 use mlua::prelude::LuaUserData;
 use mlua::{FromLuaMulti, IntoLuaMulti, LuaSerdeExt, UserData, UserDataMethods};
 use openssl::x509::X509;
 use parking_lot::FairMutex as Mutex;
 use ppp::{HeaderResult, PartialResult};
-use rfc5321::{
-    subject_name, AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response, TlsInformation,
-    XClientParameter,
+use rfc5321::parser::{
+    redacted_auth_command, Command, CommandVerb, EnvelopeAddress, MaybePartialCommand,
+    PartialReason, XClientParameter, REDACTED,
 };
+use rfc5321::{subject_name, AsyncReadAndWrite, BoxedAsyncReadAndWrite, Response, TlsInformation};
 use rustls::ServerConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -174,9 +176,9 @@ pub enum LogReportDisposition {
     LogThenRelay,
 }
 
-impl Into<serde_json::Value> for LogReportDisposition {
-    fn into(self) -> serde_json::Value {
-        format!("{self:?}").into()
+impl From<LogReportDisposition> for serde_json::Value {
+    fn from(val: LogReportDisposition) -> Self {
+        format!("{val:?}").into()
     }
 }
 
@@ -375,8 +377,14 @@ impl TraceHeaders {
         }
 
         let value = BASE64.encode(serde_json::to_string(&object)?.as_bytes());
+
+        // The base64 payload is a single whitespace-free token, so the wrapper
+        // only ever breaks it at the hard width; pass SOFT_WIDTH as the hard
+        // width too to fold it at the same column as every other wrapped header.
+        let folded =
+            kumo_wrap::wrap_impl(value.as_str(), kumo_wrap::SOFT_WIDTH, kumo_wrap::SOFT_WIDTH);
         message
-            .prepend_header(Some(&self.header_name), &value)
+            .prepend_header(Some(&self.header_name), &folded)
             .await?;
 
         Ok(())
@@ -405,6 +413,7 @@ pub struct ConcreteEsmtpListenerParams {
     pub tls_certificate: Option<KeySource>,
     pub tls_private_key: Option<KeySource>,
     pub tls_required_client_ca: Option<KeySource>,
+    pub tls_mode: TlsMode,
 
     pub deferred_spool: bool,
     pub deferred_queue: bool,
@@ -484,6 +493,9 @@ impl ConcreteEsmtpListenerParams {
         if let Some(tls_required_client_ca) = base.tls_required_client_ca {
             self.tls_required_client_ca.replace(tls_required_client_ca);
         }
+        if let Some(tls_mode) = base.tls_mode {
+            self.tls_mode = tls_mode;
+        }
         if let Some(deferred_spool) = base.deferred_spool {
             self.deferred_spool = deferred_spool;
         }
@@ -557,6 +569,10 @@ pub fn connection_denied_counter() -> AtomicCounter {
     crate::metrics_helper::connection_denied_for_service("esmtp_listener")
 }
 
+pub fn accept_error_counter() -> AtomicCounter {
+    crate::metrics_helper::accept_errors_for_service("esmtp_listener")
+}
+
 pub fn default_hostname() -> String {
     gethostname::gethostname()
         .to_str()
@@ -574,6 +590,7 @@ impl Default for ConcreteEsmtpListenerParams {
             tls_certificate: None,
             tls_private_key: None,
             tls_required_client_ca: None,
+            tls_mode: TlsMode::default(),
             deferred_spool: false,
             deferred_queue: false,
             trace_headers: TraceHeaders::default(),
@@ -621,6 +638,9 @@ pub struct GenericEsmtpListenerParams {
     pub tls_private_key: Option<KeySource>,
     #[serde(default)]
     pub tls_required_client_ca: Option<KeySource>,
+
+    #[serde(default)]
+    pub tls_mode: Option<TlsMode>,
 
     #[serde(default)]
     pub deferred_spool: Option<bool>,
@@ -712,6 +732,7 @@ impl EsmtpListenerParams {
         let connection_limiter = Arc::new(tokio::sync::Semaphore::new(self.max_connections));
         spawn(format!("esmtp_listener {addr:?}"), async move {
             let denied = connection_denied_counter();
+            let accept_errors = accept_error_counter();
             loop {
                 tokio::select! {
                     _ = shutting_down.shutting_down() => {
@@ -723,7 +744,38 @@ impl EsmtpListenerParams {
                         return Ok::<(), anyhow::Error>(());
                     }
                     result = listener.accept() => {
-                        let (mut socket, peer_address) = result?;
+                        let (mut socket, peer_address) = match result {
+                            Ok(accepted) => accepted,
+                            Err(err) => {
+                                // Keep looping instead of returning: exiting here
+                                // would silently stop serving this port while the
+                                // process stays alive, which looks healthy to any
+                                // supervisor watching it.
+                                match accept_error_pause(&err) {
+                                    Some(pause) => {
+                                        // Non-connection-level errors such as
+                                        // EMFILE are rare and significant: count
+                                        // them and log at error level.
+                                        accept_errors.inc();
+                                        tracing::error!("smtp listener on {addr:?} accept failed: {err:#}");
+                                        // Pause before the next accept() to avoid
+                                        // spinning the loop while the condition
+                                        // persists.
+                                        tokio::time::sleep(pause).await;
+                                    }
+                                    None => {
+                                        // A peer that reset between the kernel
+                                        // queuing the connection and our
+                                        // accepting it. Any peer can trigger
+                                        // this on demand. Report it only at
+                                        // debug level to deny a hostile peer a
+                                        // way to flood the logs.
+                                        tracing::debug!("smtp listener on {addr:?} accept: {err:#}");
+                                    }
+                                }
+                                continue;
+                            }
+                        };
                         let Ok(permit) = connection_limiter.clone().try_acquire_owned() else {
                             // We're over the limit. We make a "best effort" to respond;
                             // don't strain too hard here, as the purpose of the limit is
@@ -760,8 +812,17 @@ impl EsmtpListenerParams {
                         };
 
                         // No need for Nagle with SMTP request/response
-                        socket.set_nodelay(true)?;
-                        let my_address = socket.local_addr()?;
+                        if let Err(err) = socket.set_nodelay(true) {
+                            tracing::error!("failed to set_nodelay for {peer_address:?}: {err:#}");
+                            continue;
+                        }
+                        let my_address = match socket.local_addr() {
+                            Ok(my_address) => my_address,
+                            Err(err) => {
+                                tracing::error!("failed to get local_addr for {peer_address:?}: {err:#}");
+                                continue;
+                            }
+                        };
                         let params = self.clone();
                         SMTPSRV.spawn(
                             format!("SmtpServerSession {peer_address:?}"),
@@ -779,23 +840,6 @@ impl EsmtpListenerParams {
             }
         })?;
         Ok(())
-    }
-}
-
-#[derive(Error, Debug, Clone)]
-#[error("shutting down")]
-pub struct ShuttingDownError;
-
-impl ShuttingDownError {
-    pub fn is_shutting_down(err: &anyhow::Error) -> bool {
-        if err
-            .root_cause()
-            .downcast_ref::<ShuttingDownError>()
-            .is_some()
-        {
-            return true;
-        }
-        format!("{err:#}").contains("shutting down")
     }
 }
 
@@ -1017,13 +1061,29 @@ impl SmtpServerSession {
         if let Err(err) = server.process().await {
             if err.downcast_ref::<WriteError>().is_none() {
                 error!("Error in SmtpServerSession: {err:#}");
-                server
-                    .write_response(
-                        421,
+                // If the underlying cause is a spool-unhealthy error,
+                // surface that to the peer with the same wire shape
+                // we use at the banner-level load-shed check, so the
+                // remote operator gets an actionable response
+                // regardless of whether the gate was observed at
+                // connect time or during a mid-flight transaction.
+                let (response, log_context) = if err.root_cause().is::<spool::SpoolUnhealthyError>()
+                {
+                    (
+                        format!(
+                            "4.3.2 {} the spool is not accepting writes. Try later",
+                            server.params.hostname
+                        ),
+                        Some(format!("Error in SmtpServerSession: {err:#}")),
+                    )
+                } else {
+                    (
                         format!("4.3.0 {} technical difficulties", server.params.hostname),
                         Some(format!("Error in SmtpServerSession: {err:#}")),
-                        RejectDisconnect::If421,
                     )
+                };
+                server
+                    .write_response(421, response, log_context, RejectDisconnect::If421)
                     .await
                     .ok();
             }
@@ -1226,6 +1286,7 @@ impl SmtpServerSession {
                     peer_address: ResolvedAddress {
                         name: self.said_hello.as_deref().unwrap_or("").to_string(),
                         addr: self.peer_address.ip().into(),
+                        is_secure: false,
                     },
                     response,
                     sender,
@@ -1322,7 +1383,15 @@ impl SmtpServerSession {
 
                 let data = unstuff(tail);
 
-                if !check_line_lengths(&data, self.params.line_length_hard_limit) {
+                let split_bare_line_endings = matches!(
+                    self.params.invalid_line_endings,
+                    ConformanceDisposition::Allow | ConformanceDisposition::Fix
+                );
+                if !check_line_lengths(
+                    &data,
+                    self.params.line_length_hard_limit,
+                    split_bare_line_endings,
+                ) {
                     SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                         conn_meta: self.meta.clone_inner(),
                         payload: SmtpServerTraceEventPayload::Diagnostic {
@@ -1422,7 +1491,10 @@ impl SmtpServerSession {
 
                 self.read_buffer.drain(0..i + 2);
                 tracing::trace!("{line:?}");
-                return Ok(ReadLine::Line(line?));
+                return Ok(match line {
+                    Ok(line) => ReadLine::Line(line),
+                    Err(_) => ReadLine::InvalidUtf8,
+                });
             }
             tracing::trace!("read_buffer len is {}", self.read_buffer.len());
             if self.read_buffer.len() > override_limit.unwrap_or(self.params.line_length_hard_limit)
@@ -1542,6 +1614,31 @@ impl SmtpServerSession {
 
     #[instrument(skip(self))]
     async fn process(&mut self) -> anyhow::Result<()> {
+        let mut proxy_header_consumed = false;
+        if self.params.tls_mode == TlsMode::ImplicitTls {
+            if self.params.require_proxy_protocol {
+                if let Err(err) = self.process_proxy_protocol().await {
+                    tracing::error!("Error processing PROXY protocol: {err:#}");
+                    return Ok(());
+                }
+                proxy_header_consumed = true;
+            }
+            // The peer speaks only TLS and cannot read a cleartext 421. Treat
+            // an acceptor-build failure (bad cert or key) the same as a failed
+            // handshake: drop the connection silently instead of replying.
+            let handshake = match self.perform_tls_handshake().await {
+                Ok(succeeded) => succeeded,
+                Err(err) => {
+                    tracing::error!("TLS acceptor setup failed: {err:#}");
+                    false
+                }
+            };
+            if !handshake {
+                return Ok(());
+            }
+            self.meta.set_meta("tls_implicit", true);
+        }
+
         let activity = match Activity::get_opt(format!(
             "smtp_server process client {:?} -> {:?}",
             self.peer_address, self.my_address
@@ -1613,7 +1710,22 @@ impl SmtpServerSession {
             return Ok(());
         }
 
-        if self.params.require_proxy_protocol {
+        if let Some(reason) = SpoolManager::get().spool_unhealthy_reason() {
+            // Bump connection_denied_counter because the operator may care to
+            // investigate this, and we don't otherwise log this class of rejection.
+            connection_denied_counter().inc();
+
+            self.write_response(
+                421,
+                format!("4.3.2 {} {reason}. Try later", self.params.hostname),
+                None,
+                RejectDisconnect::If421,
+            )
+            .await?;
+            return Ok(());
+        }
+
+        if self.params.require_proxy_protocol && !proxy_header_consumed {
             if let Err(err) = self.process_proxy_protocol().await {
                 tracing::error!("Error processing PROXY protocol: {err:#}");
                 return Ok(());
@@ -1673,6 +1785,16 @@ impl SmtpServerSession {
             let line = match self.read_line(None).await? {
                 ReadLine::Disconnected => return Ok(()),
                 ReadLine::Line(line) => line,
+                ReadLine::InvalidUtf8 => {
+                    self.write_response(
+                        501,
+                        "5.5.2 Invalid UTF-8 in command",
+                        None,
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
+                    continue;
+                }
                 ReadLine::TimedOut => {
                     self.write_response(
                         421,
@@ -1710,7 +1832,38 @@ impl SmtpServerSession {
                     )
                     .await?;
                 }
-                Ok(Command::Quit) => {
+                Ok(MaybePartialCommand::Partial {
+                    reason,
+                    verb,
+                    remainder,
+                }) => {
+                    let msg = match reason {
+                        PartialReason::InvalidRecipientAddress => {
+                            "5.1.3 Invalid recipient address syntax"
+                        }
+                        PartialReason::InvalidSenderAddress => {
+                            "5.1.7 Bad sender's mailbox address syntax"
+                        }
+                        PartialReason::Syntax => "Syntax error in command or arguments",
+                    };
+                    // The bytes that failed to parse can still contain the SASL
+                    // initial-response of the client, the credential, when AUTH
+                    // parsing only got partway through. Log a redacted stand-in
+                    // instead of the raw line to keep that credential out of the
+                    // Rejection log.
+                    let command = if verb == CommandVerb::Auth {
+                        Some(if remainder.is_empty() {
+                            "AUTH".to_string()
+                        } else {
+                            format!("AUTH {REDACTED}")
+                        })
+                    } else {
+                        Some(line)
+                    };
+                    self.write_response(501, msg, command, RejectDisconnect::If421)
+                        .await?;
+                }
+                Ok(MaybePartialCommand::Full(Command::Quit)) => {
                     self.write_response(
                         221,
                         "So long, and thanks for all the fish!",
@@ -1720,7 +1873,7 @@ impl SmtpServerSession {
                     .await?;
                     return Ok(());
                 }
-                Ok(Command::StartTls) => {
+                Ok(MaybePartialCommand::Full(Command::StartTls)) => {
                     if self.tls_active.is_some() {
                         self.write_response(
                             501,
@@ -1733,73 +1886,21 @@ impl SmtpServerSession {
                     }
                     self.write_response(220, "Ready to Start TLS", None, RejectDisconnect::If421)
                         .await?;
-                    let acceptor = self.params.build_tls_acceptor().await?;
-                    let socket: BoxedAsyncReadAndWrite = match acceptor
-                        .accept(self.socket.take().unwrap())
-                        .into_fallible()
-                        .await
-                    {
-                        Ok(stream) => {
-                            let (_io, conn) = stream.get_ref();
-                            let mut tls_info = TlsInformation::default();
-
-                            tls_info.provider_name = "rustls".to_string();
-                            tls_info.cipher = match conn.negotiated_cipher_suite() {
-                                Some(suite) => {
-                                    suite.suite().as_str().unwrap_or("UNKNOWN").to_string()
-                                }
-                                None => String::new(),
-                            };
-                            tls_info.protocol_version = match conn.protocol_version() {
-                                Some(version) => version.as_str().unwrap_or("UNKNOWN").to_string(),
-                                None => String::new(),
-                            };
-
-                            if let Some(certs) = conn.peer_certificates() {
-                                let peer_cert = &certs[0];
-                                if let Ok(cert) = X509::from_der(peer_cert.as_ref()) {
-                                    tls_info.subject_name = subject_name(&cert);
-                                }
-                            }
-
-                            if !tls_info.cipher.is_empty() {
-                                self.meta.set_meta("tls_cipher", tls_info.cipher.clone());
-                            }
-                            if !tls_info.protocol_version.is_empty() {
-                                self.meta.set_meta(
-                                    "tls_protocol_version",
-                                    tls_info.protocol_version.clone(),
-                                );
-                            }
-                            if !tls_info.subject_name.is_empty() {
-                                self.meta.set_meta(
-                                    "tls_peer_subject_name",
-                                    tls_info.subject_name.clone(),
-                                );
-                            }
-
-                            self.tls_active = Some(tls_info);
-
-                            Box::new(stream)
-                        }
-                        Err((err, stream)) => {
-                            tracing::debug!("TLS handshake failed: {err:#}");
-                            stream
-                        }
-                    };
-                    self.socket.replace(socket);
+                    if !self.perform_tls_handshake().await? {
+                        return Ok(());
+                    }
                 }
-                Ok(Command::Auth {
+                Ok(MaybePartialCommand::Full(Command::Auth {
                     sasl_mech,
                     initial_response,
-                }) => {
-                    if self.process_auth(line, sasl_mech, initial_response).await?
+                })) => {
+                    if self.process_auth(sasl_mech, initial_response).await?
                         == CommandDisposition::Terminate
                     {
                         return Ok(());
                     }
                 }
-                Ok(Command::Ehlo(domain)) => {
+                Ok(MaybePartialCommand::Full(Command::Ehlo(domain))) => {
                     let domain = domain.to_string();
 
                     let mut extensions =
@@ -1840,7 +1941,7 @@ impl SmtpServerSession {
                     self.meta.set_meta("ehlo_domain", domain.clone());
                     self.said_hello.replace(domain);
                 }
-                Ok(Command::Helo(domain)) => {
+                Ok(MaybePartialCommand::Full(Command::Helo(domain))) => {
                     let domain = domain.to_string();
 
                     if let Err(rej) = self
@@ -1864,10 +1965,10 @@ impl SmtpServerSession {
                     self.meta.set_meta("ehlo_domain", domain.clone());
                     self.said_hello.replace(domain);
                 }
-                Ok(Command::MailFrom {
+                Ok(MaybePartialCommand::Full(Command::MailFrom {
                     address,
                     parameters: _,
-                }) => {
+                })) => {
                     if self.state.is_some() {
                         self.write_response(
                             503,
@@ -1878,7 +1979,19 @@ impl SmtpServerSession {
                         .await?;
                         continue;
                     }
-                    let address = EnvelopeAddress::parse(&address.to_string())?;
+                    let address = match EnvelopeAddress::try_from(address) {
+                        Ok(address) => address,
+                        Err(err) => {
+                            self.write_response(
+                                501,
+                                format!("5.1.7 Invalid sender address syntax: {err}"),
+                                Some(line),
+                                RejectDisconnect::If421,
+                            )
+                            .await?;
+                            continue;
+                        }
+                    };
                     if let Err(rej) = self
                         .call_callback::<(), _, _>(
                             "smtp_server_mail_from",
@@ -1904,10 +2017,10 @@ impl SmtpServerSession {
                     )
                     .await?;
                 }
-                Ok(Command::RcptTo {
+                Ok(MaybePartialCommand::Full(Command::RcptTo {
                     address,
                     parameters: _,
-                }) => {
+                })) => {
                     if self.state.is_none() {
                         self.write_response(
                             503,
@@ -1918,7 +2031,7 @@ impl SmtpServerSession {
                         .await?;
                         continue;
                     }
-                    let address = EnvelopeAddress::parse(&address.to_string())?;
+                    let address = EnvelopeAddress::from(address);
 
                     let sender = self.state.as_ref().unwrap().sender.clone();
                     let relay_disposition = self.check_relaying(&sender, &address).await?;
@@ -2005,7 +2118,7 @@ impl SmtpServerSession {
                         .recipients
                         .push(address);
                 }
-                Ok(Command::Data) => {
+                Ok(MaybePartialCommand::Full(Command::Data)) => {
                     if self.state.is_none() {
                         self.write_response(
                             503,
@@ -2090,12 +2203,12 @@ impl SmtpServerSession {
                     let _process_data_timer = PROCESS_DATA_LATENCY.start_timer();
                     Box::pin(self.process_data(data, &activity)).await?;
                 }
-                Ok(Command::Rset) => {
+                Ok(MaybePartialCommand::Full(Command::Rset)) => {
                     self.state.take();
                     self.write_response(250, "Reset state", None, RejectDisconnect::If421)
                         .await?;
                 }
-                Ok(Command::Noop(_)) => {
+                Ok(MaybePartialCommand::Full(Command::Noop(_))) => {
                     self.write_response(
                         250,
                         "the goggles do nothing",
@@ -2104,10 +2217,16 @@ impl SmtpServerSession {
                     )
                     .await?;
                 }
-                Ok(Command::XClient(params)) => {
+                Ok(MaybePartialCommand::Full(Command::XClient(params))) => {
                     self.process_xclient(&params).await?;
                 }
-                Ok(Command::Vrfy(_) | Command::Expn(_) | Command::Help(_) | Command::Lhlo(_)) => {
+                Ok(MaybePartialCommand::Full(
+                    Command::Vrfy(_)
+                    | Command::Expn(_)
+                    | Command::Help(_)
+                    | Command::Lhlo(_)
+                    | Command::Unknown(_),
+                )) => {
                     self.write_response(
                         502,
                         format!("5.5.1 Command unimplemented"),
@@ -2116,7 +2235,63 @@ impl SmtpServerSession {
                     )
                     .await?;
                 }
-                Ok(Command::DataDot) => unreachable!(),
+                Ok(MaybePartialCommand::Full(Command::DataDot)) => unreachable!(),
+            }
+        }
+    }
+
+    /// Perform the TLS handshake on the current socket.
+    ///
+    /// Returns whether the handshake succeeded. A failed handshake consumes the
+    /// socket, leaving the session with none. The caller must drop the
+    /// connection.
+    #[instrument(skip(self))]
+    async fn perform_tls_handshake(&mut self) -> anyhow::Result<bool> {
+        let acceptor = self.params.build_tls_acceptor().await?;
+        match acceptor.accept(self.socket.take().unwrap()).await {
+            Ok(stream) => {
+                let (_io, conn) = stream.get_ref();
+                let mut tls_info = TlsInformation {
+                    provider_name: "rustls".to_string(),
+                    cipher: match conn.negotiated_cipher_suite() {
+                        Some(suite) => suite.suite().as_str().unwrap_or("UNKNOWN").to_string(),
+                        None => String::new(),
+                    },
+                    protocol_version: match conn.protocol_version() {
+                        Some(version) => version.as_str().unwrap_or("UNKNOWN").to_string(),
+                        None => String::new(),
+                    },
+                    ..Default::default()
+                };
+
+                if let Some(certs) = conn.peer_certificates() {
+                    let peer_cert = &certs[0];
+                    if let Ok(cert) = X509::from_der(peer_cert.as_ref()) {
+                        tls_info.subject_name = subject_name(&cert);
+                    }
+                }
+
+                if !tls_info.cipher.is_empty() {
+                    self.meta.set_meta("tls_cipher", tls_info.cipher.clone());
+                }
+                if !tls_info.protocol_version.is_empty() {
+                    self.meta
+                        .set_meta("tls_protocol_version", tls_info.protocol_version.clone());
+                }
+                if !tls_info.subject_name.is_empty() {
+                    self.meta
+                        .set_meta("tls_peer_subject_name", tls_info.subject_name.clone());
+                }
+
+                self.tls_active = Some(tls_info);
+
+                self.socket
+                    .replace(Box::new(stream) as BoxedAsyncReadAndWrite);
+                Ok(true)
+            }
+            Err(err) => {
+                tracing::debug!("TLS handshake failed: {err:#}");
+                Ok(false)
             }
         }
     }
@@ -2229,10 +2404,10 @@ impl SmtpServerSession {
         }
         self.read_buffer.drain(0..consumed_bytes);
 
-        if addr.is_some() {
-            let old_peer = self.peer_address.clone();
+        if let Some(addr) = addr {
+            let old_peer = self.peer_address;
 
-            self.peer_address = addr.unwrap();
+            self.peer_address = addr;
             self.meta
                 .set_meta("orig_received_from", self.orig_peer_address.to_string());
             self.meta
@@ -2250,10 +2425,10 @@ impl SmtpServerSession {
                 when: Utc::now(),
             });
         }
-        if dest_addr.is_some() {
-            let old_via = self.my_address.clone();
+        if let Some(dest_addr) = dest_addr {
+            let old_via = self.my_address;
 
-            self.my_address = dest_addr.unwrap();
+            self.my_address = dest_addr;
             self.meta
                 .set_meta("orig_received_via", self.orig_my_address.to_string());
             self.meta
@@ -2305,14 +2480,11 @@ impl SmtpServerSession {
         let mut dest_port: Option<u16> = None;
 
         for p in params {
-            let name = &p.name;
-            let value = &p.value;
-
-            if name.eq_ignore_ascii_case("ADDR") {
-                let Ok(ip) = value.parse::<IpAddr>() else {
+            if p.is_name("ADDR") {
+                let Ok(ip) = p.parse::<IpAddr>() else {
                     self.write_response(
                         501,
-                        format!("ADDR {value} is invalid"),
+                        format!("ADDR {} is invalid", p.value),
                         None,
                         RejectDisconnect::If421,
                     )
@@ -2320,11 +2492,11 @@ impl SmtpServerSession {
                     return Ok(());
                 };
                 addr.replace(ip);
-            } else if name.eq_ignore_ascii_case("PORT") {
-                let Ok(v) = value.parse::<u16>() else {
+            } else if p.is_name("PORT") {
+                let Ok(v) = p.parse::<u16>() else {
                     self.write_response(
                         501,
-                        format!("PORT {value} is invalid"),
+                        format!("PORT {} is invalid", p.value),
                         None,
                         RejectDisconnect::If421,
                     )
@@ -2332,11 +2504,11 @@ impl SmtpServerSession {
                     return Ok(());
                 };
                 port.replace(v);
-            } else if name.eq_ignore_ascii_case("DESTADDR") {
-                let Ok(ip) = value.parse::<IpAddr>() else {
+            } else if p.is_name("DESTADDR") {
+                let Ok(ip) = p.parse::<IpAddr>() else {
                     self.write_response(
                         501,
-                        format!("ADDR {value} is invalid"),
+                        format!("DESTADDR {} is invalid", p.value),
                         None,
                         RejectDisconnect::If421,
                     )
@@ -2344,11 +2516,11 @@ impl SmtpServerSession {
                     return Ok(());
                 };
                 dest_addr.replace(ip);
-            } else if name.eq_ignore_ascii_case("DESTPORT") {
-                let Ok(v) = value.parse::<u16>() else {
+            } else if p.is_name("DESTPORT") {
+                let Ok(v) = p.parse::<u16>() else {
                     self.write_response(
                         501,
-                        format!("PORT {value} is invalid"),
+                        format!("DESTPORT {} is invalid", p.value),
                         None,
                         RejectDisconnect::If421,
                     )
@@ -2359,7 +2531,7 @@ impl SmtpServerSession {
             } else {
                 self.write_response(
                     501,
-                    format!("parameter {name} is not supported"),
+                    format!("parameter {} is not supported", p.name),
                     None,
                     RejectDisconnect::If421,
                 )
@@ -2369,7 +2541,7 @@ impl SmtpServerSession {
         }
 
         if addr.is_some() || port.is_some() {
-            let old_peer = self.peer_address.clone();
+            let old_peer = self.peer_address;
 
             let new_addr = addr.unwrap_or(old_peer.ip());
             let new_port = port.unwrap_or(old_peer.port());
@@ -2395,7 +2567,7 @@ impl SmtpServerSession {
         }
 
         if dest_addr.is_some() || dest_port.is_some() {
-            let old_via = self.my_address.clone();
+            let old_via = self.my_address;
 
             let new_addr = dest_addr.unwrap_or(old_via.ip());
             let new_port = dest_port.unwrap_or(old_via.port());
@@ -2469,10 +2641,18 @@ impl SmtpServerSession {
 
     async fn process_auth(
         &mut self,
-        line: String,
         sasl_mech: String,
         initial_response: Option<String>,
     ) -> anyhow::Result<CommandDisposition> {
+        let had_initial_response = initial_response.is_some();
+        // Masks the credential for failures reported against this command line.
+        let line = redacted_auth_command(&sasl_mech, had_initial_response);
+        let redacted_response = if had_initial_response {
+            line.clone()
+        } else {
+            REDACTED.to_string()
+        };
+
         if self.authentication_id.is_some() {
             self.write_response(
                 503,
@@ -2514,14 +2694,26 @@ impl SmtpServerSession {
             return Ok(CommandDisposition::Continue);
         }
 
-        let response = if let Some(r) = initial_response {
+        let raw_response = if let Some(r) = initial_response {
             r
         } else {
             self.write_response(334, " ", None, RejectDisconnect::If421)
                 .await?;
+            // The client's credential arrives on this continuation line;
+            // redacted_response, computed above, already masks it.
             match self.read_line(Some(16384)).await? {
                 ReadLine::Disconnected => return Ok(CommandDisposition::Terminate),
-                ReadLine::Line(line) => line,
+                ReadLine::Line(raw) => raw,
+                ReadLine::InvalidUtf8 => {
+                    self.write_response(
+                        501,
+                        "5.5.2 Invalid UTF-8 in authentication exchange",
+                        Some(line),
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
+                    return Ok(CommandDisposition::Continue);
+                }
                 ReadLine::TimedOut => {
                     self.write_response(
                         421,
@@ -2555,7 +2747,7 @@ impl SmtpServerSession {
             }
         };
 
-        if response == "*" {
+        if raw_response == "*" {
             self.write_response(
                 501,
                 "5.5.0 AUTH cancelled by client",
@@ -2566,7 +2758,10 @@ impl SmtpServerSession {
             return Ok(CommandDisposition::Continue);
         }
 
-        let Ok(payload) = BASE64.decode(response.as_bytes()) else {
+        // Keep decoding raw_response for the credential fields below, but log
+        // only the redacted `response` from here on.
+        let response = redacted_response;
+        let Ok(payload) = BASE64.decode(raw_response.as_bytes()) else {
             self.write_response(
                 501,
                 "5.5.2 Invalid base64 response",
@@ -2782,7 +2977,7 @@ impl SmtpServerSession {
                         when: Utc::now(),
                     });
 
-                    mailparsing::normalize_crlf_in_place(&mut data);
+                    data = mailparsing::normalize_crlf(&data);
                 }
             }
         }
@@ -2845,7 +3040,7 @@ impl SmtpServerSession {
         // any real work
         let mut accepted_messages = vec![];
 
-        let datestamp = Utc::now().to_rfc2822();
+        let datestamp = mailparsing::format_rfc2822_date(Utc::now());
 
         // For multiple recipient messages, `batches` holds how we will
         // split and track delivery.
@@ -2886,14 +3081,11 @@ impl SmtpServerSession {
                         for recip in base_message.recipient_list().await? {
                             by_domain
                                 .entry(recip.domain().to_lowercase())
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push(recip);
                         }
 
-                        batches = by_domain
-                            .into_iter()
-                            .map(|(_keys, values)| values)
-                            .collect();
+                        batches = by_domain.into_values().collect();
                     }
                 }
             }
@@ -3113,7 +3305,7 @@ impl SmtpServerSession {
                     log_arf: relay_disposition.log_arf,
                     log_oob: relay_disposition.log_oob,
                     will_enqueue: relay_this_one,
-                    was_arf_or_oob: was_arf_or_oob,
+                    was_arf_or_oob,
                     queue: queue_name.clone(),
                     meta: meta_obj,
                     sender,
@@ -3160,10 +3352,32 @@ impl SmtpServerSession {
                             .await;
                         }
 
-                        if err.root_cause().is::<tokio::time::error::Elapsed>() {
+                        // The rocksdb spool layer owns the timeout
+                        // for its own writes and produces a typed
+                        // error per source (caller vs spool's
+                        // internal backpressure deadline).  Other
+                        // Spool implementations (current or future)
+                        // may surface a raw `Elapsed` instead, which
+                        // we treat the same as the typed caller
+                        // deadline error: both mean the caller's
+                        // deadline elapsed during the save.
+                        let root = err.root_cause();
+                        if root.is::<spool::SpoolCallerDeadlineExceeded>()
+                            || root.is::<tokio::time::error::Elapsed>()
+                        {
                             self.write_response(
                                 451,
                                 "4.4.5 data_processing_timeout exceeded (spool)",
+                                Some("DATA".into()),
+                                RejectDisconnect::If421,
+                            )
+                            .await?;
+                            return Ok(());
+                        }
+                        if root.is::<spool::SpoolBackpressureTimeout>() {
+                            self.write_response(
+                                451,
+                                "4.4.5 spool write timed out",
                                 Some("DATA".into()),
                                 RejectDisconnect::If421,
                             )
@@ -3183,6 +3397,7 @@ impl SmtpServerSession {
                 peer_address: Some(&ResolvedAddress {
                     name: self.said_hello.as_deref().unwrap_or("").to_string(),
                     addr: self.peer_address.ip().into(),
+                    is_secure: false,
                 }),
                 response: Response {
                     code: 250,
@@ -3360,6 +3575,7 @@ const MAX_LINE_LEN: usize = 998;
 #[derive(PartialEq)]
 enum ReadLine {
     Line(String),
+    InvalidUtf8,
     TooLong,
     ShuttingDown,
     TimedOut,
@@ -3393,13 +3609,31 @@ fn unstuff(data: Vec<u8>) -> Vec<u8> {
     data
 }
 
-fn check_line_lengths(data: &[u8], limit: usize) -> bool {
+/// Check that every line in `data` is within `limit` bytes, excluding the line
+/// terminator.
+///
+/// When `split_bare_line_endings` is false, only CRLF terminates a line. When
+/// true, a bare CR or LF also terminates a line. Without that, a message using
+/// bare LF between lines looks like one oversized line to the CRLF-only scan.
+fn check_line_lengths(data: &[u8], limit: usize, split_bare_line_endings: bool) -> bool {
     let mut last_index = 0;
-    for idx in CRLF.find_iter(data) {
-        if idx - last_index > limit {
-            return false;
+    if split_bare_line_endings {
+        // A CRLF yields a zero-length segment between the CR and the LF, which
+        // is within any limit, so treating each byte as a terminator measures
+        // CRLF, bare CR, and bare LF lines alike.
+        for idx in memchr::memchr2_iter(b'\r', b'\n', data) {
+            if idx - last_index > limit {
+                return false;
+            }
+            last_index = idx + 1;
         }
-        last_index = idx + 2 /* CRLF */;
+    } else {
+        for idx in CRLF.find_iter(data) {
+            if idx - last_index > limit {
+                return false;
+            }
+            last_index = idx + 2 /* CRLF */;
+        }
     }
     data.len() - last_index <= limit
 }
@@ -3460,6 +3694,7 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
             "DeferredSmtpInjectionDispatcher only supports a batch size of 1"
         );
         let msg = msgs.pop().expect("just verified that there is one");
+        dispatcher.set_detail("deferred_smtp_inject");
 
         msg.set_meta("queue", serde_json::Value::Null).await?;
 
@@ -3612,18 +3847,37 @@ mod test {
 
     #[test]
     fn line_lengths() {
-        assert!(check_line_lengths(b"hello", 78));
-        assert!(check_line_lengths(b"hello", 5));
-        assert!(!check_line_lengths(b"hello", 4));
+        assert!(check_line_lengths(b"hello", 78, false));
+        assert!(check_line_lengths(b"hello", 5, false));
+        assert!(!check_line_lengths(b"hello", 4, false));
 
         assert!(check_line_lengths(
             b"hello there\r\nanother line over there\r\n",
-            78
+            78,
+            false
         ));
         assert!(!check_line_lengths(
             b"hello there\r\nanother line over there\r\n",
-            12
+            12,
+            false
         ));
-        assert!(check_line_lengths(b"hello there\r\nhello there\r\n", 12));
+        assert!(check_line_lengths(
+            b"hello there\r\nhello there\r\n",
+            12,
+            false
+        ));
+
+        // With the CRLF-only scan, bare-LF lines read as one long line and are
+        // rejected. Splitting on bare line endings measures them per line.
+        assert!(!check_line_lengths(
+            b"hello there\nhello there\n",
+            12,
+            false
+        ));
+        assert!(check_line_lengths(b"hello there\nhello there\n", 12, true));
+        // A truly long line is still rejected in both modes.
+        assert!(!check_line_lengths(b"hello there\nhello there\n", 4, true));
+        // Bare CR is a line terminator when splitting.
+        assert!(check_line_lengths(b"hello there\rhello there\r", 12, true));
     }
 }

@@ -86,7 +86,7 @@ impl<'a> MessageBuilder<'a> {
                 "multipart/alternative",
                 vec![t?, amp?, h?],
                 if self.stable_content {
-                    Some("ma-boundary")
+                    Some(b"ma-boundary")
                 } else {
                     None
                 },
@@ -97,7 +97,7 @@ impl<'a> MessageBuilder<'a> {
                 "multipart/alternative",
                 vec![first?, second?],
                 if self.stable_content {
-                    Some("ma-boundary")
+                    Some(b"ma-boundary")
                 } else {
                     None
                 },
@@ -124,7 +124,7 @@ impl<'a> MessageBuilder<'a> {
                 "multipart/related",
                 parts,
                 if self.stable_content {
-                    Some("mr-boundary")
+                    Some(b"mr-boundary")
                 } else {
                     None
                 },
@@ -141,7 +141,7 @@ impl<'a> MessageBuilder<'a> {
                 "multipart/mixed",
                 parts,
                 if self.stable_content {
-                    Some("mm-boundary")
+                    Some(b"mm-boundary")
                 } else {
                     None
                 },
@@ -159,7 +159,7 @@ impl<'a> MessageBuilder<'a> {
         if root.headers().date()?.is_none() {
             if self.stable_content {
                 root.headers_mut().set_date(
-                    chrono::DateTime::parse_from_rfc2822("Tue, 1 Jul 2003 10:52:37 +0200")
+                    crate::parse_rfc2822_date("Tue, 1 Jul 2003 10:52:37 +0200")
                         .expect("test date to be valid"),
                 )?;
             } else {
@@ -191,6 +191,7 @@ impl<'a> std::ops::DerefMut for MessageBuilder<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use bstr::BString;
 
     #[test]
     fn basic() {
@@ -201,12 +202,12 @@ mod test {
         b.text_html("<b>this is html 🚀</b>");
         let msg = b.build().unwrap();
         k9::snapshot!(
-            msg.to_message_string(),
+            BString::from(msg.to_message_bytes().unwrap()),
             r#"
 Content-Type: multipart/alternative;\r
 \tboundary="ma-boundary"\r
 Subject: =?UTF-8?q?Hello_there!_=F0=9F=8D=89?=\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 Date: Tue, 1 Jul 2003 10:52:37 +0200\r
 \r
 --ma-boundary\r
@@ -251,12 +252,12 @@ Hello World in AMP!
         );
         let msg = b.build().unwrap();
         k9::snapshot!(
-            msg.to_message_string(),
+            BString::from(msg.to_message_bytes().unwrap()),
             r#"
 Content-Type: multipart/alternative;\r
 \tboundary="ma-boundary"\r
 Subject: =?UTF-8?q?Hello_there!_=F0=9F=8D=89?=\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 Date: Tue, 1 Jul 2003 10:52:37 +0200\r
 \r
 --ma-boundary\r
@@ -304,19 +305,19 @@ Content-Transfer-Encoding: quoted-printable\r
             b"hello",
             Some(&AttachmentOptions {
                 content_id: None,
-                file_name: Some("日本語の添付.txt".to_string()),
+                file_name: Some("日本語の添付.txt".into()),
                 inline: false,
             }),
         )
         .unwrap();
         let msg = b.build().unwrap();
         k9::snapshot!(
-            msg.to_message_string(),
+            BString::from(msg.to_message_bytes().unwrap()),
             r#"
 Content-Type: multipart/mixed;\r
 \tboundary="mm-boundary"\r
 Subject: =?UTF-8?q?Hello_there!_=F0=9F=8D=89?=\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 Date: Tue, 1 Jul 2003 10:52:37 +0200\r
 \r
 --mm-boundary\r
@@ -330,7 +331,7 @@ Content-Disposition: attachment;\r
 \tfilename*0*=UTF-8''%E6%97%A5%E6%9C%AC%E8%AA%9E%E3%81%AE%E6%B7%BB%E4%BB%98.;\r
 \tfilename*1*=txt\r
 Content-Type: text/plain;\r
-\tname="=?UTF-8?q?=E6=97=A5=E6=9C=AC=E8=AA=9E=E3=81=AE=E6=B7=BB=E4=BB=98.txt?="\r
+\tname="=?UTF-8?q?=E6=97=A5=E6=9C=AC=E8=AA=9E=E3=81=AE=E6=B7=BB=E4=BB=98=2Etxt?="\r
 Content-Transfer-Encoding: base64\r
 \r
 aGVsbG8=\r

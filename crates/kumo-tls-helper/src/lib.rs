@@ -186,7 +186,6 @@ impl TlsOptions {
                 let data = pem.as_ref().clone().into_vec();
                 let mut reader = BufReader::new(data.as_slice());
                 let certs = certs(&mut reader)
-                    .into_iter()
                     .map(|r| r.map(CertificateDer::into_owned))
                     .collect::<Result<Vec<CertificateDer<'static>>, std::io::Error>>()?;
                 Ok(Some(Arc::new(certs)))
@@ -204,7 +203,6 @@ impl TlsOptions {
                 let pkcs8_keys: Vec<PrivateKeyDer<'static>> = {
                     let mut reader = BufReader::new(data.as_slice());
                     rustls_pemfile::pkcs8_private_keys(&mut reader)
-                        .into_iter()
                         .map(|r| r.map(PrivateKeyDer::Pkcs8))
                         .collect::<Result<Vec<PrivateKeyDer<'static>>, std::io::Error>>()?
                 };
@@ -217,7 +215,6 @@ impl TlsOptions {
                 let rsa_keys: Vec<PrivateKeyDer<'static>> = {
                     let mut reader = BufReader::new(data.as_slice());
                     rustls_pemfile::rsa_private_keys(&mut reader)
-                        .into_iter()
                         .map(|r| r.map(PrivateKeyDer::Pkcs1))
                         .collect::<Result<Vec<PrivateKeyDer<'static>>, std::io::Error>>()?
                 };
@@ -230,7 +227,6 @@ impl TlsOptions {
                 let ec_keys: Vec<PrivateKeyDer<'static>> = {
                     let mut reader = BufReader::new(data.as_slice());
                     rustls_pemfile::ec_private_keys(&mut reader)
-                        .into_iter()
                         .map(|r| r.map(PrivateKeyDer::Sec1))
                         .collect::<Result<Vec<PrivateKeyDer<'static>>, std::io::Error>>()?
                 };
@@ -261,8 +257,18 @@ impl TlsOptions {
         if let (Some(cert_data), Some(key_data)) =
             (&self.certificate_from_pem, &self.private_key_from_pem)
         {
-            let cert = X509::from_pem(cert_data)?;
-            builder.set_certificate(&cert)?;
+            let certs = X509::stack_from_pem(cert_data)?;
+            let Some(leaf) = certs.first().cloned() else {
+                return Err(OpensslConnectorError::SslErrorStack(
+                    "certificate PEM data is empty".to_string(),
+                ));
+            };
+            builder.set_certificate(&leaf)?;
+
+            // Add intermediates
+            for cert in certs.iter().skip(1) {
+                builder.add_extra_chain_cert(cert.clone())?;
+            }
 
             let key = PKey::private_key_from_pem(key_data)?;
             builder.set_private_key(&key)?;
@@ -301,7 +307,7 @@ impl TlsOptions {
             let mut any_usable = false;
             for tlsa in &self.dane_tlsa {
                 let usable = config.dane_tlsa_add(
-                    match tlsa.cert_usage() {
+                    match tlsa.cert_usage {
                         CertUsage::PkixTa => DaneUsage::PKIX_TA,
                         CertUsage::PkixEe => DaneUsage::PKIX_EE,
                         CertUsage::DaneTa => DaneUsage::DANE_TA,
@@ -309,20 +315,20 @@ impl TlsOptions {
                         CertUsage::Unassigned(n) => DaneUsage::from_raw(n),
                         CertUsage::Private => DaneUsage::PRIV_CERT,
                     },
-                    match tlsa.selector() {
+                    match tlsa.selector {
                         Selector::Full => DaneSelector::CERT,
                         Selector::Spki => DaneSelector::SPKI,
                         Selector::Unassigned(n) => DaneSelector::from_raw(n),
                         Selector::Private => DaneSelector::PRIV_SEL,
                     },
-                    match tlsa.matching() {
+                    match tlsa.matching {
                         Matching::Raw => DaneMatchType::FULL,
                         Matching::Sha256 => DaneMatchType::SHA2_256,
                         Matching::Sha512 => DaneMatchType::SHA2_512,
                         Matching::Unassigned(n) => DaneMatchType::from_raw(n),
                         Matching::Private => DaneMatchType::PRIV_MATCH,
                     },
-                    tlsa.cert_data(),
+                    &tlsa.cert_data,
                 )?;
 
                 tracing::trace!("build_dane_connector usable={usable} {tlsa:?}");

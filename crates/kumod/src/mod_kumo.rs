@@ -6,17 +6,18 @@ use crate::smtp_server::{
     EsmtpDomain, EsmtpListenerParams, RejectDisconnect, RejectError, TraceHeaders,
 };
 use anyhow::Context;
-use config::{any_err, from_lua_value, get_or_create_module};
-use kumo_api_types::egress_path::EgressPathConfig;
+use config::{any_err, from_lua_value, get_or_create_module, SerdeWrappedValue};
+use kumo_api_types::egress_path::{EffectiveConstraints, EgressPathConfig};
 use kumo_log_types::rfc3464::ReportGenerationParams;
 use kumo_log_types::JsonLogRecord;
 use kumo_server_common::http_server::HttpListenerParams;
 use kumo_server_lifecycle::ShutdownSubcription;
 use mailparsing::MimePart;
-use message::{EnvelopeAddress, Message};
+use message::Message;
 use mlua::prelude::*;
 use mlua::{Lua, UserDataMethods, Value};
 use num_format::{Locale, ToFormattedString};
+use rfc5321::parser::EnvelopeAddress;
 use spool::SpoolId;
 use std::sync::Arc;
 use throttle::ThrottleSpec;
@@ -71,6 +72,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             };
             crate::http_server::inject_v1::set_httpinject_recipient_rate_limit(spec);
             Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "set_httpinject_concurrency_limit",
+        lua.create_function(move |_, limit: usize| {
+            crate::http_server::inject_v1::set_httpinject_concurrency_limit(limit).map_err(any_err)
         })?,
     )?;
 
@@ -181,6 +189,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let source = EgressSource::resolve(&source_name, &mut config)
                 .await
                 .map_err(any_err)?;
+            config.put();
             lua.to_value(&source)
         })?,
     )?;
@@ -192,6 +201,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let pool = EgressPool::resolve(pool_name.as_deref(), &mut config)
                 .await
                 .map_err(any_err)?;
+            config.put();
             lua.to_value(&pool)
         })?,
     )?;
@@ -206,6 +216,50 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     .map_err(any_err)?
                     .or_default();
                 lua.to_value(&path_config)
+            },
+        )?,
+    )?;
+
+    kumo_mod.set(
+        "compute_egress_path_config_constraints",
+        lua.create_function(
+            |lua,
+             (path_config, additional): (
+                SerdeWrappedValue<EgressPathConfig>,
+                Option<SerdeWrappedValue<EffectiveConstraints>>,
+            )| {
+                let extra = additional.as_ref().map(|s| &s.0);
+                lua.to_value(&path_config.0.compute_constraints(extra))
+            },
+        )?,
+    )?;
+
+    kumo_mod.set(
+        "compute_queue_config_constraints",
+        lua.create_function(|lua, queue_config: SerdeWrappedValue<QueueConfig>| {
+            lua.to_value(&queue_config.0.compute_constraints())
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "format_queue_config_toml",
+        lua.create_function(|_lua, queue_config: SerdeWrappedValue<QueueConfig>| {
+            mod_serde::toml_encode_pretty_compact(&queue_config.0).map_err(any_err)
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "format_egress_path_config_toml",
+        lua.create_function(|_lua, path_config: SerdeWrappedValue<EgressPathConfig>| {
+            mod_serde::toml_encode_pretty_compact(&path_config.0).map_err(any_err)
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "format_egress_path_config_constraints",
+        lua.create_function(
+            |_lua, constraints: SerdeWrappedValue<EffectiveConstraints>| {
+                Ok(constraints.0.to_human_string())
             },
         )?,
     )?;
@@ -284,14 +338,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             Some(report) => {
                 let recip = EnvelopeAddress::parse(&log_record.sender)
                     .context("log_record is somehow an invalid EnvelopeAddress")?;
-                let body = report.to_message_string();
+                let body = report.to_message_bytes()?;
 
                 let msg = Message::new_dirty(
                     SpoolId::new(),
                     EnvelopeAddress::null_sender(),
                     vec![recip],
                     serde_json::json!({}),
-                    Arc::new(body.as_bytes().to_vec().into_boxed_slice()),
+                    Arc::new(body.into_boxed_slice()),
                 )?;
                 Ok(Some(msg))
             }

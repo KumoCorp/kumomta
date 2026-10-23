@@ -256,7 +256,11 @@ about the `supplemental_trace` field.
         },
 
         // The original message or message headers, if provided in
-        // the report
+        // the report. This is emitted as a JSON string when the
+        // bytes are valid UTF-8, and falls back to a JSON array of
+        // byte values otherwise so that non-UTF-8 content is not
+        // lossily transcoded. The same fallback applies to the
+        // values in the `extensions` map above.
         "original_message": "From: <somesender@example.net>
 Received: from mailserver.example.net (mailserver.example.net
     [192.0.2.1]) by example.com with ESMTP id M63d4137594e46;

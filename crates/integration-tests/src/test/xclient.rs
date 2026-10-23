@@ -1,7 +1,7 @@
 use crate::kumod::DaemonWithMaildirOptions;
 use anyhow::Context;
 use kumo_api_types::TraceSmtpV1Payload::Callback;
-use rfc5321::{Command, XClientParameter};
+use rfc5321::parser::{Command, XClientParameter};
 use std::time::Duration;
 
 #[tokio::test]

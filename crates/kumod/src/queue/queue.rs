@@ -32,6 +32,7 @@ use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on};
 use kumo_template::TemplateEngine;
+use mailexchanger::MxResolveError;
 use message::queue_name::QueueNameComponents;
 use message::Message;
 use parking_lot::FairMutex;
@@ -136,8 +137,10 @@ impl Queue {
                 // queue for this domain.
                 // We'll base it off the effective routing domain, but throw in a string to
                 // help indicate at a glance that there is an issue with its DNS
-                let reason = format!("{err:#}");
-                let reason = if reason.contains("NXDOMAIN") {
+                let reason = if err
+                    .downcast_ref::<MxResolveError>()
+                    .is_some_and(MxResolveError::is_nxdomain)
+                {
                     "NXDOMAIN"
                 } else {
                     // Any other DNS resolution failure
@@ -319,6 +322,7 @@ impl Queue {
             if let Ok(queue_config) = Queue::call_get_queue_config(&self.name, &mut config).await {
                 match EgressPool::resolve(queue_config.egress_pool.as_deref(), &mut config).await {
                     Ok(pool) => {
+                        config.put();
                         if !self.source_selector.load().equivalent(&pool) {
                             self.source_selector
                                 .store(EgressPoolSourceSelector::new(&pool).into());
@@ -400,7 +404,9 @@ impl Queue {
                         &REBIND_MESSAGE_SIG,
                         (msg.clone(), rebind.request.data.clone()),
                     )
-                    .await
+                    .await?;
+                config.put();
+                Ok(())
             } else {
                 for (k, v) in &rebind.request.data {
                     msg.set_meta(k, v.clone()).await?;
@@ -1158,6 +1164,18 @@ impl Queue {
         mut context: InsertContext,
         deadline: Option<Instant>,
     ) -> anyhow::Result<()> {
+        // Spool-health check goes before any other admin action.  A
+        // bounce or suspend cleanup would call into the spool's
+        // remove path that we cannot satisfy while unhealthy, so we
+        // hold the message until either the gate clears or the
+        // process is restarted.
+        if let Some(reason) = crate::spool::delivery_suspension_reason() {
+            return crate::spool::log_and_requeue_for_unhealthy_spool(
+                msg, &self.name, None, reason,
+            )
+            .await;
+        }
+
         if let Some(b) =
             AdminBounceEntry::cached_get_for_queue_name(&self.name, &self.active_bounce)
         {
@@ -1336,7 +1354,7 @@ impl Queue {
 
     #[instrument(skip(self, msg))]
     async fn insert_ready_impl(
-        &self,
+        self: &Arc<Self>,
         msg: Message,
         context: &mut InsertContext,
         deadline: Option<Instant>,
@@ -1353,6 +1371,7 @@ impl Queue {
                     .select_and_insert(
                         &self.name,
                         &self.queue_config,
+                        self,
                         msg.clone(),
                         self.get_config_epoch(),
                         deadline,
@@ -1591,12 +1610,12 @@ impl Queue {
                                         {expanded_maildir_path} for queue {name}"
                                     )
                                 })?;
-                                Ok(md.store_new(&msg_data).with_context(|| {
+                                md.store_new(&msg_data).with_context(|| {
                                     format!(
                                         "failed to store message to maildir \
                                         {expanded_maildir_path} for queue {name}"
                                     )
-                                })?)
+                                })
                             }
                         },
                         &get_main_runtime(),
@@ -1620,10 +1639,7 @@ impl Queue {
                 if !successes.is_empty() {
                     let mut status = vec![];
                     for (recipient, id) in successes {
-                        status.push(format!(
-                            "{}: wrote to maildir with id={id}",
-                            recipient.to_string()
-                        ));
+                        status.push(format!("{}: wrote to maildir with id={id}", recipient));
                     }
                     let status = status.join(", ");
                     log_disposition(LogDisposition {
@@ -1656,7 +1672,7 @@ impl Queue {
                     for (recipient, err) in failures {
                         status.push(format!(
                             "{}: failed to write to maildir: {err:#}",
-                            recipient.to_string()
+                            recipient
                         ));
                         remaining_recipient_list.push(recipient);
                     }

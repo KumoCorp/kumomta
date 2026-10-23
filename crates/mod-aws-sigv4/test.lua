@@ -8,7 +8,8 @@ local utils = require 'policy-extras.policy_utils'
 -- Fixed timestamp so that signatures are deterministic for testing.
 local FIXED_TIME = '2025-11-21T20:04:15Z'
 
--- Example 1: Basic S3 GET request signature
+-- Example 1: Basic S3 GET request signature.
+-- S3 requires x-amz-content-sha256 to be signed.
 local result = crypto.aws_sign_v4 {
   access_key = {
     key_data = 'AKIAIOSFODNN7EXAMPLE',
@@ -30,9 +31,10 @@ local result = crypto.aws_sign_v4 {
 
 utils.assert_eq(
   result.authorization,
-  'AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20251121/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=4b59c9035eb4883857b0be8815678ee9a00179e4f4ac98b8ec79237e2d41dc4b'
+  'AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20251121/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=b438a29cae8b5d9fd3634e7b70ea4fdedb1fea96260aae6a9cf2e6b0ad5a4028'
 )
 
+-- Example 2: SNS POST. Non-S3 services do not auto-add x-amz-content-sha256.
 local sns_payload =
   'Action=Publish&Message=test&TopicArn=arn:aws:sns:us-east-1:123456789012:test'
 
@@ -58,7 +60,7 @@ local result2 = crypto.aws_sign_v4 {
 
 utils.assert_eq(
   result2.authorization,
-  'AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20251121/us-east-1/sns/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, Signature=6b5274220a51821b2293cde3ad7317e2b8dda14240e29de8e63e8f81869e4f91'
+  'AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20251121/us-east-1/sns/aws4_request, SignedHeaders=content-type;host;x-amz-date, Signature=2b3db398c42cb0d2476ff7d66f97406a9d276d1404e219e2e6e3be8606a981ef'
 )
 
 -- Example 3: SQS request with query parameters
@@ -87,7 +89,7 @@ local result3 = crypto.aws_sign_v4 {
 
 utils.assert_eq(
   result3.authorization,
-  'AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20251121/us-east-1/sqs/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=27ccd47c88383aa24294feb1adaad19fffd4f49657be40599d52425f2179c416'
+  'AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20251121/us-east-1/sqs/aws4_request, SignedHeaders=host;x-amz-date, Signature=4551d656b1ae2d3e2468ae3dad8ec2cba0fb489920e1260a4c7f64189a8f814d'
 )
 
 -- Example 4: Using external key source (KeySource)
@@ -153,5 +155,5 @@ local result5 = crypto.aws_sign_v4 {
 
 utils.assert_eq(
   result5.authorization,
-  'AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20251121/us-east-1/firehose/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date;x-amz-target, Signature=e1d98cf03e5cbd7abd909cce023c05cfd8ff51923c96d76798e261ae67307752'
+  'AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20251121/us-east-1/firehose/aws4_request, SignedHeaders=content-type;host;x-amz-date;x-amz-target, Signature=1d743f74da9abd6399416b5871a74ac3453766ccdb3d60b481e45a8b19549851'
 )

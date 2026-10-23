@@ -17,10 +17,19 @@ kumo.on('init', function()
     relay_hosts = { '0.0.0.0/0' },
     batch_handling = 'BatchByDomain',
     max_recipients_per_message = 4,
-    -- This client_timeout value is coupled with assumptions
+    -- The default client_timeout is coupled with assumptions
     -- in disconnect_peer_idle_out!
-    client_timeout = '3s',
+    client_timeout = os.getenv 'KUMOD_TEST_SINK_CLIENT_TIMEOUT' or '3s',
+    -- A capturing sink should store what it receives without rewriting it,
+    -- so it does not prepend its own X-KumoRef supplemental trace header.
+    trace_headers = {
+      supplemental_header = false,
+    },
   }
+  local tls_mode = os.getenv 'KUMOD_TEST_SINK_TLS_MODE'
+  if tls_mode then
+    smtp_params.tls_mode = tls_mode
+  end
   local client_ca = os.getenv 'KUMOD_CLIENT_REQUIRED_CA'
   if client_ca then
     smtp_params.tls_required_client_ca = {
@@ -51,11 +60,13 @@ kumo.on('init', function()
   }
 
   kumo.define_spool {
+    kind = 'RocksDB',
     name = 'data',
     path = TEST_DIR .. '/data-spool',
   }
 
   kumo.define_spool {
+    kind = 'RocksDB',
     name = 'meta',
     path = TEST_DIR .. '/meta-spool',
   }

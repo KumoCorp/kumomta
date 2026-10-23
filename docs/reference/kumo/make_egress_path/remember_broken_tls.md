@@ -10,10 +10,10 @@ subset of them are problematic for reasons that can include:
  * Misconfigured CN
  * Expired certificates
 
-These can cause issues when it comes to reliably enabling TLS for a given
-session when running in `Opportunistic` TLS mode; since the broken TLS can
-prevent re-using the existing session in clear text we can end up failing
-to connect to any of the candidate hosts for a given site.
+In `Opportunistic` TLS mode, a broken STARTTLS handshake fails that
+connection attempt, and every subsequent attempt to the same host repeats
+the same failed handshake. If every candidate host for a site has broken
+TLS, we end up failing to connect to any of them.
 
 That is where this option comes into play: when it is set to a duration
 string, that will cause `kumod` to remember that a given site has broken

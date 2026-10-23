@@ -1,3 +1,7 @@
+---
+description: Explore the KumoMTA architecture, built in Rust on Tokio for modern multi-core systems, with a high-performance RocksDB spool and advanced message queueing.
+---
+
 # KumoMTA Architecture
 
 KumoMTA was built with large-scale sending in mind.  Here are a few key ideas
@@ -11,9 +15,9 @@ that shape the implementation:
   asynchronous data flushing that enable the best performance while minimizing
   the risk of low-durability deferred spooling solutions.
 * **Advanced Queueing** - KumoMTA has first-class support for queuing based on the combination of
-  *tenant*, *campaign* and destination site.  Having separate queues make it
+  _tenant_, _campaign_ and destination site.  Having separate queues makes it
   easier to see and manage your traffic.
-* **Native MX Rollup** - The *Destination Site* concept makes it easier to shape traffic to big receiving sites
+* **Native MX Rollup** - The _Destination Site_ concept makes it easier to shape traffic to big receiving sites
   that provide service for many domains. Rather than shaping based on just the
   domain name, KumoMTA will traverse the MX records for the destination and use
   that information as the basis for shaping. As a result, KumoMTA sees all

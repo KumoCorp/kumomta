@@ -1,9 +1,13 @@
+---
+description: Integrate Tatami Monitor with KumoMTA for real-time email infrastructure monitoring and alerting, using a webhook log hook to stream event data.
+---
+
 # Tatami Monitor integration
 
 ## Introduction
 
-[Tatami Monitor](https://tatamimonitor.com/) is an email monitoring and alerting platform that brings real-time insights to your email infrastructure. This integration describes how to us
-e Tatami Monitor with KumoMTA.
+[Tatami Monitor](https://tatamimonitor.com/) is an email monitoring and alerting platform that brings real-time insights to your email infrastructure. This integration describes how to use
+Tatami Monitor with KumoMTA.
 
 ## Instructions
 
@@ -34,7 +38,7 @@ log_hooks:new_json {
 
 5) If you need to, you can modify the `log_parameters` as per [https://docs.kumomta.com/reference/kumo/configure_log_hook/](https://docs.kumomta.com/reference/kumo/configure_log_hook/)
 
-If you have done everything right, you should see your data fill the Tatami Monitor feed almost immediately.
+You should see your data fill the Tatami Monitor feed almost immediately.
 
 
 

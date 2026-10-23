@@ -1,3 +1,7 @@
+---
+description: Install KumoMTA in a Docker container using the official ghcr.io images, creating an init.lua policy script to start the MTA in stable or dev releases.
+---
+
 # Installing KumoMTA in a Docker container
 
 Our CI builds the latest version of our image and publishes it
@@ -45,8 +49,8 @@ kumo.on('smtp_server_message_received', function(msg)
 end)
 ```
 
-When we launch the image, we want to mount our `init.lua` file into the image
-and tell it to use it.  The default location for this is `/opt/kumomta/etc/policy`:
+When you launch the container, mount your `init.lua` file into it so that
+kumod can use it.  The default location for this is `/opt/kumomta/etc/policy`:
 
 ```console
 $ sudo docker run --rm -p 2025:25 \

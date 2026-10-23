@@ -6,9 +6,11 @@ use config::any_err;
 #[cfg(feature = "lua")]
 use config::serialize_options;
 #[cfg(feature = "lua")]
-use dns_resolver::{fully_qualify, MailExchanger};
+use dns_resolver::fully_qualify;
 #[cfg(feature = "lua")]
 use kumo_log_types::JsonLogRecord;
+#[cfg(feature = "lua")]
+use mailexchanger::MailExchanger;
 #[cfg(feature = "lua")]
 use mlua::prelude::LuaUserData;
 #[cfg(feature = "lua")]
@@ -205,7 +207,7 @@ pub enum Action {
     BounceCampaign,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, Hash, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum Trigger {
     /// Trigger on the first match, immediately
     #[default]
@@ -342,7 +344,7 @@ impl ShapingInner {
     }
 
     pub async fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<Rule>> {
-        use rfc5321::ForwardPath;
+        use rfc5321::parser::ForwardPath;
         // Extract the domain from the recipient.
         let recipient = ForwardPath::try_from(
             record
@@ -745,6 +747,11 @@ impl Shaping {
                     let mx = match mx.get(&domain) {
                         Some(Ok(mx)) => mx,
                         Some(Err(err)) => {
+                            tracing::debug!(
+                                target: "shaping_load",
+                                %domain,
+                                "dropping domain from shaping: MX resolve failed: {err:#}"
+                            );
                             collector.push(
                                 options.dns_fail,
                                 format!(
@@ -755,6 +762,11 @@ impl Shaping {
                             continue;
                         }
                         None => {
+                            tracing::debug!(
+                                target: "shaping_load",
+                                %domain,
+                                "dropping domain from shaping: MX was not resolved"
+                            );
                             collector.push(
                                 options.dns_fail,
                                 format!(
@@ -775,6 +787,13 @@ impl Shaping {
                         );
                         continue;
                     }
+
+                    tracing::trace!(
+                        target: "shaping_load",
+                        %domain,
+                        site_name = %mx.site_name,
+                        "domain resolved to site_name"
+                    );
 
                     site_aliases
                         .entry(mx.site_name.to_string())
@@ -883,16 +902,23 @@ impl Shaping {
             ctx.update(provider);
             prov.hash_into(&mut ctx);
         }
-        ctx.update("warnings");
-        for warn in &collector.warnings {
-            ctx.update(warn);
-        }
-        ctx.update("errors");
-        for err in &collector.errors {
-            ctx.update(err);
-        }
+        // collector.warnings and collector.errors are deliberately left out of
+        // the hash: we want hash() to identify the configuration, not this
+        // particular load of it. Some diagnostic text includes details such as
+        // elapsed query time that vary between otherwise-identical loads.
         let hash = ctx.finalize();
         let hash = data_encoding::HEXLOWER.encode(&hash);
+
+        tracing::debug!(
+            target: "shaping_load",
+            %hash,
+            sites = by_site.len(),
+            domains = by_domain.len(),
+            providers = by_provider.len(),
+            warnings = collector.warnings.len(),
+            errors = collector.errors.len(),
+            "merged shaping config"
+        );
 
         Ok(Self {
             inner: Arc::new(ShapingInner {
@@ -1562,6 +1588,62 @@ mod test {
     }
 
     #[tokio::test]
+    async fn hash_excludes_diagnostics() {
+        let content = r#"
+["example.com"]
+mx_rollup = false
+connection_limit = 5
+"#;
+        let mut file = NamedTempFile::with_prefix("shaping").unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+        let path = file.path().to_str().unwrap().to_string();
+
+        // skip_remote records a warning for a remote source without fetching
+        // it, giving a warning whose presence is independent of the merged
+        // content. This isolates the warning from the by_site/by_domain/
+        // by_provider data the hash is computed over.
+        let options = ShapingMergeOptions {
+            skip_remote: true,
+            ..ShapingMergeOptions::default()
+        };
+
+        let without_warning = Shaping::merge_files(std::slice::from_ref(&path), &options)
+            .await
+            .unwrap();
+        let with_warning = Shaping::merge_files(
+            &[
+                path.clone(),
+                "https://example.invalid/shaping.toml".to_string(),
+            ],
+            &options,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            without_warning.get_warnings().is_empty(),
+            "the content-only load should record no warnings"
+        );
+        assert!(
+            !with_warning.get_warnings().is_empty(),
+            "the skipped remote source should record a warning"
+        );
+        // Identical merged content with and without a warning must hash the
+        // same: the hash covers configuration only.
+        k9::assert_equal!(without_warning.hash(), with_warning.hash());
+
+        // A real content change must still change the hash.
+        let changed = content.replace("connection_limit = 5", "connection_limit = 6");
+        let mut changed_file = NamedTempFile::with_prefix("shaping").unwrap();
+        changed_file.write_all(changed.as_bytes()).unwrap();
+        let changed_path = changed_file.path().to_str().unwrap().to_string();
+        let changed = Shaping::merge_files(&[changed_path], &options)
+            .await
+            .unwrap();
+        assert_ne!(without_warning.hash(), changed.hash());
+    }
+
+    #[tokio::test]
     async fn test_merge_additional() {
         let shaping = make_shaping_configs(&[
             r#"
@@ -1724,6 +1806,19 @@ regex="fake_rollup"
 action = {SetConfig={name="connection_limit", value=2}}
 duration = "1hr"
 
+["((a|b).x|c.y).targets.test"]
+_treat_domain_name_as_site_name = true
+connection_limit = 11
+
+[["((a|b).x|c.y).targets.test".automation]]
+regex="nested_rollup"
+action = {SetConfig={name="connection_limit", value=3}}
+duration = "1hr"
+
+["((a|c).x|b.y).targets.test"]
+_treat_domain_name_as_site_name = true
+connection_limit = 22
+
 ["woot.provider"]
 mx_rollup = false
 
@@ -1827,6 +1922,36 @@ match_internal = true
             "matches against domain rule with mx_rollup=true"
         );
 
+        let nested_a = "((a|b).x|c.y).targets.test";
+        let nested_b = "((a|c).x|b.y).targets.test";
+        for (site, expected) in [(nested_a, 11), (nested_b, 22)] {
+            let config = shaping
+                .get_egress_path_config("example.test", "unspecified", site)
+                .await
+                .finish()
+                .unwrap();
+            assert_eq!(config.params.connection_limit.limit, expected);
+        }
+        let matches = shaping
+            .match_rules(&make_record(
+                "nested_rollup",
+                "user@example.test",
+                &format!("unspecified->{nested_a}@smtp_client"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].regex[0].to_string(), "nested_rollup");
+        assert!(shaping
+            .match_rules(&make_record(
+                "nested_rollup",
+                "user@example.test",
+                &format!("unspecified->{nested_b}@smtp_client")
+            ))
+            .await
+            .unwrap()
+            .is_empty());
+
         let matches = shaping
             .match_rules(&make_record("provider", "user@woot.provider", "dummy_site"))
             .await
@@ -1854,8 +1979,7 @@ match_internal = true
 
     #[tokio::test]
     async fn test_defaults() {
-        let shaping = make_shaping_configs(&[
-            r#"
+        let shaping = make_shaping_configs(&[r#"
 ["default"]
 connection_limit = 10
 max_connection_rate = "100/min"
@@ -1880,11 +2004,6 @@ action = [
         {SetConfig={name="connection_limit", value=1}}
 ]
 duration = "90m"
-
-[["default".automation]]
-regex="KumoMTA internal: failed to connect to any candidate hosts: All failures are related to OpportunisticInsecure STARTTLS. Consider setting enable_tls=Disabled for this site"
-action = {SetConfig={name="enable_tls", value="Disabled"}}
-duration = "30 days"
 
 ["gmail.com"]
 max_deliveries_per_connection = 50
@@ -1924,8 +2043,7 @@ connection_limit = 3
 
 ["example.com".sources."my source name"]
 connection_limit = 5
-        "#,
-        ])
+        "#])
         .await;
 
         let default = shaping
@@ -1941,6 +2059,7 @@ MergedEntry {
         connection_limit: 10,
         additional_connection_limits: {},
         enable_tls: Opportunistic,
+        tls_mode: StartTls,
         enable_mta_sts: true,
         enable_dane: false,
         enable_pipelining: true,
@@ -1972,6 +2091,7 @@ MergedEntry {
         smtp_auth_plain_username: None,
         smtp_auth_plain_password: None,
         allow_smtp_auth_plain_without_tls: false,
+        allow_smtp_auth_plain_without_valid_certificate: false,
         max_message_rate: Some(
             100/s,
         ),
@@ -1990,6 +2110,8 @@ MergedEntry {
         },
         skip_hosts: {},
         ip_lookup_strategy: Ipv4AndIpv6,
+        max_mx_plan_size: 50,
+        max_mx_addresses_per_host: 10,
         ehlo_domain: None,
         aggressive_connection_opening: false,
         refresh_interval: 60s,
@@ -2006,6 +2128,7 @@ MergedEntry {
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
         ignore_8bit_checks: false,
+        dispatcher_progress_watchdog_timeout: None,
     },
     sources: {},
     automation: [
@@ -2054,29 +2177,6 @@ MergedEntry {
             was_rollup: false,
             match_internal: false,
         },
-        Rule {
-            regex: [
-                Regex(
-                    KumoMTA internal: failed to connect to any candidate hosts: All failures are related to OpportunisticInsecure STARTTLS. Consider setting enable_tls=Disabled for this site,
-                ),
-            ],
-            action: [
-                SetConfig(
-                    EgressPathConfigValue {
-                        name: "enable_tls",
-                        value: HashableTomlValue {
-                            value: String(
-                                "Disabled",
-                            ),
-                        },
-                    },
-                ),
-            ],
-            trigger: Immediate,
-            duration: 2592000s,
-            was_rollup: false,
-            match_internal: false,
-        },
     ],
 }
 "#
@@ -2095,6 +2195,7 @@ MergedEntry {
         connection_limit: 3,
         additional_connection_limits: {},
         enable_tls: Opportunistic,
+        tls_mode: StartTls,
         enable_mta_sts: true,
         enable_dane: false,
         enable_pipelining: true,
@@ -2126,6 +2227,7 @@ MergedEntry {
         smtp_auth_plain_username: None,
         smtp_auth_plain_password: None,
         allow_smtp_auth_plain_without_tls: false,
+        allow_smtp_auth_plain_without_valid_certificate: false,
         max_message_rate: Some(
             100/s,
         ),
@@ -2144,6 +2246,8 @@ MergedEntry {
         },
         skip_hosts: {},
         ip_lookup_strategy: Ipv4AndIpv6,
+        max_mx_plan_size: 50,
+        max_mx_addresses_per_host: 10,
         ehlo_domain: None,
         aggressive_connection_opening: false,
         refresh_interval: 60s,
@@ -2160,12 +2264,14 @@ MergedEntry {
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
         ignore_8bit_checks: false,
+        dispatcher_progress_watchdog_timeout: None,
     },
     sources: {
         "my source name": EgressPathConfig {
             connection_limit: 5,
             additional_connection_limits: {},
             enable_tls: Opportunistic,
+            tls_mode: StartTls,
             enable_mta_sts: true,
             enable_dane: false,
             enable_pipelining: true,
@@ -2197,6 +2303,7 @@ MergedEntry {
             smtp_auth_plain_username: None,
             smtp_auth_plain_password: None,
             allow_smtp_auth_plain_without_tls: false,
+            allow_smtp_auth_plain_without_valid_certificate: false,
             max_message_rate: None,
             additional_message_rate_throttles: {},
             source_selection_rate: None,
@@ -2211,6 +2318,8 @@ MergedEntry {
             },
             skip_hosts: {},
             ip_lookup_strategy: Ipv4AndIpv6,
+            max_mx_plan_size: 50,
+            max_mx_addresses_per_host: 10,
             ehlo_domain: None,
             aggressive_connection_opening: false,
             refresh_interval: 60s,
@@ -2227,6 +2336,7 @@ MergedEntry {
             no_memory_reduction_policy: ShrinkDataAndMeta,
             try_next_host_on_transport_error: false,
             ignore_8bit_checks: false,
+            dispatcher_progress_watchdog_timeout: None,
         },
     },
     automation: [
@@ -2275,29 +2385,6 @@ MergedEntry {
             was_rollup: false,
             match_internal: false,
         },
-        Rule {
-            regex: [
-                Regex(
-                    KumoMTA internal: failed to connect to any candidate hosts: All failures are related to OpportunisticInsecure STARTTLS. Consider setting enable_tls=Disabled for this site,
-                ),
-            ],
-            action: [
-                SetConfig(
-                    EgressPathConfigValue {
-                        name: "enable_tls",
-                        value: HashableTomlValue {
-                            value: String(
-                                "Disabled",
-                            ),
-                        },
-                    },
-                ),
-            ],
-            trigger: Immediate,
-            duration: 2592000s,
-            was_rollup: false,
-            match_internal: false,
-        },
     ],
 }
 "#
@@ -2322,6 +2409,7 @@ MergedEntry {
         connection_limit: 10,
         additional_connection_limits: {},
         enable_tls: Opportunistic,
+        tls_mode: StartTls,
         enable_mta_sts: true,
         enable_dane: false,
         enable_pipelining: true,
@@ -2353,6 +2441,7 @@ MergedEntry {
         smtp_auth_plain_username: None,
         smtp_auth_plain_password: None,
         allow_smtp_auth_plain_without_tls: false,
+        allow_smtp_auth_plain_without_valid_certificate: false,
         max_message_rate: Some(
             100/s,
         ),
@@ -2371,6 +2460,8 @@ MergedEntry {
         },
         skip_hosts: {},
         ip_lookup_strategy: Ipv4AndIpv6,
+        max_mx_plan_size: 50,
+        max_mx_addresses_per_host: 10,
         ehlo_domain: None,
         aggressive_connection_opening: false,
         refresh_interval: 60s,
@@ -2387,6 +2478,7 @@ MergedEntry {
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
         ignore_8bit_checks: false,
+        dispatcher_progress_watchdog_timeout: None,
     },
     sources: {},
     automation: [
@@ -2432,29 +2524,6 @@ MergedEntry {
             ],
             trigger: Immediate,
             duration: 5400s,
-            was_rollup: false,
-            match_internal: false,
-        },
-        Rule {
-            regex: [
-                Regex(
-                    KumoMTA internal: failed to connect to any candidate hosts: All failures are related to OpportunisticInsecure STARTTLS. Consider setting enable_tls=Disabled for this site,
-                ),
-            ],
-            action: [
-                SetConfig(
-                    EgressPathConfigValue {
-                        name: "enable_tls",
-                        value: HashableTomlValue {
-                            value: String(
-                                "Disabled",
-                            ),
-                        },
-                    },
-                ),
-            ],
-            trigger: Immediate,
-            duration: 2592000s,
             was_rollup: false,
             match_internal: false,
         },

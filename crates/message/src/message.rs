@@ -5,12 +5,12 @@ use crate::dkim::Signer;
 use crate::dkim::SIGN_POOL;
 pub use crate::queue_name::QueueNameComponents;
 use crate::scheduling::Scheduling;
-use crate::EnvelopeAddress;
 use anyhow::Context;
+use bstr::{BString, ByteSlice, ByteVec};
 use chrono::{DateTime, Utc};
 #[cfg(feature = "impl")]
-use config::{any_err, from_lua_value, serialize_options};
-use futures::FutureExt;
+use config::{any_err, from_lua_value, serialize_options, SerdeWrappedValue};
+use futures::{FutureExt, TryFutureExt};
 use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListAtomicLink};
 use kumo_chrono_helper::*;
 #[cfg(feature = "impl")]
@@ -28,11 +28,14 @@ use mlua::{IntoLua, LuaSerdeExt, UserData, UserDataMethods};
 #[cfg(feature = "impl")]
 use mod_dns_resolver::get_resolver_instance;
 use parking_lot::Mutex;
+use rfc5321::parser::EnvelopeAddress;
 use serde::{Deserialize, Serialize};
 use serde_with::formats::PreferOne;
 use serde_with::{serde_as, OneOrMany};
 use spool::{get_data_spool, get_meta_spool, Spool, SpoolId};
+use std::collections::{BTreeMap, HashSet};
 use std::hash::Hash;
+use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, LazyLock, Weak};
 use std::time::{Duration, Instant};
 use timeq::TimerEntryWithDelay;
@@ -122,13 +125,166 @@ declare_metric! {
 static LOAD_META_HIST: Histogram("message_meta_load_latency");
 }
 
+/// Keeps MESSAGE_COUNT incremented for the lifetime of a `MessageInner`.
+///
+/// Binding the count to construction and `Drop` makes it impossible to
+/// create or destroy a message without the gauge tracking it. The guard is
+/// zero-sized and costs no storage.
+#[derive(Debug)]
+struct MessageGuard;
+
+impl MessageGuard {
+    fn new() -> Self {
+        MESSAGE_COUNT.inc();
+        Self
+    }
+}
+
+impl Drop for MessageGuard {
+    fn drop(&mut self) {
+        MESSAGE_COUNT.dec();
+    }
+}
+
+/// Keeps META_COUNT incremented while resident metadata is held. See
+/// [`MessageGuard`] for the zero-sized guard pattern.
+#[derive(Debug)]
+struct MetaGuard;
+
+impl MetaGuard {
+    fn new() -> Self {
+        META_COUNT.inc();
+        Self
+    }
+}
+
+impl Drop for MetaGuard {
+    fn drop(&mut self) {
+        META_COUNT.dec();
+    }
+}
+
+/// Keeps DATA_COUNT incremented while resident body data is held. See
+/// [`MessageGuard`] for the zero-sized guard pattern.
+#[derive(Debug)]
+struct DataGuard;
+
+impl DataGuard {
+    fn new() -> Self {
+        DATA_COUNT.inc();
+        Self
+    }
+}
+
+impl Drop for DataGuard {
+    fn drop(&mut self) {
+        DATA_COUNT.dec();
+    }
+}
+
+/// Message metadata resident in memory. Holding one keeps META_COUNT
+/// incremented. Dropping it releases the count.
+#[derive(Debug)]
+struct ResidentMeta {
+    value: Box<MetaData>,
+    _guard: MetaGuard,
+}
+
+impl ResidentMeta {
+    fn new(value: Box<MetaData>) -> Self {
+        Self {
+            value,
+            _guard: MetaGuard::new(),
+        }
+    }
+}
+
+impl Deref for ResidentMeta {
+    type Target = MetaData;
+    fn deref(&self) -> &MetaData {
+        &self.value
+    }
+}
+
+impl DerefMut for ResidentMeta {
+    fn deref_mut(&mut self) -> &mut MetaData {
+        &mut self.value
+    }
+}
+
+/// Message body data resident in memory, counted in DATA_COUNT while held. A
+/// resident body is always non-empty. An empty body is the absence of a
+/// `ResidentData` (`None`).
+#[derive(Debug)]
+struct ResidentData {
+    value: Arc<Box<[u8]>>,
+    _guard: DataGuard,
+}
+
+impl ResidentData {
+    fn new(value: Arc<Box<[u8]>>) -> Self {
+        Self {
+            value,
+            _guard: DataGuard::new(),
+        }
+    }
+
+    /// Wraps `value` as a resident body, or yields `None` when it is empty.
+    fn maybe(value: Arc<Box<[u8]>>) -> Option<Self> {
+        if value.is_empty() {
+            None
+        } else {
+            Some(Self::new(value))
+        }
+    }
+}
+
 #[derive(Debug)]
 struct MessageInner {
-    metadata: Option<Box<MetaData>>,
-    data: Arc<Box<[u8]>>,
+    metadata: Option<ResidentMeta>,
+    data: Option<ResidentData>,
     flags: MessageFlags,
     num_attempts: u16,
     due: Option<DateTime<Utc>>,
+    _live: MessageGuard,
+}
+
+impl MessageInner {
+    /// Returns the resident body, or the shared empty buffer when the body is
+    /// not resident. The returned `Arc` is a handle to the bytes and does not
+    /// affect DATA_COUNT.
+    fn data_arc(&self) -> Arc<Box<[u8]>> {
+        match &self.data {
+            Some(resident) => resident.value.clone(),
+            None => NO_DATA.clone(),
+        }
+    }
+
+    /// Installs `data` as the resident body, or clears it when `data` is empty.
+    fn set_data(&mut self, data: Arc<Box<[u8]>>) {
+        if data.is_empty() {
+            self.data = None;
+        } else if let Some(resident) = &mut self.data {
+            // Reuse the existing DATA_COUNT guard instead of dropping and
+            // recreating it. A resident-to-resident update never touches the
+            // gauge.
+            resident.value = data;
+        } else {
+            self.data = Some(ResidentData::new(data));
+        }
+    }
+
+    /// Installs `metadata` as the resident metadata.
+    fn set_metadata(&mut self, metadata: Box<MetaData>) {
+        if let Some(resident) = &mut self.metadata {
+            // Reuse the existing META_COUNT guard instead of dropping and
+            // recreating it. A resident-to-resident update never touches the
+            // gauge.
+            resident.value = metadata;
+        } else {
+            self.metadata = Some(ResidentMeta::new(metadata));
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -296,18 +452,6 @@ pub(crate) struct MetaData {
     pub schedule: Option<Scheduling>,
 }
 
-impl Drop for MessageInner {
-    fn drop(&mut self) {
-        if self.metadata.is_some() {
-            META_COUNT.dec();
-        }
-        if !self.data.is_empty() {
-            DATA_COUNT.dec();
-        }
-        MESSAGE_COUNT.dec();
-    }
-}
-
 impl Message {
     /// Create a new message with the supplied data.
     /// The message meta and data are marked as dirty
@@ -319,23 +463,21 @@ impl Message {
         data: Arc<Box<[u8]>>,
     ) -> anyhow::Result<Self> {
         anyhow::ensure!(meta.is_object(), "metadata must be a json object");
-        MESSAGE_COUNT.inc();
-        DATA_COUNT.inc();
-        META_COUNT.inc();
         Ok(Self {
             msg_and_id: Arc::new(MessageWithId {
                 id,
                 inner: Mutex::new(MessageInner {
-                    metadata: Some(Box::new(MetaData {
+                    metadata: Some(ResidentMeta::new(Box::new(MetaData {
                         sender,
                         recipient,
                         meta,
                         schedule: None,
-                    })),
-                    data,
+                    }))),
+                    data: ResidentData::maybe(data),
                     flags: MessageFlags::META_DIRTY | MessageFlags::DATA_DIRTY,
                     num_attempts: 0,
                     due: None,
+                    _live: MessageGuard::new(),
                 }),
                 link: LinkedListAtomicLink::default(),
             }),
@@ -353,8 +495,6 @@ impl Message {
     /// a message holding the deserialized version of that metadata.
     pub fn new_from_spool(id: SpoolId, metadata: Vec<u8>) -> anyhow::Result<Self> {
         let metadata: MetaData = serde_json::from_slice(&metadata)?;
-        MESSAGE_COUNT.inc();
-        META_COUNT.inc();
 
         let flags = if metadata.schedule.is_some() {
             MessageFlags::SCHEDULED
@@ -366,11 +506,12 @@ impl Message {
             msg_and_id: Arc::new(MessageWithId {
                 id,
                 inner: Mutex::new(MessageInner {
-                    metadata: Some(Box::new(metadata)),
-                    data: NO_DATA.clone(),
+                    metadata: Some(ResidentMeta::new(Box::new(metadata))),
+                    data: None,
                     flags,
                     num_attempts: 0,
                     due: None,
+                    _live: MessageGuard::new(),
                 }),
                 link: LinkedListAtomicLink::default(),
             }),
@@ -378,9 +519,6 @@ impl Message {
     }
 
     pub(crate) fn new_from_parts(id: SpoolId, metadata: MetaData, data: Arc<Box<[u8]>>) -> Self {
-        MESSAGE_COUNT.inc();
-        META_COUNT.inc();
-
         let flags = if metadata.schedule.is_some() {
             MessageFlags::SCHEDULED
         } else {
@@ -391,11 +529,12 @@ impl Message {
             msg_and_id: Arc::new(MessageWithId {
                 id,
                 inner: Mutex::new(MessageInner {
-                    metadata: Some(Box::new(metadata)),
-                    data,
+                    metadata: Some(ResidentMeta::new(Box::new(metadata))),
+                    data: ResidentData::maybe(data),
                     flags: flags | MessageFlags::META_DIRTY | MessageFlags::DATA_DIRTY,
                     num_attempts: 0,
                     due: None,
+                    _live: MessageGuard::new(),
                 }),
                 link: LinkedListAtomicLink::default(),
             }),
@@ -433,6 +572,7 @@ impl Message {
             None => anyhow::bail!("set_scheduling: metadata must be loaded first"),
             Some(meta) => {
                 meta.schedule = scheduling;
+                inner.flags.set(MessageFlags::META_DIRTY, true);
                 inner
                     .flags
                     .set(MessageFlags::SCHEDULED, scheduling.is_some());
@@ -529,7 +669,7 @@ impl Message {
     fn get_data_if_dirty(&self) -> Option<Arc<Box<[u8]>>> {
         let inner = self.msg_and_id.inner.lock();
         if inner.flags.contains(MessageFlags::DATA_DIRTY) {
-            Some(Arc::clone(&inner.data))
+            Some(inner.data_arc())
         } else {
             None
         }
@@ -584,24 +724,26 @@ impl Message {
             .flags
             .contains(MessageFlags::FORCE_SYNC);
 
-        let data_fut = if let Some(data) = self.get_data_if_dirty() {
-            anyhow::ensure!(!data.is_empty(), "message data must not be empty");
-            data_spool
-                .store(self.msg_and_id.id, data, force_sync, deadline)
-                .map(|_| true)
-                .boxed()
-        } else {
-            futures::future::ready(false).boxed()
-        };
-        let meta_fut = if let Some(meta) = self.get_meta_if_dirty() {
-            let meta = Arc::new(serde_json::to_vec(&meta)?.into_boxed_slice());
-            meta_spool
-                .store(self.msg_and_id.id, meta, force_sync, deadline)
-                .map(|_| true)
-                .boxed()
-        } else {
-            futures::future::ready(false).boxed()
-        };
+        let data_fut: futures::future::BoxFuture<'_, anyhow::Result<bool>> =
+            if let Some(data) = self.get_data_if_dirty() {
+                anyhow::ensure!(!data.is_empty(), "message data must not be empty");
+                data_spool
+                    .store(self.msg_and_id.id, data, force_sync, deadline)
+                    .map_ok(|_| true)
+                    .boxed()
+            } else {
+                futures::future::ready(Ok(false)).boxed()
+            };
+        let meta_fut: futures::future::BoxFuture<'_, anyhow::Result<bool>> =
+            if let Some(meta) = self.get_meta_if_dirty() {
+                let meta = Arc::new(serde_json::to_vec(&meta)?.into_boxed_slice());
+                meta_spool
+                    .store(self.msg_and_id.id, meta, force_sync, deadline)
+                    .map_ok(|_| true)
+                    .boxed()
+            } else {
+                futures::future::ready(Ok(false)).boxed()
+            };
 
         // NOTE: if we have a deadline, it is tempting to want to use
         // timeout_at here to enforce it, but the underlying spool
@@ -610,21 +752,59 @@ impl Message {
         // them to handle timeouts internally.
         let (data_res, meta_res) = tokio::join!(data_fut, meta_fut);
 
-        if data_res {
+        // Clear the dirty flag for each spool that successfully
+        // stored (Ok(true)).  Even when the other spool failed, we
+        // must still record the partial success: the caller may
+        // unwind by removing from both spools, and the remove on a
+        // spool that did not receive the data is harmless.
+        if matches!(data_res, Ok(true)) {
             self.msg_and_id
                 .inner
                 .lock()
                 .flags
                 .remove(MessageFlags::DATA_DIRTY);
         }
-        if meta_res {
+        if matches!(meta_res, Ok(true)) {
             self.msg_and_id
                 .inner
                 .lock()
                 .flags
                 .remove(MessageFlags::META_DIRTY);
         }
-        Ok(())
+
+        // Propagate spool errors so callers (notably the SMTP
+        // ingress path and load-shedding-aware code) can react
+        // rather than silently accepting a message whose persistent
+        // storage failed.
+        //
+        // For the both-failed case we preserve the typed
+        // SpoolUnhealthyError on the returned error chain when
+        // either side has one, so callers that match on
+        // root_cause (e.g. the SMTP server's user-facing 421
+        // shaping) still see the actionable reason.  The
+        // non-preferred error is folded into the context message so
+        // it is still visible to anything that formats the error
+        // with `:#`.
+        match (data_res, meta_res) {
+            (Ok(_), Ok(_)) => Ok(()),
+            (Err(data_err), Ok(_)) => Err(data_err.context("data spool store")),
+            (Ok(_), Err(meta_err)) => Err(meta_err.context("meta spool store")),
+            (Err(data_err), Err(meta_err)) => {
+                let data_unhealthy = data_err.root_cause().is::<::spool::SpoolUnhealthyError>();
+                let meta_unhealthy = meta_err.root_cause().is::<::spool::SpoolUnhealthyError>();
+                match (data_unhealthy, meta_unhealthy) {
+                    (true, _) => Err(data_err.context(format!(
+                        "data spool store; meta spool store also failed: {meta_err:#}"
+                    ))),
+                    (false, true) => Err(meta_err.context(format!(
+                        "meta spool store; data spool store also failed: {data_err:#}"
+                    ))),
+                    (false, false) => Err(anyhow::anyhow!(
+                        "data spool store: {data_err:#}; meta spool store: {meta_err:#}"
+                    )),
+                }
+            }
+        }
     }
 
     pub fn id(&self) -> &SpoolId {
@@ -649,12 +829,7 @@ impl Message {
         if inner.flags.contains(MessageFlags::DATA_DIRTY) {
             anyhow::bail!("Cannot shrink message: DATA_DIRTY");
         }
-        if !inner.data.is_empty() {
-            DATA_COUNT.dec();
-            did_shrink = true;
-        }
-        if !inner.data.is_empty() {
-            inner.data = NO_DATA.clone();
+        if inner.data.take().is_some() {
             did_shrink = true;
         }
         Ok(did_shrink)
@@ -670,15 +845,9 @@ impl Message {
             anyhow::bail!("Cannot shrink message: META_DIRTY");
         }
         if inner.metadata.take().is_some() {
-            META_COUNT.dec();
             did_shrink = true;
         }
-        if !inner.data.is_empty() {
-            DATA_COUNT.dec();
-            did_shrink = true;
-        }
-        if !inner.data.is_empty() {
-            inner.data = NO_DATA.clone();
+        if inner.data.take().is_some() {
             did_shrink = true;
         }
         Ok(did_shrink)
@@ -699,7 +868,7 @@ impl Message {
         match &mut inner.metadata {
             Some(meta) => {
                 meta.sender = sender;
-                inner.flags.set(MessageFlags::DATA_DIRTY, true);
+                inner.flags.set(MessageFlags::META_DIRTY, true);
                 Ok(())
             }
             None => anyhow::bail!("Message::set_sender: metadata is not loaded"),
@@ -753,7 +922,7 @@ impl Message {
         match &mut inner.metadata {
             Some(meta) => {
                 meta.recipient = recipient;
-                inner.flags.set(MessageFlags::DATA_DIRTY, true);
+                inner.flags.set(MessageFlags::META_DIRTY, true);
                 Ok(())
             }
             None => anyhow::bail!("Message::set_recipient_list: metadata is not loaded"),
@@ -765,7 +934,7 @@ impl Message {
     }
 
     pub fn is_data_loaded(&self) -> bool {
-        !self.msg_and_id.inner.lock().data.is_empty()
+        self.msg_and_id.inner.lock().data.is_some()
     }
 
     pub async fn load_meta_if_needed(&self) -> anyhow::Result<()> {
@@ -795,12 +964,8 @@ impl Message {
         let id = self.id();
         let data = meta_spool.load(*id).await?;
         let mut inner = self.msg_and_id.inner.lock();
-        let was_not_loaded = inner.metadata.is_none();
         let metadata: MetaData = serde_json::from_slice(&data)?;
-        inner.metadata.replace(Box::new(metadata));
-        if was_not_loaded {
-            META_COUNT.inc();
-        }
+        inner.set_metadata(Box::new(metadata));
         Ok(())
     }
 
@@ -813,29 +978,21 @@ impl Message {
         &self,
         data_spool: &(dyn Spool + Send + Sync),
     ) -> anyhow::Result<Arc<Box<[u8]>>> {
-        let data = data_spool.load(*self.id()).await?;
+        let data = Arc::new(data_spool.load(*self.id()).await?.into_boxed_slice());
         let mut inner = self.msg_and_id.inner.lock();
-        let was_empty = inner.data.is_empty();
-        inner.data = Arc::new(data.into_boxed_slice());
-        if was_empty {
-            DATA_COUNT.inc();
-        }
-        Ok(inner.data.clone())
+        inner.set_data(data.clone());
+        Ok(data)
     }
 
     pub fn assign_data(&self, data: Vec<u8>) {
         let mut inner = self.msg_and_id.inner.lock();
-        let was_empty = inner.data.is_empty();
-        inner.data = Arc::new(data.into_boxed_slice());
+        inner.set_data(Arc::new(data.into_boxed_slice()));
         inner.flags.set(MessageFlags::DATA_DIRTY, true);
-        if was_empty {
-            DATA_COUNT.inc();
-        }
     }
 
     pub fn get_data_maybe_not_loaded(&self) -> Arc<Box<[u8]>> {
         let inner = self.msg_and_id.inner.lock();
-        inner.data.clone()
+        inner.data_arc()
     }
 
     pub async fn set_meta<S: AsRef<str>, V: Into<serde_json::Value>>(
@@ -953,7 +1110,7 @@ impl Message {
     ) -> anyhow::Result<AuthenticationResult> {
         let resolver = get_resolver_instance(&opt_resolver_name)?;
         let data = self.data().await?;
-        let bytes = mailparsing::SharedString::try_from(data.as_ref().as_ref())?;
+        let bytes = mailparsing::SharedString::from(data.as_ref().as_ref());
 
         let parsed = mailparsing::Header::parse_headers(bytes.clone())?;
         let message = kumo_dkim::ParsedEmail::HeaderOnlyParse { bytes, parsed };
@@ -971,7 +1128,7 @@ impl Message {
     ) -> anyhow::Result<()> {
         let resolver = get_resolver_instance(&opt_resolver_name)?;
         let data = self.data().await?;
-        let bytes = mailparsing::SharedString::try_from(data.as_ref().as_ref())?;
+        let bytes = mailparsing::SharedString::from(data.as_ref().as_ref());
         let parsed = mailparsing::Header::parse_headers(bytes.clone())?;
         let message = kumo_dkim::ParsedEmail::HeaderOnlyParse { bytes, parsed };
         let arc = ARC::verify(&message, &**resolver).await;
@@ -997,7 +1154,7 @@ impl Message {
     ) -> anyhow::Result<Vec<AuthenticationResult>> {
         let resolver = get_resolver_instance(&opt_resolver_name)?;
         let data = self.data().await?;
-        let bytes = mailparsing::SharedString::try_from(data.as_ref().as_ref())?;
+        let bytes = mailparsing::SharedString::from(data.as_ref().as_ref());
 
         let parsed = mailparsing::Header::parse_headers(bytes.clone())?;
         if parsed
@@ -1005,52 +1162,16 @@ impl Message {
             .contains(MessageConformance::NON_CANONICAL_LINE_ENDINGS)
         {
             return Ok(vec![AuthenticationResult {
-                method: "dkim".to_string(),
+                method: "dkim".into(),
                 method_version: None,
-                result: "permerror".to_string(),
-                reason: Some("message has non-canonical line endings".to_string()),
+                result: "permerror".into(),
+                reason: Some("message has non-canonical line endings".into()),
                 props: Default::default(),
             }]);
         }
         let message = kumo_dkim::ParsedEmail::HeaderOnlyParse { bytes, parsed };
 
-        let from = match message.get_headers().from() {
-            Ok(Some(from)) if from.0.len() == 1 => from.0,
-            Ok(Some(from)) => {
-                return Ok(vec![AuthenticationResult {
-                    method: "dkim".to_string(),
-                    method_version: None,
-                    result: "permerror".to_string(),
-                    reason: Some(format!(
-                        "From header must have a single sender, found {}",
-                        from.len()
-                    )),
-                    props: Default::default(),
-                }]);
-            }
-            Ok(None) => {
-                return Ok(vec![AuthenticationResult {
-                    method: "dkim".to_string(),
-                    method_version: None,
-                    result: "permerror".to_string(),
-                    reason: Some("From header is missing".to_string()),
-                    props: Default::default(),
-                }]);
-            }
-            Err(err) => {
-                return Ok(vec![AuthenticationResult {
-                    method: "dkim".to_string(),
-                    method_version: None,
-                    result: "permerror".to_string(),
-                    reason: Some(format!("From header is invalid: {err:#}")),
-                    props: Default::default(),
-                }]);
-            }
-        };
-        let from_domain = &from[0].address.domain;
-
-        let results =
-            kumo_dkim::verify_email_with_resolver(from_domain, &message, &**resolver).await?;
+        let results = kumo_dkim::verify_email_with_resolver(&message, &**resolver).await?;
         Ok(results)
     }
 
@@ -1074,7 +1195,7 @@ impl Message {
         ARFReport::parse(&data)
     }
 
-    pub async fn prepend_header(&self, name: Option<&str>, value: &str) -> anyhow::Result<()> {
+    pub async fn prepend_header(&self, name: Option<&str>, value: &[u8]) -> anyhow::Result<()> {
         let data = self.data().await?;
         let mut new_data = Vec::with_capacity(size_header(name, value) + 2 + data.len());
         emit_header(&mut new_data, name, value);
@@ -1083,9 +1204,9 @@ impl Message {
         Ok(())
     }
 
-    pub async fn append_header(&self, name: Option<&str>, value: &str) -> anyhow::Result<()> {
+    pub async fn append_header(&self, name: Option<&str>, value: &[u8]) -> anyhow::Result<()> {
         let data = self.data().await?;
-        let mut new_data = Vec::with_capacity(size_header(name, value) + 2 + data.len());
+        let mut new_data = Vec::with_capacity(size_header(name, value.as_bytes()) + 2 + data.len());
         for (idx, window) in data.windows(4).enumerate() {
             if window == b"\r\n\r\n" {
                 let headers = &data[0..idx + 2];
@@ -1120,39 +1241,52 @@ impl Message {
         }
     }
 
-    pub async fn get_first_named_header_value(&self, name: &str) -> anyhow::Result<Option<String>> {
+    pub async fn get_first_named_header_value(
+        &self,
+        name: &str,
+    ) -> anyhow::Result<Option<BString>> {
         let data = self.data().await?;
         let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
         match headers.get_first(name) {
-            Some(hdr) => Ok(Some(hdr.as_unstructured()?)),
+            Some(hdr) => Ok(Some(
+                hdr.as_unstructured()
+                    .unwrap_or_else(|_| hdr.get_raw_value().into()),
+            )),
             None => Ok(None),
         }
     }
 
-    pub async fn get_all_named_header_values(&self, name: &str) -> anyhow::Result<Vec<String>> {
+    pub async fn get_all_named_header_values(&self, name: &str) -> anyhow::Result<Vec<BString>> {
         let data = self.data().await?;
         let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
         let mut values = vec![];
         for hdr in headers.iter_named(name) {
-            values.push(hdr.as_unstructured()?);
+            values.push(
+                hdr.as_unstructured()
+                    .unwrap_or_else(|_| hdr.get_raw_value().into()),
+            );
         }
         Ok(values)
     }
 
-    pub async fn get_all_headers(&self) -> anyhow::Result<Vec<(String, String)>> {
+    pub async fn get_all_headers(&self) -> anyhow::Result<Vec<(BString, BString)>> {
         let data = self.data().await?;
         let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
         let mut values = vec![];
         for hdr in headers.iter() {
-            values.push((hdr.get_name().to_string(), hdr.as_unstructured()?));
+            values.push((
+                hdr.get_name().into(),
+                hdr.as_unstructured()
+                    .unwrap_or_else(|_| hdr.get_raw_value().into()),
+            ));
         }
         Ok(values)
     }
 
-    pub async fn retain_headers<F: FnMut(&Header) -> bool>(
+    pub async fn retain_headers<F: FnMut(usize, &Header) -> bool>(
         &self,
         mut func: F,
     ) -> anyhow::Result<()> {
@@ -1163,8 +1297,8 @@ impl Message {
             body_offset,
             ..
         } = Header::parse_headers(data.as_ref().as_ref())?;
-        for hdr in headers.iter() {
-            let retain = (func)(hdr);
+        for (idx, hdr) in headers.iter().enumerate() {
+            let retain = (func)(idx, hdr);
             if !retain {
                 continue;
             }
@@ -1178,8 +1312,8 @@ impl Message {
 
     pub async fn remove_first_named_header(&self, name: &str) -> anyhow::Result<()> {
         let mut removed = false;
-        self.retain_headers(|hdr| {
-            if hdr.get_name().eq_ignore_ascii_case(name) && !removed {
+        self.retain_headers(|_, hdr| {
+            if hdr.get_name().eq_ignore_ascii_case(name.as_bytes()) && !removed {
                 removed = true;
                 false
             } else {
@@ -1190,37 +1324,80 @@ impl Message {
     }
 
     pub async fn import_x_headers(&self, names: Vec<String>) -> anyhow::Result<()> {
+        let specs = if names.is_empty() {
+            vec![ImportHeaderSpec {
+                name: "X-*".to_string(),
+                ..ImportHeaderSpec::default()
+            }]
+        } else {
+            names
+                .into_iter()
+                .map(|name| ImportHeaderSpec {
+                    name,
+                    ..ImportHeaderSpec::default()
+                })
+                .collect()
+        };
+        self.import_headers(specs).await
+    }
+
+    pub async fn import_headers(&self, specs: Vec<ImportHeaderSpec>) -> anyhow::Result<()> {
+        let compiled: Vec<CompiledImportHeaderSpec> = specs
+            .into_iter()
+            .map(CompiledImportHeaderSpec::compile)
+            .collect::<anyhow::Result<_>>()?;
+
         let data = self.data().await?;
         let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
-        for hdr in headers.iter() {
-            let do_import = if names.is_empty() {
-                is_x_header(hdr.get_name())
-            } else {
-                is_header_in_names_list(hdr.get_name(), &names)
-            };
-            if do_import {
-                let name = imported_header_name(hdr.get_name());
-                self.set_meta(name, hdr.as_unstructured()?).await?;
+        let mut accumulators: Vec<PerSpecAccumulator> = compiled
+            .iter()
+            .map(|s| PerSpecAccumulator::new(s.match_mode))
+            .collect();
+        let mut indices_to_remove: HashSet<usize> = HashSet::new();
+
+        for (idx, hdr) in headers.iter().enumerate() {
+            let hdr_name = hdr.get_name();
+            for (spec_idx, spec) in compiled.iter().enumerate() {
+                if spec.matches(hdr_name) {
+                    let key = spec.target_key(&hdr.get_name_lossy());
+                    let value = hdr.as_unstructured()?.to_str_lossy().to_string();
+                    accumulators[spec_idx].record(key, value);
+                    if spec.remove {
+                        indices_to_remove.insert(idx);
+                    }
+                    break;
+                }
             }
+        }
+
+        for acc in accumulators {
+            acc.write_to(self).await?;
+        }
+
+        if !indices_to_remove.is_empty() {
+            self.retain_headers(|idx, _| !indices_to_remove.contains(&idx))
+                .await?;
         }
 
         Ok(())
     }
 
     pub async fn remove_x_headers(&self, names: Vec<String>) -> anyhow::Result<()> {
-        self.retain_headers(|hdr| {
+        self.retain_headers(|_, hdr| {
             if names.is_empty() {
                 !is_x_header(hdr.get_name())
             } else {
-                !is_header_in_names_list(hdr.get_name(), &names)
+                !names
+                    .iter()
+                    .any(|n| hdr.get_name().eq_ignore_ascii_case(n.as_bytes()))
             }
         })
         .await
     }
 
     pub async fn remove_all_named_headers(&self, name: &str) -> anyhow::Result<()> {
-        self.retain_headers(|hdr| !hdr.get_name().eq_ignore_ascii_case(name))
+        self.retain_headers(|_, hdr| !hdr.get_name().eq_ignore_ascii_case(name.as_bytes()))
             .await
     }
 
@@ -1232,7 +1409,7 @@ impl Message {
         } else {
             signer.sign(&data)?
         };
-        self.prepend_header(None, &header).await?;
+        self.prepend_header(None, header.as_bytes()).await?;
         Ok(())
     }
 
@@ -1242,7 +1419,7 @@ impl Message {
         remove: bool,
     ) -> anyhow::Result<Option<Scheduling>> {
         if let Some(value) = self.get_first_named_header_value(header_name).await? {
-            let sched: Scheduling = serde_json::from_str(&value).with_context(|| {
+            let sched: Scheduling = serde_json::from_slice(&value).with_context(|| {
                 format!("{value} from header {header_name} is not a valid Scheduling header")
             })?;
             let result = self.set_scheduling(Some(sched)).await?;
@@ -1264,13 +1441,13 @@ impl Message {
         if let Some(p) = parts.text_part.and_then(|p| msg.resolve_ptr_mut(p)) {
             match p.body()? {
                 DecodedBody::Text(text) => {
-                    let mut text = text.as_str().to_string();
+                    let mut text = text.as_bytes().to_vec();
                     text.push_str("\r\n");
                     text.push_str(content);
-                    p.replace_text_body("text/plain", &text)?;
+                    p.replace_text_body("text/plain", &*text)?;
 
-                    let new_data = msg.to_message_string();
-                    self.assign_data(new_data.into_bytes());
+                    let new_data = msg.to_message_bytes()?;
+                    self.assign_data(new_data);
                     Ok(true)
                 }
                 DecodedBody::Binary(_) => {
@@ -1289,7 +1466,7 @@ impl Message {
         if let Some(p) = parts.html_part.and_then(|p| msg.resolve_ptr_mut(p)) {
             match p.body()? {
                 DecodedBody::Text(text) => {
-                    let mut text = text.as_str().to_string();
+                    let mut text = text.as_bytes().to_vec();
 
                     match text.rfind("</body>").or_else(|| text.rfind("</BODY>")) {
                         Some(idx) => {
@@ -1303,10 +1480,10 @@ impl Message {
                         }
                     }
 
-                    p.replace_text_body("text/html", &text)?;
+                    p.replace_text_body("text/html", &*text)?;
 
-                    let new_data = msg.to_message_string();
-                    self.assign_data(new_data.into_bytes());
+                    let new_data = msg.to_message_bytes()?;
+                    self.assign_data(new_data);
                     Ok(true)
                 }
                 DecodedBody::Binary(_) => {
@@ -1328,7 +1505,7 @@ impl Message {
         let data_bytes = data.as_ref().as_ref();
         let msg = MimePart::parse(data_bytes)?;
 
-        let mut settings = settings.map(Clone::clone).unwrap_or_default();
+        let mut settings = settings.cloned().unwrap_or_default();
 
         if fix.contains(MessageConformance::MISSING_MESSAGE_ID_HEADER)
             && settings.message_id.is_none()
@@ -1347,21 +1524,12 @@ impl Message {
         let opt_msg = msg.check_fix_conformance(check, fix, settings)?;
 
         if let Some(msg) = opt_msg {
-            let new_data = msg.to_message_string();
-            self.assign_data(new_data.into_bytes());
+            let new_data = msg.to_message_bytes()?;
+            self.assign_data(new_data);
         }
 
         Ok(())
     }
-}
-
-fn is_header_in_names_list(hdr_name: &str, names: &[String]) -> bool {
-    for name in names {
-        if hdr_name.eq_ignore_ascii_case(name) {
-            return true;
-        }
-    }
-    false
 }
 
 fn imported_header_name(name: &str) -> String {
@@ -1373,21 +1541,242 @@ fn imported_header_name(name: &str) -> String {
         .collect()
 }
 
-fn is_x_header(name: &str) -> bool {
-    name.starts_with("X-") || name.starts_with("x-")
+fn is_x_header(name: &[u8]) -> bool {
+    name.starts_with_str("X-") || name.starts_with_str("x-")
 }
 
-fn size_header(name: Option<&str>, value: &str) -> usize {
+#[derive(Default, Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchMode {
+    First,
+    #[default]
+    Last,
+    All,
+}
+
+#[derive(Default, Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NameTransform {
+    #[default]
+    SnakeCase,
+    KebabCase,
+    CamelCase,
+    PascalCase,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImportHeaderSpec {
+    pub name: String,
+    #[serde(default, rename = "match")]
+    pub match_mode: MatchMode,
+    #[serde(default)]
+    pub transform: NameTransform,
+    #[serde(default)]
+    pub target: Option<String>,
+    #[serde(default)]
+    pub remove: bool,
+}
+
+impl Default for ImportHeaderSpec {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            match_mode: MatchMode::default(),
+            transform: NameTransform::default(),
+            target: None,
+            remove: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum HeaderPattern {
+    /// Case-insensitive exact match.
+    Exact(String),
+    /// Matches any header whose name (case-insensitively) starts with the
+    /// given prefix. Built from a pattern like `X-*`.
+    Prefix(String),
+}
+
+#[derive(Debug, Clone)]
+struct CompiledImportHeaderSpec {
+    pattern: HeaderPattern,
+    match_mode: MatchMode,
+    transform: NameTransform,
+    target: Option<String>,
+    remove: bool,
+}
+
+impl CompiledImportHeaderSpec {
+    fn compile(spec: ImportHeaderSpec) -> anyhow::Result<Self> {
+        let pattern = compile_header_pattern(&spec.name)?;
+        if spec.target.is_some() && matches!(pattern, HeaderPattern::Prefix(_)) {
+            anyhow::bail!(
+                "import_headers: `target` cannot be used with wildcard pattern {:?}",
+                spec.name
+            );
+        }
+        Ok(Self {
+            pattern,
+            match_mode: spec.match_mode,
+            transform: spec.transform,
+            target: spec.target,
+            remove: spec.remove,
+        })
+    }
+
+    fn matches(&self, hdr_name: &[u8]) -> bool {
+        match &self.pattern {
+            HeaderPattern::Exact(s) => hdr_name.eq_ignore_ascii_case(s.as_bytes()),
+            HeaderPattern::Prefix(p) => {
+                hdr_name.len() >= p.len() && hdr_name[..p.len()].eq_ignore_ascii_case(p.as_bytes())
+            }
+        }
+    }
+
+    fn target_key(&self, matched_name: &str) -> String {
+        if let Some(target) = &self.target {
+            return target.clone();
+        }
+        apply_name_transform(matched_name, self.transform)
+    }
+}
+
+fn compile_header_pattern(pat: &str) -> anyhow::Result<HeaderPattern> {
+    if pat.is_empty() {
+        anyhow::bail!("import_headers: header name pattern must not be empty");
+    }
+    let star_count = pat.chars().filter(|c| *c == '*').count();
+    if star_count == 0 {
+        return Ok(HeaderPattern::Exact(pat.to_string()));
+    }
+    let Some(prefix) = pat.strip_suffix('*') else {
+        anyhow::bail!(
+            "import_headers: only a single trailing `*` is supported in pattern {:?}",
+            pat
+        );
+    };
+    if star_count > 1 {
+        anyhow::bail!(
+            "import_headers: only a single trailing `*` is supported in pattern {:?}",
+            pat
+        );
+    }
+    if prefix.is_empty() {
+        anyhow::bail!("import_headers: bare `*` patterns are not supported");
+    }
+    Ok(HeaderPattern::Prefix(prefix.to_string()))
+}
+
+fn apply_name_transform(name: &str, transform: NameTransform) -> String {
+    match transform {
+        NameTransform::SnakeCase => imported_header_name(name),
+        NameTransform::KebabCase => name
+            .split('-')
+            .map(|p| p.to_ascii_lowercase())
+            .collect::<Vec<_>>()
+            .join("-"),
+        NameTransform::CamelCase => name
+            .split('-')
+            .enumerate()
+            .map(|(i, p)| {
+                if i == 0 {
+                    p.to_ascii_lowercase()
+                } else {
+                    titlecase_ascii(p)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(""),
+        NameTransform::PascalCase => name
+            .split('-')
+            .map(titlecase_ascii)
+            .collect::<Vec<_>>()
+            .join(""),
+    }
+}
+
+fn titlecase_ascii(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => {
+            let mut out = String::with_capacity(s.len());
+            out.push(first.to_ascii_uppercase());
+            for c in chars {
+                out.push(c.to_ascii_lowercase());
+            }
+            out
+        }
+    }
+}
+
+enum AccValue {
+    Str(String),
+    Arr(Vec<String>),
+}
+
+struct PerSpecAccumulator {
+    mode: MatchMode,
+    by_key: BTreeMap<String, AccValue>,
+}
+
+impl PerSpecAccumulator {
+    fn new(mode: MatchMode) -> Self {
+        Self {
+            mode,
+            by_key: BTreeMap::new(),
+        }
+    }
+
+    fn record(&mut self, key: String, value: String) {
+        match self.mode {
+            MatchMode::First => {
+                self.by_key.entry(key).or_insert(AccValue::Str(value));
+            }
+            MatchMode::Last => {
+                self.by_key.insert(key, AccValue::Str(value));
+            }
+            MatchMode::All => {
+                let entry = self
+                    .by_key
+                    .entry(key)
+                    .or_insert_with(|| AccValue::Arr(Vec::new()));
+                if let AccValue::Arr(v) = entry {
+                    v.push(value);
+                }
+            }
+        }
+    }
+
+    async fn write_to(self, msg: &Message) -> anyhow::Result<()> {
+        for (key, value) in self.by_key {
+            match value {
+                AccValue::Str(s) => msg.set_meta(key, s).await?,
+                AccValue::Arr(arr) => {
+                    let json = serde_json::Value::Array(
+                        arr.into_iter().map(serde_json::Value::String).collect(),
+                    );
+                    msg.set_meta(key, json).await?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn size_header(name: Option<&str>, value: &[u8]) -> usize {
     name.map(|name| name.len() + 2).unwrap_or(0) + value.len()
 }
 
-fn emit_header(dest: &mut Vec<u8>, name: Option<&str>, value: &str) {
+fn emit_header(dest: &mut Vec<u8>, name: Option<&str>, value: &[u8]) {
     if let Some(name) = name {
         dest.extend_from_slice(name.as_bytes());
         dest.extend_from_slice(b": ");
     }
-    dest.extend_from_slice(value.as_bytes());
-    if !value.ends_with("\r\n") {
+    dest.extend_from_slice(value);
+    if !value.ends_with_str("\r\n") {
         dest.extend_from_slice(b"\r\n");
     }
 }
@@ -1418,7 +1807,7 @@ impl UserData for Message {
 
         methods.add_async_method("parse_mime", |_lua, this, _: ()| async move {
             let data = this.data().await.map_err(any_err)?;
-            let owned_data = String::from_utf8_lossy(data.as_ref().as_ref()).to_string();
+            let owned_data = BString::new(data.as_ref().to_vec());
             let part = MimePart::parse(owned_data).map_err(any_err)?;
             Ok(mod_mimepart::PartRef::new(part))
         });
@@ -1440,7 +1829,8 @@ impl UserData for Message {
             Ok(this.get_num_attempts())
         });
         methods.add_method("increment_num_attempts", move |_, this, _: ()| {
-            Ok(this.increment_num_attempts())
+            let _: () = this.increment_num_attempts();
+            Ok(())
         });
 
         methods.add_async_method("queue_name", move |_, this, _: ()| async move {
@@ -1525,17 +1915,20 @@ impl UserData for Message {
 
         methods.add_async_method(
             "add_authentication_results",
-            |lua, this, (serv_id, results): (String, mlua::Value)| async move {
+            |lua, this, (serv_id, results): (mlua::String, mlua::Value)| async move {
                 let results: Vec<AuthenticationResult> = lua.from_value(results)?;
                 let results = AuthenticationResults {
-                    serv_id,
+                    serv_id: serv_id.as_bytes().as_ref().into(),
                     version: None,
                     results,
                 };
 
-                this.prepend_header(Some("Authentication-Results"), &results.encode_value())
-                    .await
-                    .map_err(any_err)?;
+                this.prepend_header(
+                    Some("Authentication-Results"),
+                    results.encode_value().as_bytes(),
+                )
+                .await
+                .map_err(any_err)?;
 
                 Ok(())
             },
@@ -1557,7 +1950,7 @@ impl UserData for Message {
              this,
              (signer, serv_id, auth_res, opt_resolver_name): (
                 Signer,
-                String,
+                mlua::String,
                 mlua::Value,
                 Option<String>,
             )| async move {
@@ -1565,7 +1958,7 @@ impl UserData for Message {
                 this.arc_seal(
                     signer,
                     AuthenticationResults {
-                        serv_id,
+                        serv_id: serv_id.as_bytes().as_ref().into(),
                         version: None,
                         results,
                     },
@@ -1595,7 +1988,7 @@ impl UserData for Message {
                         .await
                         .map_err(any_err)?;
                 } else {
-                    this.prepend_header(Some(&name), &value)
+                    this.prepend_header(Some(&name), value.as_bytes())
                         .await
                         .map_err(any_err)?;
                 }
@@ -1612,7 +2005,7 @@ impl UserData for Message {
                         .await
                         .map_err(any_err)?;
                 } else {
-                    this.append_header(Some(&name), &value)
+                    this.append_header(Some(&name), value.as_bytes())
                         .await
                         .map_err(any_err)?;
                 }
@@ -1652,7 +2045,7 @@ impl UserData for Message {
                 .map_err(any_err)?
                 .into_iter()
                 .map(|(name, value)| vec![name, value])
-                .collect::<Vec<Vec<String>>>())
+                .collect::<Vec<Vec<BString>>>())
         });
         methods.add_async_method(
             "import_x_headers",
@@ -1660,6 +2053,12 @@ impl UserData for Message {
                 this.import_x_headers(names.unwrap_or_default())
                     .await
                     .map_err(any_err)
+            },
+        );
+        methods.add_async_method(
+            "import_headers",
+            |_, this, specs: SerdeWrappedValue<Vec<ImportHeaderSpec>>| async move {
+                this.import_headers(specs.0).await.map_err(any_err)
             },
         );
 
@@ -1826,6 +2225,120 @@ pub(crate) mod test {
     }
 
     #[tokio::test]
+    async fn set_sender_marks_meta_dirty() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+        // Simulate a message that has already been persisted by clearing
+        // the dirty flags that new_dirty() sets on construction.
+        {
+            let mut inner = msg.msg_and_id.inner.lock();
+            inner
+                .flags
+                .remove(MessageFlags::DATA_DIRTY | MessageFlags::META_DIRTY);
+        }
+
+        msg.set_sender(EnvelopeAddress::parse("new-sender@example.com").unwrap())
+            .await
+            .unwrap();
+
+        let inner = msg.msg_and_id.inner.lock();
+        assert!(
+            inner.flags.contains(MessageFlags::META_DIRTY),
+            "changing the sender must mark the metadata dirty"
+        );
+        assert!(
+            !inner.flags.contains(MessageFlags::DATA_DIRTY),
+            "changing the sender must not mark the data dirty"
+        );
+    }
+
+    #[tokio::test]
+    async fn set_recipient_list_marks_meta_dirty() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+        {
+            let mut inner = msg.msg_and_id.inner.lock();
+            inner
+                .flags
+                .remove(MessageFlags::DATA_DIRTY | MessageFlags::META_DIRTY);
+        }
+
+        msg.set_recipient_list(vec![
+            EnvelopeAddress::parse("new-recip@example.com").unwrap()
+        ])
+        .await
+        .unwrap();
+
+        let inner = msg.msg_and_id.inner.lock();
+        assert!(
+            inner.flags.contains(MessageFlags::META_DIRTY),
+            "changing the recipient list must mark the metadata dirty"
+        );
+        assert!(
+            !inner.flags.contains(MessageFlags::DATA_DIRTY),
+            "changing the recipient list must not mark the data dirty"
+        );
+    }
+
+    #[tokio::test]
+    async fn set_sender_after_shrink_does_not_flag_empty_data() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+        // Simulate a persisted-then-shrunk message: the dirty flags are cleared
+        // and the resident data buffer is empty (the body lives only on the
+        // spool).
+        {
+            let mut inner = msg.msg_and_id.inner.lock();
+            inner
+                .flags
+                .remove(MessageFlags::DATA_DIRTY | MessageFlags::META_DIRTY);
+            inner.data = None;
+        }
+
+        msg.set_sender(EnvelopeAddress::parse("new-sender@example.com").unwrap())
+            .await
+            .unwrap();
+
+        // Because an envelope change only dirties the metadata, save_to must
+        // not try to persist the empty data buffer, which would otherwise
+        // fail with "message data must not be empty".
+        assert!(
+            msg.get_data_if_dirty().is_none(),
+            "an envelope change must not flag the empty data buffer for saving"
+        );
+        assert!(
+            msg.needs_save(),
+            "the metadata change must still require a save"
+        );
+    }
+
+    #[tokio::test]
+    async fn set_scheduling_marks_meta_dirty() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+        {
+            let mut inner = msg.msg_and_id.inner.lock();
+            inner
+                .flags
+                .remove(MessageFlags::DATA_DIRTY | MessageFlags::META_DIRTY);
+        }
+
+        msg.set_scheduling(Some(Scheduling {
+            restriction: None,
+            first_attempt: None,
+            expires: None,
+        }))
+        .await
+        .unwrap();
+
+        let inner = msg.msg_and_id.inner.lock();
+        assert!(
+            inner.flags.contains(MessageFlags::META_DIRTY),
+            "changing the schedule must mark the metadata dirty"
+        );
+        assert!(
+            !inner.flags.contains(MessageFlags::DATA_DIRTY),
+            "changing the schedule must not mark the data dirty"
+        );
+    }
+
+    #[tokio::test]
     async fn import_some_x_headers() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
@@ -1838,6 +2351,143 @@ pub(crate) mod test {
                 "x_hello": "there",
             })
         );
+    }
+
+    #[tokio::test]
+    async fn import_headers_wildcard_remove() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+
+        msg.import_headers(vec![ImportHeaderSpec {
+            name: "X-*".to_string(),
+            remove: true,
+            ..ImportHeaderSpec::default()
+        }])
+        .await
+        .unwrap();
+        k9::assert_equal!(
+            msg.get_meta_obj().await.unwrap(),
+            json!({
+                "x_hello": "there",
+                "x_header": "value",
+            })
+        );
+        k9::assert_equal!(
+            data_as_string(&msg),
+            "Subject: Hello\r\nFrom :Someone\r\n\r\nBody"
+        );
+    }
+
+    #[tokio::test]
+    async fn import_headers_match_modes() {
+        let body =
+            "Received: from a\r\nReceived: from b\r\nReceived: from c\r\nSubject: hi\r\n\r\nBody";
+        for (mode, expected) in [
+            (MatchMode::First, json!("from a")),
+            (MatchMode::Last, json!("from c")),
+            (MatchMode::All, json!(["from a", "from b", "from c"])),
+        ] {
+            let msg = new_msg_body(body);
+            msg.import_headers(vec![ImportHeaderSpec {
+                name: "Received".to_string(),
+                match_mode: mode,
+                ..ImportHeaderSpec::default()
+            }])
+            .await
+            .unwrap();
+            k9::assert_equal!(
+                msg.get_meta_obj().await.unwrap(),
+                json!({ "received": expected })
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn import_headers_no_match_skips_meta() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+        msg.import_headers(vec![ImportHeaderSpec {
+            name: "Nonexistent".to_string(),
+            match_mode: MatchMode::All,
+            ..ImportHeaderSpec::default()
+        }])
+        .await
+        .unwrap();
+        k9::assert_equal!(msg.get_meta_obj().await.unwrap(), json!({}));
+    }
+
+    #[tokio::test]
+    async fn import_headers_specific_before_wildcard() {
+        let body = "X-Campaign-Id: 42\r\nX-Mailer: foo\r\n\r\nBody";
+        let msg = new_msg_body(body);
+        msg.import_headers(vec![
+            ImportHeaderSpec {
+                name: "X-Campaign-Id".to_string(),
+                target: Some("campaign".to_string()),
+                ..ImportHeaderSpec::default()
+            },
+            ImportHeaderSpec {
+                name: "X-*".to_string(),
+                ..ImportHeaderSpec::default()
+            },
+        ])
+        .await
+        .unwrap();
+        k9::assert_equal!(
+            msg.get_meta_obj().await.unwrap(),
+            json!({
+                "campaign": "42",
+                "x_mailer": "foo",
+            })
+        );
+    }
+
+    #[test]
+    fn name_transforms() {
+        let n = "X-Campaign-Id";
+        k9::assert_equal!(
+            apply_name_transform(n, NameTransform::SnakeCase),
+            "x_campaign_id"
+        );
+        k9::assert_equal!(
+            apply_name_transform(n, NameTransform::KebabCase),
+            "x-campaign-id"
+        );
+        k9::assert_equal!(
+            apply_name_transform(n, NameTransform::CamelCase),
+            "xCampaignId"
+        );
+        k9::assert_equal!(
+            apply_name_transform(n, NameTransform::PascalCase),
+            "XCampaignId"
+        );
+    }
+
+    #[test]
+    fn pattern_compile_rejects_bad_patterns() {
+        compile_header_pattern("").unwrap_err();
+        compile_header_pattern("*").unwrap_err();
+        compile_header_pattern("*-Id").unwrap_err();
+        compile_header_pattern("X-*-Id").unwrap_err();
+        compile_header_pattern("X-**").unwrap_err();
+        assert!(matches!(
+            compile_header_pattern("Subject").unwrap(),
+            HeaderPattern::Exact(_)
+        ));
+        assert!(matches!(
+            compile_header_pattern("X-*").unwrap(),
+            HeaderPattern::Prefix(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn import_headers_target_with_wildcard_rejected() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+        msg.import_headers(vec![ImportHeaderSpec {
+            name: "X-*".to_string(),
+            target: Some("oops".to_string()),
+            ..ImportHeaderSpec::default()
+        }])
+        .await
+        .unwrap_err();
     }
 
     #[tokio::test]
@@ -1855,7 +2505,7 @@ pub(crate) mod test {
     async fn prepend_header_2_params() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.prepend_header(Some("Date"), "Today").await.unwrap();
+        msg.prepend_header(Some("Date"), b"Today").await.unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "Date: Today\r\nX-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\n\r\nBody"
@@ -1866,7 +2516,7 @@ pub(crate) mod test {
     async fn prepend_header_1_params() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.prepend_header(None, "Date: Today").await.unwrap();
+        msg.prepend_header(None, b"Date: Today").await.unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "Date: Today\r\nX-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\n\r\nBody"
@@ -1877,7 +2527,7 @@ pub(crate) mod test {
     async fn append_header_2_params() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.append_header(Some("Date"), "Today").await.unwrap();
+        msg.append_header(Some("Date"), b"Today").await.unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\nDate: Today\r\n\r\nBody"
@@ -1888,7 +2538,7 @@ pub(crate) mod test {
     async fn append_header_1_params() {
         let msg = new_msg_body(X_HDR_CONTENT);
 
-        msg.append_header(None, "Date: Today").await.unwrap();
+        msg.append_header(None, b"Date: Today").await.unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\nDate: Today\r\n\r\nBody"
@@ -2223,7 +2873,7 @@ X-Header: value\r
 Subject: Hello\r
 X-Header: another value\r
 From :Someone@somewhere\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 \r
 Body
 "#
@@ -2247,7 +2897,7 @@ X-Header: value\r
 Subject: Hello\r
 X-Header: another value\r
 From: <Someone@somewhere>\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 \r
 Body\r
 

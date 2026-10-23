@@ -31,6 +31,11 @@ utils.assert_eq(t, rfc3339)
 local unix = kumo.time.from_unix_timestamp(t.unix_timestamp)
 utils.assert_eq(t, unix)
 
+-- "UTC" is not a strict RFC 2822 zone, so the underlying chrono parser rejects
+-- it; parse_rfc2822 tolerates it, rewriting it to +0000.
+local utc_zone = kumo.time.parse_rfc2822 'Sun, 2 Jan 2000 03:04:05 UTC'
+utils.assert_eq(utc_zone, kumo.time.with_ymd_hms(2000, 01, 02, 03, 04, 05))
+
 -- Verify that a technically invalid format string is processed
 -- leniently, without panic.
 local ut = t:format '%H:%M:%S%'

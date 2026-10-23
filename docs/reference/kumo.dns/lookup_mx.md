@@ -1,7 +1,7 @@
 # lookup_mx
 
 ```lua
-kumo.dns.lookup_mx(DOMAIN)
+kumo.dns.lookup_mx(DOMAIN, OPT_RESOLVER_NAME)
 ```
 
 Resolve the MX information for the requested `DOMAIN`.
@@ -58,7 +58,7 @@ local example = {
     },
   },
 
-  -- The site name is deterministically derived from the by_pref information
+  -- The site name represents the hostname/port set, independent of preferences
   site_name = '(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com',
 
   -- The FQDN that was resolved
@@ -78,7 +78,41 @@ local example = {
   is_domain_literal = false,
   -- true if the hosts are mx records
   is_mx = true,
+
+  -- The applicable MTA-STS policy mode: 'None', 'Testing' or 'Enforce'
+  -- {{since('2026.09.22-a276d4a8', inline=True)}}
+  mta_sts = 'None',
 }
 
 assert(gmail_mx == example)
+```
+
+The `site_name` field identifies the destination group used for ready queues and
+traffic shaping. See [Site Names](../queues.md#site-names) for its meaning and
+sharing behavior.
+
+## Named resolvers
+
+{{since('2026.09.22-a276d4a8')}}
+
+The optional `OPT_RESOLVER_NAME` parameter names an alternate resolver defined
+via [define_resolver](define_resolver.md). When omitted, the default resolver is
+used.
+
+```lua
+local kumo = require 'kumo'
+
+kumo.dns.define_resolver('my_resolver', {
+  Test = {
+    zones = {
+      [[
+$ORIGIN example.com.
+@       600  IN MX 2 two.example.com.
+                MX 1 one.example.com.
+]],
+    },
+  },
+})
+
+local list = kumo.dns.lookup_mx('example.com', 'my_resolver')
 ```

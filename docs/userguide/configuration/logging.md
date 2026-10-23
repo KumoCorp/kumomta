@@ -1,3 +1,7 @@
+---
+description: Configure logging in KumoMTA, including compressed JSON logs, segment rotation, custom log formats, and per-record-type settings for message event data.
+---
+
 # Configuring Logging
 
 By default, KumoMTA writes to a ([zstd](https://en.wikipedia.org/wiki/Zstd)
@@ -22,7 +26,7 @@ For multiple log files, the `configure_local_logs` function can be called
 multiple times with different parameters.
 
 <!-- prettier-ignore -->
-!!!note
+!!! note
     Logs can also be published as webhooks. See the [Publishing Log Events Via Webhooks](../operation/webhooks.md) chapter.
 
 ## OS Considerations
@@ -40,7 +44,7 @@ The server writes logs as a series of
 resulting in high storage efficiency as logs are written, instead of having to
 write large files to disk and compress them during file rotation.
 
-By default, files are rotated after every 1Gb of uncompressed log data,
+By default, files are rotated after every 1GB of uncompressed log data,
 resulting in files on disk that are approximately 50MB in size. The maximum
 size is configurable, see the [Logging Reference
 Page](../../reference/kumo/configure_local_logs/max_file_size.md).
@@ -61,7 +65,7 @@ reached, or when shutting down the server.
 
 It is possible to configure KumoMTA to rotate logs on a time interval basis,
 so that you can see log records emerge more quickly when you are first
-experimenting with kumomta and have very little load:
+experimenting with KumoMTA and have very little load:
 
 ```lua
 kumo.configure_local_logs {

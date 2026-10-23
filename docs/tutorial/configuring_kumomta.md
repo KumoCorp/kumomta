@@ -1,3 +1,7 @@
+---
+description: Step-by-step guide to configuring KumoMTA — set up listeners, DKIM signing, traffic shaping, and logging for high-volume sending.
+---
+
 # Configuring KumoMTA
 
 The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.html). Lua is a powerful embedded scripting language that is easy to read and code, and is very powerful. It is used for custom scripts in Cisco security appliances, Roblox, World of Warcraft, and really awesome MTAs. You can read more about how we leverage Lua [here](../userguide/configuration/concepts.md).
@@ -34,7 +38,7 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
     sudo cp /opt/kumomta/share/policy-extras/shaping.toml /opt/kumomta/etc/policy/shaping.toml
     ```
 
-    For more information, see the [Configure Traffic Shaping Automation](../userguide/configuration/trafficshaping.md) section of the User Guide.
+    For more information, see the [Traffic Shaping](../userguide/trafficshaping/index.md) chapter of the User Guide.
 
     <iframe width="560" height="315" src="https://www.youtube.com/embed/Vxbe5ExMOXk?si=2SC7o8FObyvWqavl" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
 

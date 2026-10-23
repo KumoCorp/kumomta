@@ -1,11 +1,11 @@
 use anyhow::Context;
 use clap::Parser;
-use dns_resolver::MailExchanger;
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
 use itertools::Itertools;
 use kumo_api_client::KumoApiClient;
 use lexicmp::natural_lexical_cmp;
+use mailexchanger::MailExchanger;
 use message::message::QueueNameComponents;
 use num_format::{Locale, ToFormattedString};
 use reqwest::Url;
@@ -367,9 +367,7 @@ fn resolve_domains(
     site_to_domains: &mut HashMap<String, BTreeSet<String>>,
     site: &str,
 ) -> Option<String> {
-    if let Some(domains) = site_to_domains.get_mut(site) {
-        Some(domains.iter().join(", "))
-    } else {
-        None
-    }
+    site_to_domains
+        .get_mut(site)
+        .map(|domains| domains.iter().join(", "))
 }

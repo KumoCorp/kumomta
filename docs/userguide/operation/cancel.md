@@ -1,4 +1,8 @@
-# Cancelling Queued Messages
+---
+description: Cancel queued messages in KumoMTA with the Admin Bounce API or kcli, targeting a specific campaign, queue, or tenant to stop a bad send with precision.
+---
+
+# Canceling Queued Messages
 
 Occasionally, you will have a bad send or for some reason need to cancel a send
 quickly. OOPS! It happens.  KumoMTA offers an API specifically for
@@ -6,7 +10,7 @@ administratively canceling messages with surgical precision. The [Admin
 Bounce](../../reference/http/kumod/api_admin_bounce_v1_post.md) API can
 target a specific Campaign, Queue, or entire Tenant for cancellation.
 
-You easiest way to invoke this API is via the [kcli
+The easiest way to invoke this API is via the [kcli
 bounce](../../reference/kcli/bounce.md) utility, but you can also use `curl`
 directly.
 

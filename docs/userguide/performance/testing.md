@@ -1,10 +1,14 @@
-# Performance Testing
-Performance testing **must not** be performed against the public internet, as large volumes of test message can be catastrophic for sending reputation. This isn't to say that one-off test messages will be a problem, but that sending in bulk can cause serious issues.
+---
+description: Performance test KumoMTA safely against a smart sink instead of the public internet, generating realistic traffic with traffic-gen to tune throughput.
+---
 
-When testing you should send against a mail sink server, but your choice of sink can significantly impact your testing results. It is very common to install something link smtp_sink from Postfix for testing, but many message sinks simply accept all messages and discard them. This results in zero backpressure or queue buildup on the MTA, which can lead to inaccurate results.
+# Performance Testing
+Performance testing **must not** be performed against the public internet, as large volumes of test messages can be catastrophic for sending reputation. This isn't to say that one-off test messages will be a problem, but that sending in bulk can cause serious issues.
+
+When testing you should send against a mail sink server, but your choice of sink can significantly impact your testing results. It is very common to install something like smtp_sink from Postfix for testing, but many message sinks simply accept all messages and discard them. This results in zero backpressure or queue buildup on the MTA, which can lead to inaccurate results.
 
 ## Using KumoMTA's Smart Sink Docker Container
-To ensure that your testing reflects the real world as much as possible, we recommend you use the *Smart Sink* Docker container found at [https://github.com/KumoCorp/kumomta/tree/main/examples/smart-sink-docker](https://github.com/KumoCorp/kumomta/tree/main/examples/smart-sink-docker) for testing. The Smart Sink policy will accept most mail and discard them, but it will respond to a configurable percentage of traffic with temporary and permanent failure messages that are appropriate for the destination domain of the message (for example, a message sent to yahoo.com that is flagged for a temporary failure will result in a temporary failure message used in production by Yahoo).
+To ensure that your testing reflects the real world as much as possible, we recommend you use the _Smart Sink_ Docker container found at [https://github.com/KumoCorp/kumomta/tree/main/examples/smart-sink-docker](https://github.com/KumoCorp/kumomta/tree/main/examples/smart-sink-docker) for testing. The Smart Sink policy will accept most mail and discard them, but it will respond to a configurable percentage of traffic with temporary and permanent failure messages that are appropriate for the destination domain of the message (for example, a message sent to yahoo.com that is flagged for a temporary failure will result in a temporary failure message used in production by Yahoo).
 
 The Smart Sink can also recognize when the user portion of the email is `tempfail@` or `permfail@` and respond with a corresponding temporary or permanent failure message for the domain in the recipient address.
 
@@ -20,7 +24,7 @@ This is important because KumoMTA works in a highly parallel fashion, with very 
 When you need to focus on a subset of your delivery pipeline, you can add custom headers to the generated messages via the `--header` option. Repeating the flag allows you to add multiple headers (for example, to mark a specific tenant or campaign) and observe how queue selection, shaping, and any additional custom header manipulation affect performance or latency during your tests
 
 ## Generating Traffic Using `traffic-gen`
-For cases where accurate simulation is not feasible, KumoMTA includes a "Traffic Generator" that can be use to send volume test mail for this purpose. The `traffic-gen` appends a known domain to all outbound mail that resolves to your own loopback address so that mail can be delivered, but will never deliver to real addresses:
+For cases where accurate simulation is not feasible, KumoMTA includes a "Traffic Generator" that can be used to send volume test mail for this purpose. The `traffic-gen` appends a known domain to all outbound mail that resolves to your own loopback address so that mail can be delivered, but will never deliver to real addresses:
 
 ```console
 $ /opt/kumomta/sbin/traffic-gen --target <your.sink.server>:25 --concurrency 20000 --message-count 100000 --body-size 100000
@@ -127,6 +131,6 @@ The test utilized the included traffic-gen utility as described above.
 
 **NOTE** that these numbers are NOT guaranteed and are for informational purposes only. Your results may vary considerably.
 
-In July 2023 another round of testing was done with more detailed results.  those results are shown in the table below and were documented in the blog post [How we built the most performant Message Transfer Agent on the planet](https://kumomta.com/blog/building-the-fastest-mta-on-the-planet):
+In July 2023 another round of testing was done with more detailed results.  Those results are shown below and were documented in the blog post [How we built the most performant Message Transfer Agent on the planet](https://kumomta.com/blog/building-the-fastest-mta-on-the-planet):
 
 ![PerformanceTestData](https://docs.kumomta.com/assets/images/Performance_testing_kumomta_public.png)

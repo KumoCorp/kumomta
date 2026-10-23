@@ -21,6 +21,10 @@ as a way to import an arbitrary list of headers for logging purposes.
 When importing an `X-` header, the header name is normalized to lowercase and any
 `-` are transformed to underscores `_`.
 
+For more flexible matching (wildcards, choosing first/last/all instances,
+optional removal of matched headers, alternate naming transforms), see
+[message:import_headers](import_headers.md).
+
 For example, with a message content of:
 
 ```

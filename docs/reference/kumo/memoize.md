@@ -72,6 +72,16 @@ that will internally cache the result for the same set of parameters, and
 returns a new function that encodes that caching logic.  The return value is
 the *memoized function*.
 
+!!! note
+   The `kumo.memoize` call should happen *unconditionally* when your policy
+   loads in order for the memoized function to be callable in all circumstances.
+   In practice, this means that the call should take place at the file scope
+   in modules that you define, and *NOT* be called from within an event callback.
+   If you conditionally define the memoize function then the system will not
+   be able to run your population function in `detached` mode, which means that
+   the population function is eligible to be cancelled before completion if
+   one of the callers is cancelled (eg: the incoming SMTP/HTTP session is closed).
+
 The parameters it accepts are:
 
 * *FUNCTION* - the function or lambda which will be called when there is a cache miss.
@@ -99,6 +109,17 @@ The parameters it accepts are:
        cache lookup will be allowed to return with the last populated value in
        the case that the item has expired and the cache population takes longer
        than the `populate_timeout`. {{since('2025.05.06-b29689af', inline=True)}}
+     * `detached` - optional boolean.  {{since('dev', inline=True)}}
+       When `true`, a cache miss runs the cache population function on a
+       separate task, with a freshly loaded config context, rather than inline
+       on the calling task.  Running detached makes the completion of the cache
+       population independent of the triggering context, which is usually what
+       you want.  When running inline, the cache population function may be
+       cancelled prematurely as a consequence of the calling SMTP/HTTP session
+       being closed.  When you leave `detached` unspecified it resolves to
+       `true` for a call made at top-level scope and to `false` for a call made
+       from within an event handler.  Setting `detached = true` from within an
+       event handler is rejected with an error.
 
 In the example above calling:
 

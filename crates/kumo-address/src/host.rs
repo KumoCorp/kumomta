@@ -112,10 +112,7 @@ impl FromStr for HostAddress {
                     Err(AddressParseError {
                         candidate: s.to_string(),
                         net_err,
-                        unix_err: std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "unix domain path must be absolute",
-                        ),
+                        unix_err: std::io::Error::other("unix domain path must be absolute"),
                     })
                 } else {
                     match UnixSocketAddr::from_pathname(path) {

@@ -139,6 +139,9 @@ local QueueHelperConfig = Record('QueueHelperConfig', {
 local QueueHelperSetup = Record('QueueHelperSetup', {
   file_names = List(Variant(String, QueueHelperConfig)),
   skip_queue_config_hook = Option(Bool),
+
+  -- This passed through to the queue_helper_data memoize cache setup
+  invalidate_with_epoch = Option(Bool),
 })
 
 local function parse_tenant_with_campaign(data)
@@ -469,6 +472,7 @@ function mod:setup_with_options(options)
     name = 'queue_helper_data',
     ttl = '1 minute',
     capacity = 10,
+    invalidate_with_epoch = options.invalidate_with_epoch,
   })
 
   local helper = {

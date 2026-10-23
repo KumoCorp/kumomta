@@ -5,9 +5,12 @@ use crate::rfc5965::{
 };
 use crate::{JsonLogRecord, RecordType};
 use anyhow::{anyhow, Context};
+use bstr::{BStr, BString, ByteSlice};
 use chrono::{DateTime, Utc};
-use mailparsing::MimePart;
+use mailparsing::{format_rfc2822_date, BStringUtf8, MimePart};
+use rfc5321::parser::EnvelopeAddress;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
@@ -155,6 +158,10 @@ impl FromStr for RemoteMta {
     }
 }
 
+/// A recipient address from an `Original-Recipient` or `Final-Recipient` DSN
+/// field. Per RFC 3464 section 2.1.2 the type is matched case-insensitively;
+/// an `rfc822` recipient is normalized to a bare SMTP envelope address, while
+/// any other type is preserved verbatim.
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct Recipient {
     pub recipient_type: String,
@@ -173,9 +180,24 @@ impl FromStr for Recipient {
         let (recipient_type, recipient) = input
             .split_once(";")
             .ok_or_else(|| anyhow!("expected 'recipient-type; recipient', got {input}"))?;
+        let recipient_type = recipient_type.trim();
+        let recipient = recipient.trim();
+
+        let (recipient_type, recipient) = if recipient_type.eq_ignore_ascii_case("rfc822") {
+            (
+                "rfc822",
+                recipient
+                    .parse::<EnvelopeAddress>()
+                    .map_err(|err| anyhow!("{err}"))?
+                    .to_string(),
+            )
+        } else {
+            (recipient_type, recipient.to_string())
+        };
+
         Ok(Self {
-            recipient_type: recipient_type.trim().to_string(),
-            recipient: recipient.trim().to_string(),
+            recipient_type: recipient_type.to_string(),
+            recipient,
         })
     }
 }
@@ -205,6 +227,7 @@ impl FromStr for DiagnosticCode {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct PerRecipientReportEntry {
     pub final_recipient: Recipient,
@@ -216,7 +239,8 @@ pub struct PerRecipientReportEntry {
     pub last_attempt_date: Option<DateTime<Utc>>,
     pub final_log_id: Option<String>,
     pub will_retry_until: Option<DateTime<Utc>>,
-    pub extensions: BTreeMap<String, Vec<String>>,
+    #[serde_as(as = "BTreeMap<_, Vec<BStringUtf8>>")]
+    pub extensions: BTreeMap<String, Vec<BString>>,
 }
 
 impl std::fmt::Display for PerRecipientReportEntry {
@@ -234,13 +258,13 @@ impl std::fmt::Display for PerRecipientReportEntry {
             write!(fmt, "Diagnostic-Code: {code}\r\n")?;
         }
         if let Some(when) = &self.last_attempt_date {
-            write!(fmt, "Last-Attempt-Date: {}\r\n", when.to_rfc2822())?;
+            write!(fmt, "Last-Attempt-Date: {}\r\n", format_rfc2822_date(*when))?;
         }
         if let Some(id) = &self.final_log_id {
             write!(fmt, "Final-Log-Id: {id}\r\n")?;
         }
         if let Some(when) = &self.will_retry_until {
-            write!(fmt, "Will-Retry-Until: {}\r\n", when.to_rfc2822())?;
+            write!(fmt, "Will-Retry-Until: {}\r\n", format_rfc2822_date(*when))?;
         }
         for (k, vlist) in &self.extensions {
             for v in vlist {
@@ -288,6 +312,7 @@ impl PerRecipientReportEntry {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct PerMessageReportEntry {
     pub original_envelope_id: Option<String>,
@@ -295,7 +320,8 @@ pub struct PerMessageReportEntry {
     pub dsn_gateway: Option<RemoteMta>,
     pub received_from_mta: Option<RemoteMta>,
     pub arrival_date: Option<DateTime<Utc>>,
-    pub extensions: BTreeMap<String, Vec<String>>,
+    #[serde_as(as = "BTreeMap<_, Vec<BStringUtf8>>")]
+    pub extensions: BTreeMap<String, Vec<BString>>,
 }
 
 impl std::fmt::Display for PerMessageReportEntry {
@@ -311,7 +337,7 @@ impl std::fmt::Display for PerMessageReportEntry {
             write!(fmt, "Received-From-MTA: {mta}\r\n")?;
         }
         if let Some(when) = &self.arrival_date {
-            write!(fmt, "Arrival-Date: {}\r\n", when.to_rfc2822())?;
+            write!(fmt, "Arrival-Date: {}\r\n", format_rfc2822_date(*when))?;
         }
         for (k, vlist) in &self.extensions {
             for v in vlist {
@@ -346,28 +372,106 @@ impl PerMessageReportEntry {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct Report {
     pub per_message: PerMessageReportEntry,
     pub per_recipient: Vec<PerRecipientReportEntry>,
-    pub original_message: Option<String>,
+    #[serde_as(as = "Option<BStringUtf8>")]
+    pub original_message: Option<BString>,
 }
 
-pub(crate) fn content_type(part: &MimePart) -> Option<String> {
+pub(crate) fn content_type(part: &MimePart) -> Option<BString> {
     let ct = part.headers().content_type().ok()??;
     Some(ct.value)
 }
 
+/// Extracts the returned original message from a report's returned-content
+/// part, undoing any transfer encoding that the part's content type permits.
+/// Returns None when `ct` is not a returned-content type this recognizes, or
+/// when the part cannot be decoded, because encoded bytes are not a usable
+/// original message and are better left out than presented as if decoded.
+/// Content type comparison is case insensitive, as media types require.
+pub(crate) fn decode_returned_content(part: &MimePart, ct: Option<&BStr>) -> Option<Vec<u8>> {
+    let ct = ct?;
+    if ct.eq_ignore_ascii_case(b"message/rfc822") {
+        // Its body already holds the original octets because message/rfc822
+        // must use an identity transfer encoding (7bit, 8bit, or binary) per
+        // RFC 2046.
+        Some(part.raw_body().as_bytes().to_vec())
+    } else if ct.eq_ignore_ascii_case(b"text/rfc822-headers")
+        || ct.eq_ignore_ascii_case(b"message/global")
+        || ct.eq_ignore_ascii_case(b"message/global-headers")
+    {
+        // text/rfc822-headers (RFC 6522), message/global (RFC 6532), and
+        // message/global-headers (RFC 6533) may be quoted-printable or base64
+        // encoded. Undo that without charset decoding to keep the returned
+        // octets as they were.
+        part.transfer_decoded_body().ok()
+    } else {
+        None
+    }
+}
+
+/// Builds the part of a report that echoes the failed message back to its
+/// sender. Content that cannot be represented in a conforming, 7-bit clean form
+/// is omitted instead of failing the whole report. Returns the full message
+/// when it is requested and representable; otherwise returns only the original
+/// headers.
+fn returned_content_part(
+    mode: IncludeOriginalMessage,
+    msg: &MimePart,
+) -> Option<MimePart<'static>> {
+    match mode {
+        IncludeOriginalMessage::No => None,
+        IncludeOriginalMessage::HeadersOnly => returned_headers_part(msg),
+        IncludeOriginalMessage::FullContent => {
+            let mut data = vec![];
+            match msg.write_message(&mut data) {
+                // message/rfc822 permits only an identity transfer encoding.
+                // This guard requires the written bytes to already be 7-bit
+                // clean before using that content type.
+                Ok(()) if data.is_ascii() => {
+                    MimePart::new_no_transfer_encoding("message/rfc822", &data).ok()
+                }
+                // write_message returned Err, or its output is not 7-bit
+                // clean. Discard the full message and return only the headers.
+                _ => returned_headers_part(msg),
+            }
+        }
+    }
+}
+
+/// Builds a text/rfc822-headers part holding the headers of `msg`, or None
+/// when it cannot be built. The result is always 7-bit clean, and the headers
+/// are preserved byte for byte even when they contain 8-bit octets.
+fn returned_headers_part(msg: &MimePart) -> Option<MimePart<'static>> {
+    let mut data = vec![];
+    for hdr in msg.headers().iter() {
+        hdr.write_header(&mut data).ok();
+    }
+    if data.is_ascii() {
+        MimePart::new_no_transfer_encoding("text/rfc822-headers", &data).ok()
+    } else {
+        // Unlike message/rfc822, text/rfc822-headers permits a transfer
+        // encoding. base64 preserves the 8-bit octets while keeping this part
+        // 7-bit clean.
+        MimePart::new_binary("text/rfc822-headers", &data, None).ok()
+    }
+}
+
 impl Report {
     pub fn parse(input: &[u8]) -> anyhow::Result<Option<Self>> {
-        let mail = MimePart::parse(input).with_context(|| {
-            format!(
-                "Report::parse top; input is {:?}",
-                String::from_utf8_lossy(input)
-            )
-        })?;
+        // The chained MimePart::parse error states the parse-failure reason.
+        // This closure runs on every failed parse, including callers that then
+        // discard the error, and the input can be a whole received message.
+        // Record its size rather than building an escaped, message-sized copy
+        // each time.
+        let mail = MimePart::parse(input)
+            .with_context(|| format!("Report::parse top; input is {} bytes", input.len()))?;
 
-        if content_type(&mail).as_deref() != Some("multipart/report") {
+        if content_type(&mail).as_ref().map(|b| b.as_bstr()) != Some(BStr::new("multipart/report"))
+        {
             return Ok(None);
         }
 
@@ -375,16 +479,19 @@ impl Report {
 
         for part in mail.child_parts() {
             let ct = content_type(part);
-            let ct = ct.as_deref();
-            if ct == Some("message/rfc822") || ct == Some("text/rfc822-headers") {
-                original_message = Some(part.raw_body().replace("\r\n", "\n"));
+            let ct = ct.as_ref().map(|b| b.as_bstr());
+            // Assign only on a successful decode, to avoid a later part that
+            // fails to decode erasing an earlier one that succeeded.
+            if let Some(decoded) = decode_returned_content(part, ct) {
+                original_message = Some(BString::new(decoded.replace(b"\r\n", b"\n")));
             }
         }
 
         for part in mail.child_parts() {
             let ct = content_type(part);
-            let ct = ct.as_deref();
-            if ct == Some("message/delivery-status") || ct == Some("message/global-delivery-status")
+            let ct = ct.as_ref().map(|b| b.as_bstr());
+            if ct == Some(BStr::new("message/delivery-status"))
+                || ct == Some(BStr::new("message/global-delivery-status"))
             {
                 return Ok(Some(Self::parse_inner(part, original_message)?));
             }
@@ -393,7 +500,7 @@ impl Report {
         anyhow::bail!("delivery-status part missing");
     }
 
-    fn parse_inner(part: &MimePart, original_message: Option<String>) -> anyhow::Result<Self> {
+    fn parse_inner(part: &MimePart, original_message: Option<BString>) -> anyhow::Result<Self> {
         let body = part.body()?.to_string_lossy().replace("\r\n", "\n");
         let mut parts = body.trim().split("\n\n");
 
@@ -435,6 +542,8 @@ impl Report {
             RecordType::Expiration if params.enable_expiration => ReportAction::Failed,
             _ => return Ok(None),
         };
+
+        let created = format_rfc2822_date(log.created);
 
         let arrival_date = Some(log.created);
 
@@ -482,7 +591,6 @@ impl Report {
                     "The message was received at {created}\r\n\
                     from {sender} and addressed to {recip_list}.\r\n\
                     ",
-                    created = log.created.to_rfc2822(),
                     sender = log.sender,
                 );
                 if let Some(peer) = &log.peer_address {
@@ -512,7 +620,6 @@ impl Report {
                     The message will be deleted from the queue.\r\n\
                     No further attempts will be made to deliver it.\r\n\
                     ",
-                    created = log.created.to_rfc2822(),
                     sender = log.sender,
                     status = log.response.to_single_line()
                 )
@@ -520,42 +627,27 @@ impl Report {
             _ => unreachable!(),
         };
 
-        parts.push(MimePart::new_text_plain(&exposition).context("new_text_plain")?);
+        parts.push(MimePart::new_text_plain(&*exposition).context("new_text_plain")?);
 
         let mut status_text = format!("{per_message}\r\n");
         for per_recip in per_recipient {
             status_text.push_str(&format!("{per_recip}\r\n"));
         }
-        parts
-            .push(MimePart::new_text("message/delivery-status", &status_text).context("new_text")?);
+        parts.push(
+            MimePart::new_text("message/delivery-status", &*status_text).context("new_text")?,
+        );
 
-        match (params.include_original_message, msg) {
-            (IncludeOriginalMessage::No, _) | (_, None) => {}
-            (IncludeOriginalMessage::HeadersOnly, Some(msg)) => {
-                let mut data = vec![];
-                for hdr in msg.headers().iter() {
-                    hdr.write_header(&mut data).ok();
-                }
-                parts.push(
-                    MimePart::new_no_transfer_encoding("text/rfc822-headers", &data)
-                        .context("new_no_transfer_encoding")?,
-                );
+        if let Some(msg) = msg {
+            if let Some(part) = returned_content_part(params.include_original_message, msg) {
+                parts.push(part);
             }
-            (IncludeOriginalMessage::FullContent, Some(msg)) => {
-                let mut data = vec![];
-                msg.write_message(&mut data).ok();
-                parts.push(
-                    MimePart::new_no_transfer_encoding("message/rfc822", &data)
-                        .context("new_no_transfer_encoding")?,
-                );
-            }
-        };
+        }
 
         let mut report_msg = MimePart::new_multipart(
             "multipart/report",
             parts,
             if params.stable_content {
-                Some("report-boundary")
+                Some(b"report-boundary")
             } else {
                 None
             },
@@ -641,7 +733,134 @@ pub struct ReportGenerationParams {
 mod test {
     use super::*;
     use crate::ResolvedAddress;
+    use mailparsing::MessageConformance;
     use rfc5321::{EnhancedStatusCode, Response};
+
+    #[test]
+    fn recipient_address_type_is_case_insensitive() {
+        for input in [
+            "rfc822;User+Tag@Example.COM",
+            "RFC822 ; User+Tag@Example.COM",
+            "Rfc822; <User+Tag@Example.COM>",
+            "rfc822 ; <User+Tag@Example.COM>",
+            " RFC822 ; <User+Tag@Example.COM> ",
+            "\tRFC822\t;\t<User+Tag@Example.COM>\t",
+        ] {
+            let recipient: Recipient = input.parse().unwrap();
+            k9::snapshot!(
+                recipient,
+                r#"
+Recipient {
+    recipient_type: "rfc822",
+    recipient: "User+Tag@example.com",
+}
+"#
+            );
+        }
+    }
+
+    #[test]
+    fn parse_recipient_fields_with_uppercase_address_type() {
+        let report = PerRecipientReportEntry::parse(
+            "Original-Recipient: RFC822 ; <Original+Tag@Example.COM>\r\n\
+             Final-Recipient: Rfc822 ; <Final+Tag@Example.COM>\r\n\
+             Action: failed\r\n\
+             Status: 5.2.2\r\n",
+        )
+        .unwrap();
+        k9::snapshot!(
+            (report.original_recipient.unwrap(), report.final_recipient),
+            r#"
+(
+    Recipient {
+        recipient_type: "rfc822",
+        recipient: "Original+Tag@example.com",
+    },
+    Recipient {
+        recipient_type: "rfc822",
+        recipient: "Final+Tag@example.com",
+    },
+)
+"#
+        );
+    }
+
+    #[test]
+    fn recipient_preserves_other_address_types() {
+        let recipient: Recipient = "unknown; <User@Example.COM> ".parse().unwrap();
+        k9::snapshot!(
+            recipient,
+            r#"
+Recipient {
+    recipient_type: "unknown",
+    recipient: "<User@Example.COM>",
+}
+"#
+        );
+    }
+
+    #[test]
+    fn parse_ses_obsolete_arrival_date() {
+        // Amazon SES OOB bounces carry an Arrival-Date in an obsolete RFC 2822
+        // form ("Thu, 02 Jul 26 18:55:38 UTC"). This must not fail the report;
+        // the arrival_date below shows it is recovered rather than dropped.
+        let report = Report::parse(include_bytes!("../data/rfc3464/obsolete_arrival_date.eml"))
+            .unwrap()
+            .expect("multipart/report DSN should parse as a report");
+        k9::snapshot!(
+            &report,
+            r#"
+Report {
+    per_message: PerMessageReportEntry {
+        original_envelope_id: None,
+        reporting_mta: RemoteMta {
+            mta_type: "dns",
+            name: "mx.example.com",
+        },
+        dsn_gateway: None,
+        received_from_mta: None,
+        arrival_date: Some(
+            2026-07-02T18:55:38Z,
+        ),
+        extensions: {},
+    },
+    per_recipient: [
+        PerRecipientReportEntry {
+            final_recipient: Recipient {
+                recipient_type: "rfc822",
+                recipient: "user@example.com",
+            },
+            action: Failed,
+            status: ReportStatus {
+                class: 5,
+                subject: 1,
+                detail: 1,
+                comment: None,
+            },
+            original_recipient: Some(
+                Recipient {
+                    recipient_type: "rfc822",
+                    recipient: "user@example.com",
+                },
+            ),
+            remote_mta: None,
+            diagnostic_code: Some(
+                DiagnosticCode {
+                    diagnostic_type: "smtp",
+                    diagnostic: "550 5.1.1 Mailbox does not exist",
+                },
+            ),
+            last_attempt_date: None,
+            final_log_id: None,
+            will_retry_until: None,
+            extensions: {},
+        },
+    ],
+    original_message: None,
+}
+"#
+        );
+    }
 
     fn make_message() -> MimePart<'static> {
         let mut part = MimePart::new_text_plain("hello there").unwrap();
@@ -652,9 +871,8 @@ mod test {
 
     fn make_bounce() -> JsonLogRecord {
         let nodeid = uuid_helper::now_v1();
-        let created =
-            chrono::DateTime::parse_from_rfc2822("Tue, 1 Jul 2003 10:52:37 +0200").unwrap();
-        let now = chrono::DateTime::parse_from_rfc2822("Tue, 1 Jul 2003 12:52:37 +0200").unwrap();
+        let created = mailparsing::parse_rfc2822_date("Tue, 1 Jul 2003 10:52:37 +0200").unwrap();
+        let now = mailparsing::parse_rfc2822_date("Tue, 1 Jul 2003 12:52:37 +0200").unwrap();
         JsonLogRecord {
             kind: RecordType::Bounce,
             id: "ID".to_string(),
@@ -671,6 +889,7 @@ mod test {
             peer_address: Some(ResolvedAddress {
                 name: "target.example.com".to_string(),
                 addr: "42.42.42.42".to_string().try_into().unwrap(),
+                is_secure: false,
             }),
             provider_name: None,
             queue: "target.example.com".to_string(),
@@ -700,9 +919,8 @@ mod test {
 
     fn make_expiration() -> JsonLogRecord {
         let nodeid = uuid_helper::now_v1();
-        let created =
-            chrono::DateTime::parse_from_rfc2822("Tue, 1 Jul 2003 10:52:37 +0200").unwrap();
-        let now = chrono::DateTime::parse_from_rfc2822("Tue, 1 Jul 2003 12:52:37 +0200").unwrap();
+        let created = mailparsing::parse_rfc2822_date("Tue, 1 Jul 2003 10:52:37 +0200").unwrap();
+        let now = mailparsing::parse_rfc2822_date("Tue, 1 Jul 2003 12:52:37 +0200").unwrap();
         JsonLogRecord {
             kind: RecordType::Expiration,
             id: "ID".to_string(),
@@ -763,7 +981,7 @@ mod test {
         let report_msg = Report::generate(&params, Some(&original_msg), &log)
             .unwrap()
             .unwrap();
-        let report_eml = report_msg.to_message_string();
+        let report_eml = BString::from(report_msg.to_message_bytes().unwrap());
         k9::snapshot!(
             &report_eml,
             r#"
@@ -771,7 +989,7 @@ Content-Type: multipart/report;\r
 \tboundary="report-boundary";\r
 \treport-type="delivery-status"\r
 Subject: Returned mail\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 Message-ID: <UUID@mta1.example.com>\r
 To: sender@sender.example.com\r
 From: Mail Delivery Subsystem <mailer-daemon@mta1.example.com>\r
@@ -894,7 +1112,7 @@ Subject: Hello!
         let report_msg = Report::generate(&params, Some(&original_msg), &log)
             .unwrap()
             .unwrap();
-        let report_eml = report_msg.to_message_string();
+        let report_eml = BString::from(report_msg.to_message_bytes().unwrap());
         k9::snapshot!(
             &report_eml,
             r#"
@@ -902,7 +1120,7 @@ Content-Type: multipart/report;\r
 \tboundary="report-boundary";\r
 \treport-type="delivery-status"\r
 Subject: Returned mail\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 Message-ID: <UUID@mta1.example.com>\r
 To: sender@sender.example.com\r
 From: Mail Delivery Subsystem <mailer-daemon@mta1.example.com>\r
@@ -1027,7 +1245,7 @@ Subject: Hello!
         let report_msg = Report::generate(&params, Some(&original_msg), &log)
             .unwrap()
             .unwrap();
-        let report_eml = report_msg.to_message_string();
+        let report_eml = BString::from(report_msg.to_message_bytes().unwrap());
         k9::snapshot!(
             &report_eml,
             r#"
@@ -1035,7 +1253,7 @@ Content-Type: multipart/report;\r
 \tboundary="report-boundary";\r
 \treport-type="delivery-status"\r
 Subject: Returned mail\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 Message-ID: <UUID@mta1.example.com>\r
 To: sender@sender.example.com\r
 From: Mail Delivery Subsystem <mailer-daemon@mta1.example.com>\r
@@ -1145,6 +1363,42 @@ hello there
         );
     }
 
+    // Asserts that we can successfully generate a report when the original
+    // message has malformed and unsuable boundary lines.
+    #[test]
+    fn generate_bounce_with_invalid_boundary_message() {
+        let params = ReportGenerationParams {
+            reporting_mta: RemoteMta {
+                mta_type: "dns".to_string(),
+                name: "mta1.example.com".to_string(),
+            },
+            enable_bounce: true,
+            enable_expiration: true,
+            include_original_message: IncludeOriginalMessage::FullContent,
+            stable_content: true,
+        };
+
+        const ORIGINAL: &[u8] =
+            b"Subject: Broken\r\nContent-Type: multipart/mixed; boundary=\r\n\r\n--\r\nbody\r\n";
+        let original_msg = MimePart::parse(ORIGINAL).unwrap();
+        assert!(original_msg
+            .conformance()
+            .contains(MessageConformance::MIME_INVALID_BOUNDARY));
+
+        let log = make_bounce();
+
+        let report_msg = Report::generate(&params, Some(&original_msg), &log)
+            .unwrap()
+            .unwrap();
+        let report_eml = BString::from(report_msg.to_message_bytes().unwrap());
+
+        let embedded = format!("message/rfc822\r\n\r\n{}", BString::from(ORIGINAL.to_vec()));
+        assert!(
+            report_eml.contains_str(&embedded),
+            "report should embed the original verbatim; got:\n{report_eml}"
+        );
+    }
+
     #[test]
     fn generate_bounce_no_message() {
         let params = ReportGenerationParams {
@@ -1165,7 +1419,7 @@ hello there
         let report_msg = Report::generate(&params, Some(&original_msg), &log)
             .unwrap()
             .unwrap();
-        let report_eml = report_msg.to_message_string();
+        let report_eml = BString::from(report_msg.to_message_bytes().unwrap());
         k9::snapshot!(
             &report_eml,
             r#"
@@ -1173,7 +1427,7 @@ Content-Type: multipart/report;\r
 \tboundary="report-boundary";\r
 \treport-type="delivery-status"\r
 Subject: Returned mail\r
-Mime-Version: 1.0\r
+MIME-Version: 1.0\r
 Message-ID: <UUID@mta1.example.com>\r
 To: sender@sender.example.com\r
 From: Mail Delivery Subsystem <mailer-daemon@mta1.example.com>\r
@@ -1269,6 +1523,72 @@ Report {
     }
 
     #[test]
+    fn generate_bounce_far_future_created() {
+        use chrono::TimeZone;
+
+        let params = ReportGenerationParams {
+            reporting_mta: RemoteMta {
+                mta_type: "dns".to_string(),
+                name: "mta1.example.com".to_string(),
+            },
+            enable_bounce: true,
+            enable_expiration: true,
+            include_original_message: IncludeOriginalMessage::No,
+            stable_content: true,
+        };
+
+        // A corrupt spool id can yield a creation time whose year is past 9999.
+        // Generating the report must not panic. The date renders with all of
+        // its digits in both the Arrival-Date header and the prose.
+        let mut log = make_bounce();
+        log.created = chrono::Utc.with_ymd_and_hms(60123, 1, 1, 0, 0, 0).unwrap();
+
+        let report_msg = Report::generate(&params, None, &log).unwrap().unwrap();
+        let report_eml = BString::from(report_msg.to_message_bytes().unwrap());
+        k9::snapshot!(
+            &report_eml,
+            r#"
+Content-Type: multipart/report;\r
+\tboundary="report-boundary";\r
+\treport-type="delivery-status"\r
+Subject: Returned mail\r
+MIME-Version: 1.0\r
+Message-ID: <UUID@mta1.example.com>\r
+To: sender@sender.example.com\r
+From: Mail Delivery Subsystem <mailer-daemon@mta1.example.com>\r
+\r
+--report-boundary\r
+Content-Type: text/plain;\r
+\tcharset="us-ascii"\r
+\r
+The message was received at Fri, 1 Jan 60123 00:00:00 +0000\r
+from sender@sender.example.com and addressed to recip@target.example.com.\r
+While communicating with target.example.com (42.42.42.42):\r
+Response: 550 5.7.1 no thanks\r
+\r
+The message will be deleted from the queue.\r
+No further attempts will be made to deliver it.\r
+--report-boundary\r
+Content-Type: message/delivery-status;\r
+\tcharset="us-ascii"\r
+\r
+Reporting-MTA: dns; mta1.example.com\r
+Arrival-Date: Fri, 1 Jan 60123 00:00:00 +0000\r
+\r
+Final-Recipient: rfc822;recip@target.example.com\r
+Action: failed\r
+Status: 5.7.1 no thanks\r
+Remote-MTA: dns; target.example.com\r
+Diagnostic-Code: smtp; 550 5.7.1 no thanks\r
+Last-Attempt-Date: Tue, 1 Jul 2003 10:52:37 +0000\r
+\r
+--report-boundary--\r
+
+"#
+        );
+    }
+
+    #[test]
     fn rfc3464_1() {
         let result = Report::parse(include_bytes!("../data/rfc3464/1.eml")).unwrap();
         k9::snapshot!(
@@ -1345,6 +1665,150 @@ Some(
             Status: 4.0.0\r\n\
             Diagnostic-Code: smtp; 426 connection timed out\r\n\
             Last-Attempt-Date: Thu, 7 Jul 1994 21:15:49 +0000\r\n"
+        );
+    }
+
+    #[test]
+    fn quoted_printable_rfc822_headers_are_decoded() {
+        // A sender may return the original headers in a quoted-printable
+        // text/rfc822-headers part, which is permitted for text types. The
+        // parser must undo the transfer encoding while preserving the raw
+        // header octets, here a Subject holding shift_jis bytes.
+        let eml = concat!(
+            "Content-Type: multipart/report; report-type=\"delivery-status\";\r\n",
+            "\tboundary=\"b\"\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: message/delivery-status\r\n",
+            "\r\n",
+            "Reporting-MTA: dns; mta.example.com\r\n",
+            "\r\n",
+            "Final-Recipient: rfc822;recip@example.com\r\n",
+            "Action: failed\r\n",
+            "Status: 5.0.0\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: text/rfc822-headers; charset=\"shift_jis\"\r\n",
+            "Content-Transfer-Encoding: quoted-printable\r\n",
+            "\r\n",
+            "Subject: =93=FA=96=7B=8C=EA\r\n",
+            "--b--\r\n",
+        );
+
+        let report = Report::parse(eml.as_bytes()).unwrap().unwrap();
+        k9::assert_equal!(
+            report.original_message.unwrap(),
+            BString::from(b"Subject: \x93\xFA\x96\x7B\x8C\xEA\n")
+        );
+    }
+
+    #[test]
+    fn returned_content_type_is_case_insensitive() {
+        // Media types are case insensitive. A returned-content part whose
+        // content type is not in canonical lower case is still recognized.
+        let eml = concat!(
+            "Content-Type: multipart/report; report-type=\"delivery-status\";\r\n",
+            "\tboundary=\"b\"\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: message/delivery-status\r\n",
+            "\r\n",
+            "Reporting-MTA: dns; mta.example.com\r\n",
+            "\r\n",
+            "Final-Recipient: rfc822;recip@example.com\r\n",
+            "Action: failed\r\n",
+            "Status: 5.0.0\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: Message/RFC822\r\n",
+            "\r\n",
+            "Subject: Hello!\r\n",
+            "--b--\r\n",
+        );
+
+        let report = Report::parse(eml.as_bytes()).unwrap().unwrap();
+        k9::assert_equal!(
+            report.original_message.unwrap(),
+            BString::from(b"Subject: Hello!\n")
+        );
+    }
+
+    #[test]
+    fn generate_bounce_with_8bit_headers() {
+        let params = ReportGenerationParams {
+            reporting_mta: RemoteMta {
+                mta_type: "dns".to_string(),
+                name: "mta1.example.com".to_string(),
+            },
+            enable_bounce: true,
+            enable_expiration: false,
+            include_original_message: IncludeOriginalMessage::HeadersOnly,
+            stable_content: true,
+        };
+
+        // A Subject holding raw shift_jis octets that cannot be represented in
+        // a 7-bit clean text/rfc822-headers part without a transfer encoding.
+        let original_msg =
+            MimePart::parse(&b"Subject: \x93\xFA\x96\x7B\x8C\xEA\r\n\r\nbody\r\n"[..]).unwrap();
+        let log = make_bounce();
+
+        let report_eml = Report::generate(&params, Some(&original_msg), &log)
+            .unwrap()
+            .unwrap()
+            .to_message_bytes()
+            .unwrap();
+
+        // The report must be 7-bit clean because SMTPUTF8/8BITMIME cannot be
+        // relied upon downstream.
+        assert!(
+            report_eml.is_ascii(),
+            "generated report must be 7-bit clean"
+        );
+
+        // It round-trips, recovering the raw 8-bit Subject octets.
+        let round_trip = Report::parse(&report_eml).unwrap().unwrap();
+        k9::assert_equal!(
+            round_trip.original_message.unwrap(),
+            BString::from(b"Subject: \x93\xFA\x96\x7B\x8C\xEA\n")
+        );
+    }
+
+    #[test]
+    fn generate_bounce_with_8bit_full_content_degrades_to_headers() {
+        let params = ReportGenerationParams {
+            reporting_mta: RemoteMta {
+                mta_type: "dns".to_string(),
+                name: "mta1.example.com".to_string(),
+            },
+            enable_bounce: true,
+            enable_expiration: false,
+            include_original_message: IncludeOriginalMessage::FullContent,
+            stable_content: true,
+        };
+
+        // Only the body is 8-bit. The headers are ASCII. This isolates the body
+        // as the trigger for the FullContent degrade under test.
+        let original_msg = MimePart::parse(
+            &b"Subject: hi\r\nContent-Type: text/plain\r\n\r\n\x93\xFA body\r\n"[..],
+        )
+        .unwrap();
+        let log = make_bounce();
+
+        let report_eml = Report::generate(&params, Some(&original_msg), &log)
+            .unwrap()
+            .unwrap()
+            .to_message_bytes()
+            .unwrap();
+
+        assert!(
+            report_eml.is_ascii(),
+            "generated report must be 7-bit clean"
+        );
+
+        let round_trip = Report::parse(&report_eml).unwrap().unwrap();
+        k9::assert_equal!(
+            round_trip.original_message.unwrap(),
+            BString::from(b"Subject: hi\nContent-Type: text/plain\n")
         );
     }
 
@@ -1653,5 +2117,119 @@ Some(
 )
 "#
         );
+    }
+
+    #[test]
+    fn rfc3464_6() {
+        let result = Report::parse(include_bytes!("../data/rfc3464/6.eml")).unwrap();
+        k9::snapshot!(
+            result,
+            r#"
+Some(
+    Report {
+        per_message: PerMessageReportEntry {
+            original_envelope_id: None,
+            reporting_mta: RemoteMta {
+                mta_type: "dns",
+                name: "tls02.example.com",
+            },
+            dsn_gateway: None,
+            received_from_mta: None,
+            arrival_date: None,
+            extensions: {},
+        },
+        per_recipient: [
+            PerRecipientReportEntry {
+                final_recipient: Recipient {
+                    recipient_type: "rfc822",
+                    recipient: "redacted@example.com",
+                },
+                action: Failed,
+                status: ReportStatus {
+                    class: 5,
+                    subject: 0,
+                    detail: 0,
+                    comment: None,
+                },
+                original_recipient: Some(
+                    Recipient {
+                        recipient_type: "rfc822",
+                        recipient: "redacted@example.com",
+                    },
+                ),
+                remote_mta: Some(
+                    RemoteMta {
+                        mta_type: "dns",
+                        name: "example-com.mail.eo.outlook.com:25",
+                    },
+                ),
+                diagnostic_code: Some(
+                    DiagnosticCode {
+                        diagnostic_type: "smtp",
+                        diagnostic: "host example-com.mail.eo.outlook.com:25 says: 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [XXX.namprd05.prod.outlook.com 2026-03-13T18:10:42.797Z XXX]",
+                    },
+                ),
+                last_attempt_date: None,
+                final_log_id: None,
+                will_retry_until: None,
+                extensions: {},
+            },
+        ],
+        original_message: Some(
+            "Subject: [Bulk Mail] the subject
+From: INFO <info@email.example.com>
+To: redacted@example.com
+
+",
+        ),
+    },
+)
+"#
+        );
+    }
+
+    #[test]
+    fn original_message_serializes_as_json_string() {
+        let report = Report {
+            per_message: PerMessageReportEntry {
+                original_envelope_id: None,
+                reporting_mta: RemoteMta {
+                    mta_type: "dns".to_string(),
+                    name: "mta.example.com".to_string(),
+                },
+                dsn_gateway: None,
+                received_from_mta: None,
+                arrival_date: None,
+                extensions: BTreeMap::new(),
+            },
+            per_recipient: vec![],
+            original_message: Some(BString::from("Subject: hi\n\nhello")),
+        };
+        let json = serde_json::to_value(&report).unwrap();
+        k9::assert_equal!(
+            json["original_message"],
+            serde_json::Value::String("Subject: hi\n\nhello".to_string())
+        );
+    }
+
+    #[test]
+    fn original_message_non_utf8_falls_back_to_bytes() {
+        let report = Report {
+            per_message: PerMessageReportEntry {
+                original_envelope_id: None,
+                reporting_mta: RemoteMta {
+                    mta_type: "dns".to_string(),
+                    name: "mta.example.com".to_string(),
+                },
+                dsn_gateway: None,
+                received_from_mta: None,
+                arrival_date: None,
+                extensions: BTreeMap::new(),
+            },
+            per_recipient: vec![],
+            original_message: Some(BString::from(b"abc\x80\xffxyz")),
+        };
+        let json = serde_json::to_value(&report).unwrap();
+        assert!(json["original_message"].is_array());
     }
 }

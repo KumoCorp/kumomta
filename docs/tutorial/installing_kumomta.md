@@ -1,3 +1,7 @@
+---
+description: Install KumoMTA from prebuilt repositories, with a Rocky Linux example using dnf to set up the openrepo repo and install the kumod daemon in minutes.
+---
+
 # Installing KumoMTA
 
 Pre-built repos are available for supported Operating Systems, making installation straightforward. 

@@ -4,7 +4,7 @@ use nom::character::complete::alpha1;
 use nom::combinator::opt;
 use nom::multi::fold_many0;
 use nom::sequence::{delimited, pair, preceded, terminated};
-use nom::IResult;
+use nom::{IResult, Parser};
 
 #[derive(Clone, Debug, PartialEq)]
 /// DKIM signature tag
@@ -21,7 +21,7 @@ pub struct Tag {
 /// as specified <https://datatracker.ietf.org/doc/html/rfc6376#section-3.6.1>.
 /// tag-list  =  tag-spec *( ";" tag-spec ) [ ";" ]
 pub fn tag_list(input: &str) -> IResult<&str, Vec<Tag>> {
-    let (input, start) = tag_spec(input)?;
+    let (input, start) = tag_spec.parse(input)?;
 
     terminated(
         fold_many0(
@@ -33,18 +33,19 @@ pub fn tag_list(input: &str) -> IResult<&str, Vec<Tag>> {
             },
         ),
         opt(tag(";")),
-    )(input)
+    )
+    .parse(input)
 }
 
 /// tag-spec  =  [FWS] tag-name [FWS] "=" [FWS] tag-value [FWS]
 fn tag_spec(input: &str) -> IResult<&str, Tag> {
-    let (input, name) = delimited(opt(fws), tag_name, opt(fws))(input)?;
-    let (input, _) = tag("=")(input)?;
+    let (input, name) = delimited(opt(fws), tag_name, opt(fws)).parse(input)?;
+    let (input, _) = tag("=").parse(input)?;
 
     // Parse the twice to keep the original text
     let value_input = input;
-    let (_, raw_value) = delimited(opt(fws), raw_tag_value, opt(fws))(value_input)?;
-    let (input, value) = delimited(opt(fws), tag_value, opt(fws))(value_input)?;
+    let (_, raw_value) = delimited(opt(fws), raw_tag_value, opt(fws)).parse(value_input)?;
+    let (input, value) = delimited(opt(fws), tag_value, opt(fws)).parse(value_input)?;
 
     Ok((
         input,
@@ -59,7 +60,7 @@ fn tag_spec(input: &str) -> IResult<&str, Tag> {
 /// tag-name  =  ALPHA *ALNUMPUNC
 /// ALNUMPUNC =  ALPHA / DIGIT / "_"
 fn tag_name(input: &str) -> IResult<&str, &str> {
-    alpha1(input)
+    alpha1.parse(input)
 }
 
 /// tag-value =  [ tval *( 1*(WSP / FWS) tval ) ]
@@ -67,7 +68,7 @@ fn tag_name(input: &str) -> IResult<&str, &str> {
 /// VALCHAR   =  %x21-3A / %x3C-7E
 fn tag_value(input: &str) -> IResult<&str, String> {
     let is_valchar = |c| ('!'..=':').contains(&c) || ('<'..='~').contains(&c);
-    match opt(take_while1(is_valchar))(input)? {
+    match opt(take_while1(is_valchar)).parse(input)? {
         (input, Some(start)) => fold_many0(
             preceded(fws, take_while1(is_valchar)),
             || start.to_owned(),
@@ -75,14 +76,15 @@ fn tag_value(input: &str) -> IResult<&str, String> {
                 acc += item;
                 acc
             },
-        )(input),
+        )
+        .parse(input),
         (input, None) => Ok((input, "".to_string())),
     }
 }
 
 fn raw_tag_value(input: &str) -> IResult<&str, String> {
     let is_valchar = |c| ('!'..=':').contains(&c) || ('<'..='~').contains(&c);
-    match opt(take_while1(is_valchar))(input)? {
+    match opt(take_while1(is_valchar)).parse(input)? {
         (input, Some(start)) => fold_many0(
             pair(fws, take_while1(is_valchar)),
             || start.to_owned(),
@@ -90,14 +92,15 @@ fn raw_tag_value(input: &str) -> IResult<&str, String> {
                 acc += &(item.0.to_owned() + item.1);
                 acc
             },
-        )(input),
+        )
+        .parse(input),
         (input, None) => Ok((input, "".to_string())),
     }
 }
 
 /// FWS is folding whitespace.  It allows multiple lines separated by CRLF followed by at least one whitespace, to be joined.
 fn fws(input: &str) -> IResult<&str, &str> {
-    take_while1(|c| c == ' ' || c == '\t' || c == '\r' || c == '\n')(input)
+    take_while1(|c| c == ' ' || c == '\t' || c == '\r' || c == '\n').parse(input)
 }
 
 pub(crate) fn parse_hash_algo(value: &str) -> Result<hash::HashAlgo, DKIMError> {

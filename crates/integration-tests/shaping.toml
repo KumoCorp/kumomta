@@ -30,3 +30,12 @@ duration = "1 hour"
 regex = "you said 550-bounce-tenant"
 action = "BounceTenant"
 duration = "1 hour"
+
+["delivery.mx-sink.wezfurlong.org"]
+mx_rollup = false
+enable_tls = "OpportunisticInsecure"
+
+[["delivery.mx-sink.wezfurlong.org".automation]]
+regex = "OK ids="
+action = "Suspend"
+duration = "1 hour"

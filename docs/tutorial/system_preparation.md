@@ -1,3 +1,7 @@
+---
+description: Prepare your server for KumoMTA, covering OS installation on AWS, package updates, firewall setup, and generating a self-signed TLS certificate.
+---
+
 # System Preparation
 
 Now that we know **_what_** to build, lets go ahead and build it.

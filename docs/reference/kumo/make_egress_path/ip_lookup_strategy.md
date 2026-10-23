@@ -1,6 +1,6 @@
 # ip_lookup_strategy
 
-{{since('dev')}}
+{{since('2026.04.09-ea3b2a9b')}}
 
 Influences how MX host names are resolved to IP addresses.
 This value is a string that can have one of the possible values listed below.

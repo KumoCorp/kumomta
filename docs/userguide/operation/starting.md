@@ -1,3 +1,7 @@
+---
+description: Start KumoMTA as a systemd service or manually with kumod, enabling it to run at boot and pointing it at your init.lua policy script.
+---
+
 # Starting KumoMTA
 
 Once KumoMTA has been installed and an initial policy script is in place, the
@@ -30,7 +34,7 @@ $ sudo /opt/kumomta/sbin/kumod \
 * Using sudo allows it to run as a privileged user so it can access port 25 which is needed to send and receive from most MTAs.
 * The daemon `kumod` is the MTA
 * The directive --policy makes kumod load the 'init.lua' file as configuration policy.
-* The *--user* directive allows the server to drop privileges after attaching to port 25 so that it does not continue to run as root.
+* The `--user` directive allows the server to drop privileges after attaching to port 25 so that it does not continue to run as root.
 
 For more detailed output, prepend ```KUMOD_LOG=kumod=info``` (or debug for even more detail):
 

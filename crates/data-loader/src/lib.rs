@@ -82,7 +82,7 @@ impl KeySource {
                     })?;
 
                 let value = entry
-                    .get(&vault_key)
+                    .get(vault_key)
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| {
                         anyhow!("vault secret at {vault_path} does not contain key '{vault_key}'")
@@ -101,6 +101,7 @@ impl KeySource {
 
                 let args = config.convert_args_to_multi(event_args)?;
                 let result = config.async_call_callback_non_default(&sig, args).await?;
+                config.put();
 
                 Ok(result.as_bytes().to_vec())
             }

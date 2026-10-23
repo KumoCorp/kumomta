@@ -1,3 +1,7 @@
+---
+description: Configure message routing in KumoMTA to smarthost or relay mail, overriding routing domains per message or per queue and handling IPv4 and IPv6 literals.
+---
+
 # Configuring Message Routing
 
 If you need to "smarthost" or route messages through another server, you have
@@ -6,10 +10,10 @@ several options.
 ## Changing the routing domain at reception time (per-message)
 
 {{since('2023.08.22-4d895015', indent=True)}}
-    At reception time, you can specify an alternate *routing domain* for a
-    message.  Messages with the same *destination domain* (based on their
-    recipients) and *routing domain* will be queued into a separate
-    *scheduled queue* from their normal destination domain.
+    At reception time, you can specify an alternate _routing domain_ for a
+    message.  Messages with the same _destination domain_ (based on their
+    recipients) and _routing domain_ will be queued into a separate
+    _scheduled queue_ from their normal destination domain.
 
     This is conceptually similar to the `queue` rewriting approach mentioned
     below, but the original destination domain, tenant and campaign information

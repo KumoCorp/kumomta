@@ -183,7 +183,7 @@ impl HeaderList {
                 .rev()
                 .skip(num_headers - index)
             {
-                if header.get_name().eq_ignore_ascii_case(name) {
+                if header.get_name().eq_ignore_ascii_case(name.as_bytes()) {
                     headers.push(header);
                     last_index.insert(name, header_index);
                     continue 'outer;
@@ -202,7 +202,7 @@ impl HeaderList {
     }
 }
 
-pub(crate) fn compute_headers_hash<'a>(
+pub(crate) fn compute_headers_hash(
     canonicalization_type: canonicalization::Type,
     header_list: &Vec<&Header>,
     hash_algo: HashAlgo,
@@ -215,7 +215,7 @@ pub(crate) fn compute_headers_hash<'a>(
     for header in header_list {
         canonicalization_type.canon_header_into(
             header.get_name(),
-            header.get_raw_value().as_bytes(),
+            header.get_raw_value(),
             &mut input,
         );
     }
@@ -227,7 +227,7 @@ pub(crate) fn compute_headers_hash<'a>(
         let value = dkim_header.raw().replace(sign, "");
         let mut canonicalized_value = vec![];
         canonicalization_type.canon_header_into(
-            signature_header_name,
+            signature_header_name.as_bytes(),
             value.as_bytes(),
             &mut canonicalized_value,
         );
@@ -294,12 +294,12 @@ Hello Alice
         let hash_algo = HashAlgo::RsaSha1;
         assert_eq!(
             compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
-            "wpj48VhihzV7I31ZZZUp1UpTyyM="
+            "QKvft7OqaNbRT/nH0Qmc/7mSK7w="
         );
         let hash_algo = HashAlgo::RsaSha256;
         assert_eq!(
             compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
-            "1bokzbYiRgXTKMQhrNhLJo1kjDDA1GILbpyTwyNa1uk=",
+            "+kuxulZ7MkxvrZj1LNFkEtOUvi0M2/80KBPP0duHSfw=",
         )
     }
 
@@ -360,6 +360,23 @@ Hello Alice
         let hash_algo = HashAlgo::RsaSha256;
         assert_eq!(
             compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
+            "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
+        )
+    }
+
+    #[test]
+    fn test_compute_body_hash_relaxed_blank_body_line() {
+        let email = ParsedEmail::parse("Subject: nothing\r\n\r\n\r\n").unwrap();
+        assert_eq!(email.get_body(), "\r\n");
+
+        assert_eq!(
+            compute_body_hash(
+                canonicalization::Type::Relaxed,
+                None,
+                HashAlgo::RsaSha256,
+                &email
+            )
+            .unwrap(),
             "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
         )
     }
@@ -469,7 +486,12 @@ Hello Alice
         header_list
             .compute_concrete_header_list(email)
             .into_iter()
-            .map(|header| (header.get_name(), header.get_raw_value().as_bytes()))
+            .map(|header| {
+                (
+                    std::str::from_utf8(header.get_name()).unwrap(),
+                    header.get_raw_value().as_ref(),
+                )
+            })
             .collect()
     }
 

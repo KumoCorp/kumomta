@@ -139,6 +139,10 @@ impl LimitSpecWithDuration {
 }
 
 impl LimitLease {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     pub async fn release(&mut self) {
         self.armed = false;
         match self.backend {

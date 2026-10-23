@@ -7,6 +7,25 @@ local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 local SINK_PORT = tonumber(os.getenv 'KUMOD_SMTP_SINK_PORT')
 
 kumo.on('init', function()
+  local timeout_server = os.getenv 'KUMOD_TEST_DNS_TIMEOUT_SERVER'
+  if timeout_server then
+    -- Send all DNS queries to a loopback UDP socket that the test keeps open
+    -- but never answers.
+    kumo.dns.configure_resolver {
+      name_servers = { { socket_addr = timeout_server, protocol = 'udp' } },
+      options = {
+        -- One attempt returns an error after 100ms rather than retrying for the
+        -- default retry period.
+        timeout = '100ms',
+        attempts = 1,
+        cache_size = 0,
+        use_hosts_file = 'Never',
+      },
+    }
+    local ok = pcall(kumo.dns.lookup_addr, 'unavailable.example.test')
+    assert(not ok, 'the timeout fixture must produce an address lookup error')
+  end
+
   kumo.configure_accounting_db_path(TEST_DIR .. '/accounting.db')
   kumo.aaa.configure_acct_log {
     log_dir = TEST_DIR .. '/acct',
@@ -30,11 +49,13 @@ kumo.on('init', function()
   }
 
   kumo.define_spool {
+    kind = 'RocksDB',
     name = 'data',
     path = TEST_DIR .. '/data-spool',
   }
 
   kumo.define_spool {
+    kind = 'RocksDB',
     name = 'meta',
     path = TEST_DIR .. '/meta-spool',
   }
@@ -80,7 +101,7 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
     -- ordering, and in particular, disconnect_terminate_ok will be
     -- unhappy if the second address in its MX plan is unroutable IPv6.
     skip_hosts = { '::/0' },
-    idle_timeout = '1s',
+    idle_timeout = '100ms',
   }
 
   kumo.log_warn('get_egress_path_config *******************', domain)

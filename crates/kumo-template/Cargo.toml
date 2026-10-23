@@ -12,3 +12,14 @@ mod-smtp-response-normalize = { path = "../mod-smtp-response-normalize" }
 self_cell.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+criterion = {workspace=true}
+k9.workspace = true
+
+[[bench]]
+name = "expand"
+harness = false
+
+[lints]
+workspace = true

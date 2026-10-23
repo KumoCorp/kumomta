@@ -1,12 +1,16 @@
 //! ARF reports
-use crate::rfc3464::{content_type, RemoteMta};
+use crate::rfc3464::{content_type, decode_returned_content, RemoteMta};
 use anyhow::anyhow;
+use bstr::{BStr, BString, ByteSlice};
 use chrono::{DateTime, Utc};
-use mailparsing::{Header, HeaderParseResult, MimePart};
+use mailparsing::{BStringUtf8, Header, HeaderParseResult, MimePart};
+use rfc5321::parser::EnvelopeAddress;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct ARFReport {
     pub feedback_type: String,
@@ -35,9 +39,11 @@ pub struct ARFReport {
     #[serde(default)]
     pub reported_uri: Vec<String>,
 
-    pub extensions: BTreeMap<String, Vec<String>>,
+    #[serde_as(as = "BTreeMap<_, Vec<BStringUtf8>>")]
+    pub extensions: BTreeMap<String, Vec<BString>>,
 
-    pub original_message: Option<String>,
+    #[serde_as(as = "Option<BStringUtf8>")]
+    pub original_message: Option<BString>,
     pub supplemental_trace: Option<serde_json::Value>,
 }
 
@@ -54,7 +60,8 @@ impl ARFReport {
             return Ok(None);
         }
 
-        if ct.get("report-type").as_deref() != Some("feedback-report") {
+        if ct.get("report-type").as_ref().map(|b| b.as_bstr()) != Some(BStr::new("feedback-report"))
+        {
             return Ok(None);
         }
 
@@ -63,47 +70,61 @@ impl ARFReport {
 
         for part in mail.child_parts() {
             let ct = content_type(part);
-            let ct = ct.as_deref();
-            if ct == Some("message/rfc822") || ct == Some("text/rfc822-headers") {
-                if let Ok(HeaderParseResult { headers, .. }) =
-                    Header::parse_headers(part.raw_body())
-                {
-                    // Look for x-headers that might be our supplemental trace headers
-                    for hdr in headers.iter() {
-                        if !(hdr.get_name().starts_with("X-") || hdr.get_name().starts_with("x-")) {
-                            continue;
+            let ct = ct.as_ref().map(|b| b.as_bstr());
+            // A returned-content part may be quoted-printable or base64
+            // encoded. Decode before inspecting or storing it, and skip parts
+            // that are not returned content or that cannot be decoded.
+            let Some(returned) = decode_returned_content(part, ct) else {
+                continue;
+            };
+
+            if let Ok(HeaderParseResult { headers, .. }) =
+                Header::parse_headers(returned.as_slice())
+            {
+                // Look for x-headers that might be our supplemental trace headers
+                for hdr in headers.iter() {
+                    if !(hdr.get_name().starts_with_str("X-")
+                        || hdr.get_name().starts_with_str("x-"))
+                    {
+                        continue;
+                    }
+                    // The header value may be folded across continuation lines.
+                    // Remove the folding whitespace before decoding because it
+                    // is not part of the base64 payload.
+                    let encoded: Vec<u8> = hdr
+                        .get_raw_value()
+                        .iter()
+                        .copied()
+                        .filter(|b| !b.is_ascii_whitespace())
+                        .collect();
+                    if let Ok(decoded) = data_encoding::BASE64.decode(&encoded) {
+                        #[derive(Deserialize)]
+                        struct Wrap {
+                            #[serde(rename = "_@_")]
+                            marker: String,
+                            #[serde(flatten)]
+                            payload: serde_json::Value,
                         }
-                        if let Ok(decoded) =
-                            data_encoding::BASE64.decode(hdr.get_raw_value().as_bytes())
-                        {
-                            #[derive(Deserialize)]
-                            struct Wrap {
-                                #[serde(rename = "_@_")]
-                                marker: String,
-                                #[serde(flatten)]
-                                payload: serde_json::Value,
-                            }
-                            if let Ok(obj) = serde_json::from_slice::<Wrap>(&decoded) {
-                                // Sanity check that it is our encoded data, rather than
-                                // some other random header that may have been inserted
-                                // somewhere along the way
-                                if obj.marker == "\\_/" {
-                                    supplemental_trace.replace(obj.payload);
-                                    break;
-                                }
+                        if let Ok(obj) = serde_json::from_slice::<Wrap>(&decoded) {
+                            // Sanity check that it is our encoded data, rather
+                            // than some other random header that may have been
+                            // inserted earlier in the stream
+                            if obj.marker == "\\_/" {
+                                supplemental_trace.replace(obj.payload);
+                                break;
                             }
                         }
                     }
                 }
-
-                original_message = Some(part.raw_body().replace("\r\n", "\n"));
             }
+
+            original_message = Some(BString::new(returned.replace(b"\r\n", b"\n")));
         }
 
         for part in mail.child_parts() {
             let ct = content_type(part);
-            let ct = ct.as_deref();
-            if ct == Some("message/feedback-report") {
+            let ct = ct.as_ref().map(|b| b.as_bstr());
+            if ct == Some(BStr::new("message/feedback-report")) {
                 return Ok(Some(Self::parse_inner(
                     part,
                     original_message,
@@ -117,7 +138,7 @@ impl ARFReport {
 
     fn parse_inner(
         part: &MimePart,
-        original_message: Option<String>,
+        original_message: Option<BString>,
         supplemental_trace: Option<serde_json::Value>,
     ) -> anyhow::Result<Self> {
         let body = part.raw_body();
@@ -133,11 +154,17 @@ impl ARFReport {
         );
         let incidents = extract_single("incidents", &mut extensions)?;
         let original_envelope_id = extract_single("original-envelope-id", &mut extensions)?;
-        let original_mail_from = extract_single("original-mail-from", &mut extensions)?;
+        let original_mail_from =
+            extract_single::<EnvelopeAddress>("original-mail-from", &mut extensions)?
+                .map(|a| a.to_string());
         let reporting_mta = extract_single("reporting-mta", &mut extensions)?;
         let source_ip = extract_single("source-ip", &mut extensions)?;
         let authentication_results = extract_multiple("authentication-results", &mut extensions)?;
-        let original_rcpto_to = extract_multiple("original-rcpt-to", &mut extensions)?;
+        let original_rcpto_to =
+            extract_multiple::<EnvelopeAddress>("original-rcpt-to", &mut extensions)?
+                .into_iter()
+                .map(|a| a.to_string())
+                .collect();
         let reported_domain = extract_multiple("reported-domain", &mut extensions)?;
         let reported_uri = extract_multiple("reported-uri", &mut extensions)?;
 
@@ -162,13 +189,13 @@ impl ARFReport {
     }
 }
 
-pub(crate) fn extract_headers(part: &[u8]) -> anyhow::Result<BTreeMap<String, Vec<String>>> {
+pub(crate) fn extract_headers(part: &[u8]) -> anyhow::Result<BTreeMap<String, Vec<BString>>> {
     let HeaderParseResult { headers, .. } = Header::parse_headers(part)?;
 
     let mut extensions = BTreeMap::new();
 
     for hdr in headers.iter() {
-        let name = hdr.get_name().to_ascii_lowercase();
+        let name = String::from_utf8_lossy(&hdr.get_name()).to_ascii_lowercase();
         extensions
             .entry(name)
             .or_insert_with(std::vec::Vec::new)
@@ -177,12 +204,13 @@ pub(crate) fn extract_headers(part: &[u8]) -> anyhow::Result<BTreeMap<String, Ve
     Ok(extensions)
 }
 
+#[derive(Debug)]
 pub(crate) struct DateTimeRfc2822(pub DateTime<Utc>);
 
 impl FromStr for DateTimeRfc2822 {
     type Err = anyhow::Error;
     fn from_str(input: &str) -> anyhow::Result<Self> {
-        let date = DateTime::parse_from_rfc2822(input)?;
+        let date = mailparsing::parse_rfc2822_date(input)?;
         Ok(Self(date.into()))
     }
 }
@@ -195,7 +223,7 @@ impl From<DateTimeRfc2822> for DateTime<Utc> {
 
 pub(crate) fn extract_single_req<R>(
     name: &str,
-    extensions: &mut BTreeMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<BString>>,
 ) -> anyhow::Result<R>
 where
     R: FromStr,
@@ -207,7 +235,7 @@ where
 
 pub(crate) fn extract_single<R>(
     name: &str,
-    extensions: &mut BTreeMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<BString>>,
 ) -> anyhow::Result<Option<R>>
 where
     R: FromStr,
@@ -216,6 +244,9 @@ where
     match extensions.remove(name) {
         Some(mut hdrs) if hdrs.len() == 1 => {
             let value = hdrs.remove(0);
+            let value = value
+                .to_str()
+                .map_err(|err| anyhow!("{value} could not be converted to UTF-8: {err:#}"))?;
             let converted = value
                 .parse::<R>()
                 .map_err(|err| anyhow!("failed to convert '{value}': {err:#}"))?;
@@ -228,7 +259,7 @@ where
 
 pub(crate) fn extract_single_conv<R, T>(
     name: &str,
-    extensions: &mut BTreeMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<BString>>,
 ) -> anyhow::Result<Option<T>>
 where
     R: FromStr,
@@ -241,7 +272,7 @@ where
 pub(crate) fn extract_single_conv_fallback<R, T>(
     name: &str,
     fallback: &str,
-    extensions: &mut BTreeMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<BString>>,
 ) -> Option<T>
 where
     R: FromStr,
@@ -259,7 +290,7 @@ where
 
 pub(crate) fn extract_multiple<R>(
     name: &str,
-    extensions: &mut BTreeMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<BString>>,
 ) -> anyhow::Result<Vec<R>>
 where
     R: FromStr,
@@ -269,7 +300,10 @@ where
         Some(hdrs) => {
             let mut results = vec![];
             for h in hdrs {
-                let converted = h
+                let value = h
+                    .to_str()
+                    .map_err(|err| anyhow!("{h} could not be converted to UTF-8: {err:#}"))?;
+                let converted = value
                     .parse::<R>()
                     .map_err(|err| anyhow!("failed to convert {h}: {err:#}"))?;
                 results.push(converted);
@@ -283,6 +317,29 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+    use chrono::TimeZone;
+
+    #[test]
+    fn datetime_rfc2822_obsolete_utc_zone() {
+        // Amazon SES emits dates with the non-standard alphabetic zone "UTC".
+        let expected = Utc.with_ymd_and_hms(2026, 7, 2, 18, 55, 38).unwrap();
+
+        let parsed: DateTime<Utc> = "Thu, 02 Jul 26 18:55:38 UTC"
+            .parse::<DateTimeRfc2822>()
+            .expect("SES obsolete UTC zone should parse")
+            .into();
+        k9::assert_equal!(parsed, expected);
+
+        // The canonical numeric form parses to the same instant.
+        let canonical: DateTime<Utc> = "Thu, 02 Jul 2026 18:55:38 +0000"
+            .parse::<DateTimeRfc2822>()
+            .unwrap()
+            .into();
+        k9::assert_equal!(canonical, expected);
+
+        // A genuinely unparseable value still errors.
+        "not a date".parse::<DateTimeRfc2822>().unwrap_err();
+    }
 
     #[test]
     fn rfc5965_1() {
@@ -347,7 +404,7 @@ Some(
         incidents: None,
         original_envelope_id: None,
         original_mail_from: Some(
-            "<somespammer@example.net>",
+            "somespammer@example.net",
         ),
         reporting_mta: Some(
             RemoteMta {
@@ -362,7 +419,7 @@ Some(
             "mail.example.com; spf=fail smtp.mail=somespammer@example.com",
         ],
         original_rcpto_to: [
-            "<user@example.com>",
+            "user@example.com",
         ],
         reported_domain: [
             "example.net",
@@ -406,6 +463,71 @@ Spam Spam Spam
         );
     }
 
+    /// A supplemental trace header folded across continuation lines still
+    /// decodes back to its metadata.
+    #[test]
+    fn supplemental_trace_folded_header() {
+        let report = concat!(
+            "Content-Type: multipart/report; report-type=feedback-report;\r\n",
+            "    boundary=\"b\"\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: message/feedback-report\r\n",
+            "\r\n",
+            "Feedback-Type: abuse\r\n",
+            "User-Agent: SomeGenerator/1.0\r\n",
+            "Version: 1\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: message/rfc822\r\n",
+            "\r\n",
+            "From: <somespammer@example.net>\r\n",
+            // The base64 value is split with a CRLF + TAB fold.
+            "X-KumoRef: eyJfQF8iOiJcXF8vIiwicmVjaXBpZW50Ijoi\r\n",
+            "\tdGVzdEBleGFtcGxlLmNvbSJ9\r\n",
+            "Subject: Earn money\r\n",
+            "\r\n",
+            "Spam\r\n",
+            "--b--\r\n",
+        );
+
+        let result = ARFReport::parse(report.as_bytes()).unwrap().unwrap();
+        k9::assert_equal!(
+            result.supplemental_trace,
+            Some(serde_json::json!({ "recipient": "test@example.com" }))
+        );
+    }
+
+    #[test]
+    fn quoted_printable_rfc822_headers_are_decoded() {
+        // A quoted-printable text/rfc822-headers part must be transfer decoded
+        // while preserving its raw octets, here a Subject holding shift_jis bytes.
+        let report = concat!(
+            "Content-Type: multipart/report; report-type=feedback-report;\r\n",
+            "    boundary=\"b\"\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: message/feedback-report\r\n",
+            "\r\n",
+            "Feedback-Type: abuse\r\n",
+            "User-Agent: SomeGenerator/1.0\r\n",
+            "Version: 1\r\n",
+            "\r\n",
+            "--b\r\n",
+            "Content-Type: text/rfc822-headers; charset=\"shift_jis\"\r\n",
+            "Content-Transfer-Encoding: quoted-printable\r\n",
+            "\r\n",
+            "Subject: =93=FA=96=7B=8C=EA\r\n",
+            "--b--\r\n",
+        );
+
+        let result = ARFReport::parse(report.as_bytes()).unwrap().unwrap();
+        k9::assert_equal!(
+            result.original_message.unwrap(),
+            BString::from(b"Subject: \x93\xFA\x96\x7B\x8C\xEA\n")
+        );
+    }
+
     #[test]
     fn rfc5965_3() {
         let result = ARFReport::parse(include_bytes!("../data/rfc5965/3.eml")).unwrap();
@@ -423,7 +545,7 @@ Some(
         incidents: None,
         original_envelope_id: None,
         original_mail_from: Some(
-            "<test1@example.com>",
+            "test1@example.com",
         ),
         reporting_mta: None,
         source_ip: None,

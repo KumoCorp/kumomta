@@ -1,24 +1,28 @@
+---
+description: Configure sending IPs in KumoMTA using egress source and pool definitions, distributing sends with weighted round robin to isolate reputation and warm IPs.
+---
+
 # Configuring Sending IPs
 
 By default, all traffic injected to the KumoMTA server will be delivered using
 the default interface configured on the host server. For smaller installations
 this is acceptable, but best practices recommend separating mail streams into
-their own IPs addresses in order to isolate reputation and enable larger
+their own IP addresses in order to isolate reputation and enable larger
 sending volumes than would be possible on a single IP address.
 
-KumoMTA has the concept of pools of IPs. A given scheduled queue can be
+KumoMTA has the concept of pools of IPs. A given Scheduled Queue can be
 associated with a pool and it will then use *[Weighted Round
 Robin](http://kb.linuxvirtualserver.org/wiki/Weighted_Round-Robin_Scheduling)*
-(WRR) to distribute sends from that scheduled queue across the IPs contained
-within its associated pool.  When a scheduled queue is idle for approximately
+(WRR) to distribute sends from that Scheduled Queue across the IPs contained
+within its associated pool.  When a Scheduled Queue is idle for approximately
 10 minutes, it will idle out and the round robin state will be reset for the
 next send.
 
-!!! info
-    The *Weighted Round Robin* implementation in kumomta is considered to be
+!!! note
+    The _Weighted Round Robin_ implementation in KumoMTA is considered to be
     **probabilistic**, achieving the configured distribution only when the rate
     of sending is sufficiently high (at least 1 message to a given site every
-    few minutes), and is scoped per-*scheduled*-queue. There is no whole-machine
+    few minutes), and is scoped per-_scheduled_-queue. There is no whole-machine
     nor whole-cluster coordination in the round robin implementation as those
     techniques introduce bottlenecks that limit scalability and are unnecessary
     at the kinds of volumes where it is important to implement distribution
@@ -37,10 +41,10 @@ script:
 ```lua
 -- Configure source IPs.
 local sources = require 'policy-extras.sources'
-sources:setup { '/opt/kumomta/etc/sources.toml' }
+sources:setup { '/opt/kumomta/etc/policy/sources.toml' }
 ```
 
-In addition, create a file at `/opt/kumomta/etc/sources.toml` and populate it
+In addition, create a file at `/opt/kumomta/etc/policy/sources.toml` and populate it
 as follows:
 
 {% call toml_data() %}
@@ -85,20 +89,20 @@ for more information.
 
 ## Provisioning Egress Sources Using Lua
 
-!!!note
+!!! note
     Most users will be satisfied with using the policy helper shown above.
     This section and the remainder of this page is for more advanced users.
-    **The examples show here are illustrative: if all you intend is to copy
+    **The examples shown here are illustrative: if all you intend is to copy
     and paste these into your configuration and use them as-is, we strongly
     recommend that you use the sources.lua module instead.**
 
-In KumoMTA, source IPs are described in an *Egress Source.* And Egress Source
+In KumoMTA, source IPs are described in an _Egress Source._ An Egress Source
 represents an object that can be used to send messages and is not attached to a
 particular protocol. While the most common use case is an IP address used for
 SMTP, it could also define a specific outbound port for sending through
 port-based NAT, or a specific configuration for sending over HTTP.
 
-An Egress Source is defined using the **`kumo.make_egress_source`** function,
+An Egress Source is defined using the `kumo.make_egress_source` function,
 called during the init event. For more information, see the
 [make_egress_source](../../reference/kumo/make_egress_source/index.md) chapter of the
 Reference Manual.
@@ -122,7 +126,7 @@ Typically an Egress source is used to assign messages to a specific IP address
 for sending. It is a best practice for each source IP to have a unique hostname
 used during the EHLO command, that matches a PTR record that points to the
 external IP associated with the Egress Source. The IP address is set with
-the *source* address option and the hostname is set using the *ehlo_domain*
+the `source_address` option and the hostname is set using the `ehlo_domain`
 option. The IP address used is not required to be unique to a given Egress
 Source:
 
@@ -146,7 +150,7 @@ assigned to the Egress Source:
 ```lua
 kumo.on('get_egress_source', function(source_name)
   if source_name == 'ip-1' then
-    -- Make a source that will emit from 10.0.0.1
+    -- Make a source that will emit from an IPv6 address
     kumo.make_egress_source {
       name = 'ip-1',
       source_address = '2001:db8:3333:4444:5555:6666:7777:8888',
@@ -159,10 +163,10 @@ end)
 
 ## Provisioning Egress Pools Using Lua
 
-!!!note
+!!! note
     Most users will be satisfied with using the policy helper shown above.
     This section and the remainder of this page is for more advanced users.
-    **The examples show here are illustrative: if all you intend is to copy
+    **The examples shown here are illustrative: if all you intend is to copy
     and paste these into your configuration and use them as-is, we strongly
     recommend that you use the sources.lua module instead.**
 
@@ -173,7 +177,7 @@ default, with weighted round-robin available as an option.
 
 A given Egress Source can be added to multiple Egress Pools.
 
-Egress Pools are defined using the **`kumo.make_egress_pool`** function, called
+Egress Pools are defined using the `kumo.make_egress_pool` function, called
 during the `get_egress_pool` event:
 
 ```lua

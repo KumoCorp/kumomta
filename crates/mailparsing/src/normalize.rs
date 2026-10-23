@@ -46,33 +46,6 @@ pub fn normalize_crlf(data: &[u8]) -> Vec<u8> {
     normalized
 }
 
-pub fn normalize_crlf_in_place(data: &mut Vec<u8>) {
-    let mut idx = 0;
-    'find_again: while idx < data.len() {
-        for i in memchr::memchr2_iter(b'\r', b'\n', &data[idx..]) {
-            match data[idx + i] {
-                b'\r' => {
-                    if data.get(idx + i + 1).copied() != Some(b'\n') {
-                        data.insert(idx + i + 1, b'\n');
-                        idx = idx + i + 2;
-                        continue 'find_again;
-                    }
-                }
-                b'\n' => {
-                    let needs_cr = idx + i == 0 || data[idx + i - 1] != b'\r';
-                    if needs_cr {
-                        data.insert(idx + i, b'\r');
-                        idx = idx + i + 2;
-                        continue 'find_again;
-                    }
-                }
-                _ => unreachable!(),
-            }
-        }
-        return;
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -96,10 +69,6 @@ mod test {
     #[test]
     fn fix_loner() {
         fn fix(s: &[u8], expect: &[u8]) {
-            let mut data = s.to_vec();
-            normalize_crlf_in_place(&mut data);
-            assert_eq!(data, expect);
-
             assert_eq!(normalize_crlf(s), expect);
         }
 

@@ -1,3 +1,7 @@
+---
+description: The history of KumoMTA, an open source high-performance MTA written in Rust by email industry veterans, and the story behind its name and open source model.
+---
+
 # The History of KumoMTA
 
 KumoMTA is an open source Message Transfer Agent (MTA) designed to provide high performance outbound email functionality.

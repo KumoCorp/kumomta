@@ -190,6 +190,32 @@ function mod.load_json_or_toml_file(filename)
   return kumo.json_load(filename)
 end
 
+--- Loads a list of files, each as load_json_or_toml_file would load it,
+--- returning their contents in the same order as `filenames`. An entry
+--- that is itself a table is passed through unchanged rather than loaded.
+--- Suspends once for the whole list rather than once per file.
+function mod.load_json_or_toml_files(filenames)
+  local paths = {}
+  for _, filename in ipairs(filenames) do
+    if type(filename) ~= 'table' then
+      table.insert(paths, filename)
+    end
+  end
+  local data_by_name = {}
+  if #paths > 0 then
+    local loaded = kumo.serde.load_files(paths)
+    for i, name in ipairs(paths) do
+      data_by_name[name] = loaded[i]
+    end
+  end
+  local results = {}
+  for idx, filename in ipairs(filenames) do
+    results[idx] = type(filename) == 'table' and filename
+      or data_by_name[filename]
+  end
+  return results
+end
+
 -- Returns true if the string `s` starts with the string `text`
 function mod.starts_with(s, text)
   return string.sub(s, 1, #text) == text
@@ -288,6 +314,17 @@ function mod:test()
   mod.assert_eq(mod.dumps {}, '{}')
   mod.assert_eq(mod.dumps { 1, 2 }, '{\n  [1] = 1,\n  [2] = 2\n}')
   mod.assert_eq(mod.dumps { foo = 'bar' }, '{\n  ["foo"] = "bar"\n}')
+
+  -- load_json_or_toml_files keeps list order and passes inline tables
+  -- through unchanged
+  local loaded = mod.load_json_or_toml_files {
+    { first = true },
+    'assets/policy-extras/shaping.toml',
+    { third = true },
+  }
+  mod.assert_eq(loaded[1].first, true)
+  mod.assert_eq(type(loaded[2]), 'table')
+  mod.assert_eq(loaded[3].third, true)
 end
 
 return mod

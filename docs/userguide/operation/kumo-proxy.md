@@ -1,20 +1,22 @@
-# Using the KumoProxy Socks5 proxy utility
+---
+description: Run the KumoProxy SOCKS5 proxy server to share sending IPs across a KumoMTA cluster, including installing it as a systemd service to survive restarts.
+---
 
-KumoMTA comes with a socks5 proxy of our own design to assist with deployment of cluster environments.
+# Using the KumoProxy SOCKS5 proxy utility
+
+KumoMTA comes with its own SOCKS5 proxy server to assist with deployment of cluster environments.
 
 The binary is located at `/opt/kumomta/sbin/proxy-server` and can be operated independently from KumoMTA.
 
-The fast path to success is to clone the KumoMTA repo to a new server that has network capabilities and public facing IPs.  You do not need to configure or start KumoMTA.  To execute the proxy, use the command `/opt/kumomta/sbin/proxy-server --listen <IP:Port>`
+To run the proxy on a dedicated server with public-facing IPs, install the KumoMTA package on that server; you do not need to configure or start KumoMTA itself.  To execute the proxy, use the command `/opt/kumomta/sbin/proxy-server --listen <IP:Port>`
 
 Ensure that you have configured `sysctl` to allow for enough file handles, ip forwarding and other important factors. 
 
 Usage documentation is at `/opt/kumomta/sbin/proxy-server --help`
 
-## Configuring KumpProxy to survive a restart
+## Configuring KumoProxy to survive a restart
 
-The above simplified instructions work well with the classic proxy-server cli, but as of the 2026-03-04 release there have been many enhancements.  The instructions below leverage those changes.
-
-KumoProxy can be configured as a systemd service and can read configuration from a Lua file.
+KumoProxy can be configured as a systemd service
 
 Note that the instructions here were tested on Ubuntu 24, your OS may require slightly different configuration.
 
@@ -23,7 +25,7 @@ You will need sudo access to perform these changes.  Start by creating a service
 `sudo vi /etc/systemd/system/kumoproxy.service`
 
 Populate it with:
-```console
+```txt
 [Unit]
 Description=KumoMTA SOCKS5 Proxy service
 After=syslog.target network.target
@@ -42,26 +44,12 @@ Next, create an lua config file where you can add your proxy config.
 
 `sudo vi /opt/kumomta/etc/policy/proxy_init.lua`
 
-Populate with your proxy config.  You can read more about proxy config options [here](../../reference/proxy/start_proxy_listener/_index.md)
+Populate with your IP and Port
 
-IE:
-```lua
-local kumo = require 'kumo'
-local proxy = require 'proxy'
-
-kumo.on('proxy_init', function()
-  -- Start SOCKS5 proxy listener on port 5000 across all plumbed IPs
-  proxy.start_proxy_listener {
-    listen = '0.0.0.0:5000',
-    timeout = '60 seconds',
-  }
-
-  -- Start HTTP listener for metrics and administration
-  proxy.start_http_listener {
-    listen = '0.0.0.0:8000',
-    trusted_hosts = { '127.0.0.1', '::1' },
-  }
-end)
+For example:
+```txt
+PROXY_IP="172.31.37.164"
+PROXY_PORT="5000"
 ```
 
 Reload the services:

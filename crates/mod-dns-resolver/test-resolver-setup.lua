@@ -17,6 +17,23 @@ kumo.dns.configure_resolver {
   },
 }
 
+-- Use hickory with the detailed name-server form, exercising each
+-- accepted value of `protocol` and a custom bind address.
+kumo.dns.configure_resolver {
+  Hickory = {
+    name_servers = {
+      { socket_addr = '10.0.0.1:53', protocol = 'udp' },
+      { socket_addr = '10.0.0.1:53', protocol = 'tcp' },
+      {
+        socket_addr = '10.0.0.2:53',
+        protocol = 'udp_then_tcp',
+        trust_negative_responses = false,
+        bind_addr = '0.0.0.0:0',
+      },
+    },
+  },
+}
+
 -- Use Unbound with custom upstream dns
 kumo.dns.configure_resolver {
   Unbound = {

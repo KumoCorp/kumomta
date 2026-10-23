@@ -9,3 +9,6 @@ config = {path="../config"}
 fancy-regex = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 regex = {workspace=true}
+
+[lints]
+workspace = true
