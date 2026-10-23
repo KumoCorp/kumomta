@@ -146,6 +146,12 @@
    microbenchmark this expands fields roughly 2-3x faster with the Jinja
    dialect and 3-5x faster with Handlebars.
 
+ * The [queues helper](../userguide/configuration/queuemanagement.md#provider-specific-configuration)
+   now accepts `[provider.PROVIDER]`, `[provider.PROVIDER.TENANT]` and
+   `[provider.PROVIDER.TENANT.CAMPAIGN]` blocks, so that queue options such as
+   `egress_pool` can be set for every destination of a mailbox provider (as
+   identified by the shaping `match` rules) without listing each domain. #650
+
 ## Fixes
 
  * With DNSSEC validation enabled, the hickory resolver backend could
