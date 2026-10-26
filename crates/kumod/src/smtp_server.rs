@@ -1469,12 +1469,13 @@ impl SmtpServerSession {
             return Ok(ReadLine::Disconnected);
         }
 
+        let limit = override_limit.unwrap_or(self.params.line_length_hard_limit);
         let mut too_long = false;
         tracing::trace!("reading line");
 
         loop {
             if let Some(i) = CRLF.find(&self.read_buffer) {
-                if i > self.params.line_length_hard_limit || too_long {
+                if i > limit || too_long {
                     self.read_buffer.drain(0..i + 2);
                     SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                         conn_meta: self.meta.clone_inner(),
@@ -1497,8 +1498,7 @@ impl SmtpServerSession {
                 });
             }
             tracing::trace!("read_buffer len is {}", self.read_buffer.len());
-            if self.read_buffer.len() > override_limit.unwrap_or(self.params.line_length_hard_limit)
-            {
+            if self.read_buffer.len() > limit {
                 tracing::trace!("line is too long, clearing buffer and setting flag");
                 self.read_buffer.clear();
                 too_long = true;
@@ -1506,8 +1506,8 @@ impl SmtpServerSession {
 
             // Didn't find a complete line, fill up the rest of the buffer
             let mut data = [0u8; 1024];
-            let limit = data.len().min(self.params.line_length_hard_limit);
-            let data = &mut data[0..limit];
+            let chunk_len = data.len().min(self.params.line_length_hard_limit);
+            let data = &mut data[0..chunk_len];
             tokio::select! {
                 _ = tokio::time::sleep(self.params.client_timeout) => {
                     return Ok(ReadLine::TimedOut);
@@ -1782,8 +1782,18 @@ impl SmtpServerSession {
                 return Ok(());
             }
 
-            let line = match self.read_line(None).await? {
+            let hard_limit = self.params.line_length_hard_limit;
+            let line = match self
+                .read_line(Some(hard_limit.max(MAX_AUTH_LINE_LEN)))
+                .await?
+            {
                 ReadLine::Disconnected => return Ok(()),
+                // RFC 4954 section 4 allows AUTH lines up to 12288 octets
+                ReadLine::Line(line) if line.len() > hard_limit && !is_auth_command(&line) => {
+                    self.write_response(500, "5.2.3 line too long", None, RejectDisconnect::If421)
+                        .await?;
+                    continue;
+                }
                 ReadLine::Line(line) => line,
                 ReadLine::InvalidUtf8 => {
                     self.write_response(
@@ -2701,7 +2711,7 @@ impl SmtpServerSession {
                 .await?;
             // The client's credential arrives on this continuation line;
             // redacted_response, computed above, already masks it.
-            match self.read_line(Some(16384)).await? {
+            match self.read_line(Some(MAX_AUTH_LINE_LEN)).await? {
                 ReadLine::Disconnected => return Ok(CommandDisposition::Terminate),
                 ReadLine::Line(raw) => raw,
                 ReadLine::InvalidUtf8 => {
@@ -3571,6 +3581,12 @@ struct WriteError;
 /// The maximum line length defined by the SMTP RFCs.
 /// This does not include the CRLF.
 const MAX_LINE_LEN: usize = 998;
+const MAX_AUTH_LINE_LEN: usize = 12288;
+
+fn is_auth_command(line: &str) -> bool {
+    line.get(..5)
+        .is_some_and(|verb| verb.eq_ignore_ascii_case("AUTH "))
+}
 
 #[derive(PartialEq)]
 enum ReadLine {
