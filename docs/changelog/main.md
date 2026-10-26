@@ -290,3 +290,8 @@
  * RFC3464 parsing now correctly recognizes the RFC822 address type case
    insensitively and handles extraneous spaces in the `Original-Recipient`
    and `Final-Recipient` portions of the DSN. Thanks to @Harshjha3006! #640
+
+ * [request:body](../reference/kumo.http/Request.md#requestbodybody) now
+   accepts arbitrary bytes. Previously a body that was not valid UTF-8 (for
+   example a message with 8bit ISO-8859-1 content) failed with `error
+   converting Lua string to String`.

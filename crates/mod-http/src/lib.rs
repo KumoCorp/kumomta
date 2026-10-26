@@ -155,7 +155,12 @@ impl LuaUserData for RequestWrapper {
             Ok(this.clone())
         });
 
-        methods.add_method("body", |_, this, body: String| {
+        // Lua strings are byte strings. Taking mlua::String rather than a
+        // Rust String lets callers send any payload -- for example an
+        // RFC 5322 message with 8bit non-UTF-8 content -- instead of failing
+        // with "error converting Lua string to String".
+        methods.add_method("body", |_, this, body: mlua::String| {
+            let body = body.as_bytes().to_vec();
             this.apply(|b| Ok(b.body(body)))?;
             Ok(this.clone())
         });
@@ -640,5 +645,47 @@ mod tests {
 
         let cookie: String = lua.load(r#"return headers['set-cookie']"#).eval().unwrap();
         k9::assert_equal!(cookie, "a=1");
+    }
+
+    fn body_bytes_after(lua_body: &str) -> Vec<u8> {
+        let lua = Lua::new();
+        let client = ClientBuilder::new().build().unwrap();
+        let request = RequestWrapper::new(client.post("http://127.0.0.1/"));
+        lua.globals().set("request", request.clone()).unwrap();
+        lua.load(format!("request:body({lua_body})"))
+            .exec()
+            .unwrap();
+        let built = request
+            .builder
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap()
+            .build()
+            .unwrap();
+        built
+            .body()
+            .and_then(|body| body.as_bytes())
+            .expect("buffered body")
+            .to_vec()
+    }
+
+    // Lua strings are byte strings, and an HTTP body is bytes: a body that is
+    // not valid UTF-8 (8bit ISO-8859-1 mail content, NUL, 0xFF) must be sent
+    // exactly as given.
+    #[test]
+    fn body_accepts_non_utf8_bytes() {
+        k9::assert_equal!(
+            body_bytes_after(r#""caf\xe9 \x00\xff""#),
+            b"caf\xe9 \x00\xff".to_vec()
+        );
+    }
+
+    #[test]
+    fn body_utf8_is_unchanged() {
+        k9::assert_equal!(
+            body_bytes_after(r#""caf\u{e9}""#),
+            "caf\u{e9}".as_bytes().to_vec()
+        );
     }
 }

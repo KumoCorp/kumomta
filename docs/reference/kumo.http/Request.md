@@ -48,7 +48,9 @@ Consider using a [keysource](../keysource.md) with
 
 ## request:body(body)
 
-Sets the body of the request. Body must be a string.
+Sets the body of the request. Body must be a string. Lua strings are byte
+strings, so the body may contain arbitrary binary data; it does not need to
+be valid UTF-8.
 
 ```lua
 local request = kumo.http.build_client({}):post 'https://example.com'
