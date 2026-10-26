@@ -2649,6 +2649,50 @@ impl SmtpServerSession {
         Ok(())
     }
 
+    /// Sends a 334 SASL challenge and reads the client's response line.
+    /// Returns Err with the disposition to use if no response was read,
+    /// in which case the client has already been sent a reply.
+    async fn read_sasl_response(
+        &mut self,
+        challenge: &str,
+        line: &str,
+    ) -> anyhow::Result<Result<String, CommandDisposition>> {
+        self.write_response(334, challenge, None, RejectDisconnect::If421)
+            .await?;
+        let (code, message, disposition) = match self.read_line(Some(MAX_AUTH_LINE_LEN)).await? {
+            ReadLine::Disconnected => return Ok(Err(CommandDisposition::Terminate)),
+            ReadLine::Line(raw) => return Ok(Ok(raw)),
+            ReadLine::InvalidUtf8 => (
+                501,
+                "5.5.2 Invalid UTF-8 in authentication exchange".to_string(),
+                CommandDisposition::Continue,
+            ),
+            ReadLine::TimedOut => (
+                421,
+                format!("4.3.2 {} idle too long", self.params.hostname),
+                CommandDisposition::Terminate,
+            ),
+            ReadLine::ShuttingDown => (
+                421,
+                format!("4.3.2 {} shutting down", self.params.hostname),
+                CommandDisposition::Terminate,
+            ),
+            ReadLine::TooLong => (
+                500,
+                "5.5.6 authentication exchange line too long".to_string(),
+                CommandDisposition::Continue,
+            ),
+        };
+        self.write_response(
+            code,
+            message,
+            Some(line.to_string()),
+            RejectDisconnect::If421,
+        )
+        .await?;
+        Ok(Err(disposition))
+    }
+
     async fn process_auth(
         &mut self,
         sasl_mech: String,
@@ -2704,57 +2748,14 @@ impl SmtpServerSession {
             return Ok(CommandDisposition::Continue);
         }
 
-        let raw_response = if let Some(r) = initial_response {
-            r
-        } else {
-            self.write_response(334, " ", None, RejectDisconnect::If421)
-                .await?;
+        let raw_response = match initial_response {
+            Some(r) => r,
             // The client's credential arrives on this continuation line;
             // redacted_response, computed above, already masks it.
-            match self.read_line(Some(MAX_AUTH_LINE_LEN)).await? {
-                ReadLine::Disconnected => return Ok(CommandDisposition::Terminate),
-                ReadLine::Line(raw) => raw,
-                ReadLine::InvalidUtf8 => {
-                    self.write_response(
-                        501,
-                        "5.5.2 Invalid UTF-8 in authentication exchange",
-                        Some(line),
-                        RejectDisconnect::If421,
-                    )
-                    .await?;
-                    return Ok(CommandDisposition::Continue);
-                }
-                ReadLine::TimedOut => {
-                    self.write_response(
-                        421,
-                        format!("4.3.2 {} idle too long", self.params.hostname),
-                        Some(line),
-                        RejectDisconnect::If421,
-                    )
-                    .await?;
-                    return Ok(CommandDisposition::Terminate);
-                }
-                ReadLine::ShuttingDown => {
-                    self.write_response(
-                        421,
-                        format!("4.3.2 {} shutting down", self.params.hostname),
-                        Some(line),
-                        RejectDisconnect::If421,
-                    )
-                    .await?;
-                    return Ok(CommandDisposition::Terminate);
-                }
-                ReadLine::TooLong => {
-                    self.write_response(
-                        500,
-                        "5.5.6 authentication exchange line too long",
-                        Some(line),
-                        RejectDisconnect::If421,
-                    )
-                    .await?;
-                    return Ok(CommandDisposition::Continue);
-                }
-            }
+            None => match self.read_sasl_response(" ", &line).await? {
+                Ok(r) => r,
+                Err(disposition) => return Ok(disposition),
+            },
         };
 
         if raw_response == "*" {
