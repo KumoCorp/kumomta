@@ -16,7 +16,7 @@ use cidr_map::{CidrMap, CidrSet};
 use config::{
     any_err, declare_event, load_config, serialize_options, CallbackSignature, SerdeWrappedValue,
 };
-use data_encoding::BASE64;
+use data_encoding::{BASE64, BASE64URL_NOPAD};
 use data_loader::KeySource;
 use derive_where::derive_where;
 use kumo_api_types::egress_path::TlsMode;
@@ -2308,6 +2308,11 @@ impl SmtpServerSession {
                     if let Ok(cert) = X509::from_der(peer_cert.as_ref()) {
                         tls_info.subject_name = subject_name(&cert);
                     }
+                    // The RFC 8705 x5t#S256 form, for certificate-bound tokens
+                    self.meta.set_meta(
+                        "tls_peer_cert_sha256",
+                        BASE64URL_NOPAD.encode(&openssl::sha::sha256(peer_cert.as_ref())),
+                    );
                 }
 
                 if !tls_info.cipher.is_empty() {
