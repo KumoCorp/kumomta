@@ -152,6 +152,32 @@ kumo.on('smtp_server_auth_plain', function(authz, authc, password)
   return simple_auth_check(authc, password)
 end)
 
+-- Stands in for validating the token with an identity provider
+local function bearer_token_check(token)
+  return token:sub(1, 11) == 'valid-token'
+end
+
+kumo.on('smtp_server_auth_oauthbearer', function(authz, token)
+  if not bearer_token_check(token) then
+    return false
+  end
+  if authz == '' then
+    return {
+      identities = {
+        {
+          identity = 'token-subject',
+          context = 'SmtpAuthOAuthBearerAuthentication',
+        },
+      },
+    }
+  end
+  return true
+end)
+
+kumo.on('smtp_server_auth_xoauth2', function(user, token)
+  return bearer_token_check(token)
+end)
+
 kumo.on('smtp_server_ehlo', function(domain, conn_meta, extensions)
   local revised = {}
   for _, ext in ipairs(extensions) do

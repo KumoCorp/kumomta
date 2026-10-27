@@ -96,6 +96,10 @@ pub struct Identity {
 pub enum IdentityContext {
     SmtpAuthPlainAuthentication,
     SmtpAuthPlainAuthorization,
+    SmtpAuthOAuthBearerAuthentication,
+    SmtpAuthOAuthBearerAuthorization,
+    SmtpAuthXOAuth2Authentication,
+    SmtpAuthXOAuth2Authorization,
     HttpBasicAuth,
     BearerToken,
     ProxyAuthRfc1929,

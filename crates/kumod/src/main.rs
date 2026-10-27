@@ -33,6 +33,7 @@ mod metrics_helper;
 mod mod_kumo;
 mod queue;
 mod ready_queue;
+mod sasl;
 mod smtp_dispatcher;
 mod smtp_server;
 mod spf;

@@ -204,6 +204,15 @@ impl LuaConfig {
             .lua)
     }
 
+    /// Returns true if a handler has been registered for the event
+    pub fn has_callback<A: IntoLuaMulti, R: FromLuaMulti>(
+        &self,
+        sig: &CallbackSignature<A, R>,
+    ) -> anyhow::Result<bool> {
+        let value: Value = self.lua()?.named_registry_value(&sig.decorated_name())?;
+        Ok(!value.is_nil())
+    }
+
     /// Convert an array of args into a MultiValue that can be passed
     /// to a callback signature
     pub fn convert_args_to_multi<A: Serialize>(
