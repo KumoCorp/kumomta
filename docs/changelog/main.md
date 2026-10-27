@@ -53,6 +53,13 @@
 
 ## Other Changes and Enhancements
 
+ * The ESMTP listener now supports the OAuth 2.0 `AUTH OAUTHBEARER` (RFC 7628)
+   and `AUTH XOAUTH2` mechanisms, validated by the new
+   [smtp_server_auth_oauthbearer](../reference/events/smtp_server_auth_oauthbearer.md)
+   and [smtp_server_auth_xoauth2](../reference/events/smtp_server_auth_xoauth2.md)
+   events. Each mechanism is only advertised when its event handler is
+   defined. The mechanism used is recorded in the new `auth_mech` metadata.
+
  * Implicit TLS (SMTPS) is now supported on both the inbound and outbound SMTP
    paths.
    [kumo.start_esmtp_listener](../reference/kumo/start_esmtp_listener/index.md)
@@ -147,6 +154,10 @@
    dialect and 3-5x faster with Handlebars.
 
 ## Fixes
+
+ * The ESMTP listener now accepts `AUTH` command and continuation lines of up
+   to 12288 octets, as required by RFC 4954. Previously the 998 octet command
+   line limit also applied to SASL responses.
 
  * With DNSSEC validation enabled, the hickory resolver backend could
    misclassify unsigned zones as DNSSEC-bogus and prevent delivery to the

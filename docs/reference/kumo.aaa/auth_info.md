@@ -15,6 +15,8 @@ The following fields may be present in an AuthInfo object:
  * `identities` - an array style table listing each authenticated identity.  An identity is itself an object of the form `{identity = 'username', context = 'GenericAuth'}` where the context describes where the credential came from.  Context can be one of the following values:
     * `SmtpAuthPlainAuthorization` - the identity came from the SMTP AUTH PLAIN `authz` field, the authorization identity.
     * `SmtpAuthPlainAuthentication` - the identity came from the SMTP AUTH PLAIN `authc` field, the authenticated identity.
+    * `SmtpAuthOAuthBearerAuthorization`, `SmtpAuthOAuthBearerAuthentication` - the identity came from SMTP AUTH OAUTHBEARER. {{since('dev', inline=True)}}
+    * `SmtpAuthXOAuth2Authorization`, `SmtpAuthXOAuth2Authentication` - the identity came from SMTP AUTH XOAUTH2. {{since('dev', inline=True)}}
     * `HttpBasicAuth` - the identity came from an HTTP Basic auth header
     * `BearerToken` - the identity came from an HTTP Bearer token
     * `ProxyAuthRfc1929` - the identity came from a SOCKS 5 RFC 1929 authentication packet

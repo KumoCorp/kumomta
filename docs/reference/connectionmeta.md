@@ -42,6 +42,7 @@ table tbody tr td:nth-of-type(2) {
 |Connection|`hostname`|A copy of the effective value of the hostname set by [kumo.start_esmtp_listener](kumo/start_esmtp_listener/hostname.md)|{{since('2023.11.28-b5252a41', inline=True)}}|
 |Connection|`authn_id`|the authentication id if the message was received via authenticated SMTP||
 |Connection|`authz_id`|the authorization id if the message was received via authenticated SMTP||
+|Connection|`auth_mech`|the SASL mechanism used if the message was received via authenticated SMTP, such as `PLAIN` or `OAUTHBEARER`|{{since('dev', inline=True)}}|
 
 !!! Note
     Additional metadata is available at the Message scope, for a full list of all available metadata, see the [Predefined Metadata](./metadata.md) page.
