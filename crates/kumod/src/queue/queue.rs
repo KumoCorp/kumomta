@@ -1288,10 +1288,17 @@ impl Queue {
                 );
                 self.metrics().delay_due_to_throttle_insert_ready().inc();
 
+                // Pass the delay that the handler asked for. With `None`,
+                // requeue_message_internal falls back to delay_with_jitter(60),
+                // which overwrites the due time with now + rand(0..60s): every
+                // message the handler deferred came back within a minute,
+                // regardless of the requested delay (issue #593).
+                let delay = due - now;
+
                 Box::pin(QueueManager::requeue_message(
                     msg,
                     IncrementAttempts::No,
-                    None,
+                    Some(delay),
                     Response {
                         code: 451,
                         enhanced_code: Some(EnhancedStatusCode {

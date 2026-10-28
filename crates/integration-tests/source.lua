@@ -434,6 +434,22 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
   return kumo.make_egress_path(params)
 end)
 
+local THROTTLE_INSERT_READY_DELAY =
+  os.getenv 'KUMOD_THROTTLE_INSERT_READY_DELAY'
+if THROTTLE_INSERT_READY_DELAY then
+  -- Defer each message once, by an explicit amount, when it is promoted
+  -- from its scheduled queue; see throttle_insert_ready_delay.rs
+  kumo.on('throttle_insert_ready_queue', function(msg)
+    if msg:get_meta 'deferred_once' then
+      return
+    end
+    msg:set_meta('deferred_once', true)
+    local due = kumo.time.now().unix_timestamp
+      + tonumber(THROTTLE_INSERT_READY_DELAY)
+    msg:set_due(kumo.time.from_unix_timestamp(due).rfc3339)
+  end)
+end
+
 if os.getenv 'KUMOD_WANT_REBIND' then
   kumo.on('rebind_message', function(message, data)
     message:append_header('X-Rebound', 'woot')
