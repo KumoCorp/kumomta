@@ -5,12 +5,16 @@ on:
     branches: [ "main" ]
     paths:
       - "assets/community/bounces.toml"
+      - "assets/bounce_classifier/iana.toml"
       - ".github/workflows/bounce.yml"
+      - "crates/validate-bounces/**"
   pull_request:
     branches: [ "main" ]
     paths:
       - "assets/community/shaping.toml"
       - "assets/community/bounces.toml"
+      - "assets/bounce_classifier/iana.toml"
+      - "crates/validate-bounces/**"
 
 env:
   CARGO_TERM_COLOR: always
@@ -25,5 +29,5 @@ jobs:
       with:
         toolchain: stable
     - name: validate bounces
-      run: cargo run -p validate-bounces -- assets/community/bounces.toml
+      run: cargo run -p validate-bounces -- assets/community/bounces.toml assets/bounce_classifier/iana.toml --samples crates/validate-bounces/sample_bounces.toml --samples crates/validate-bounces/sample_iana.toml
 

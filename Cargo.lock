@@ -9593,6 +9593,12 @@ dependencies = [
  "anyhow",
  "bounce-classify",
  "clap",
+ "ordermap",
+ "regex",
+ "rfc5321",
+ "serde",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]
