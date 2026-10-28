@@ -22,6 +22,11 @@ protocol. For SMTP-family protocols the derived value is
 delegate to user code or external services and do not expose a
 per-operation timeout, it is 10 minutes.
 
+While the message data is being written to a destination, each block that is
+accepted by the destination counts as forward progress, so transferring a large
+message to a slow receiver (see [data_block_timeout](data_block_timeout.md)) is
+not, by itself, considered to be a wedge.
+
 If you set a `max_batch_latency` larger than the derived default, set
 this option explicitly so the watchdog does not flag batch
 accumulation as a wedge.

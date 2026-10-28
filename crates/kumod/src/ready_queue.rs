@@ -41,7 +41,7 @@ use mailexchanger::MailExchanger;
 use message::message::{MessageList, QueueNameComponents};
 use message::Message;
 use parking_lot::FairMutex;
-use rfc5321::{EnhancedStatusCode, Response};
+use rfc5321::{EnhancedStatusCode, Response, SmtpClientProgress};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -791,6 +791,15 @@ pub struct DispatcherState {
     pub started_at: Instant,
     pub aborted_by_watchdog: AtomicBool,
     pub disposition_counters: DispatcherDispositionCounters,
+}
+
+/// Message data written by the SMTP client counts as forward progress,
+/// so that the progress watchdog doesn't abort a dispatcher that is
+/// slowly but steadily transferring a large message.
+impl SmtpClientProgress for DispatcherState {
+    fn progress(&self) {
+        self.touch();
+    }
 }
 
 impl DispatcherState {
@@ -2831,6 +2840,30 @@ pub fn ideal_connection_count(queue_size: usize, connection_limit: usize) -> usi
 #[cfg(test)]
 mod test {
     use super::*;
+    use kumo_prometheus::AtomicCounter;
+
+    /// Data written to the peer is reported as progress, which must
+    /// reset the idle time that the progress watchdog looks at.
+    #[test]
+    fn smtp_client_progress_resets_watchdog_idle_time() {
+        let state = DispatcherState::new(
+            Uuid::new_v4(),
+            DispatcherDispositionCounters {
+                delivered: AtomicCounter::new(),
+                transfail: AtomicCounter::new(),
+                fail: AtomicCounter::new(),
+            },
+        );
+        let notifier: Arc<dyn SmtpClientProgress> = state.clone();
+
+        std::thread::sleep(Duration::from_millis(200));
+        let idle = state.last_activity.elapsed();
+        assert!(idle >= Duration::from_millis(200), "idle={idle:?}");
+
+        notifier.progress();
+        let idle_after = state.last_activity.elapsed();
+        assert!(idle_after < idle, "idle={idle:?} idle_after={idle_after:?}");
+    }
 
     fn compute_targets_for_limit(max_connections: usize) -> Vec<(usize, usize)> {
         let sizes = [

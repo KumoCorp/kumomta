@@ -27,6 +27,12 @@ pub use tokio_rustls;
 
 const MAX_LINE_LEN: usize = 4096;
 
+/// The message data is written to the peer in blocks of at most this
+/// size, each subject to `SmtpClientTimeouts::data_block_timeout`.
+/// RFC 5321 section 4.5.3.2.4 defines the data timeout in terms of each
+/// block of data, rather than the transfer as a whole.
+const DATA_BLOCK_SIZE: usize = 64 * 1024;
+
 #[derive(Error, Debug, Clone)]
 pub enum ClientError {
     #[error("response is not UTF8")]
@@ -172,6 +178,13 @@ pub trait SmtpClientTracer: std::fmt::Debug {
     fn lazy_trace(&self, deferred: &dyn DeferredTracer);
 }
 
+/// Receives a notification each time a block of message data has been
+/// accepted by the peer, allowing the owner of the client to observe that
+/// a long transfer is still making forward progress.
+pub trait SmtpClientProgress: std::fmt::Debug + Send + Sync {
+    fn progress(&self);
+}
+
 // helper to avoid making a second copy of every write buffer
 struct WriteTracer<'a> {
     data: &'a str,
@@ -221,6 +234,7 @@ pub struct SmtpClient {
     read_buffer: Vec<u8>,
     timeouts: SmtpClientTimeouts,
     tracer: Option<Arc<dyn SmtpClientTracer + Send + Sync>>,
+    progress: Option<Arc<dyn SmtpClientProgress>>,
     use_rset: bool,
     enable_rset: bool,
     enable_pipelining: bool,
@@ -271,6 +285,7 @@ impl SmtpClient {
             read_buffer: Vec::with_capacity(1024),
             timeouts,
             tracer: None,
+            progress: None,
             use_rset: false,
             enable_rset: false,
             enable_pipelining: false,
@@ -297,6 +312,12 @@ impl SmtpClient {
 
     pub fn set_tracer(&mut self, tracer: Arc<dyn SmtpClientTracer + Send + Sync>) {
         self.tracer.replace(tracer);
+    }
+
+    /// Register a notifier that is called as message data is written
+    /// to the peer.
+    pub fn set_progress_notifier(&mut self, progress: Arc<dyn SmtpClientProgress>) {
+        self.progress.replace(progress);
     }
 
     pub fn timeouts(&self) -> &SmtpClientTimeouts {
@@ -618,17 +639,26 @@ impl SmtpClient {
                 BinWriteTracer::trace(tracer, data);
             }
         }
-        let timeout_duration = Command::Data.client_timeout_request(&self.timeouts);
-        self.write_all_with_timeout(
-            timeout_duration,
-            data,
-            || ClientError::TimeOutData,
-            |error| ClientError::WriteError {
-                error,
-                commands: vec![],
-            },
-        )
-        .await
+        // Write in blocks, each with its own deadline, so that a slow
+        // but steady peer can accept a large message without the overall
+        // transfer time being limited.
+        let timeout_duration = self.timeouts.data_block_timeout;
+        for block in data.chunks(DATA_BLOCK_SIZE) {
+            self.write_all_with_timeout(
+                timeout_duration,
+                block,
+                || ClientError::TimeOutData,
+                |error| ClientError::WriteError {
+                    error,
+                    commands: vec![],
+                },
+            )
+            .await?;
+            if let Some(progress) = &self.progress {
+                progress.progress();
+            }
+        }
+        Ok(())
     }
 
     /// Issue a series of commands, and return the responses to
@@ -1490,5 +1520,217 @@ mod test {
     #[test]
     fn test_issue_533() {
         let _name = parse_server_name("münchen.de").unwrap();
+    }
+
+    /// Adapts an in-memory stream so that it can be used as the socket
+    /// of an SmtpClient.
+    #[derive(Debug)]
+    struct TestStream(tokio::io::DuplexStream);
+
+    impl tokio::io::AsyncRead for TestStream {
+        fn poll_read(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::pin::Pin::new(&mut self.0).poll_read(cx, buf)
+        }
+    }
+
+    impl tokio::io::AsyncWrite for TestStream {
+        fn poll_write(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            std::pin::Pin::new(&mut self.0).poll_write(cx, buf)
+        }
+
+        fn poll_flush(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::pin::Pin::new(&mut self.0).poll_flush(cx)
+        }
+
+        fn poll_shutdown(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::pin::Pin::new(&mut self.0).poll_shutdown(cx)
+        }
+    }
+
+    impl AsyncReadAndWrite for TestStream {}
+
+    #[derive(Debug, Default)]
+    struct CountingProgress(std::sync::atomic::AtomicUsize);
+
+    impl CountingProgress {
+        fn count(&self) -> usize {
+            self.0.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl SmtpClientProgress for CountingProgress {
+        fn progress(&self) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    const TEST_BLOCK_TIMEOUT: Duration = Duration::from_secs(10);
+
+    fn test_payload(len: usize) -> Vec<u8> {
+        (0..len).map(|i| (i % 251) as u8).collect()
+    }
+
+    /// Returns a client wired to an in-memory peer. The peer end is
+    /// returned as a bare DuplexStream.
+    fn client_with_peer() -> (SmtpClient, tokio::io::DuplexStream) {
+        let (ours, peer) = tokio::io::duplex(DATA_BLOCK_SIZE);
+        let timeouts = SmtpClientTimeouts {
+            data_block_timeout: TEST_BLOCK_TIMEOUT,
+            ..Default::default()
+        };
+        (
+            SmtpClient::with_stream(TestStream(ours), "localhost", timeouts),
+            peer,
+        )
+    }
+
+    /// Spawns a peer that reads up to `chunk` bytes every `interval`.
+    /// If `stop_after` is set, it stops reading (but keeps the connection
+    /// open) once it has consumed at least that many bytes.
+    /// Resolves to everything that was read, once the client closes.
+    fn spawn_peer(
+        mut peer: tokio::io::DuplexStream,
+        chunk: usize,
+        interval: Duration,
+        stop_after: Option<usize>,
+    ) -> tokio::task::JoinHandle<Vec<u8>> {
+        tokio::spawn(async move {
+            let mut received = vec![];
+            let mut buf = vec![0u8; chunk];
+            loop {
+                if stop_after.map(|n| received.len() >= n).unwrap_or(false) {
+                    std::future::pending::<()>().await;
+                }
+                tokio::time::sleep(interval).await;
+                let n = peer.read(&mut buf).await.unwrap();
+                if n == 0 {
+                    return received;
+                }
+                received.extend_from_slice(&buf[..n]);
+            }
+        })
+    }
+
+    /// A transfer that takes far longer than data_block_timeout overall,
+    /// but in which the peer keeps accepting data, must succeed.
+    #[tokio::test(start_paused = true)]
+    async fn data_slow_but_steady_peer_succeeds() {
+        let (mut client, peer) = client_with_peer();
+        let progress = Arc::new(CountingProgress::default());
+        client.set_progress_notifier(progress.clone());
+
+        let payload = test_payload(10 * DATA_BLOCK_SIZE);
+        // Accept one block's worth of data at a time, at a pace that is
+        // slower than data_block_timeout can tolerate for the whole message
+        // but comfortably within it for each block.
+        let reader = spawn_peer(peer, DATA_BLOCK_SIZE, TEST_BLOCK_TIMEOUT / 2, None);
+
+        let start = tokio::time::Instant::now();
+        client.write_data_with_timeout(&payload).await.unwrap();
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed > TEST_BLOCK_TIMEOUT * 3,
+            "expected the transfer to outlast several block timeouts, but took {elapsed:?}"
+        );
+        assert!(client.is_connected());
+        assert_eq!(progress.count(), 10);
+
+        drop(client);
+        assert!(
+            reader.await.unwrap() == payload,
+            "peer received corrupted data"
+        );
+    }
+
+    /// A peer that stops accepting data must be timed out after
+    /// about data_block_timeout, and the connection must not be reused.
+    #[tokio::test(start_paused = true)]
+    async fn data_stalled_peer_times_out() {
+        let (mut client, peer) = client_with_peer();
+        let progress = Arc::new(CountingProgress::default());
+        client.set_progress_notifier(progress.clone());
+
+        let payload = test_payload(10 * DATA_BLOCK_SIZE);
+        // Consume two blocks promptly, then stop reading.
+        let _reader = spawn_peer(
+            peer,
+            DATA_BLOCK_SIZE,
+            Duration::from_millis(1),
+            Some(2 * DATA_BLOCK_SIZE),
+        );
+
+        let start = tokio::time::Instant::now();
+        let err = client.write_data_with_timeout(&payload).await.unwrap_err();
+        let elapsed = start.elapsed();
+        assert!(matches!(err, ClientError::TimeOutData), "got {err:?}");
+        assert!(
+            elapsed >= TEST_BLOCK_TIMEOUT && elapsed < TEST_BLOCK_TIMEOUT * 2,
+            "expected a timeout of about {TEST_BLOCK_TIMEOUT:?}, got {elapsed:?}"
+        );
+        assert!(!client.is_connected());
+        // Blocks that the peer did accept were reported, but no more.
+        assert!(progress.count() < 10, "count={}", progress.count());
+    }
+
+    /// The payload must arrive intact and in order, whatever its size
+    /// relative to the block size, and progress is reported once per block.
+    #[tokio::test(start_paused = true)]
+    async fn data_block_boundaries() {
+        for len in [
+            0,
+            1,
+            DATA_BLOCK_SIZE - 1,
+            DATA_BLOCK_SIZE,
+            DATA_BLOCK_SIZE + 1,
+            3 * DATA_BLOCK_SIZE,
+            3 * DATA_BLOCK_SIZE + 17,
+        ] {
+            let (mut client, peer) = client_with_peer();
+            let progress = Arc::new(CountingProgress::default());
+            client.set_progress_notifier(progress.clone());
+            let reader = spawn_peer(peer, 4096, Duration::from_millis(1), None);
+
+            let payload = test_payload(len);
+            client.write_data_with_timeout(&payload).await.unwrap();
+            assert_eq!(progress.count(), len.div_ceil(DATA_BLOCK_SIZE), "len={len}");
+
+            drop(client);
+            assert!(
+                reader.await.unwrap() == payload,
+                "peer received corrupted data for len={len}"
+            );
+        }
+    }
+
+    #[test]
+    fn data_block_timeout_config() {
+        let timeouts: SmtpClientTimeouts = serde_json::from_str("{}").unwrap();
+        assert_eq!(timeouts.data_block_timeout, Duration::from_secs(60));
+        assert_eq!(timeouts, SmtpClientTimeouts::default());
+
+        let timeouts: SmtpClientTimeouts =
+            serde_json::from_str(r#"{"data_block_timeout": "5m"}"#).unwrap();
+        assert_eq!(timeouts.data_block_timeout, Duration::from_secs(300));
+        // It must not leak into the other timeouts
+        assert_eq!(timeouts.data_timeout, Duration::from_secs(300));
+        assert_eq!(timeouts.data_dot_timeout, Duration::from_secs(300));
+
+        let timeouts: SmtpClientTimeouts =
+            serde_json::from_str(r#"{"data_block_timeout": 90}"#).unwrap();
+        assert_eq!(timeouts.data_block_timeout, Duration::from_secs(90));
     }
 }

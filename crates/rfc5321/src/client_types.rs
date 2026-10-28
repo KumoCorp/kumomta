@@ -44,6 +44,20 @@ pub struct SmtpClientTimeouts {
         with = "duration_serde"
     )]
     pub data_dot_timeout: Duration,
+
+    /// How long to wait for the peer to accept each block of message
+    /// data that we write after the DATA command.
+    /// This bounds how long the transfer may go without making progress,
+    /// rather than how long the whole transfer may take, so a slow but
+    /// steady receiver is not cut off part way through a large message.
+    /// Because of that, it is intentionally not included in the
+    /// total_*_duration computations below.
+    #[serde(
+        default = "SmtpClientTimeouts::default_data_block_timeout",
+        with = "duration_serde"
+    )]
+    pub data_block_timeout: Duration,
+
     #[serde(
         default = "SmtpClientTimeouts::default_rset_timeout",
         with = "duration_serde"
@@ -79,6 +93,7 @@ impl Default for SmtpClientTimeouts {
             rcpt_to_timeout: Self::default_rcpt_to_timeout(),
             data_timeout: Self::default_data_timeout(),
             data_dot_timeout: Self::default_data_dot_timeout(),
+            data_block_timeout: Self::default_data_block_timeout(),
             rset_timeout: Self::default_rset_timeout(),
             idle_timeout: Self::default_idle_timeout(),
             starttls_timeout: Self::default_starttls_timeout(),
@@ -112,6 +127,9 @@ impl SmtpClientTimeouts {
     fn default_data_dot_timeout() -> Duration {
         Duration::from_secs(300)
     }
+    fn default_data_block_timeout() -> Duration {
+        Duration::from_secs(60)
+    }
     fn default_rset_timeout() -> Duration {
         Duration::from_secs(5)
     }
@@ -132,6 +150,7 @@ impl SmtpClientTimeouts {
             rcpt_to_timeout: short,
             data_timeout: short,
             data_dot_timeout: short,
+            data_block_timeout: short,
             rset_timeout: short,
             idle_timeout: short,
             starttls_timeout: short,
