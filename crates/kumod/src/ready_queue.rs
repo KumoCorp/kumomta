@@ -41,7 +41,7 @@ use mailexchanger::MailExchanger;
 use message::message::{MessageList, QueueNameComponents};
 use message::Message;
 use parking_lot::FairMutex;
-use rfc5321::{EnhancedStatusCode, Response, SmtpClientProgress};
+use rfc5321::{EnhancedStatusCode, Response, SmtpClientProgress, SmtpClientTimeouts};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -796,6 +796,21 @@ pub struct DispatcherState {
 /// Message data written by the SMTP client counts as forward progress,
 /// so that the progress watchdog doesn't abort a dispatcher that is
 /// slowly but steadily transferring a large message.
+const WATCHDOG_TIMEOUT_FLOOR: Duration = Duration::from_secs(60);
+
+/// Derive the dispatcher progress watchdog timeout for SMTP-family
+/// protocols from the longest interval that the client may legitimately
+/// spend without reporting progress.
+fn smtp_dispatcher_progress_watchdog_timeout(timeouts: &SmtpClientTimeouts) -> Duration {
+    let longest = timeouts
+        .mail_from_timeout
+        .max(timeouts.rcpt_to_timeout)
+        .max(timeouts.data_timeout)
+        .max(timeouts.data_dot_timeout)
+        .max(timeouts.data_block_timeout);
+    longest.saturating_mul(2).max(WATCHDOG_TIMEOUT_FLOOR)
+}
+
 impl SmtpClientProgress for DispatcherState {
     fn progress(&self) {
         self.touch();
@@ -1065,21 +1080,14 @@ impl ReadyQueue {
         if let Some(configured) = path.dispatcher_progress_watchdog_timeout {
             return configured;
         }
-        let timeouts = &path.client_timeouts;
-        let floor = Duration::from_secs(60);
         match &self.protocol {
             DeliveryProto::Smtp { .. } | DeliveryProto::Xfer { .. } => {
-                let longest = timeouts
-                    .mail_from_timeout
-                    .max(timeouts.rcpt_to_timeout)
-                    .max(timeouts.data_timeout)
-                    .max(timeouts.data_dot_timeout);
-                longest.saturating_mul(2).max(floor)
+                smtp_dispatcher_progress_watchdog_timeout(&path.client_timeouts)
             }
             DeliveryProto::Lua { .. }
             | DeliveryProto::HttpInjectionGenerator
             | DeliveryProto::DeferredSmtpInjection => Duration::from_secs(600),
-            DeliveryProto::Maildir { .. } | DeliveryProto::Null => floor,
+            DeliveryProto::Maildir { .. } | DeliveryProto::Null => WATCHDOG_TIMEOUT_FLOOR,
         }
     }
 
@@ -2863,6 +2871,37 @@ mod test {
         notifier.progress();
         let idle_after = state.last_activity.elapsed();
         assert!(idle_after < idle, "idle={idle:?} idle_after={idle_after:?}");
+    }
+
+    /// A block of message data may legitimately take up to
+    /// data_block_timeout to be accepted, so the derived watchdog timeout
+    /// must not be shorter than that.
+    #[test]
+    fn smtp_watchdog_timeout_accounts_for_data_block_timeout() {
+        let defaults = SmtpClientTimeouts::default();
+        assert_eq!(
+            smtp_dispatcher_progress_watchdog_timeout(&defaults),
+            Duration::from_secs(600)
+        );
+
+        let mut timeouts = SmtpClientTimeouts::short_timeouts();
+        assert_eq!(
+            smtp_dispatcher_progress_watchdog_timeout(&timeouts),
+            WATCHDOG_TIMEOUT_FLOOR
+        );
+
+        timeouts.data_block_timeout = Duration::from_secs(90);
+        assert_eq!(
+            smtp_dispatcher_progress_watchdog_timeout(&timeouts),
+            Duration::from_secs(180)
+        );
+
+        let mut timeouts = SmtpClientTimeouts::default();
+        timeouts.data_block_timeout = Duration::from_secs(900);
+        assert_eq!(
+            smtp_dispatcher_progress_watchdog_timeout(&timeouts),
+            Duration::from_secs(1800)
+        );
     }
 
     fn compute_targets_for_limit(max_connections: usize) -> Vec<(usize, usize)> {

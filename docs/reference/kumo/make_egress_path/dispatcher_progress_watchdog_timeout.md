@@ -18,7 +18,9 @@ The value is a humantime duration string (e.g. `'30s'`, `'2m'`,
 `'10m'`), or `nil` (the default) to use the value derived at runtime
 from the egress path's other timeouts and the scheduled queue's
 protocol. For SMTP-family protocols the derived value is
-`max(2 * longest per-command timeout, 60s)`; for protocols that
+`max(2 * longest per-command timeout, 60s)`, where
+[data_block_timeout](data_block_timeout.md) is included among the
+per-command timeouts {{since('dev', inline=True)}}; for protocols that
 delegate to user code or external services and do not expose a
 per-operation timeout, it is 10 minutes.
 
