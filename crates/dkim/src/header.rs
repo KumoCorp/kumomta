@@ -504,6 +504,27 @@ v=2;\r
     }
 
     #[test]
+    fn test_parse_idn() {
+        let sig = |d: &str, i: &str| {
+            format!("v=1; a=rsa-sha256; d={d}; s=セレクタ; i={i}; h=from; bh=YQ==; b=YQ==")
+        };
+        // i= must be d= or a subdomain of it, regardless of Unicode/punycode form
+        for (d, i) in [
+            ("日本語.jp", "user@日本語.jp"),
+            ("日本語.jp", "ユーザー@mail.xn--wgv71a119e.jp"),
+            ("xn--wgv71a119e.jp", "user@mail.日本語.jp"),
+        ] {
+            let header = DKIMHeader::parse(&sig(d, i)).unwrap();
+            assert_eq!(header.get_required_tag("d"), d);
+            assert_eq!(header.get_required_tag("s"), "セレクタ");
+        }
+        assert!(matches!(
+            DKIMHeader::parse(&sig("日本語.jp", "user@例え.jp")),
+            Err(DKIMError::DomainMismatch)
+        ));
+    }
+
+    #[test]
     fn test_parse_ams() {
         let sig = "i=1; a=rsa-sha256; c=relaxed/relaxed; d=
     messagingengine.com; h=date:from:reply-to:to:message-id:subject
