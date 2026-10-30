@@ -41,11 +41,18 @@ connection will be made with `enable_tls="Required"`. Candidate MX hosts that do
 not match the `mx` fields are removed during resolution, so by the time a
 connection is attempted the candidate set already satisfies the policy.
 
-If the `mode` is set to `"testing"`, then the connection will be made
-with `enable_tls="OpportunisticInsecure"`.
+The effective value of `enable_tls` depends on the policy `mode`, the value
+configured for this egress path and the KumoMTA version:
 
-If the `mode` is set to `"none"`, then your configured value for `enable_tls`
-will be used.
+|MTA-STS `mode`|Configured `enable_tls`|Earlier versions|{{since('dev', inline=True)}}|
+|--------------|-----------------------|----------------|-----------------------------|
+|`"enforce"`|Any value|`"Required"`|`"Required"`|
+|`"testing"`|`"Opportunistic"`|`"OpportunisticInsecure"`|`"OpportunisticInsecure"`|
+|`"testing"`|`"OpportunisticInsecure"`|`"OpportunisticInsecure"`|`"OpportunisticInsecure"`|
+|`"testing"`|`"Required"`|`"OpportunisticInsecure"`|`"Required"`|
+|`"testing"`|`"RequiredInsecure"`|`"OpportunisticInsecure"`|`"RequiredInsecure"`|
+|`"testing"`|`"Disabled"`|`"OpportunisticInsecure"`|`"Disabled"`|
+|`"none"`|Any value|The configured value|The configured value|
 
 If `enable_dane=true` and `TLSA` records are present, then any MTA-STS policy
 will be ignored.

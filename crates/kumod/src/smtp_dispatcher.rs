@@ -957,9 +957,11 @@ impl SmtpDispatcher {
                     });
                 }
                 Some(PolicyMode::Testing) => {
+                    // Skip certificate validation for opportunistic TLS;
+                    // leave required and disabled modes unchanged.
                     // Don't relax a mandatory STARTTLS established by
                     // unusable DANE TLSA records.
-                    if !dane_requires_starttls {
+                    if !dane_requires_starttls && enable_tls == Tls::Opportunistic {
                         enable_tls = Tls::OpportunisticInsecure;
                     }
                     self.tracer.diagnostic(Level::INFO, || {

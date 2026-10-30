@@ -3,10 +3,13 @@
 Controls whether and how TLS will be used when connecting to the destination.
 
 !!! note
-    This setting is overriden by [enable_mta_sts](enable_mta_sts.md) and/or
+    This setting can be overridden by [enable_mta_sts](enable_mta_sts.md) and/or
     [enable_dane](enable_dane.md) when either of those options are enabled and
     an MTA-STS or DANE policy (respectively) is published by the destination
     site.
+
+    When `enable_mta_sts` is enabled (which it is by default), consult the
+    table in [enable_mta_sts](enable_mta_sts.md) for its effects.
 
 Possible values are:
 
