@@ -57,7 +57,7 @@ mod.resolve_docker_network = kumo.memoize(resolve_docker_network, {
 function mod.resolve_tsa_endpoints()
   local ips = mod.resolve_docker_name 'tsa'
   local result = {}
-  for ip, _ in pairs(ips) do
+  for _, ip in pairs(ips) do
     table.insert(result, string.format('http://%s:8008', ip))
   end
   return result
