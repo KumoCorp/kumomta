@@ -146,6 +146,18 @@
    microbenchmark this expands fields roughly 2-3x faster with the Jinja
    dialect and 3-5x faster with Handlebars.
 
+ * Added the [data_block_timeout](../reference/kumo/make_egress_path/data_block_timeout.md)
+   egress path option, which bounds how long we wait for a destination to
+   accept each block of message data rather than the transfer as a whole, as
+   described by RFC 5321 section 4.5.3.2.4. Previously the message data was
+   written under a single deadline of at most 60 seconds, regardless of the
+   configured [data_timeout](../reference/kumo/make_egress_path/data_timeout.md),
+   so a large message could not be delivered to a slow receiver. The default
+   of `60s` per block preserves the previous behavior for receivers that
+   stall; raise it for destinations that are slow to accept data. Writing
+   message data now also counts as forward progress for the
+   [dispatcher_progress_watchdog_timeout](../reference/kumo/make_egress_path/dispatcher_progress_watchdog_timeout.md).
+
 ## Fixes
 
  * With DNSSEC validation enabled, the hickory resolver backend could

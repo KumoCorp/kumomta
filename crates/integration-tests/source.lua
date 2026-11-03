@@ -4,7 +4,11 @@ package.path = '../../assets/?.lua;' .. package.path
 log_hooks = require 'policy-extras.log_hooks'
 
 local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
-local SINK_PORT = tonumber(os.getenv 'KUMOD_SMTP_SINK_PORT')
+-- A test that provides its own receiving SMTP server can point the
+-- source at it, rather than at the kumod sink, via KUMOD_SLOW_SINK_PORT
+local SINK_PORT = tonumber(
+  os.getenv 'KUMOD_SLOW_SINK_PORT' or os.getenv 'KUMOD_SMTP_SINK_PORT'
+)
 local WEBHOOK_PORT = os.getenv 'KUMOD_WEBHOOK_PORT'
 local AMQPHOOK_URL = os.getenv 'KUMOD_AMQPHOOK_URL'
 local AMQP_HOST_PORT = os.getenv 'KUMOD_AMQP_HOST_PORT'
@@ -373,6 +377,8 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
     tls_prefer_openssl = ((os.getenv 'KUMOD_PREFER_OPENSSL') and true)
       or false,
     max_recipients_per_batch = tonumber(MAX_RECIPIENTS_PER_BATCH),
+    data_block_timeout = os.getenv 'KUMOD_DATA_BLOCK_TIMEOUT',
+    dispatcher_progress_watchdog_timeout = os.getenv 'KUMOD_WATCHDOG_TIMEOUT',
 
     -- Skip IPv6 addresses that come back for eg: localhost.
     -- For the most part the integration tests don't care about this,

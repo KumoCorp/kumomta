@@ -18,9 +18,16 @@ The value is a humantime duration string (e.g. `'30s'`, `'2m'`,
 `'10m'`), or `nil` (the default) to use the value derived at runtime
 from the egress path's other timeouts and the scheduled queue's
 protocol. For SMTP-family protocols the derived value is
-`max(2 * longest per-command timeout, 60s)`; for protocols that
+`max(2 * longest per-command timeout, 60s)`, where
+[data_block_timeout](data_block_timeout.md) is included among the
+per-command timeouts {{since('dev', inline=True)}}; for protocols that
 delegate to user code or external services and do not expose a
 per-operation timeout, it is 10 minutes.
+
+While the message data is being written to a destination, each block that is
+accepted by the destination counts as forward progress, so transferring a large
+message to a slow receiver (see [data_block_timeout](data_block_timeout.md)) is
+not, by itself, considered to be a wedge.
 
 If you set a `max_batch_latency` larger than the derived default, set
 this option explicitly so the watchdog does not flag batch

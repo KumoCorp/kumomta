@@ -596,6 +596,7 @@ impl SmtpDispatcher {
             let timeouts = path_config.client_timeouts;
             let egress_source = dispatcher.egress_source.clone();
             let tracer = self.tracer.clone();
+            let progress = dispatcher.state.clone();
             let enable_rset = path_config.enable_rset;
             let enable_pipelining = path_config.enable_pipelining;
 
@@ -647,6 +648,7 @@ impl SmtpDispatcher {
                 tracer.submit(|| SmtpClientTraceEventPayload::Connected);
 
                 client.set_tracer(tracer);
+                client.set_progress_notifier(progress);
                 client.set_enable_pipelining(enable_pipelining);
                 client.set_enable_rset(enable_rset);
 
