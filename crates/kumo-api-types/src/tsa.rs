@@ -1,22 +1,27 @@
+use crate::shaping::{Action, Rule};
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Default)]
+#[derive(Deserialize, Serialize, Default)]
 pub struct Suspensions {
     pub ready_q: Vec<ReadyQSuspension>,
     pub sched_q: Vec<SchedQSuspension>,
 }
 
-#[derive(Serialize, Default, Clone)]
+#[derive(Deserialize, Serialize, Default, Clone)]
 pub struct ReadyQSuspension {
     pub rule_hash: String,
     pub site_name: String,
     pub reason: String,
     pub source: String,
     pub expires: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule: Option<Rule>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<Action>,
 }
 
-#[derive(Serialize, Default, Clone)]
+#[derive(Deserialize, Serialize, Default, Clone)]
 pub struct SchedQSuspension {
     pub rule_hash: String,
     pub tenant: String,
@@ -26,13 +31,13 @@ pub struct SchedQSuspension {
     pub expires: DateTime<Utc>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone)]
 pub enum SuspensionEntry {
     ReadyQ(ReadyQSuspension),
     SchedQ(SchedQSuspension),
 }
 
-#[derive(Serialize, Default, Clone)]
+#[derive(Deserialize, Serialize, Default, Clone)]
 pub struct SchedQBounce {
     pub rule_hash: String,
     pub domain: String,
@@ -42,7 +47,7 @@ pub struct SchedQBounce {
     pub expires: DateTime<Utc>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone)]
 pub enum SubscriptionItem {
     ReadyQSuspension(ReadyQSuspension),
     SchedQSuspension(SchedQSuspension),

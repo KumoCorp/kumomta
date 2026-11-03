@@ -1,6 +1,7 @@
 use anyhow::Context;
 use futures::{Stream, StreamExt};
 use kumo_api_types::rebind::{RebindV1Request, RebindV1Response};
+use kumo_api_types::tsa::Suspensions;
 use kumo_api_types::xfer::*;
 use kumo_api_types::*;
 pub use kumo_prometheus::parser::Metric;
@@ -204,6 +205,13 @@ impl KumoApiClient {
         "/api/admin/ready-q-states/v1",
         ReadyQueueStateRequest,
         ReadyQueueStateResponse
+    );
+
+    method!(
+        tsa_suspensions_v1,
+        GET,
+        "/get_suspension_v1/suspended.json",
+        Suspensions
     );
 
     method!(

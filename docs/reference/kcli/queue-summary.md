@@ -32,6 +32,8 @@ Note that the ready queue counter values reset whenever the ready queue is reape
 
 The scheduled queue data is presented in two columns; the queue name and the number of messages in that queue.
 
+To show the automation rule behind an active ready-queue suspension, provide the TSA daemon URL with `--tsa-endpoint`, for example: `kcli queue-summary --tsa-endpoint http://127.0.0.1:8008`. Suspensions created by older TSA versions may not include rule details; their hash and reason are still shown.
+
 
 **Usage:** `kcli queue-summary [OPTIONS]`
 
@@ -44,5 +46,4 @@ The scheduled queue data is presented in two columns; the queue name and the num
 
 * `--domain <DOMAIN>` — Filter queues to those associated with a DNS domain
 
-
-
+* `--tsa-endpoint <URL>` — Resolve active automation rule hashes using the TSA daemon
