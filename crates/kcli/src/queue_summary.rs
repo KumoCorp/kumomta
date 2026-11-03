@@ -241,20 +241,22 @@ impl QueueSummaryCommand {
         let client = KumoApiClient::new(endpoint.clone());
         let rule_details = if let Some(tsa_endpoint) = &self.tsa_endpoint {
             let tsa_client = KumoApiClient::new(tsa_endpoint.clone());
-            tsa_client
-                .tsa_suspensions_v1()
-                .await?
-                .ready_q
-                .into_iter()
-                .map(|suspension| {
-                    (
-                        format!("{}-{}", suspension.site_name, suspension.rule_hash),
-                        suspension,
-                    )
-                })
-                .collect::<HashMap<_, _>>()
+            Some(
+                tsa_client
+                    .tsa_suspensions_v1()
+                    .await?
+                    .ready_q
+                    .into_iter()
+                    .map(|suspension| {
+                        (
+                            format!("{}-{}", suspension.site_name, suspension.rule_hash),
+                            suspension,
+                        )
+                    })
+                    .collect::<HashMap<_, _>>(),
+            )
         } else {
-            HashMap::new()
+            None
         };
         let suspended_domains = client.admin_suspend_list_v1().await?;
         let bounced_domains = client.admin_bounce_list_v1().await?;
@@ -348,7 +350,7 @@ impl QueueSummaryCommand {
 
             if let Some(s) = suspended_sites.iter().find(|s| s.name == m.name) {
                 let mut description = format!("🛑suspend: {}", s.reason);
-                append_rule_details(&mut description, &s.reason, &rule_details);
+                append_rule_details(&mut description, &s.reason, rule_details.as_ref());
                 status.push(description);
             }
 
@@ -425,8 +427,11 @@ impl QueueSummaryCommand {
 fn append_rule_details(
     description: &mut String,
     reason: &str,
-    rule_details: &HashMap<String, ReadyQSuspension>,
+    rule_details: Option<&HashMap<String, ReadyQSuspension>>,
 ) {
+    let Some(rule_details) = rule_details else {
+        return;
+    };
     let Some(rule_hash) = reason
         .split_once("rule_hash=")
         .and_then(|(_, suffix)| suffix.split(')').next())
@@ -484,11 +489,42 @@ mod tests {
         let reason = format!("automation rule: 550 5.1.1 (rule_hash={hash})");
         let mut description = format!("🛑suspend: {reason}");
 
-        append_rule_details(&mut description, &reason, &rule_details);
+        append_rule_details(&mut description, &reason, Some(&rule_details));
 
         assert!(description.contains("regex=(550 5\\.1\\.1)"));
         assert!(description.contains("action=Suspend"));
         assert!(description.contains("duration=60s"));
+    }
+
+    #[test]
+    fn leaves_suspension_unchanged_without_tsa_lookup() {
+        let reason = "automation rule: suspended (rule_hash=demo->example.com@smtp_client-abc123)";
+        let original = format!("🛑suspend: {reason}");
+        let mut description = original.clone();
+
+        append_rule_details(&mut description, reason, None);
+
+        assert_eq!(description, original);
+    }
+
+    #[test]
+    fn reports_missing_details_only_when_tsa_lookup_is_enabled() {
+        let hash = "demo->example.com@smtp_client-abc123";
+        let reason = format!("automation rule: suspended (rule_hash={hash})");
+        let original = format!("🛑suspend: {reason}");
+        let mut rule_details = HashMap::new();
+
+        for legacy_entry in [false, true] {
+            if legacy_entry {
+                rule_details.insert(hash.to_string(), ReadyQSuspension::default());
+            }
+            let mut description = original.clone();
+            append_rule_details(&mut description, &reason, Some(&rule_details));
+            assert_eq!(
+                description,
+                format!("{original} [rule details unavailable from TSA]")
+            );
+        }
     }
 }
 

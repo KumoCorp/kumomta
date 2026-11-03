@@ -80,6 +80,27 @@ DeliverySummary {
         "expiration should be about an hour remaining, {remaining:?}"
     );
 
+    let summary = daemon
+        .with_maildir
+        .source
+        .kcli_text(["queue-summary"])
+        .await?;
+    assert!(summary.contains(reason), "{summary}");
+    assert!(!summary.contains("[rule"), "{summary}");
+
+    let tsa_endpoint = format!("http://{}", daemon.tsa.listener("http"));
+    let summary = daemon
+        .with_maildir
+        .source
+        .kcli_text(["queue-summary", "--tsa-endpoint", &tsa_endpoint])
+        .await?;
+    assert!(summary.contains(reason), "{summary}");
+    assert!(summary.contains("[rule: regex=("), "{summary}");
+    assert!(summary.contains("action=Suspend;"), "{summary}");
+    assert!(summary.contains("trigger=Immediate;"), "{summary}");
+    assert!(summary.contains("duration=3600s]"), "{summary}");
+    assert!(!summary.contains("rule details unavailable"), "{summary}");
+
     let shaping = daemon.tsa.get_shaping().await?;
     eprintln!("{shaping:#?}");
     let partial = shaping
