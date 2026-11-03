@@ -51,6 +51,15 @@ not validate will treat every destination as not secure, and DANE will silently
 never engage (see the
 [dane_result_count](../../metrics/kumod/dane_result_count.md) metric).
 
+When delivering with DANE, also enable
+[kumo.dns.set_dane_enabled](../../kumo.dns/set_dane_enabled.md). Deliveries
+normally share one connection pool, keyed by *site_name*, with every other
+domain that resolves to the same MX hosts. With this setting on, a domain
+whose MX selection is insecure but whose MX hosts publish `TLSA` records gets
+a *site_name* distinct from a domain that resolves securely to the same MX
+hosts. This keeps an insecure domain from suppressing DANE authentication on
+connections a securely resolved sibling domain relies on.
+
 You can use either the `libunbound` resolver or, {{since('2026.09.22-a276d4a8', inline=True)}},
 the Hickory resolver with validation enabled.
 

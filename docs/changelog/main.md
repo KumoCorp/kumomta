@@ -51,6 +51,17 @@
   [httpinject_requests_rejected_total](../reference/metrics/kumod/httpinject_requests_rejected_total.md)
   counter expose the current load and rejections. #631
 
+* If you deliver with DANE, we recommend also enabling the new global
+  [kumo.dns.set_dane_enabled](../reference/kumo.dns/set_dane_enabled.md) option
+  (default off) during `init`. Without it, a domain whose MX selection is not
+  DNSSEC-secure, but whose MX hosts publish DANE `TLSA` records, can
+  [share a ready queue](../reference/queues.md#site-names) with a
+  DNSSEC-secure domain on the same hosts and send over a connection that was
+  not DANE-authenticated. Enabling the option separates the two. The
+  per-egress-path
+  [enable_dane](../reference/kumo/make_egress_path/enable_dane.md) option is
+  unchanged and must also be enabled to use the DANE policy.
+
 ## Other Changes and Enhancements
 
  * Implicit TLS (SMTPS) is now supported on both the inbound and outbound SMTP
@@ -175,6 +186,13 @@
    addressed to publishes an MTA-STS enforce policy. Such a message is now
    deferred and logs a TransientFailure record with additional information,
    rather than being sent without TLS.
+
+ * DANE: new
+   [kumo.dns.set_dane_enabled](../reference/kumo.dns/set_dane_enabled.md)
+   (default off). When enabled, a domain that is not DNSSEC-secure but shares
+   mail exchangers that publish DANE `TLSA` records with a DNSSEC-secure
+   domain gets a `[dane-insecure]`-prefixed *site_name*, keeping it in a
+   separate ready queue from that domain.
 
  * `AUTH PLAIN` credentials are now redacted from both inbound rejection logs
    and outbound delivery failure records, replaced with `[REDACTED]` in all log
