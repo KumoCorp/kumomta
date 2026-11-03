@@ -20,7 +20,7 @@ use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
 use kumo_prometheus::declare_metric;
 use kumo_server_lifecycle::{ShutdownSubcription, ShuttingDownError};
 use kumo_server_runtime::spawn;
-use mailexchanger::{PolicyMode, ResolvedMxAddresses};
+use mailexchanger::{MailExchanger, PolicyMode, ResolvedMxAddresses};
 use message::message::QueueNameComponents;
 use message::Message;
 use rfc5321::parser::{EnvelopeAddress, ForwardPath, ReversePath};
@@ -1123,6 +1123,69 @@ impl SmtpDispatcher {
         self.site_has_broken_tls || BROKEN_TLS_BY_SITE.get(site_name).is_some()
     }
 
+    /// Checks whether `msg`'s destination domain requires TLS (MTA-STS enforce).
+    /// If the current session is not using TLS that conflicts with the policy
+    /// and we must generate a TransientFailure response for the message,
+    /// preventing it from being delivered in clear text.
+    async fn mta_sts_cleartext_veto(
+        &self,
+        dispatcher: &Dispatcher,
+        msg: &Message,
+    ) -> anyhow::Result<Option<Response>> {
+        if self.tls_info.is_some() {
+            // We're using TLS, which satisfies the policy
+            return Ok(None);
+        }
+        if !dispatcher.path_config.borrow().enable_mta_sts {
+            return Ok(None);
+        }
+
+        let queue_name = msg.get_queue_name().await?;
+        let components = QueueNameComponents::parse(&queue_name);
+        let routing_domain = components
+            .routing_domain
+            .as_deref()
+            .unwrap_or(&components.domain);
+
+        // `dispatcher.mx` may belong to a different domain than this message is
+        // routing to, since several domains can share one connection. Reuse it,
+        // without re-resolving, only when its domain matches this message's
+        // routing domain.
+        let pinned = dispatcher.mx.as_ref().filter(|mx| {
+            mx.domain_name
+                .trim_end_matches('.')
+                .eq_ignore_ascii_case(routing_domain.trim_end_matches('.'))
+        });
+        let mta_sts = match pinned {
+            Some(mx) => mx.mta_sts,
+            None => match MailExchanger::resolve(routing_domain).await {
+                Ok(mx) => mx.mta_sts,
+                // Without a definitive policy we do not synthesize a veto.
+                Err(_) => return Ok(None),
+            },
+        };
+
+        if mta_sts != PolicyMode::Enforce {
+            return Ok(None);
+        }
+
+        Ok(Some(Response {
+            code: 451,
+            enhanced_code: Some(EnhancedStatusCode {
+                class: 4,
+                subject: 7,
+                detail: 0,
+            }),
+            content: format!(
+                "KumoMTA internal: {routing_domain} publishes an MTA-STS enforce policy \
+                 requiring TLS, but the connection to {site} is cleartext; deferring rather \
+                 than delivering without TLS",
+                site = dispatcher.name
+            ),
+            command: None,
+        }))
+    }
+
     async fn log_disposition(
         &self,
         dispatcher: &Dispatcher,
@@ -1343,12 +1406,16 @@ impl QueueDispatcher for SmtpDispatcher {
             recipients_this_batch.len()
         ));
 
-        let send_result = self
-            .client
-            .as_mut()
-            .unwrap()
-            .send_mail_multi_recip(sender, recipients_this_batch.clone(), &*data)
-            .await;
+        let send_result = match self.mta_sts_cleartext_veto(dispatcher, &msg).await? {
+            Some(response) => Err(ClientError::Rejected(response)),
+            None => {
+                self.client
+                    .as_mut()
+                    .unwrap()
+                    .send_mail_multi_recip(sender, recipients_this_batch.clone(), &*data)
+                    .await
+            }
+        };
 
         let mut result_per_rcpt = vec![];
         let mut rewrite_eligible = false;

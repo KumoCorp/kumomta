@@ -169,6 +169,13 @@
    effective posture, and a `testing` policy has no effect on it. Thanks to
    @terrorobe! #616
 
+ * MTA-STS: When several domains share a ready queue (they resolve to the same
+   MX hosts), a message is no longer delivered over a cleartext connection that
+   another of those domains established, if the domain that message is
+   addressed to publishes an MTA-STS enforce policy. Such a message is now
+   deferred and logs a TransientFailure record with additional information,
+   rather than being sent without TLS.
+
  * `AUTH PLAIN` credentials are now redacted from both inbound rejection logs
    and outbound delivery failure records, replaced with `[REDACTED]` in all log
    and diagnostic output. Thanks to @terrorobe! #636

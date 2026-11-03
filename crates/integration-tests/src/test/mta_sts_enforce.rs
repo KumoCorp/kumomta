@@ -5,7 +5,8 @@ use std::time::Duration;
 
 /// End-to-end coverage for the MTA-STS aliasing fix (#484): a domain whose
 /// enforce-mode policy permits none of its MX hosts must fail to resolve with a
-/// transient error, rather than silently affecting co-sited siblings. The
+/// transient error, rather than silently affecting other domains that share
+/// its MX hosts. The
 /// policy is supplied via `kumo.dns.configure_test_mta_sts`, so no live DNS or
 /// HTTPS policy endpoint is involved.
 #[tokio::test]
@@ -250,4 +251,107 @@ async fn mta_sts_testing_disabled_delivers_plaintext() -> anyhow::Result<()> {
         Expect::DeliveredInPlaintext,
     )
     .await
+}
+
+/// Verifies that when a domain lacking an MTA-STS policy
+/// (`nopolicy.example.com`) and one that publishes enforce
+/// (`enforce.example.com`) share a ready queue, the no-policy domain opens a
+/// cleartext connection and the dispatcher defers the enforce domain's message
+/// rather than sending it over that connection.
+#[tokio::test]
+async fn mta_sts_cleartext_veto_defers_enforce_domain() -> anyhow::Result<()> {
+    let mut daemon = DaemonWithMaildirOptions::new()
+        .policy_file("mta-sts-shared-queue.lua")
+        .env("KUMOD_HIDE_STARTTLS", "1")
+        .start()
+        .await
+        .context("DaemonWithMaildir::start")?;
+
+    let mut client = daemon.smtp_client().await.context("make smtp_client")?;
+
+    // nopolicy.example.com lacks an MTA-STS policy. KUMOD_HIDE_STARTTLS keeps
+    // the sink from advertising STARTTLS, and Opportunistic TLS only attempts a
+    // handshake when the peer advertises it, leaving this delivery in plaintext.
+    let response = MailGenParams {
+        recip: Some("user@nopolicy.example.com"),
+        ..Default::default()
+    }
+    .send(&mut client)
+    .await
+    .context("send to nopolicy.example.com")?;
+    anyhow::ensure!(response.code == 250, "{response:?}");
+    anyhow::ensure!(
+        daemon
+            .wait_for_source_summary(
+                |s| s.get(&Delivery).copied().unwrap_or(0) > 0,
+                Duration::from_secs(50),
+            )
+            .await,
+        "nopolicy.example.com was not delivered"
+    );
+
+    // The 250 here only confirms spool acceptance. Kumod applies
+    // enforce.example.com's policy later, at the outbound attempt over the
+    // shared connection.
+    let response = MailGenParams {
+        recip: Some("user@enforce.example.com"),
+        ..Default::default()
+    }
+    .send(&mut client)
+    .await
+    .context("send to enforce.example.com")?;
+    anyhow::ensure!(response.code == 250, "{response:?}");
+    // The fixture lowers retry_interval from the 20-minute default to 2s;
+    // with the exponential backoff (2s, 4s, 8s, ...) several deferrals fit
+    // in this 50s wait.
+    anyhow::ensure!(
+        daemon
+            .wait_for_source_summary(
+                |s| s.get(&TransientFailure).copied().unwrap_or(0) >= 2,
+                Duration::from_secs(50),
+            )
+            .await,
+        "enforce.example.com was not deferred twice"
+    );
+
+    daemon.stop_both().await.context("stop_both")?;
+
+    let records = daemon.source.collect_logs().await?;
+
+    // nopolicy.example.com is the only domain that delivered.
+    let delivered_recipients: Vec<&str> = records
+        .iter()
+        .filter(|r| r.kind == Delivery)
+        .flat_map(|r| r.recipient.iter().map(String::as_str))
+        .collect();
+    k9::assert_equal!(delivered_recipients, vec!["user@nopolicy.example.com"]);
+
+    let deferrals = records
+        .iter()
+        .filter(|r| r.kind == TransientFailure)
+        .collect::<Vec<_>>();
+    anyhow::ensure!(
+        deferrals.len() >= 2,
+        "expected at least two deferrals, got {}: {records:#?}",
+        deferrals.len()
+    );
+    for deferral in &deferrals {
+        k9::assert_equal!(
+            deferral.recipient,
+            vec!["user@enforce.example.com".to_string()]
+        );
+        k9::assert_equal!(deferral.response.code, 451);
+        k9::assert_equal!(
+            deferral.response.content.as_str(),
+            "KumoMTA internal: enforce.example.com publishes an MTA-STS enforce \
+            policy requiring TLS, but the connection to \
+            unspecified->shared.example.com@smtp_client is cleartext; \
+            deferring rather than delivering without TLS"
+        );
+    }
+
+    // Exactly one message reached the sink: nopolicy.example.com's.
+    k9::assert_equal!(daemon.extract_maildir_messages()?.len(), 1);
+
+    Ok(())
 }
