@@ -6,9 +6,7 @@ use std::time::Duration;
 /// End-to-end coverage for the MTA-STS aliasing fix (#484): a domain whose
 /// enforce-mode policy permits none of its MX hosts must fail to resolve with a
 /// transient error, rather than silently affecting other domains that share
-/// its MX hosts. The
-/// policy is supplied via `kumo.dns.configure_test_mta_sts`, so no live DNS or
-/// HTTPS policy endpoint is involved.
+/// its MX hosts.
 #[tokio::test]
 async fn mta_sts_enforce_impossible() -> anyhow::Result<()> {
     let mut daemon = DaemonWithMaildirOptions::new()
@@ -113,8 +111,26 @@ enum StartTlsEhlo {
 enum Expect {
     DeliveredOverTls,
     DeliveredInPlaintext,
-    /// Deferred with a response whose content contains this text.
+    /// Deferred with this exact response content, where the resolved peer's
+    /// ephemeral port is written as the literal `{port}`.
     Deferred(&'static str),
+}
+
+/// Rewrites the resolved peer's ephemeral port in `content` to the literal
+/// `{port}`. The port is the only part of a deferral response that changes
+/// between runs.
+fn mask_peer_port(content: &str) -> String {
+    let marker = "is_secure: false }:";
+    let Some(idx) = content.find(marker) else {
+        return content.to_string();
+    };
+    let port_start = idx + marker.len();
+    let rest = &content[port_start..];
+    let port_end = port_start
+        + rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+    format!("{}{{port}}{}", &content[..port_start], &content[port_end..])
 }
 
 /// Sends a message to testing.example.com, which publishes an MTA-STS testing
@@ -171,11 +187,12 @@ async fn run_testing_policy_case(
             );
             anyhow::ensure!(delivered == 1, "{delivered} messages in the maildir");
         }
-        Expect::Deferred(reason) => {
+        Expect::Deferred(expected) => {
             anyhow::ensure!(
-                outcome.kind == TransientFailure && outcome.response.content.contains(reason),
-                "expected deferral containing {reason:?}, got {outcome:?}"
+                outcome.kind == TransientFailure,
+                "expected a deferral, got {outcome:?}"
             );
+            k9::assert_equal!(mask_peer_port(&outcome.response.content).as_str(), expected);
             anyhow::ensure!(delivered == 0, "{delivered} messages in the maildir");
         }
     }
@@ -190,7 +207,11 @@ async fn mta_sts_testing_opportunistic_defers_untrusted_cert() -> anyhow::Result
     run_testing_policy_case(
         "Opportunistic",
         StartTlsEhlo::Advertised,
-        Expect::Deferred("invalid peer certificate: UnknownIssuer"),
+        Expect::Deferred(
+            "KumoMTA internal: failed to connect to any candidate hosts: TLS handshake \
+             with ResolvedAddress { name: \"mail.testing.example.com.\", addr: 127.0.0.1, \
+             is_secure: false }:{port} failed: invalid peer certificate: UnknownIssuer",
+        ),
     )
     .await
 }
@@ -215,7 +236,11 @@ async fn mta_sts_testing_required_without_starttls() -> anyhow::Result<()> {
     run_testing_policy_case(
         "Required",
         StartTlsEhlo::Hidden,
-        Expect::Deferred("tls policy is Required but STARTTLS is not advertised"),
+        Expect::Deferred(
+            "KumoMTA internal: failed to connect to any candidate hosts: tls policy is \
+             Required but STARTTLS is not advertised by ResolvedAddress { name: \
+             \"mail.testing.example.com.\", addr: 127.0.0.1, is_secure: false }:{port}",
+        ),
     )
     .await
 }
@@ -226,7 +251,11 @@ async fn mta_sts_testing_required_untrusted_cert() -> anyhow::Result<()> {
     run_testing_policy_case(
         "Required",
         StartTlsEhlo::Advertised,
-        Expect::Deferred("invalid peer certificate: UnknownIssuer"),
+        Expect::Deferred(
+            "KumoMTA internal: failed to connect to any candidate hosts: TLS handshake \
+             with ResolvedAddress { name: \"mail.testing.example.com.\", addr: 127.0.0.1, \
+             is_secure: false }:{port} failed: invalid peer certificate: UnknownIssuer",
+        ),
     )
     .await
 }
@@ -237,7 +266,11 @@ async fn mta_sts_testing_required_insecure_without_starttls() -> anyhow::Result<
     run_testing_policy_case(
         "RequiredInsecure",
         StartTlsEhlo::Hidden,
-        Expect::Deferred("tls policy is RequiredInsecure but STARTTLS is not advertised"),
+        Expect::Deferred(
+            "KumoMTA internal: failed to connect to any candidate hosts: tls policy is \
+             RequiredInsecure but STARTTLS is not advertised by ResolvedAddress { name: \
+             \"mail.testing.example.com.\", addr: 127.0.0.1, is_secure: false }:{port}",
+        ),
     )
     .await
 }
