@@ -1,6 +1,7 @@
 use clap::Parser;
 use kumo_api_client::KumoApiClient;
-use kumo_api_types::{tsa::ReadyQSuspension, ReadyQueueStateRequest};
+use kumo_api_types::tsa::ReadyQSuspension;
+use kumo_api_types::ReadyQueueStateRequest;
 use lexicmp::natural_lexical_cmp;
 use mailexchanger::MailExchanger;
 use message::message::QueueNameComponents;
