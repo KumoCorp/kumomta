@@ -100,7 +100,7 @@ impl<'env, 'source> Template<'env, 'source> {
 
                 let context = serde_json::to_value(ctx)?;
                 let context = merge_contexts(globals, context);
-                let context = handlebars::Context::wraps(context)?;
+                let context = handlebars::Context::from(context);
 
                 let output = render_handlebars(registry, template, &context)?;
                 w.write_all(output.as_bytes())?;
@@ -303,9 +303,9 @@ impl TemplateEngine {
             Engine::Handlebars { globals, .. } => {
                 let context = serde_json::to_value(context)?;
                 let context = merge_contexts(globals, context);
-                Ok(PreparedContext::Handlebars(handlebars::Context::wraps(
+                Ok(PreparedContext::Handlebars(handlebars::Context::from(
                     context,
-                )?))
+                )))
             }
         }
     }
