@@ -42,10 +42,18 @@ fn tag_spec(input: &str) -> IResult<&str, Tag> {
     let (input, name) = delimited(opt(fws), tag_name, opt(fws)).parse(input)?;
     let (input, _) = tag("=").parse(input)?;
 
+    // RFC 8616 section 4 allows UTF-8 in the d=, i= and s= tags
+    let is_valchar = match name {
+        "d" | "i" | "s" => is_valchar_utf8,
+        _ => is_valchar,
+    };
+
     // Parse the twice to keep the original text
     let value_input = input;
-    let (_, raw_value) = delimited(opt(fws), raw_tag_value, opt(fws)).parse(value_input)?;
-    let (input, value) = delimited(opt(fws), tag_value, opt(fws)).parse(value_input)?;
+    let (_, raw_value) =
+        delimited(opt(fws), |i| raw_tag_value(i, is_valchar), opt(fws)).parse(value_input)?;
+    let (input, value) =
+        delimited(opt(fws), |i| tag_value(i, is_valchar), opt(fws)).parse(value_input)?;
 
     Ok((
         input,
@@ -63,11 +71,20 @@ fn tag_name(input: &str) -> IResult<&str, &str> {
     alpha1.parse(input)
 }
 
+/// VALCHAR   =  %x21-3A / %x3C-7E
+fn is_valchar(c: char) -> bool {
+    ('!'..=':').contains(&c) || ('<'..='~').contains(&c)
+}
+
+/// VALCHAR extended with UTF-8 per RFC 8616 section 4,
+/// excluding Unicode whitespace and control characters
+fn is_valchar_utf8(c: char) -> bool {
+    is_valchar(c) || (!c.is_ascii() && !c.is_whitespace() && !c.is_control())
+}
+
 /// tag-value =  [ tval *( 1*(WSP / FWS) tval ) ]
 /// tval      =  1*VALCHAR
-/// VALCHAR   =  %x21-3A / %x3C-7E
-fn tag_value(input: &str) -> IResult<&str, String> {
-    let is_valchar = |c| ('!'..=':').contains(&c) || ('<'..='~').contains(&c);
+fn tag_value(input: &str, is_valchar: fn(char) -> bool) -> IResult<&str, String> {
     match opt(take_while1(is_valchar)).parse(input)? {
         (input, Some(start)) => fold_many0(
             preceded(fws, take_while1(is_valchar)),
@@ -82,8 +99,7 @@ fn tag_value(input: &str) -> IResult<&str, String> {
     }
 }
 
-fn raw_tag_value(input: &str) -> IResult<&str, String> {
-    let is_valchar = |c| ('!'..=':').contains(&c) || ('<'..='~').contains(&c);
+fn raw_tag_value(input: &str, is_valchar: fn(char) -> bool) -> IResult<&str, String> {
     match opt(take_while1(is_valchar)).parse(input)? {
         (input, Some(start)) => fold_many0(
             pair(fws, take_while1(is_valchar)),
@@ -188,6 +204,34 @@ mod tests {
                 ]
             )
         );
+    }
+
+    #[test]
+    fn test_tag_list_utf8() {
+        let (rest, tags) = tag_list("d=日本語.jp; s=セレクタ; i=ユーザー@mail.日本語.jp").unwrap();
+        assert_eq!(rest, "");
+        let values: Vec<_> = tags
+            .iter()
+            .map(|t| (t.name.as_str(), t.value.as_str()))
+            .collect();
+        assert_eq!(
+            values,
+            [
+                ("d", "日本語.jp"),
+                ("s", "セレクタ"),
+                ("i", "ユーザー@mail.日本語.jp")
+            ]
+        );
+
+        // UTF-8 is only permitted in d=, i= and s=
+        let (rest, tags) = tag_list("a=日本").unwrap();
+        assert_eq!(rest, "日本");
+        assert_eq!(tags[0].value, "");
+
+        // Unicode whitespace (here U+3000 ideographic space) ends the value
+        let (rest, tags) = tag_list("d=日本語\u{3000}.jp").unwrap();
+        assert_eq!(rest, "\u{3000}.jp");
+        assert_eq!(tags[0].value, "日本語");
     }
 
     #[test]
