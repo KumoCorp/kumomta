@@ -101,6 +101,56 @@ retry_interval = '17 mins'
 # options here for domain=gmail.com, tenant=mytenant, and campaign='welcome-campaign'
 {% endcall %}
 
+### Provider-Specific Configuration
+
+The `[queue.DOMAIN]` blocks match a destination domain exactly (or a
+`*.example.com` wildcard). To apply settings to every destination of a mailbox
+provider, such as all the domains whose MX is hosted by Outlook, you can use
+`[provider.PROVIDER]` blocks instead. They have the same structure as the
+`[queue.DOMAIN]` blocks, with optional tenant and campaign levels, and accept
+the same queue options, including `egress_pool`:
+
+{% call toml_data() %}
+# Settings for any destination whose provider is 'outlook'
+[provider.'outlook']
+max_age = '12 hours'
+
+# Send mytenant's messages to Outlook through a dedicated pool
+[provider.'outlook'.'mytenant']
+egress_pool = 'mytenant-outlook'
+
+[provider.'outlook'.'mytenant'.'welcome-campaign']
+# options here for provider=outlook, tenant=mytenant, and campaign='welcome-campaign'
+{% endcall %}
+
+The provider is the `provider_name` that the shaping configuration assigns to
+the destination, through the `match` rules of its `[provider.PROVIDER]` blocks
+(for example `{MXSuffix=".olc.protection.outlook.com"}`). It is the same
+`provider_name` that the queues helper reports in the queue configuration, and
+it is resolved with the same cached MX lookup. The provider is only resolved
+for this purpose when at least one `[provider.PROVIDER]` block is defined.
+
+Provider-level settings are merged with the other levels in this order, with
+later entries taking precedence:
+
+1. `[queue.default]`
+2. `[provider.PROVIDER]`
+3. `[queue.DOMAIN]`
+4. `[tenant.TENANT]`
+5. `[provider.PROVIDER.TENANT]`
+6. `[queue.DOMAIN.TENANT]`
+7. `[provider.PROVIDER.TENANT.CAMPAIGN]`
+8. `[queue.DOMAIN.TENANT.CAMPAIGN]`
+
+A domain is more specific than a provider, so a `[queue.DOMAIN]` setting
+overrides the same setting from `[provider.PROVIDER]` at the same tenant and
+campaign scope.
+
+`routing_domain` is applied when the message is received, before the provider
+of the destination is known, so it is not supported in `[provider.PROVIDER]`
+blocks; `kumod --validate` reports it as an error, as it does for an
+`egress_pool` that is not defined in the sources helper.
+
 ## Configuring Message Life and Retry Times Using Lua
 
 There is no throttling configured at the Scheduled Queue level, instead, the
