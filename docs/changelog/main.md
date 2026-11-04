@@ -332,3 +332,8 @@
    prevents less restrictive siblings from delivering. Each message retains
    the MX and MTA-STS context used to admit it to the ready queue; subsequent
    promotions use the existing resolver caches. #612
+
+ * [remember_broken_tls](../reference/kumo/make_egress_path/remember_broken_tls.md)
+   is no longer set by TLS failures under `Required` or `RequiredInsecure`,
+   including requirements raised by DANE or MTA-STS, so such a failure no
+   longer makes other messages for the same site skip STARTTLS.
