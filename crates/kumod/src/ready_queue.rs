@@ -416,13 +416,15 @@ impl ReadyQueueManager {
         Ok(())
     }
 
+    /// Return the queue and this routing domain's MX context. An existing shared
+    /// queue can retain an MX context belonging to a different routing domain.
     pub async fn resolve_by_queue_name(
         queue_name: &str,
         queue_config: &ConfigHandle<QueueConfig>,
         egress_source: &str,
         egress_pool: &str,
         config_epoch: ConfigEpoch,
-    ) -> anyhow::Result<ReadyQueueHandle> {
+    ) -> anyhow::Result<(ReadyQueueHandle, Option<Arc<MailExchanger>>)> {
         let ReadyQueueConfig {
             name,
             site_name: _,
@@ -432,6 +434,7 @@ impl ReadyQueueManager {
         } = Self::compute_config(queue_name, queue_config, egress_source).await?;
 
         let activity = Activity::get(format!("ReadyQueueHandle {name}"))?;
+        let message_mx = mx.clone();
 
         let handle = MANAGER.queues.entry(name.clone()).or_insert_with(|| {
             let notify_maintainer = Arc::new(Notify::new());
@@ -479,7 +482,7 @@ impl ReadyQueueManager {
                 scheduled_queues: FairMutex::new(HashSet::new()),
             })
         });
-        Ok(handle.clone())
+        Ok((handle.clone(), message_mx))
     }
 
     async fn queue_config_maintainer() {

@@ -28,6 +28,7 @@ kumo-log-types = {path="../kumo-log-types"}
 kumo-prometheus = {path="../kumo-prometheus"}
 linkme.workspace = true
 lruttl = {path="../lruttl", optional=true}
+mailexchanger = {path="../mailexchanger"}
 mailparsing = {path="../mailparsing"}
 memchr.workspace = true
 mod-mimepart = {path="../mod-mimepart", optional=true}

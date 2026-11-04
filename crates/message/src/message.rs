@@ -18,6 +18,7 @@ use kumo_dkim::arc::ARC;
 use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
 use kumo_prometheus::declare_metric;
+use mailexchanger::MailExchanger;
 #[cfg(feature = "impl")]
 use mailparsing::{AuthenticationResult, AuthenticationResults, EncodeHeaderValue};
 use mailparsing::{
@@ -246,6 +247,8 @@ struct MessageInner {
     flags: MessageFlags,
     num_attempts: u16,
     due: Option<DateTime<Utc>>,
+    // MX context for this ready-queue visit; excluded from spool serialization.
+    ready_queue_mx: Option<Arc<MailExchanger>>,
     _live: MessageGuard,
 }
 
@@ -477,6 +480,7 @@ impl Message {
                     flags: MessageFlags::META_DIRTY | MessageFlags::DATA_DIRTY,
                     num_attempts: 0,
                     due: None,
+                    ready_queue_mx: None,
                     _live: MessageGuard::new(),
                 }),
                 link: LinkedListAtomicLink::default(),
@@ -511,6 +515,7 @@ impl Message {
                     flags,
                     num_attempts: 0,
                     due: None,
+                    ready_queue_mx: None,
                     _live: MessageGuard::new(),
                 }),
                 link: LinkedListAtomicLink::default(),
@@ -534,6 +539,7 @@ impl Message {
                     flags: flags | MessageFlags::META_DIRTY | MessageFlags::DATA_DIRTY,
                     num_attempts: 0,
                     due: None,
+                    ready_queue_mx: None,
                     _live: MessageGuard::new(),
                 }),
                 link: LinkedListAtomicLink::default(),
@@ -545,6 +551,16 @@ impl Message {
         let meta_spool = get_meta_spool();
         let data = meta_spool.load(id).await?;
         Self::new_from_spool(id, data)
+    }
+
+    /// Retain the routing domain's MX context selected at ready-queue admission.
+    /// Clear it when returning to a scheduled queue; the next promotion replaces it.
+    pub fn set_ready_queue_mx(&self, mx: Option<Arc<MailExchanger>>) {
+        self.msg_and_id.inner.lock().ready_queue_mx = mx;
+    }
+
+    pub fn ready_queue_mx(&self) -> Option<Arc<MailExchanger>> {
+        self.msg_and_id.inner.lock().ready_queue_mx.clone()
     }
 
     pub fn get_num_attempts(&self) -> u16 {
@@ -2950,11 +2966,28 @@ Body\r
         Ok(())
     }
 
+    #[tokio::test]
+    async fn ready_queue_mx_survives_shrink_but_not_spool_reload() -> anyhow::Result<()> {
+        let msg = new_msg_body(MULTI_HEADER_CONTENT);
+        let mx = MailExchanger::resolve("[127.0.0.1]").await?;
+        let metadata = serde_json::to_vec(&msg.clone_meta_data().await?)?;
+        msg.set_ready_queue_mx(Some(mx.clone()));
+        assert_eq!(serde_json::to_vec(&msg.clone_meta_data().await?)?, metadata);
+
+        // Simulate a completed save before shrinking.
+        msg.msg_and_id.inner.lock().flags = MessageFlags::empty();
+        msg.shrink()?;
+        assert!(Arc::ptr_eq(&msg.ready_queue_mx().unwrap(), &mx));
+        let reloaded = Message::new_from_spool(*msg.id(), metadata)?;
+        assert!(reloaded.ready_queue_mx().is_none());
+        Ok(())
+    }
+
     #[cfg(all(test, target_pointer_width = "64"))]
     #[test]
     fn sizes() {
         assert_eq!(std::mem::size_of::<Message>(), 8);
-        assert_eq!(std::mem::size_of::<MessageInner>(), 32);
-        assert_eq!(std::mem::size_of::<MessageWithId>(), 72);
+        assert_eq!(std::mem::size_of::<MessageInner>(), 40);
+        assert_eq!(std::mem::size_of::<MessageWithId>(), 80);
     }
 }

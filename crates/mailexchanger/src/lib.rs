@@ -759,10 +759,8 @@ impl MailExchanger {
             .map(|pref| (pref.pref, pref.hosts))
             .collect();
 
-        // An insecure domain whose MX hosts also publish DANE TLSA records gets a
-        // distinct site_name below, so it cannot share a ready queue with a
-        // DNSSEC-secure domain on the same hosts and reuse a connection that was
-        // not DANE-authenticated for that secure domain.
+        // Keep domains with insecure MX selection in a separate connection pool
+        // from securely resolved domains whose MX hosts publish TLSA records.
         let dane_insecure = is_mx
             && !is_secure
             // TLSA records for SMTP DANE are published at port 25, so the probe

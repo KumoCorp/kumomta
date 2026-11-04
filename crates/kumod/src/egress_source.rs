@@ -886,7 +886,7 @@ impl EgressPoolSourceSelector {
                     )
                     .await
                     {
-                        Ok(site) => {
+                        Ok((site, mx)) => {
                             match site.make_reservation() {
                                 Some(reservation) => {
                                     match get_source_selection_throttle_delay(
@@ -897,6 +897,7 @@ impl EgressPoolSourceSelector {
                                     .await?
                                     {
                                         None => {
+                                            msg.set_ready_queue_mx(mx);
                                             site.redeem_reservation(
                                                 msg,
                                                 reservation,
@@ -1022,10 +1023,10 @@ async fn resolve_queue(
     egress_pool: &str,
     epoch: ConfigEpoch,
     deadline: Option<Instant>,
-) -> anyhow::Result<ReadyQueueHandle> {
+) -> anyhow::Result<(ReadyQueueHandle, Option<Arc<mailexchanger::MailExchanger>>)> {
     if let Some(ready_name) = &ready_queue_name {
         if let Some(site) = ReadyQueueManager::get_by_ready_queue_name(&ready_name.name) {
-            return Ok(site);
+            return Ok((site, ready_name.name.mx.clone()));
         }
     }
 

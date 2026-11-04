@@ -51,16 +51,12 @@
   [httpinject_requests_rejected_total](../reference/metrics/kumod/httpinject_requests_rejected_total.md)
   counter expose the current load and rejections. #631
 
-* If you deliver with DANE, we recommend also enabling the new global
+* The new global
   [kumo.dns.set_dane_enabled](../reference/kumo.dns/set_dane_enabled.md) option
-  (default off) during `init`. Without it, a domain whose MX selection is not
-  DNSSEC-secure, but whose MX hosts publish DANE `TLSA` records, can
-  [share a ready queue](../reference/queues.md#site-names) with a
-  DNSSEC-secure domain on the same hosts and send over a connection that was
-  not DANE-authenticated. Enabling the option separates the two. The
-  per-egress-path
-  [enable_dane](../reference/kumo/make_egress_path/enable_dane.md) option is
-  unchanged and must also be enabled to use the DANE policy.
+  (default off) enables DANE-aware ready-queue separation. Per-message DANE
+  enforcement requires the per-egress-path
+  [enable_dane](../reference/kumo/make_egress_path/enable_dane.md) option,
+  independently of this naming option.
 
 ## Other Changes and Enhancements
 
@@ -328,3 +324,11 @@
 
  * smtp_dispatcher: now correctly clears the reported `tls_info` when establishing
    a fallback connection.
+
+ * When domains with different MTA-STS or DANE requirements share a ready
+   queue, connection setup and reuse now check each message's routing domain
+   and required authentication. Encrypted connections are not reused when
+   they lack the required PKIX or DANE proof, and a strict domain no longer
+   prevents less restrictive siblings from delivering. Each message retains
+   the MX and MTA-STS context used to admit it to the ready queue; subsequent
+   promotions use the existing resolver caches. #612

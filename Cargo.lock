@@ -4860,6 +4860,7 @@ dependencies = [
  "kumo-prometheus",
  "linkme",
  "lruttl",
+ "mailexchanger",
  "mailparsing",
  "memchr",
  "mlua",

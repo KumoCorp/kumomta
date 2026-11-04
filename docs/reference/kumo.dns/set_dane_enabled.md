@@ -11,7 +11,7 @@ Controls whether MX resolution probes
 influence the *site_name* for a domain. `ENABLED` is a boolean. The default
 value is `false`.
 
-Enable it in deployments that deliver with DANE:
+To enable DANE-aware site names:
 
 ```lua
 kumo.on('pre_init', function()
@@ -41,10 +41,12 @@ domain resolves to a *site_name* prefixed with `[dane-insecure]`. Since the
 *site_name* is the ready-queue key, the prefixed domain gets a ready queue of
 its own.
 
-Without the tag, this insecure domain could share a ready queue with an
-untagged, DNSSEC-secure sibling domain that resolves to the same MX hosts. A
-connection the insecure domain opened on that shared queue would not be
-DANE-authenticated, even though the secure sibling's policy requires it.
+With per-egress-path [enable_dane](../kumo/make_egress_path/enable_dane.md)
+enabled, connection setup and reuse enforce each message's DANE requirements
+whether or not this naming option is enabled. Separating the queues allows
+each group to keep its own connections, egress-path configuration, limits
+and backoff. It can reduce connection replacements when traffic alternates
+between domains requiring DANE and PKIX authentication.
 
 The remaining cases are left untagged and keep sharing the common ready queue:
 

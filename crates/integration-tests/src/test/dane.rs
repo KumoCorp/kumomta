@@ -114,7 +114,7 @@ fn sanitize(text: &str) -> String {
         .into_owned()
 }
 
-fn dane_diagnostics(events: &[TraceSmtpClientV1Event]) -> Vec<String> {
+pub(super) fn dane_diagnostics(events: &[TraceSmtpClientV1Event]) -> Vec<String> {
     let mut result: Vec<String> = vec![];
     for event in events {
         if let TraceSmtpClientV1Payload::Diagnostic { message, .. } = &event.payload {
@@ -129,18 +129,19 @@ fn dane_diagnostics(events: &[TraceSmtpClientV1Event]) -> Vec<String> {
     result
 }
 
-fn tls_authenticated(events: &[TraceSmtpClientV1Event]) -> Option<bool> {
+pub(super) fn tls_authentications(events: &[TraceSmtpClientV1Event]) -> Vec<bool> {
     let re = Regex::new(r"authenticated: (true|false)").unwrap();
+    let mut result = vec![];
     for event in events {
         if let TraceSmtpClientV1Payload::Diagnostic { message, .. } = &event.payload {
             if message.starts_with("TLS handshake ->") {
                 if let Some(caps) = re.captures(message) {
-                    return Some(&caps[1] == "true");
+                    result.push(&caps[1] == "true");
                 }
             }
         }
     }
-    None
+    result
 }
 
 async fn run_scenario(scenario: Scenario, expect: ExpectDelivery) -> anyhow::Result<Outcome> {
@@ -205,7 +206,7 @@ async fn run_scenario(scenario: Scenario, expect: ExpectDelivery) -> anyhow::Res
         .wait_for(
             |events| {
                 !dane_diagnostics(events).is_empty()
-                    && (!expect_delivery || tls_authenticated(events).is_some())
+                    && (!expect_delivery || !tls_authentications(events).is_empty())
             },
             Duration::from_secs(5),
         )
@@ -230,7 +231,7 @@ async fn run_scenario(scenario: Scenario, expect: ExpectDelivery) -> anyhow::Res
         kind: record.kind,
         response: sanitize(&record.response.to_single_line()),
         dane_diagnostics: dane_diagnostics(&events),
-        tls_authenticated: tls_authenticated(&events),
+        tls_authenticated: tls_authentications(&events).first().copied(),
     })
 }
 

@@ -33,7 +33,8 @@ The `result` label is one of:
   * `tempfail`: the TLSA lookup could not be securely resolved (SERVFAIL,
     timeout, or bogus); delivery is deferred.
 
-These are counters; reason about them as rates.
+Counts DANE policy evaluations during connection setup and before
+connection reuse. These are counters; reason about them as rates.
 
 **Confirming DANE is working:** with `enable_dane = true`, a healthy
 deployment shows a steady stream of `not_applicable` (most DNSSEC-signed

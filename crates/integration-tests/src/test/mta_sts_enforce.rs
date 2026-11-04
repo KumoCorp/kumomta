@@ -290,9 +290,9 @@ async fn mta_sts_testing_disabled_delivers_plaintext() -> anyhow::Result<()> {
 /// (`nopolicy.example.com`) and one that publishes enforce
 /// (`enforce.example.com`) share a ready queue, the no-policy domain opens a
 /// cleartext connection and the dispatcher defers the enforce domain's message
-/// rather than sending it over that connection.
+/// because the destination cannot meet its TLS requirement, including on retry.
 #[tokio::test]
-async fn mta_sts_cleartext_veto_defers_enforce_domain() -> anyhow::Result<()> {
+async fn mta_sts_shared_queue_defers_enforce_domain_without_starttls() -> anyhow::Result<()> {
     let mut daemon = DaemonWithMaildirOptions::new()
         .policy_file("mta-sts-shared-queue.lua")
         .env("KUMOD_HIDE_STARTTLS", "1")
@@ -324,8 +324,8 @@ async fn mta_sts_cleartext_veto_defers_enforce_domain() -> anyhow::Result<()> {
     );
 
     // The 250 here only confirms spool acceptance. Kumod applies
-    // enforce.example.com's policy later, at the outbound attempt over the
-    // shared connection.
+    // enforce.example.com's policy later, when it checks the shared connection
+    // and reconnects because that connection does not meet the requirement.
     let response = MailGenParams {
         recip: Some("user@enforce.example.com"),
         ..Default::default()
@@ -373,13 +373,16 @@ async fn mta_sts_cleartext_veto_defers_enforce_domain() -> anyhow::Result<()> {
             deferral.recipient,
             vec!["user@enforce.example.com".to_string()]
         );
-        k9::assert_equal!(deferral.response.code, 451);
         k9::assert_equal!(
-            deferral.response.content.as_str(),
-            "KumoMTA internal: enforce.example.com publishes an MTA-STS enforce \
-            policy requiring TLS, but the connection to \
-            unspecified->shared.example.com@smtp_client is cleartext; \
-            deferring rather than delivering without TLS"
+            deferral.site.as_str(),
+            "unspecified->shared.example.com@smtp_client"
+        );
+        k9::assert_equal!(deferral.response.code, 400);
+        k9::assert_equal!(
+            mask_peer_port(&deferral.response.content).as_str(),
+            "KumoMTA internal: failed to connect to any candidate hosts: tls policy is \
+             Required but STARTTLS is not advertised by ResolvedAddress { name: \
+             \"shared.example.com.\", addr: 127.0.0.1, is_secure: false }:{port}"
         );
     }
 

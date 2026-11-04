@@ -1507,7 +1507,7 @@ impl Queue {
                 )
                 .await
                 {
-                    Ok(site) => {
+                    Ok((site, _mx)) => {
                         return site.insert(msg).await.map_err(|_| ReadyQueueFull.into());
                     }
                     Err(err) => {
@@ -1726,6 +1726,7 @@ impl Queue {
         deadline: Option<Instant>,
     ) -> anyhow::Result<()> {
         *self.last_change.lock() = Instant::now();
+        msg.set_ready_queue_mx(None);
 
         tracing::trace!("insert msg {}", msg.id());
         if let Some(b) = AdminBounceEntry::get_for_queue_name(&self.name) {
