@@ -115,6 +115,7 @@
    template expansion. In a microbenchmark this expands Handlebars templates
    roughly 1.3-1.7x faster with a handful of substitution values, and roughly
    2x faster with a large, nested substitution context.
+   Thanks to @akshitsethi0023! #637
 
 ## Fixes
 
