@@ -223,7 +223,7 @@ pub mod azure {
 
     impl InstanceMetadata {
         pub async fn query_via(base_url: &str) -> anyhow::Result<Self> {
-            let client = reqwest::Client::builder()
+            let client = kumo_http_client::builder()
                 .no_proxy()
                 .timeout(std::time::Duration::from_secs(1))
                 .build()
@@ -471,7 +471,7 @@ pub mod aws {
 
     impl IdentityDocument {
         pub async fn query_via(base_url: &str) -> anyhow::Result<Self> {
-            let client = reqwest::Client::builder()
+            let client = kumo_http_client::builder()
                 .no_proxy()
                 .timeout(std::time::Duration::from_secs(1))
                 .build()
@@ -638,7 +638,7 @@ pub mod gcp {
 
     impl InstanceMetadata {
         pub async fn query_via(base_url: &str) -> anyhow::Result<Self> {
-            let client = reqwest::Client::builder()
+            let client = kumo_http_client::builder()
                 .no_proxy()
                 .timeout(std::time::Duration::from_secs(1))
                 .build()

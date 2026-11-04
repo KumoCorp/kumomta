@@ -3484,6 +3484,7 @@ dependencies = [
  "kumo-api-client",
  "kumo-api-types",
  "kumo-dkim",
+ "kumo-http-client",
  "kumo-jsonl",
  "kumo-log-types",
  "kumo-server-common",
@@ -3812,6 +3813,7 @@ dependencies = [
  "k9",
  "kumo-api-client",
  "kumo-api-types",
+ "kumo-http-client",
  "kumo-prometheus",
  "lexicmp",
  "mailexchanger",
@@ -3873,6 +3875,7 @@ dependencies = [
  "bytes",
  "futures",
  "kumo-api-types",
+ "kumo-http-client",
  "kumo-prometheus",
  "reqwest",
  "serde",
@@ -3894,6 +3897,7 @@ dependencies = [
  "fancy-regex",
  "futures-util",
  "k9",
+ "kumo-http-client",
  "kumo-log-types",
  "mailexchanger",
  "mlua",
@@ -3982,6 +3986,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-http-client"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+]
+
+[[package]]
 name = "kumo-jsonl"
 version = "0.1.0"
 dependencies = [
@@ -4047,6 +4058,7 @@ dependencies = [
  "chrono",
  "gethostname 1.1.0",
  "in-container",
+ "kumo-http-client",
  "kumo-mac-address",
  "machine-uid",
  "mockito",
@@ -4312,6 +4324,7 @@ dependencies = [
  "kumo-chrono-helper",
  "kumo-counter-series",
  "kumo-dmarc",
+ "kumo-http-client",
  "kumo-jsonl",
  "kumo-log-types",
  "kumo-prometheus",
@@ -5221,6 +5234,7 @@ dependencies = [
  "futures-util",
  "humantime",
  "k9",
+ "kumo-http-client",
  "mail-builder",
  "mailparse",
  "mlua",
@@ -5450,6 +5464,7 @@ dependencies = [
  "futures",
  "hickory-resolver",
  "k9",
+ "kumo-http-client",
  "linkme",
  "lruttl",
  "reqwest",
@@ -9225,6 +9240,7 @@ dependencies = [
  "hdrhistogram",
  "humanize-rs",
  "humansize",
+ "kumo-http-client",
  "lipsum",
  "mailparsing",
  "nix 0.30.1",

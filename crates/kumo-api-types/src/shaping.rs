@@ -579,7 +579,7 @@ impl Shaping {
 
                 async fn http_get(url: &str, timeout: Duration) -> anyhow::Result<String> {
                     tokio::time::timeout(timeout, async {
-                        let response = reqwest::Client::builder()
+                        let response = kumo_http_client::builder()
                             .timeout(timeout)
                             .connect_timeout(timeout)
                             .read_timeout(timeout)

@@ -42,6 +42,7 @@ kumo-prometheus = {path="../kumo-prometheus"}
 kumo-server-common = {path="../kumo-server-common"}
 kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
 kumo-server-memory = {path="../kumo-server-memory"}
+kumo-http-client = {path="../kumo-http-client"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
 kumo-spf = {path="../kumo-spf"}
 kumo-template = {path="../kumo-template"}

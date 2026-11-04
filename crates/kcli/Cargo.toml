@@ -27,6 +27,7 @@ ordermap = {workspace=true}
 kumo-api-types = {path="../kumo-api-types", default-features=false}
 kumo-api-client = {path="../kumo-api-client"}
 mod-serde = {path="../mod-serde"}
+kumo-http-client = {path="../kumo-http-client"}
 kumo-prometheus = {path="../kumo-prometheus"}
 ratatui = {workspace=true}
 reqwest = {workspace=true, default-features=false, features=["json", "rustls-tls", "stream"]}

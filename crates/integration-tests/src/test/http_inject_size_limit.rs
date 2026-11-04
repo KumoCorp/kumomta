@@ -33,7 +33,7 @@ async fn http_inject_size_limit() -> anyhow::Result<()> {
 
     let json_data = serde_json::to_vec(&payload)?;
 
-    let client = reqwest::Client::new();
+    let client = kumo_http_client::builder().build().unwrap();
     let response = client
         .post(&format!(
             "http://{}/api/inject/v1",
@@ -106,7 +106,7 @@ async fn http_inject_size_limit_compressed() -> anyhow::Result<()> {
         compressed_data.len()
     );
 
-    let client = reqwest::Client::new();
+    let client = kumo_http_client::builder().build().unwrap();
     let response = client
         .post(&format!(
             "http://{}/api/inject/v1",

@@ -18,6 +18,7 @@ nix = {workspace=true, features=["resource"]}
 num-format = {workspace=true}
 rand = {workspace=true}
 reqwest = {workspace=true, default-features=false, features=["json", "rustls-tls"]}
+kumo-http-client = {path="../kumo-http-client"}
 rfc5321 = {path="../rfc5321"}
 serde = {workspace=true}
 textwrap = {workspace=true}

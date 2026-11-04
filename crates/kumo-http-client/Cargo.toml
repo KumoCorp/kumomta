@@ -1,0 +1,11 @@
+[package]
+name = "kumo-http-client"
+version = "0.1.0"
+edition = "2021"
+description = "reqwest client builder pinned to the OS certificate store"
+
+[dependencies]
+reqwest = {workspace=true, default-features=false, features=["rustls-tls-native-roots", "rustls-tls-webpki-roots"]}
+
+[lints]
+workspace = true

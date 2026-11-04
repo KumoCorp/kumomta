@@ -3,7 +3,7 @@ use futures_util::StreamExt;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, LuaSerdeExt, MetaMethod, UserDataMethods, Value};
 use reqwest::header::HeaderMap;
-use reqwest::{Body, Client, ClientBuilder, RequestBuilder, Response, StatusCode, Url};
+use reqwest::{Body, Client, RequestBuilder, Response, StatusCode, Url};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -524,7 +524,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "build_client",
         lua.create_function(|lua, options: Value| {
             let options: ClientOptions = from_lua_value(lua, options)?;
-            let mut builder = ClientBuilder::new().timeout(
+            let mut builder = kumo_http_client::builder().timeout(
                 options
                     .timeout
                     .unwrap_or_else(|| std::time::Duration::from_secs(60)),

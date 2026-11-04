@@ -4,7 +4,7 @@ use crate::kumod::DaemonWithMaildir;
 async fn http_auth() -> anyhow::Result<()> {
     let mut daemon = DaemonWithMaildir::start().await?;
 
-    let client = reqwest::Client::new();
+    let client = kumo_http_client::builder().build().unwrap();
     let response = client
         .get(&format!("http://{}/metrics", daemon.sink.listener("http")))
         .send()

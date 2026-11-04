@@ -76,7 +76,7 @@ impl KumoApiClient {
     }
 
     fn client_builder(&self) -> reqwest::ClientBuilder {
-        reqwest::Client::builder().timeout(self.timeout)
+        kumo_http_client::builder().timeout(self.timeout)
     }
 
     method!(

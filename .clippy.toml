@@ -11,4 +11,7 @@ await-holding-invalid-types = [
 disallowed-methods = [
   { path = "chrono::DateTime::to_rfc2822", reason = "panics on out-of-range dates; use mailparsing::format_rfc2822_date" },
   { path = "chrono::DateTime::parse_from_rfc2822", reason = "rejects obsolete alphabetic timezones such as the UTC that Amazon SES emits; use mailparsing::parse_rfc2822_date" },
+  { path = "reqwest::Client::new", reason = "build HTTP clients with kumo_http_client::builder() to trust only the OS certificate store" },
+  { path = "reqwest::Client::builder", reason = "build HTTP clients with kumo_http_client::builder() to trust only the OS certificate store" },
+  { path = "reqwest::ClientBuilder::new", reason = "build HTTP clients with kumo_http_client::builder() to trust only the OS certificate store" },
 ]

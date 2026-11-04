@@ -17,6 +17,7 @@ futures-lite = {workspace=true}
 hex = {workspace=true}
 k9 = {workspace=true}
 kumo-dkim = {path="../dkim"}
+kumo-http-client = {path="../kumo-http-client"}
 kumo-api-client = {path="../kumo-api-client"}
 kumo-api-types = {path="../kumo-api-types"}
 kumo-jsonl = {path="../kumo-jsonl"}

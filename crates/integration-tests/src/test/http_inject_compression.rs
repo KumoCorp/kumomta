@@ -41,7 +41,7 @@ async fn http_inject_compression_gzip() -> anyhow::Result<()> {
         compressed_data.len()
     );
 
-    let client = reqwest::Client::new();
+    let client = kumo_http_client::builder().build().unwrap();
     let response = client
         .post(&format!(
             "http://{}/api/inject/v1",
@@ -127,7 +127,7 @@ async fn http_inject_compression_deflate() -> anyhow::Result<()> {
     encoder.write_all(&json_data)?;
     let compressed_data = encoder.finish()?;
 
-    let client = reqwest::Client::new();
+    let client = kumo_http_client::builder().build().unwrap();
     let response = client
         .post(&format!(
             "http://{}/api/inject/v1",
@@ -171,7 +171,7 @@ async fn http_inject_uncompressed_backward_compatibility() -> anyhow::Result<()>
         "content": "Subject: Backward Compatibility\r\n\r\nThis message is not compressed"
     });
 
-    let client = reqwest::Client::new();
+    let client = kumo_http_client::builder().build().unwrap();
     let response = client
         .post(&format!(
             "http://{}/api/inject/v1",
@@ -209,7 +209,7 @@ async fn http_inject_unsupported_compression() -> anyhow::Result<()> {
         "content": "Subject: Test\r\n\r\nTest message"
     });
 
-    let client = reqwest::Client::new();
+    let client = kumo_http_client::builder().build().unwrap();
     let response = client
         .post(&format!(
             "http://{}/api/inject/v1",

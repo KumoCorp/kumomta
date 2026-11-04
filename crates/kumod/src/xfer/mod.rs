@@ -192,7 +192,7 @@ impl QueueDispatcher for XferDispatcher {
         let path_config = dispatcher.path_config.borrow();
         dispatcher.set_detail(format!("xfer POST {url}"));
 
-        let response = reqwest::Client::builder()
+        let response = kumo_http_client::builder()
             .timeout(path_config.client_timeouts.data_dot_timeout)
             .build()?
             .post(url.clone())

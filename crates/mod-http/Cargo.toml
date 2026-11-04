@@ -9,6 +9,7 @@ config = {path="../config"}
 duration-serde = {path="../duration-serde"}
 futures-util = {workspace=true}
 humantime = {workspace=true}
+kumo-http-client = {path="../kumo-http-client"}
 mail-builder = {workspace=true}
 mailparse = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize", "macros"]}

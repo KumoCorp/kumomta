@@ -17,6 +17,7 @@ members = [
   "crates/kumo-dmarc",
   "crates/kumo-mac-address",
   "crates/kumo-machine-info",
+  "crates/kumo-http-client",
   "crates/kumo-prometheus",
   "crates/kumo-spf",
   "crates/kumo-template",
