@@ -117,9 +117,17 @@ The parameters it accepts are:
        you want.  When running inline, the cache population function may be
        cancelled prematurely as a consequence of the calling SMTP/HTTP session
        being closed.  When you leave `detached` unspecified it resolves to
-       `true` for a call made at top-level scope and to `false` for a call made
+       `true` for a call made at file scope and to `false` for a call made
        from within an event handler.  Setting `detached = true` from within an
        event handler is rejected with an error.
+
+       A call made at file scope while the policy is still loading (the
+       first load or a reload) always populates inline, regardless of the
+       default, because a detached populate reloads the policy to re-establish
+       the populate function, which would re-enter the in-progress load and
+       deadlock.  An explicit `detached = true` reached in that situation is a
+       hard error; call the cached function from an event handler instead, or
+       set `detached = false` if the populate is fast enough to run inline.
 
 In the example above calling:
 

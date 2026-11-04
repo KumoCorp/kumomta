@@ -546,6 +546,26 @@ enum Acquisition<V: Debug> {
     Owner(OwnedSemaphorePermit),
 }
 
+/// A detached populate call that exited without recording a result
+/// for its entry.
+#[derive(Debug)]
+pub struct PopulateAbandoned {
+    pub cache: String,
+    pub key: String,
+}
+
+impl std::fmt::Display for PopulateAbandoned {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            fmt,
+            "{} populate for {} exited without recording a result",
+            self.cache, self.key
+        )
+    }
+}
+
+impl std::error::Error for PopulateAbandoned {}
+
 impl<
         K: Clone + Debug + Hash + Eq + Send + Sync + std::fmt::Debug + 'static,
         V: Clone + Debug + Send + Sync + 'static,
@@ -1049,13 +1069,14 @@ impl<
     }
 
     /// Get an existing item, or populate and insert one. If this call is
-    /// cancelled while the entry is being populated, the populate keeps
-    /// running on its own task and the entry still ends up populated.
+    /// cancelled while the entry is being populated, the populate keeps running
+    /// on its own task and the entry still ends up populated.
     ///
     /// This call reports `is_fresh` as false.
     ///
-    /// `make_fut` and `ttl_func` (which must be [`Clone`]) may each be invoked
-    /// more than once, to retry the populate after `populate_timeout` elapses.
+    /// `make_fut` is invoked at most once. If the spawned populate exits
+    /// without recording a result, this returns a [`PopulateAbandoned`].
+    /// The caller decides whether to retry.
     pub async fn get_or_try_insert_detached<E, TTL, MK, F>(
         &self,
         name: &K,
@@ -1065,8 +1086,8 @@ impl<
     ) -> Result<ItemLookup<V>, Arc<anyhow::Error>>
     where
         E: Into<anyhow::Error> + Send + 'static,
-        TTL: Clone + Send + 'static + FnOnce(&V) -> Duration,
-        MK: Fn() -> F,
+        TTL: Send + 'static + FnOnce(&V) -> Duration,
+        MK: FnOnce() -> F,
         F: Future<Output = Result<V, E>> + Send + 'static,
     {
         if let Some(entry) = self.lookup(name) {
@@ -1078,7 +1099,7 @@ impl<
         );
         let deadline = Instant::now() + timeout_duration;
 
-        loop {
+        {
             let permit = match self.acquire(name, deadline, timeout_duration).await {
                 Acquisition::Resolved(result) => return result,
                 Acquisition::Owner(permit) => permit,
@@ -1086,7 +1107,6 @@ impl<
 
             let this = self.clone();
             let key = name.clone();
-            let ttl_func = ttl_func.clone();
             let fut = make_fut();
             // permit moves into the spawned task below. This clone is the only
             // handle left to close the semaphore if the spawn itself fails.
@@ -1171,11 +1191,22 @@ impl<
                     self.inner.name
                 ))
             })?;
+        }
 
-            // Winning ownership again here means the populate just spawned
-            // overran populate_timeout and was abandoned before it finished.
-            // Spawn a replacement and keep retrying this way until one
-            // completes.
+        match self.acquire(name, deadline, timeout_duration).await {
+            Acquisition::Resolved(result) => result,
+            // A second Owner here means the populate task spawned above exited
+            // without ever writing a result for this key.
+            Acquisition::Owner(permit) => {
+                // This function does not retry internally. It reports the
+                // abandonment and leaves retrying to the caller.
+                permit.semaphore().close();
+                self.inner.error_counter.inc();
+                Err(Arc::new(anyhow::Error::new(PopulateAbandoned {
+                    cache: self.inner.name.clone(),
+                    key: format!("{name:?}"),
+                })))
+            }
         }
     }
 

@@ -3,11 +3,12 @@ use config::{any_err, from_lua_value, get_or_create_module, load_config, seriali
 use dashmap::DashMap;
 use kumo_prometheus::declare_metric;
 use kumo_prometheus::prometheus::Counter;
-use lruttl::{ItemLookup, LruCacheWithTtl};
+use lruttl::{ItemLookup, LruCacheWithTtl, PopulateAbandoned};
 use mlua::{
     FromLua, Function, IntoLua, Lua, LuaSerdeExt, MetaMethod, MultiValue, UserData,
     UserDataMethods, UserDataRef,
 };
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
@@ -424,15 +425,10 @@ async fn populate_inline(
         .await
 }
 
-/// Looks up `key`, populating it on a miss. The populate runs on a task of its
-/// own: if the caller's own task is later dropped, such as an HTTP handler
-/// whose client disconnected, the populate keeps running to completion and
-/// other callers waiting on the same `key` still get its result. `args` must be
-/// the JSON form of the call arguments (see `multi_value_to_json_args`), and
-/// `registry_name` must name the populate function in the Lua registry. The
-/// populate is bounded by `populate_timeout`. Once it elapses, the entry is
-/// cached as failed and this call returns that failure as an error, even
-/// though the populate task itself keeps running to completion.
+/// Looks up `key`, populating it on a separate task on a miss. The populate
+/// outlives a cancelled caller and its result is still cached. A populate
+/// that exceeds `populate_timeout` is cancelled, cached as a failure, and
+/// reported here as an error.
 async fn populate_detached(
     cache: &LruCacheWithTtl<CacheKey, CacheEntry>,
     key: &CacheKey,
@@ -442,18 +438,31 @@ async fn populate_detached(
     args: Vec<serde_json::Value>,
     populate_counter: Counter,
 ) -> Result<ItemLookup<CacheEntry>, Arc<anyhow::Error>> {
+    if let Some(hit) = cache.lookup(key) {
+        return Ok(hit);
+    }
+
+    // We must load the config before this entry's populate permit is taken, in
+    // order to avoid a deadlock if the policy contains a file-scope lookup for
+    // the same cache entry as the one we're working to resolve here.
+    let config = load_config().await?;
+    // The populate task takes the context out of `handoff`. If the populate
+    // never runs because another caller satisfied the entry first, the context
+    // is still in `handoff` afterwards and goes back to the pool below.
+    let handoff = Arc::new(Mutex::new(Some(config)));
+
     // populate_timeout reuses the sema timeout of the cache, set from
     // MemoizeParams::populate_timeout. get_or_try_insert_detached hard-cancels
     // the populate once it elapses: it caches a Failed entry with a 60-second
     // TTL in place of a result, and the next lookup spawns a new populate.
     let populate_timeout = cache.get_sema_timeout();
-    let make_fut = move || {
-        let registry_name = registry_name.clone();
-        let args = args.clone();
-        let populate_counter = populate_counter.clone();
-        let cache_name = cache_name.clone();
-        async move {
-            let config = load_config().await?;
+    let make_fut = {
+        let handoff = handoff.clone();
+        move || async move {
+            let config = handoff
+                .lock()
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("detached populate context already taken"))?;
             let entry = {
                 let lua = config.lua()?;
                 // The function called here can be the newer policy's version
@@ -484,9 +493,13 @@ async fn populate_detached(
             Ok::<_, anyhow::Error>(entry)
         }
     };
-    cache
+    let result = cache
         .get_or_try_insert_detached(key, move |_| ttl, make_fut, populate_timeout)
-        .await
+        .await;
+    if let Some(config) = handoff.lock().take() {
+        config.put();
+    }
+    result
 }
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
@@ -542,6 +555,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 .map_err(any_err)?;
             let retry_on_populate_timeout = params.retry_on_populate_timeout;
             let allow_stale_reads = params.allow_stale_reads;
+            // The populate mode, fixed once here for the life of this wrapper.
             let detached = match params.detached {
                 Some(true) => {
                     if let Some(event) = calling_event_handler(lua) {
@@ -559,6 +573,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 Some(false) => false,
                 None => calling_event_handler(lua).is_none(),
             };
+            let detached_explicit = params.detached;
 
             let registry_name = format!("kumo-memoize-fn.{cache_name}");
             lua.set_named_registry_value(&registry_name, func.clone())?;
@@ -578,6 +593,20 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     let key = multi_value_to_json_value(&lua, params.clone())?;
 
                     let func = func?;
+
+                    let policy_loading = config::is_policy_loading();
+                    if policy_loading && detached_explicit == Some(true) {
+                        return Err(mlua::Error::external(format!(
+                            "kumo.memoize cache `{cache_name}` sets `detached = true`, but the \
+                            cached function is being called at file scope while the policy is \
+                            still loading. A detached populate reloads the policy to \
+                            re-establish the populate function, which would re-enter the \
+                            in-progress load and deadlock. Call this cached function from an \
+                            event handler instead, or set `detached = false` if the populate is \
+                            fast enough to run inline."
+                        )));
+                    }
+                    let run_detached = detached && !policy_loading;
 
                     let mut last_failure = None;
 
@@ -606,7 +635,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                         let key = serde_json::to_string(&key).map_err(any_err)?;
                         let key = (epoch_key, key);
 
-                        let value_result = if detached {
+                        let value_result = if run_detached {
                             let args = multi_value_to_json_args(&lua, params.clone())?;
                             populate_detached(
                                 &cache,
@@ -643,7 +672,11 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                             Err(err) => {
                                 tracing::error!("{cache_name} {key:?} failed: {err:#}");
                                 let error = format!("{err:#}");
-                                if !retry_on_populate_timeout {
+                                // Retry an abandoned populate even when
+                                // retry_on_populate_timeout is unset: the cache
+                                // is still empty for this key.
+                                let abandoned = err.downcast_ref::<PopulateAbandoned>().is_some();
+                                if !retry_on_populate_timeout && !abandoned {
                                     return Err(mlua::Error::external(error));
                                 }
                                 last_failure.replace(error);

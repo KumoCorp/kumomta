@@ -5272,6 +5272,7 @@ dependencies = [
  "linkme",
  "lruttl",
  "mlua",
+ "parking_lot",
  "serde",
  "serde_json",
  "test-log",
