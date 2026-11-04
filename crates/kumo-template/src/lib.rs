@@ -100,8 +100,6 @@ impl<'env, 'source> Template<'env, 'source> {
 
                 let context = serde_json::to_value(ctx)?;
                 let context = merge_contexts(globals, context);
-                // Context::from takes ownership of the value; Context::wraps
-                // would serialize it into a second copy.
                 let context = handlebars::Context::from(context);
 
                 let output = render_handlebars(registry, template, &context)?;
