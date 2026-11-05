@@ -2966,9 +2966,15 @@ Body\r
             err.to_string(),
             "due time out of range: now + PT9223372036854775.807S"
         );
-        // The jitter addition must not panic either.
-        let err = msg.delay_by_and_jitter(max).await.unwrap_err();
-        k9::assert_equal!(err.to_string(), "due time out of range: duration + jitter");
+        // The jitter addition must not panic either. Jitter is 0 to 59 random
+        // seconds. At 0 the duration stays at Duration::MAX and the overflow
+        // instead comes from adding it to now, giving the other message.
+        let err = msg.delay_by_and_jitter(max).await.unwrap_err().to_string();
+        assert!(
+            err == "due time out of range: duration + jitter"
+                || err == "due time out of range: now + PT9223372036854775.807S",
+            "unexpected error: {err}"
+        );
         k9::assert_equal!(msg.get_due(), None);
     }
 
