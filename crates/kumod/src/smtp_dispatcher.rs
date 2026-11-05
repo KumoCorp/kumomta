@@ -20,7 +20,7 @@ use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
 use kumo_prometheus::declare_metric;
 use kumo_server_lifecycle::{ShutdownSubcription, ShuttingDownError};
 use kumo_server_runtime::spawn;
-use mailexchanger::{MailExchanger, PolicyMode, ResolvedMxAddresses};
+use mailexchanger::{is_dane_enabled, MailExchanger, PolicyMode, ResolvedMxAddresses};
 use message::message::QueueNameComponents;
 use message::Message;
 use rfc5321::parser::{EnvelopeAddress, ForwardPath, ReversePath};
@@ -1123,20 +1123,46 @@ impl SmtpDispatcher {
         self.site_has_broken_tls || BROKEN_TLS_BY_SITE.get(site_name).is_some()
     }
 
-    /// Checks whether `msg`'s destination domain requires TLS (MTA-STS enforce).
-    /// If the current session is not using TLS that conflicts with the policy
-    /// and we must generate a TransientFailure response for the message,
-    /// preventing it from being delivered in clear text.
-    async fn mta_sts_cleartext_veto(
+    /// Checks whether the shared connection this message would be sent over can
+    /// meet the message's TLS requirements. Returns a TransientFailure response
+    /// to defer the message if it cannot, or `None` if delivery may proceed.
+    async fn tls_policy_veto(
         &self,
         dispatcher: &Dispatcher,
         msg: &Message,
     ) -> anyhow::Result<Option<Response>> {
-        if self.tls_info.is_some() {
-            // We're using TLS, which satisfies the policy
+        let (enable_dane, enable_mta_sts) = {
+            let config = dispatcher.path_config.borrow();
+            (config.enable_dane, config.enable_mta_sts)
+        };
+
+        if enable_dane && !is_dane_enabled() {
+            return Ok(Some(Response {
+                code: 451,
+                enhanced_code: Some(EnhancedStatusCode {
+                    class: 4,
+                    subject: 7,
+                    detail: 0,
+                }),
+                content: "KumoMTA internal: enable_dane is set on this egress \
+                    path but kumo.dns.set_dane_enabled was not used to enable \
+                    MX-time safety checks, so DANE authentication cannot be \
+                    guaranteed. Either kumo.dns.set_dane_enabled(true) MUST be \
+                    configured to deliver with DANE, or you must set \
+                    enable_dane=false on this egress path if you \
+                    don't need to use DANE."
+                    .to_string(),
+                command: None,
+            }));
+        }
+
+        if !enable_mta_sts {
+            // No MTA-STS policy to enforce
             return Ok(None);
         }
-        if !dispatcher.path_config.borrow().enable_mta_sts {
+
+        if self.tls_info.is_some() {
+            // We're using TLS, which satisfies the policy
             return Ok(None);
         }
 
@@ -1406,7 +1432,7 @@ impl QueueDispatcher for SmtpDispatcher {
             recipients_this_batch.len()
         ));
 
-        let send_result = match self.mta_sts_cleartext_veto(dispatcher, &msg).await? {
+        let send_result = match self.tls_policy_veto(dispatcher, &msg).await? {
             Some(response) => Err(ClientError::Rejected(response)),
             None => {
                 self.client

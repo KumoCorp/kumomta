@@ -51,16 +51,15 @@
   [httpinject_requests_rejected_total](../reference/metrics/kumod/httpinject_requests_rejected_total.md)
   counter expose the current load and rejections. #631
 
-* If you deliver with DANE, we recommend also enabling the new global
+* If you deliver with DANE, you **MUST** also enable the new global
   [kumo.dns.set_dane_enabled](../reference/kumo.dns/set_dane_enabled.md) option
   (default off) during `init`. Without it, a domain whose MX selection is not
-  DNSSEC-secure, but whose MX hosts publish DANE `TLSA` records, can
-  [share a ready queue](../reference/queues.md#site-names) with a
-  DNSSEC-secure domain on the same hosts and send over a connection that was
-  not DANE-authenticated. Enabling the option separates the two. The
-  per-egress-path
-  [enable_dane](../reference/kumo/make_egress_path/enable_dane.md) option is
-  unchanged and must also be enabled to use the DANE policy.
+  DNSSEC-secure, but has the same [site_name](../reference/queues.md#site-names)
+  as another DNSSEC-secure domain introduces the possibility of a DANE downgrade.
+  Enabling the option separates these queues and makes this safe.  If you have
+  [enable_dane](../reference/kumo/make_egress_path/enable_dane.md) set but have
+  not set the global option, we will generate TransientFailure records instead
+  of delivering mail on that egress path to protect you from this misconfiguration.
 
 ## Other Changes and Enhancements
 
@@ -337,3 +336,7 @@
 
  * smtp_dispatcher: now correctly clears the reported `tls_info` when establishing
    a fallback connection.
+
+ * xfer: a message moved into an xfer queue could be expired, retried in a
+   tight loop, or panic the process, depending on how many delivery attempts it
+   had already made. Thanks to @edgarsendernet! #644

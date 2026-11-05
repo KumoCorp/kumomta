@@ -606,7 +606,9 @@ impl Message {
         &self,
         duration: chrono::Duration,
     ) -> anyhow::Result<Option<DateTime<Utc>>> {
-        let due = Utc::now() + duration;
+        let due = Utc::now()
+            .checked_add_signed(duration)
+            .ok_or_else(|| anyhow::anyhow!("due time out of range: now + {duration}"))?;
         self.set_due(Some(due)).await
     }
 
@@ -617,7 +619,12 @@ impl Message {
     ) -> anyhow::Result<Option<DateTime<Utc>>> {
         let scale = rand::random::<f32>();
         let value = (scale * 60.) as i64;
-        let due = Utc::now() + duration + seconds(value)?;
+        let duration = duration
+            .checked_add(&seconds(value)?)
+            .ok_or_else(|| anyhow::anyhow!("due time out of range: duration + jitter"))?;
+        let due = Utc::now()
+            .checked_add_signed(duration)
+            .ok_or_else(|| anyhow::anyhow!("due time out of range: now + {duration}"))?;
         self.set_due(Some(due)).await
     }
 
@@ -2948,6 +2955,21 @@ Body\r
         assert!(due - now >= one_day, "due time is at least 1 day away");
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn delay_by_out_of_range_errors() {
+        let msg = new_msg_body(MULTI_HEADER_CONTENT);
+        let max = chrono::Duration::MAX;
+        let err = msg.delay_by(max).await.unwrap_err();
+        k9::assert_equal!(
+            err.to_string(),
+            "due time out of range: now + PT9223372036854775.807S"
+        );
+        // The jitter addition must not panic either.
+        let err = msg.delay_by_and_jitter(max).await.unwrap_err();
+        k9::assert_equal!(err.to_string(), "due time out of range: duration + jitter");
+        k9::assert_equal!(msg.get_due(), None);
     }
 
     #[cfg(all(test, target_pointer_width = "64"))]

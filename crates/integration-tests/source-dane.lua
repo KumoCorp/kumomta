@@ -1,12 +1,13 @@
 -- A minimal source policy for the DANE integration tests.
 --
--- It routes mail for `dane.example` via the real MX resolution path (so that
--- DANE engages; mx_list would bypass it) and installs a TestResolver whose
+-- It routes mail for `dane.example` via the real MX resolution path, which
+-- performs the DANE TLSA record lookup. It also installs a TestResolver whose
 -- zone and DNSSEC secure status are driven by env vars set by the test:
 --
---   KUMOD_DANE_TLSA     the TLSA rdata to publish (e.g. "3 1 1 <hex>"), or unset
---   KUMOD_DANE_SECURE   "true" to mark the zone DNSSEC validated
---   KUMOD_DANE_SERVFAIL "true" to make the TLSA lookup return SERVFAIL
+-- KUMOD_DANE_TLSA the TLSA rdata to publish (e.g. "3 1 1 <hex>"), or unset
+-- KUMOD_DANE_SECURE "true" to mark the zone DNSSEC validated
+-- KUMOD_DANE_SERVFAIL "true" to make the TLSA lookup return SERVFAIL
+-- KUMOD_DANE_SKIP_GLOBAL "true" to leave kumo.dns.set_dane_enabled off
 local kumo = require 'kumo'
 
 local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
@@ -79,6 +80,11 @@ kumo.on('init', function()
   }
 
   configure_resolver()
+
+  -- KUMOD_DANE_SKIP_GLOBAL leaves set_dane_enabled off.
+  if os.getenv 'KUMOD_DANE_SKIP_GLOBAL' ~= 'true' then
+    kumo.dns.set_dane_enabled(true)
+  end
 
   kumo.start_esmtp_listener {
     listen = '127.0.0.1:0',

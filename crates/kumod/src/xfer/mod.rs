@@ -79,6 +79,7 @@ impl SavedQueueInfo {
         msg.unset_meta("campaign").await?;
         msg.set_scheduling(None).await?;
         msg.set_due(None).await?;
+        msg.set_num_attempts(0);
 
         Ok(())
     }
