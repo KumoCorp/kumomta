@@ -82,10 +82,21 @@ docker_or_podman() {
   fi
 }
 
-docker_or_podman build -t kumomta/mkdocs-material --pull -f docs/Dockerfile .
-	
-if [ "$SERVE" == "yes" ] ; then
-  docker_or_podman run --rm -it --network=host -v ${PWD}:/docs kumomta/mkdocs-material $@
+# Our builder images ship mkdocs, so render with it directly when present.
+if hash mkdocs 2>/dev/null ; then
+  cargo build -p toml2jsonc
+  export TOML2JSONC=${CARGO_TARGET_DIR}/debug/toml2jsonc
+  if [ "$SERVE" == "yes" ] ; then
+    mkdocs serve $@
+  else
+    mkdocs build
+  fi
 else
-  docker_or_podman run --rm -e CARDS=${CARDS} -v ${PWD}:/docs kumomta/mkdocs-material build
+  docker_or_podman build -t kumomta/mkdocs-material --pull -f docs/Dockerfile .
+
+  if [ "$SERVE" == "yes" ] ; then
+    docker_or_podman run --rm -it --network=host -v ${PWD}:/docs kumomta/mkdocs-material $@
+  else
+    docker_or_podman run --rm -e CARDS=${CARDS} -v ${PWD}:/docs kumomta/mkdocs-material build
+  fi
 fi
