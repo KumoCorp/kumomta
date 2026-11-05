@@ -461,3 +461,53 @@ Outcome {
     );
     Ok(())
 }
+
+/// With `enable_dane` set on the egress path but the global
+/// `kumo.dns.set_dane_enabled` isolation off (via `KUMOD_DANE_SKIP_GLOBAL`),
+/// delivery must defer with a transient failure.
+#[tokio::test]
+async fn dane_without_global_isolation_defers() -> anyhow::Result<()> {
+    let (cert_pem, key_pem, _digest) = make_sink_cert()?;
+    let mut daemon = DaemonWithMaildirOptions::new()
+        .policy_file("source-dane.lua")
+        .sink_policy_file("sink-dane.lua")
+        .env("KUMOD_SINK_TLS_CERT", cert_pem)
+        .env("KUMOD_SINK_TLS_KEY", key_pem)
+        .env("KUMOD_DANE_SECURE", "true")
+        .env("KUMOD_DANE_SKIP_GLOBAL", "true")
+        .start()
+        .await?;
+
+    let mut client = daemon.smtp_client().await?;
+    let response = MailGenParams {
+        recip: Some("recip@dane.example"),
+        ..Default::default()
+    }
+    .send(&mut client)
+    .await?;
+    anyhow::ensure!(response.code == 250, "{response:?}");
+
+    daemon
+        .wait_for_source_summary(
+            |summary| summary.get(&TransientFailure).copied().unwrap_or(0) > 0,
+            Duration::from_secs(30),
+        )
+        .await;
+
+    daemon.stop_both().await?;
+
+    let records = daemon.source.collect_logs().await?;
+    let deferral = records
+        .iter()
+        .find(|r| r.kind == TransientFailure)
+        .ok_or_else(|| anyhow::anyhow!("no TransientFailure in {records:#?}"))?;
+    k9::assert_equal!(deferral.response.code, 451);
+    k9::snapshot!(
+        deferral.response.content.as_str(),
+        r#"KumoMTA internal: enable_dane is set on this egress path but kumo.dns.set_dane_enabled was not used to enable MX-time safety checks, so DANE authentication cannot be guaranteed. Either kumo.dns.set_dane_enabled(true) MUST be configured to deliver with DANE, or you must set enable_dane=false on this egress path if you don't need to use DANE."#
+    );
+
+    anyhow::ensure!(daemon.extract_maildir_messages()?.is_empty());
+
+    Ok(())
+}
