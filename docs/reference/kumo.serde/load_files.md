@@ -1,7 +1,7 @@
 # kumo.serde.load_files
 
 ```lua
-kumo.serde.load_files({ FILENAME, ... })
+kumo.serde.load_files { FILENAME, ... }
 ```
 
 {{since('dev')}}
