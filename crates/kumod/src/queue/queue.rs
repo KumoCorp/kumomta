@@ -859,10 +859,13 @@ impl Queue {
                 let now = Utc::now();
                 let max_age = self.queue_config.borrow().get_max_age();
                 let age = msg.age(now);
-                let delayed_age = age + delay;
-                if delayed_age > max_age {
-                    let delayed_age =
-                        format_duration(delayed_age.to_std().unwrap_or(Duration::ZERO));
+                let delayed_age = age.checked_add(&delay);
+                if delayed_age.map_or(true, |delayed_age| delayed_age > max_age) {
+                    let delayed_age = format_duration(
+                        delayed_age
+                            .and_then(|d| d.to_std().ok())
+                            .unwrap_or(Duration::MAX),
+                    );
                     let max_age = format_duration(max_age.to_std().unwrap_or(Duration::ZERO));
                     tracing::debug!("expiring {id} {delayed_age} > {max_age}");
                     log_disposition(LogDisposition {

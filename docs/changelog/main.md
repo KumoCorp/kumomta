@@ -337,3 +337,7 @@
 
  * smtp_dispatcher: now correctly clears the reported `tls_info` when establishing
    a fallback connection.
+
+ * xfer: a message moved into an xfer queue could be expired, retried in a
+   tight loop, or panic the process, depending on how many delivery attempts it
+   had already made. Thanks to @edgarsendernet! #644
