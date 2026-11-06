@@ -51,3 +51,50 @@ Any system that can use an HTTP API to pass JSON should work as an injection
 system if you follow the JSON payload formatting rules posted
 [here](../..//reference/http/kumod/api_inject_v1_post.md)
 
+## Injecting Independent Messages in a Batch
+
+Use `POST /api/inject/batch/v1` when you have several independently rendered
+messages, each with its own sender, content, and recipients. It accepts an
+ordered array of normal `/api/inject/v1` request bodies:
+
+```json
+{
+  "requests": [
+    {
+      "envelope_sender": "sender@example.com",
+      "content": "Subject: First\n\nFirst body",
+      "template_dialect": "Static",
+      "recipients": [{"email": "one@example.com"}]
+    },
+    {
+      "envelope_sender": "sender@example.com",
+      "content": "Subject: Second\n\nSecond body",
+      "template_dialect": "Static",
+      "recipients": [{"email": "two@example.com"}]
+    }
+  ]
+}
+```
+
+Each batch entry also accepts the `template_dialect` and `substitutions`
+fields supported by `/api/inject/v1`; the examples above use `Static` for
+already-rendered content.
+
+The entire batch is rejected with HTTP 422 if any sender or recipient
+address is malformed, before any entry is processed. Template rendering and
+queueing can still fail after this check.
+
+A successful batch envelope returns HTTP 200 with a `results` array. Each
+entry includes its original `index`, `status`, and either the original
+`InjectV1Response` in `response` or an `error`. The batch is **not
+atomic**: successful injections are not rolled back when
+an entry fails.
+Check each entry's `fail_count` and `failed_recipients` even if its
+`status` is 200. If an entry returns HTTP 503, later entries are marked
+as not attempted.
+
+The endpoint accepts up to 100 injection requests and 10,000 recipients per
+batch, subject to the HTTP listener's configured body-size limit. Requests
+are processed sequentially using the existing injection handler, including
+recipient throttling. A lost HTTP response gives no guarantee about which
+injections were accepted; avoid blindly replaying the whole batch.
