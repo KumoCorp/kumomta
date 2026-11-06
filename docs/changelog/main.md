@@ -178,6 +178,11 @@
 
 ## Fixes
 
+ * A graceful shutdown could hang indefinitely, logging
+   `Still waiting for 1 pending activities... Queue Manager Meta Maintainer`
+   until the process was killed. This was most likely to occur when stopping
+   while messages were being sent to a rate-limited destination. #654
+
  * With DNSSEC validation enabled, the hickory resolver backend could
    misclassify unsigned zones as DNSSEC-bogus and prevent delivery to the
    affected domains, due to an upstream hickory bug

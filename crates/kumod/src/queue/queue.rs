@@ -9,7 +9,7 @@ use crate::queue::config::QueueConfig;
 use crate::queue::delivery_proto::DeliveryProto;
 use crate::queue::insert_context::{InsertContext, InsertReason};
 use crate::queue::maintainer::{maintain_named_queue, QMAINT_RUNTIME};
-use crate::queue::manager::{QueueManager, MANAGER, SCHEDULED_QUEUE_COUNT};
+use crate::queue::manager::QueueManager;
 use crate::queue::metrics::ScheduledMetrics;
 use crate::queue::strategy::{QueueInsertResult, QueueStrategy, QueueStructure};
 use crate::queue::{opt_timeout_at, IncrementAttempts, InsertResult, ReadyQueueFull};
@@ -255,7 +255,7 @@ impl Queue {
         );
     }
 
-    fn check_reap(&self, now: Instant) -> bool {
+    fn check_reap(self: &Arc<Self>, now: Instant) -> bool {
         if !self.queue.is_empty() {
             return false;
         }
@@ -264,16 +264,8 @@ impl Queue {
         let reap_after = self.queue_config.borrow().reap_interval;
 
         if now >= idle_at + reap_after {
-            // NOT using QueueManager::remove here because we need to
-            // be atomic wrt. another resolve operation
-
-            if MANAGER
-                .named
-                .remove_if(self.name.as_str(), |_key, _q| self.queue.is_empty())
-                .is_some()
-            {
+            if QueueManager::remove_handle_if(self.name.as_str(), self, || self.queue.is_empty()) {
                 tracing::debug!("idling out queue {}", self.name);
-                SCHEDULED_QUEUE_COUNT.dec();
             }
 
             return true;
