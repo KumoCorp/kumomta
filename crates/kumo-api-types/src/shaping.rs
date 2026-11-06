@@ -202,6 +202,7 @@ pub enum Action {
     SuspendTenant,
     SuspendCampaign,
     SetDomainConfig(EgressPathConfigValue),
+    SetProviderConfig(EgressPathConfigValue),
     Bounce,
     BounceTenant,
     BounceCampaign,
@@ -235,6 +236,11 @@ pub struct Rule {
     #[serde(skip)]
     pub was_rollup: bool,
 
+    /// When the rule was reached through a provider block, the name of that
+    /// provider; `None` otherwise.
+    #[serde(skip)]
+    pub provider_name: Option<String>,
+
     /// if true, this rule can match kumomta internally generated
     /// Response messages, otherwise, the rule will skip testing
     /// against those.
@@ -255,6 +261,12 @@ impl Rule {
     pub fn clone_and_set_rollup(&self) -> Self {
         let mut result = self.clone();
         result.was_rollup = true;
+        result
+    }
+
+    pub fn clone_and_set_provider(&self, provider_name: &str) -> Self {
+        let mut result = self.clone();
+        result.provider_name = Some(provider_name.to_string());
         result
     }
 }
@@ -423,7 +435,7 @@ impl ShapingInner {
                         prov.provider_name
                     );
                     if rule.matches(is_internal, &response) {
-                        result.push(rule.clone());
+                        result.push(rule.clone_and_set_provider(&prov.provider_name));
                     }
                 }
             }
@@ -512,6 +524,25 @@ impl Collector {
             CheckLevel::Ignore => {}
             CheckLevel::Warn => self.warnings.push(msg.into()),
             CheckLevel::Error => self.errors.push(msg.into()),
+        }
+    }
+}
+
+/// Reject a `SetProviderConfig` action found outside a provider block.
+/// The override it generates is attached to the provider that matched the
+/// rule, and a rule outside a provider block never matches one.
+#[cfg(feature = "lua")]
+fn reject_provider_only_actions(automation: &[Rule], scope: &str, collector: &mut Collector) {
+    for rule in automation {
+        if rule
+            .action
+            .iter()
+            .any(|action| matches!(action, Action::SetProviderConfig(_)))
+        {
+            collector.push(
+                CheckLevel::Error,
+                format!("SetProviderConfig is only valid within a provider block, but was used in {scope}"),
+            );
         }
     }
 }
@@ -703,6 +734,11 @@ impl Shaping {
             if let Some(mut partial) = item.default.take() {
                 let domain = "default";
                 partial.domain_name.replace(domain.to_string());
+                reject_provider_only_actions(
+                    &partial.automation,
+                    "the default block",
+                    &mut collector,
+                );
                 match by_domain.get_mut(domain) {
                     Some(existing) => {
                         existing.merge_from(partial);
@@ -715,6 +751,11 @@ impl Shaping {
 
             for (domain, mut partial) in item.domains {
                 partial.domain_name.replace(domain.clone());
+                reject_provider_only_actions(
+                    &partial.automation,
+                    &format!("domain '{domain}'"),
+                    &mut collector,
+                );
 
                 if let Ok(name) = fully_qualify(&domain) {
                     if name.num_labels() == 1 {
@@ -1730,6 +1771,43 @@ enable_tls = "Required"
     }
 
     #[tokio::test]
+    async fn test_set_provider_config_rejected_outside_provider() {
+        // SetProviderConfig attaches its override to the matched provider.
+        let shaping = make_shaping_configs(&[r#"
+["example.com"]
+mx_rollup = false
+
+[["example.com".automation]]
+regex = "x"
+action = {SetProviderConfig={name="connection_limit", value=3}}
+duration = "1hr"
+"#])
+        .await;
+
+        k9::assert_equal!(
+            shaping.get_errors(),
+            ["SetProviderConfig is only valid within a provider block, but was used in domain 'example.com'".to_string()]
+                .as_slice()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_provider_config_accepted_in_provider() {
+        let shaping = make_shaping_configs(&[r#"
+[provider."acme"]
+match=[{DomainSuffix=".acme"}]
+
+[[provider."acme".automation]]
+regex = "x"
+action = {SetProviderConfig={name="connection_limit", value=3}}
+duration = "1hr"
+"#])
+        .await;
+
+        k9::assert_equal!(shaping.get_errors(), ([] as [String; 0]).as_slice());
+    }
+
+    #[tokio::test]
     async fn test_provider() {
         let shaping = make_shaping_configs(&[r#"
 [provider."Office 365"]
@@ -1961,6 +2039,11 @@ match_internal = true
             "provider",
             "matches against provider rule"
         );
+        k9::assert_equal!(
+            matches[0].provider_name.as_deref(),
+            Some("provider"),
+            "provider rule's provider_name is set to the matched provider"
+        );
 
         let matches = shaping
             .match_rules(&make_record(
@@ -2175,6 +2258,7 @@ MergedEntry {
             trigger: Immediate,
             duration: 5400s,
             was_rollup: false,
+            provider_name: None,
             match_internal: false,
         },
     ],
@@ -2383,6 +2467,7 @@ MergedEntry {
             trigger: Immediate,
             duration: 5400s,
             was_rollup: false,
+            provider_name: None,
             match_internal: false,
         },
     ],
@@ -2525,6 +2610,7 @@ MergedEntry {
             trigger: Immediate,
             duration: 5400s,
             was_rollup: false,
+            provider_name: None,
             match_internal: false,
         },
         Rule {
@@ -2539,6 +2625,7 @@ MergedEntry {
             trigger: Immediate,
             duration: 7200s,
             was_rollup: false,
+            provider_name: None,
             match_internal: false,
         },
     ],

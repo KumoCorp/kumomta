@@ -176,6 +176,12 @@
    A capacity of zero turns the cache off.
    Thanks to @akshitsethi0023! #638
 
+ * Traffic shaping automation rules defined in a `provider` block can now use a new
+   [SetProviderConfig](../reference/kumo.shaping/load.md#traffic-shaping-automation-rules)
+   action. Like `SetConfig` it sets a configuration override when a rule
+   matches, but scopes the override to the provider rather than the
+   triggering domain.
+
 ## Fixes
 
  * The [AAA accounting log](../reference/kumo.aaa/configure_acct_log.md)

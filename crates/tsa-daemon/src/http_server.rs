@@ -2,8 +2,9 @@ use crate::database::Database;
 use crate::publish::submit_record;
 use crate::shaping_config::get_shaping;
 use crate::state::{
-    ActionHash, ConfigurationOverride, MatchingScope, ReadyQSuspensionEntry, SchedQBounceEntry,
-    SchedQBounceKey, SchedQSuspensionEntry, SchedQSuspensionKey, TsaState, TSA_STATE,
+    ActionHash, ConfigurationOverride, MatchingScope, OverrideScope, ReadyQSuspensionEntry,
+    SchedQBounceEntry, SchedQBounceKey, SchedQSuspensionEntry, SchedQSuspensionKey, TsaState,
+    TSA_STATE,
 };
 use anyhow::anyhow;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -410,6 +411,36 @@ async fn publish_log_v1_impl(
                                     PreferRollup::No,
                                 );
                         }
+                        Action::SetProviderConfig(config) => match &m.provider_name {
+                            Some(provider_name) => {
+                                let provider_hash = ActionHash::from_rule_action_and_provider(
+                                    m,
+                                    action,
+                                    source,
+                                    provider_name,
+                                );
+                                TSA_STATE
+                                    .get()
+                                    .expect("tsa_state missing")
+                                    .create_provider_config_override(
+                                        &provider_hash,
+                                        m,
+                                        &record,
+                                        config,
+                                        provider_name,
+                                        &domain,
+                                        source,
+                                    );
+                            }
+                            None => {
+                                // Defensive fallback: load-time validation already
+                                // rejects this action outside of a provider scope.
+                                tracing::warn!(
+                                    "SetProviderConfig action matched outside of a provider \
+                                     scope for {domain}; ignoring."
+                                );
+                            }
+                        },
                         Action::Bounce => {
                             create_bounce(
                                 &action_hash,
@@ -627,9 +658,11 @@ pub async fn import_configs_from_sqlite(
                 state.insert_config_override(
                     matching_scope,
                     ConfigurationOverride {
-                        domain,
+                        scope: OverrideScope::Domain {
+                            domain,
+                            mx_rollup: mx_rollup != 0,
+                        },
                         reason,
-                        mx_rollup: mx_rollup != 0,
                         source,
                         option: EgressPathConfigValueUnchecked {
                             name,

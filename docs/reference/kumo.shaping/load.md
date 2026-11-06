@@ -187,6 +187,18 @@ The following fields are possible in an automation rule:
       override that sets `NAME=VALUE`, but with `mx_rollup=false`, even if the
       rule was defined inside a domain where `mx_rollup=true`. {{since('2024.11.08-d383b033',
       inline=True)}}
+    * `{SetProviderConfig{name="NAME", value="VALUE"}}` - for a rule defined
+      inside a `provider` block, define a configuration override that sets
+      `NAME=VALUE` on that provider to apply it to every destination domain the
+      provider matches rather than only the triggering domain. The override is
+      written as a `provider` source block, so `NAME` applies to each matching
+      `site_name` independently. This action only accepts options that apply to
+      one `site_name`. The `provider_` prefixed options, such as
+      `provider_connection_limit`, which enforce a limit across the whole
+      provider, are static configuration in the `provider` block definition and
+      cannot be set here. Matched outside a `provider` block the action has no
+      effect.
+      {{since('dev', inline=True)}}
  * `trigger` - optional. Can be one of:
     * `"Immediate"` - this is the default. The action is taken each time a `regex` matches.
     * `{Threshold="10/hr"}` - defines a threshold; the action won't trigger in this case until 10 events have occurred in the preceding hour.

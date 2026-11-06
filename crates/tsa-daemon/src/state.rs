@@ -86,6 +86,23 @@ impl ActionHash {
         Self(hasher.get_binary(), SiteKey::from_record(record))
     }
 
+    /// Returns the key for a provider-scoped override, derived from the
+    /// provider name and source rather than the triggering record's site.
+    pub fn from_rule_action_and_provider(
+        rule: &Rule,
+        action: &Action,
+        source: &str,
+        provider: &str,
+    ) -> Self {
+        let mut hasher = Sha256Hasher::new();
+        rule.hash(&mut hasher);
+        action.hash(&mut hasher);
+        Self(
+            hasher.get_binary(),
+            SiteKey(format!("{source}->provider:{provider}")),
+        )
+    }
+
     pub fn from_legacy_hash_and_site(hash: &str, site: &str) -> Self {
         let mut bytes = [0u8; 32];
         if let Err(err) = hex::decode_to_slice(hash, &mut bytes) {
@@ -153,16 +170,99 @@ impl EventData {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Which shaping scope a configuration override is written against.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OverrideScope {
+    /// A domain, or the site_name it rolls up to when `mx_rollup` is set.
+    Domain { domain: String, mx_rollup: bool },
+    /// Every site_name matched by the named provider. `triggering_domain` is
+    /// the recipient domain whose failure produced the override, retained for
+    /// provenance and included as a comment in the generated TOML.
+    Provider {
+        provider: String,
+        triggering_domain: String,
+    },
+}
+
+#[derive(Debug, Clone)]
 pub struct ConfigurationOverride {
-    pub domain: String,
-    pub mx_rollup: bool,
+    pub scope: OverrideScope,
     pub source: String,
     pub reason: String,
     /// Explicitly store unchecked to accommodate version skew
     /// where we might not know about a value yet
     pub option: EgressPathConfigValueUnchecked,
     pub expires: DateTime<Utc>,
+}
+
+/// The on-disk form of a [`ConfigurationOverride`]. It is flat and predates
+/// [`OverrideScope`]. Keeping serialization pinned to it lets older state
+/// files, written before `provider_name` existed, still load.
+#[derive(Serialize, Deserialize, Clone)]
+struct FlatConfigurationOverride {
+    domain: String,
+    mx_rollup: bool,
+    source: String,
+    reason: String,
+    option: EgressPathConfigValueUnchecked,
+    expires: DateTime<Utc>,
+    #[serde(default)]
+    provider_name: Option<String>,
+}
+
+impl From<FlatConfigurationOverride> for ConfigurationOverride {
+    fn from(flat: FlatConfigurationOverride) -> Self {
+        let scope = match flat.provider_name {
+            Some(provider) => OverrideScope::Provider {
+                provider,
+                triggering_domain: flat.domain,
+            },
+            None => OverrideScope::Domain {
+                domain: flat.domain,
+                mx_rollup: flat.mx_rollup,
+            },
+        };
+        Self {
+            scope,
+            source: flat.source,
+            reason: flat.reason,
+            option: flat.option,
+            expires: flat.expires,
+        }
+    }
+}
+
+impl From<ConfigurationOverride> for FlatConfigurationOverride {
+    fn from(over: ConfigurationOverride) -> Self {
+        let (domain, mx_rollup, provider_name) = match over.scope {
+            OverrideScope::Domain { domain, mx_rollup } => (domain, mx_rollup, None),
+            OverrideScope::Provider {
+                provider,
+                triggering_domain,
+            } => (triggering_domain, false, Some(provider)),
+        };
+        Self {
+            domain,
+            mx_rollup,
+            source: over.source,
+            reason: over.reason,
+            option: over.option,
+            expires: over.expires,
+            provider_name,
+        }
+    }
+}
+
+impl Serialize for ConfigurationOverride {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        FlatConfigurationOverride::from(self.clone()).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ConfigurationOverride {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        FlatConfigurationOverride::deserialize(deserializer).map(Into::into)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
@@ -252,17 +352,60 @@ impl TsaState {
         self.insert_config_override(
             scope.clone(),
             ConfigurationOverride {
-                domain: domain.to_string(),
-                reason,
-                mx_rollup: match prefer_rollup {
-                    PreferRollup::Yes => rule.was_rollup,
-                    PreferRollup::No => false,
+                scope: OverrideScope::Domain {
+                    domain: domain.to_string(),
+                    mx_rollup: match prefer_rollup {
+                        PreferRollup::Yes => rule.was_rollup,
+                        PreferRollup::No => false,
+                    },
                 },
+                reason,
                 source: source.to_string(),
                 option: config.clone().into(),
                 expires: record.timestamp + rule.duration,
             },
         );
+    }
+
+    pub fn create_provider_config_override(
+        &self,
+        scope: &ActionHash,
+        rule: &Rule,
+        record: &JsonLogRecord,
+        config: &EgressPathConfigValue,
+        provider_name: &str,
+        domain: &str,
+        source: &str,
+    ) {
+        let reason = format!("automation rule: {}", regex_list_to_string(&rule.regex));
+        let over = ConfigurationOverride {
+            scope: OverrideScope::Provider {
+                provider: provider_name.to_string(),
+                triggering_domain: domain.to_string(),
+            },
+            reason,
+            source: source.to_string(),
+            option: config.clone().into(),
+            expires: record.timestamp + rule.duration,
+        };
+        self.insert_provider_config_override(scope.clone(), over);
+    }
+
+    /// Inserts a provider-scoped override, keyed by provider and source,
+    /// replacing any existing row for that key only if it has a later
+    /// expiry.
+    fn insert_provider_config_override(&self, scope: ActionHash, over: ConfigurationOverride) {
+        if Utc::now() >= over.expires {
+            // Skip already expired entry
+            return;
+        }
+        if let Some(existing) = self.config_overrides.get(&scope) {
+            if existing.expires > over.expires {
+                return;
+            }
+        }
+        tracing::debug!("new config override {scope:?} = {over:?}");
+        self.config_overrides.insert(scope, over);
     }
 
     pub fn insert_config_override(&self, scope: ActionHash, over: ConfigurationOverride) {
@@ -405,9 +548,16 @@ impl TsaState {
         }
 
         entries.sort_by_key(|over| {
+            // Sort by expiry, then by provider name or domain, grouping
+            // entries that share a scope.
+            let (provider, domain) = match &over.scope {
+                OverrideScope::Provider { provider, .. } => (Some(provider.clone()), String::new()),
+                OverrideScope::Domain { domain, .. } => (None, domain.clone()),
+            };
             (
                 over.expires,
-                over.domain.clone(),
+                provider,
+                domain,
                 over.source.clone(),
                 over.option.name.clone(),
             )
@@ -415,16 +565,30 @@ impl TsaState {
         let num_entries = entries.len();
 
         for over in entries {
-            let domain_entry = doc
-                .entry(&over.domain)
-                .or_insert_with(|| {
-                    let mut tbl = toml_edit::Table::new();
-                    tbl["mx_rollup"] = value(over.mx_rollup);
-                    Item::Table(tbl)
-                })
-                .as_table_mut()
-                .unwrap();
-            let sources = domain_entry
+            let scope_entry = match &over.scope {
+                OverrideScope::Provider { provider, .. } => {
+                    let providers = doc
+                        .entry("provider")
+                        .or_insert_with(|| Item::Table(toml_edit::Table::new()))
+                        .as_table_mut()
+                        .unwrap();
+                    providers
+                        .entry(provider)
+                        .or_insert_with(|| Item::Table(toml_edit::Table::new()))
+                        .as_table_mut()
+                        .unwrap()
+                }
+                OverrideScope::Domain { domain, mx_rollup } => doc
+                    .entry(domain)
+                    .or_insert_with(|| {
+                        let mut tbl = toml_edit::Table::new();
+                        tbl["mx_rollup"] = value(*mx_rollup);
+                        Item::Table(tbl)
+                    })
+                    .as_table_mut()
+                    .unwrap(),
+            };
+            let sources = scope_entry
                 .entry("sources")
                 .or_insert_with(|| {
                     let tbl = toml_edit::Table::new();
@@ -445,8 +609,16 @@ impl TsaState {
             source_entry.insert(&over.option.name, Item::Value(item));
 
             if let Some(mut key) = source_entry.key_mut(&over.option.name) {
+                // This is the only place a provider override's triggering
+                // domain appears in the output.
+                let provenance = match &over.scope {
+                    OverrideScope::Provider {
+                        triggering_domain, ..
+                    } => format!("# triggering domain: {triggering_domain}\n"),
+                    OverrideScope::Domain { .. } => String::new(),
+                };
                 key.leaf_decor_mut().set_prefix(format!(
-                    "# reason: {}\n# expires: {}\n",
+                    "# reason: {}\n{provenance}# expires: {}\n",
                     over.reason,
                     over.expires.to_rfc3339()
                 ));
@@ -902,5 +1074,205 @@ pub async fn state_pruner() -> anyhow::Result<()> {
             }
             last_save = Instant::now();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kumo_api_types::shaping::{HashableTomlValue, Regex, Trigger};
+    use kumo_log_types::RecordType;
+    use rfc5321::Response;
+    use uuid::Uuid;
+
+    fn override_with_scope(scope: OverrideScope) -> ConfigurationOverride {
+        ConfigurationOverride {
+            scope,
+            source: "my-source".to_string(),
+            reason: "automation rule: TS04".to_string(),
+            option: EgressPathConfigValueUnchecked {
+                name: "connection_limit".to_string(),
+                value: toml::Value::Integer(3),
+            },
+            expires: Utc::now() + chrono::Duration::hours(1),
+        }
+    }
+
+    /// Renders the overlay for an override, with the non-deterministic
+    /// `expires` timestamp replaced by a fixed placeholder for snapshotting.
+    fn export_normalized(over: ConfigurationOverride) -> String {
+        let state = TsaState::default();
+        state.insert_config_override(
+            ActionHash::from_legacy_hash_and_site(&"0".repeat(64), "site"),
+            over,
+        );
+        state
+            .export_config_override_toml()
+            .lines()
+            .map(|line| {
+                if line.starts_with("# expires: ") {
+                    "# expires: <normalized>".to_string()
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn provider_override_renders_as_provider_block() {
+        k9::snapshot!(
+            export_normalized(override_with_scope(OverrideScope::Provider {
+                provider: "yahoo".to_string(),
+                triggering_domain: "one.example.com".to_string(),
+            })),
+            "
+# Generated by tsa-daemon
+# Number of entries: 1
+
+[provider]
+
+[provider.yahoo]
+
+[provider.yahoo.sources]
+
+[provider.yahoo.sources.my-source]
+# reason: automation rule: TS04
+# triggering domain: one.example.com
+# expires: <normalized>
+connection_limit = 3
+
+
+# Generated by tsa-daemon
+# Number of entries: 1
+"
+        );
+    }
+
+    #[test]
+    fn domain_override_renders_as_domain_block() {
+        k9::snapshot!(
+            export_normalized(override_with_scope(OverrideScope::Domain {
+                domain: "example.com".to_string(),
+                mx_rollup: false,
+            })),
+            r#"
+# Generated by tsa-daemon
+# Number of entries: 1
+
+["example.com"]
+mx_rollup = false
+
+["example.com".sources]
+
+["example.com".sources.my-source]
+# reason: automation rule: TS04
+# expires: <normalized>
+connection_limit = 3
+
+
+# Generated by tsa-daemon
+# Number of entries: 1
+"#
+        );
+    }
+
+    fn make_rule() -> Rule {
+        Rule {
+            regex: vec![Regex::try_from("x".to_string()).unwrap()],
+            action: vec![Action::SetProviderConfig(EgressPathConfigValue {
+                name: "connection_limit".to_string(),
+                value: HashableTomlValue::from(toml::Value::Integer(3)),
+            })],
+            trigger: Trigger::Immediate,
+            duration: std::time::Duration::from_secs(3600),
+            was_rollup: false,
+            provider_name: Some("yahoo".to_string()),
+            match_internal: false,
+        }
+    }
+
+    fn make_record_at(timestamp: DateTime<Utc>, recipient: &str) -> JsonLogRecord {
+        JsonLogRecord {
+            kind: RecordType::TransientFailure,
+            id: String::new(),
+            sender: String::new(),
+            recipient: vec![recipient.to_string()],
+            queue: String::new(),
+            site: "yahoo.example".to_string(),
+            size: 0,
+            response: Response {
+                code: 400,
+                command: None,
+                enhanced_code: None,
+                content: "x".to_string(),
+            },
+            peer_address: None,
+            timestamp,
+            created: timestamp,
+            num_attempts: 1,
+            bounce_classification: Default::default(),
+            egress_pool: None,
+            egress_source: None,
+            source_address: None,
+            feedback_report: None,
+            meta: Default::default(),
+            headers: Default::default(),
+            delivery_protocol: None,
+            reception_protocol: None,
+            nodeid: Uuid::default(),
+            tls_cipher: None,
+            tls_protocol_version: None,
+            tls_peer_subject_name: None,
+            provider_name: None,
+            session_id: None,
+        }
+    }
+
+    #[test]
+    fn provider_override_keeps_latest_expiry_on_refresh() {
+        let state = TsaState::default();
+        let rule = make_rule();
+        let action = &rule.action[0];
+        let config = match action {
+            Action::SetProviderConfig(config) => config,
+            _ => panic!("expected SetProviderConfig"),
+        };
+        let scope = ActionHash::from_rule_action_and_provider(&rule, action, "my-source", "yahoo");
+
+        let base = Utc::now();
+        // A record timestamped 10 minutes later arrives first...
+        let later = make_record_at(base + chrono::Duration::minutes(10), "two.example.com");
+        state.create_provider_config_override(
+            &scope,
+            &rule,
+            &later,
+            config,
+            "yahoo",
+            "two.example.com",
+            "my-source",
+        );
+        let first_expires = state.config_overrides.get(&scope).unwrap().expires;
+
+        // ...then a delayed sibling record with an earlier timestamp arrives.
+        // It must not shorten the stored override.
+        let earlier = make_record_at(base, "one.example.com");
+        state.create_provider_config_override(
+            &scope,
+            &rule,
+            &earlier,
+            config,
+            "yahoo",
+            "one.example.com",
+            "my-source",
+        );
+        let second_expires = state.config_overrides.get(&scope).unwrap().expires;
+
+        k9::assert_equal!(
+            second_expires,
+            first_expires,
+            "earlier-timestamped record must not shorten the override"
+        );
     }
 }
