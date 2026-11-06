@@ -18,7 +18,7 @@ use kumo_server_common::authn_authz::AuthInfo;
 use kumo_server_common::http_server::{AppError, AppState};
 use kumo_server_lifecycle::Activity;
 use kumo_server_runtime::{Runtime, RUNTIME};
-use kumo_template::{CompiledTemplates, TemplateDialect, TemplateEngine, TemplateList};
+use kumo_template::{CompileError, Template, TemplateDialect, TemplateEngine};
 use mailparsing::{
     is_address_header_name, AddrSpec, Address, EncodeHeaderValue, Mailbox, MessageBuilder,
     MimePart, ParsedHeader,
@@ -534,7 +534,7 @@ enum CompiledHeader {
     /// compile time and cloned into each recipient's message unchanged.
     Static(mailparsing::Header<'static>),
     /// A header whose value is a template, evaluated per recipient.
-    Dynamic { name: String },
+    Dynamic { name: String, template: Template },
 }
 
 /// Builds a message header from an already-expanded value, applying the
@@ -572,8 +572,39 @@ fn make_header(
     Ok(header)
 }
 
+/// The templated message body of a request.
+enum CompiledBody {
+    /// A complete MIME message rendered from one template.
+    Rfc822(Template),
+    /// The body parts of a `Content::Builder`.
+    Builder {
+        text_body: Option<Template>,
+        html_body: Option<Template>,
+        amp_html_body: Option<Template>,
+    },
+}
+
+/// Compiles the optional body part `source` under the template name `name`,
+/// reporting a syntax error against the request field `field`.
+async fn compile_body_part(
+    engine: &TemplateEngine,
+    name: &str,
+    source: Option<&str>,
+    field: &str,
+) -> anyhow::Result<Option<Template>> {
+    match source {
+        Some(source) => {
+            Ok(Some(engine.compile(name, source).await.with_context(
+                || format!("failed parsing field '{field}' as template"),
+            )?))
+        }
+        None => Ok(None),
+    }
+}
+
 struct Compiled<'a> {
-    env_and_templates: CompiledTemplates,
+    engine: TemplateEngine,
+    body: CompiledBody,
     attached: Vec<MimePart<'a>>,
     /// Validated addr-specs for the headers whose display name is templated
     /// and encoded per recipient (content.from, content.reply_to), keyed by
@@ -588,7 +619,6 @@ impl<'a> Compiled<'a> {
         &self,
         recip: &Recipient,
         global_subst: &HashMap<String, Value>,
-        content: &Content,
     ) -> anyhow::Result<String> {
         let mut subst = serde_json::Map::new();
         for (k, v) in global_subst {
@@ -613,16 +643,11 @@ impl<'a> Compiled<'a> {
         }
 
         let subst = serde_json::Value::Object(subst);
-        let prepared = self
-            .env_and_templates
-            .borrow_owner()
-            .prepare_context(&subst)?;
+        let prepared = self.engine.prepare_context(&subst)?;
 
-        let mut id = 0;
-        match content {
-            Content::Rfc822(_) => {
-                let content =
-                    self.env_and_templates.borrow_dependent()[id].render_prepared(&prepared)?;
+        match &self.body {
+            CompiledBody::Rfc822(template) => {
+                let content = template.render_prepared(&prepared)?;
                 let mut msg = MimePart::parse(&*content)
                     .with_context(|| format!("failed to parse content: {content}"))?
                     .rebuild(None)
@@ -634,35 +659,21 @@ impl<'a> Compiled<'a> {
 
                 Ok(String::from_utf8(msg.to_message_bytes()?)?)
             }
-            Content::Builder {
+            CompiledBody::Builder {
                 text_body,
                 html_body,
                 amp_html_body,
-                ..
             } => {
                 let mut builder = MessageBuilder::new();
 
-                if text_body.is_some() {
-                    builder.text_plain(
-                        &self.env_and_templates.borrow_dependent()[id]
-                            .render_prepared(&prepared)?,
-                    );
-                    id += 1;
+                if let Some(template) = text_body {
+                    builder.text_plain(&template.render_prepared(&prepared)?);
                 }
-
-                if html_body.is_some() {
-                    builder.text_html(
-                        &self.env_and_templates.borrow_dependent()[id]
-                            .render_prepared(&prepared)?,
-                    );
-                    id += 1;
+                if let Some(template) = html_body {
+                    builder.text_html(&template.render_prepared(&prepared)?);
                 }
-                if amp_html_body.is_some() {
-                    builder.text_amp_html(
-                        &self.env_and_templates.borrow_dependent()[id]
-                            .render_prepared(&prepared)?,
-                    );
-                    id += 1;
+                if let Some(template) = amp_html_body {
+                    builder.text_amp_html(&template.render_prepared(&prepared)?);
                 }
 
                 let mut need_to = true;
@@ -675,13 +686,11 @@ impl<'a> Compiled<'a> {
                             }
                             builder.push(header.clone());
                         }
-                        CompiledHeader::Dynamic { name } => {
+                        CompiledHeader::Dynamic { name, template } => {
                             if need_to && name.eq_ignore_ascii_case("to") {
                                 need_to = false;
                             }
-                            let expanded = self.env_and_templates.borrow_dependent()[id]
-                                .render_prepared(&prepared)?;
-                            id += 1;
+                            let expanded = template.render_prepared(&prepared)?;
                             let header = make_header(name, &expanded, &self.constructed_addresses)?;
                             builder.push(header);
                         }
@@ -739,15 +748,16 @@ impl InjectV1Request {
         }
     }
 
-    fn compile(&'_ self) -> anyhow::Result<Compiled<'_>> {
-        let mut env = TemplateEngine::with_dialect(self.template_dialect.into());
+    async fn compile(&'_ self) -> anyhow::Result<Compiled<'_>> {
+        let engine = TemplateEngine::with_dialect(self.template_dialect.into());
 
-        // Pass 1: create the templates
-        match &self.content {
-            Content::Rfc822(text) => {
-                env.add_template("content", text)
-                    .context("failed parsing field 'content' as template")?;
-            }
+        let body = match &self.content {
+            Content::Rfc822(text) => CompiledBody::Rfc822(
+                engine
+                    .compile("content", text)
+                    .await
+                    .context("failed parsing field 'content' as template")?,
+            ),
             Content::Builder {
                 text_body: None,
                 html_body: None,
@@ -757,68 +767,33 @@ impl InjectV1Request {
                 text_body,
                 html_body,
                 amp_html_body,
-                headers,
                 ..
-            } => {
-                if let Some(tb) = text_body {
-                    env.add_template("text_body.txt", tb)
-                        .context("failed parsing field 'content.text_body' as template")?;
-                }
-                if let Some(hb) = html_body {
-                    // The filename extension is needed to enable auto-escaping
-                    env.add_template("html_body.html", hb)
-                        .context("failed parsing field 'content.html_body' as template")?;
-                }
-                if let Some(hb) = amp_html_body {
-                    // The filename extension is needed to enable auto-escaping
-                    env.add_template("amp_html_body.html", hb)
-                        .context("failed parsing field 'content.amp_html_body' as template")?;
-                }
-                for (header_name, value) in headers.iter() {
-                    env.add_template(format!("headers[{header_name}]"), value)
-                        .with_context(|| {
-                            format!("failed parsing field headers['{header_name}'] as template")
-                        })?;
-                }
-            }
-        }
-
-        // Pass 2: retrieve the references
-
-        fn get_templates<'b>(
-            env: &'b TemplateEngine,
-            content: &Content,
-            dynamic_header_names: &[String],
-        ) -> anyhow::Result<TemplateList<'b>> {
-            let mut templates = vec![];
-            match content {
-                Content::Rfc822(_) => {
-                    templates.push(env.get_template("content")?);
-                }
-                Content::Builder {
-                    text_body,
-                    html_body,
-                    amp_html_body,
-                    ..
-                } => {
-                    if text_body.is_some() {
-                        templates.push(env.get_template("text_body.txt")?);
-                    }
-                    if html_body.is_some() {
-                        // The filename extension is needed to enable auto-escaping
-                        templates.push(env.get_template("html_body.html")?);
-                    }
-                    if amp_html_body.is_some() {
-                        // The filename extension is needed to enable auto-escaping
-                        templates.push(env.get_template("amp_html_body.html")?);
-                    }
-                    for header_name in dynamic_header_names {
-                        templates.push(env.get_template(&format!("headers[{header_name}]"))?);
-                    }
-                }
-            };
-            Ok(templates)
-        }
+            } => CompiledBody::Builder {
+                text_body: compile_body_part(
+                    &engine,
+                    "text_body.txt",
+                    text_body.as_deref(),
+                    "content.text_body",
+                )
+                .await?,
+                // The filename extension is needed to enable auto-escaping
+                html_body: compile_body_part(
+                    &engine,
+                    "html_body.html",
+                    html_body.as_deref(),
+                    "content.html_body",
+                )
+                .await?,
+                // The filename extension is needed to enable auto-escaping
+                amp_html_body: compile_body_part(
+                    &engine,
+                    "amp_html_body.html",
+                    amp_html_body.as_deref(),
+                    "content.amp_html_body",
+                )
+                .await?,
+            },
+        };
 
         let attached = self.attachment_data()?;
 
@@ -840,10 +815,14 @@ impl InjectV1Request {
 
         // "Precompile" truly static headers to avoid per-recipient overhead later
         let mut compiled_headers = vec![];
-        let mut dynamic_header_names = vec![];
         if let Content::Builder { headers, .. } = &self.content {
-            for header_name in headers.keys() {
-                let template = env.get_template(&format!("headers[{header_name}]"))?;
+            for (header_name, value) in headers.iter() {
+                let template = engine
+                    .compile(&format!("headers[{header_name}]"), value)
+                    .await
+                    .with_context(|| {
+                        format!("failed parsing field headers['{header_name}'] as template")
+                    })?;
                 if template.is_static() {
                     let expanded = template.render(&Value::Null)?;
                     let header = make_header(header_name, &expanded, &constructed_addresses)?;
@@ -851,18 +830,15 @@ impl InjectV1Request {
                 } else {
                     compiled_headers.push(CompiledHeader::Dynamic {
                         name: header_name.clone(),
+                        template,
                     });
-                    dynamic_header_names.push(header_name.clone());
                 }
             }
         }
 
-        let env_and_templates = CompiledTemplates::try_new(env, |env: &TemplateEngine| {
-            get_templates(env, &self.content, &dynamic_header_names)
-        })?;
-
         Ok(Compiled {
-            env_and_templates,
+            engine,
+            body,
             attached,
             constructed_addresses,
             headers: compiled_headers,
@@ -915,7 +891,7 @@ async fn make_message<'a>(
     let recip_addr = EnvelopeAddress::parse(&recip.email)
         .with_context(|| format!("recipient email {}", recip.email))?;
 
-    let generated = compiled.expand_for_recip(recip, &request.substitutions, &request.content)?;
+    let generated = compiled.expand_for_recip(recip, &request.substitutions)?;
 
     // build into a Message
     let id = SpoolId::new();
@@ -1118,6 +1094,18 @@ async fn queue_deferred(
     })
 }
 
+/// Maps a failure of `InjectV1Request::compile` to a response.
+/// Critically, we want cache infrastructure errors to be considered
+/// potentially retryable.
+fn compile_err(err: anyhow::Error) -> AppError {
+    match err.downcast_ref::<CompileError>() {
+        Some(CompileError::Cache(_)) => {
+            AppError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{err:#}"))
+        }
+        _ => content_syntax_err(err),
+    }
+}
+
 fn content_syntax_err(err: anyhow::Error) -> AppError {
     // UNPROCESSABLE_ENTITY is the label assigned by reqwest for a 422
     // error response, but the spec refers to it as Unprocessable Content:
@@ -1137,7 +1125,7 @@ async fn inject_v1_impl(
 ) -> Result<Json<InjectV1Response>, AppError> {
     request.normalize().map_err(content_syntax_err)?;
 
-    let compiled = request.compile().map_err(content_syntax_err)?;
+    let compiled = request.compile().await.map_err(compile_err)?;
 
     if request.deferred_generation {
         return Ok(Json(
@@ -1191,7 +1179,7 @@ async fn build_from_v1_injection_request(
     mut request: InjectV1Request,
 ) -> anyhow::Result<Vec<Message>> {
     request.normalize()?;
-    let compiled = request.compile()?;
+    let compiled = request.compile().await?;
     let mut result = vec![];
     for recip in &request.recipients {
         let msg = make_message(
@@ -1629,13 +1617,9 @@ This is a test message to {{ name }}, with some 👻🍉💩 emoji!
             template_dialect: Default::default(),
         };
 
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
-            .expand_for_recip(
-                &request.recipients[0],
-                &request.substitutions,
-                &request.content,
-            )
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
             .unwrap();
         k9::snapshot!(
             generated,
@@ -1679,13 +1663,9 @@ This is a test message to {{ name }}, with some 👻🍉💩 emoji!
             template_dialect: Default::default(),
         };
 
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
-            .expand_for_recip(
-                &request.recipients[0],
-                &request.substitutions,
-                &request.content,
-            )
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
             .unwrap();
         k9::snapshot!(
             generated,
@@ -1742,13 +1722,9 @@ This is a test message to James Smythe, with some =F0=9F=91=BB=F0=9F=8D=89=\r
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
-            .expand_for_recip(
-                &request.recipients[0],
-                &request.substitutions,
-                &request.content,
-            )
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
             .unwrap();
 
         println!("{generated}");
@@ -1823,13 +1799,9 @@ Some(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
-            .expand_for_recip(
-                &request.recipients[0],
-                &request.substitutions,
-                &request.content,
-            )
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
             .unwrap();
         println!("{generated}");
         let parsed = MimePart::parse(generated.as_str()).unwrap();
@@ -1885,13 +1857,9 @@ Some(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
-            .expand_for_recip(
-                &request.recipients[0],
-                &request.substitutions,
-                &request.content,
-            )
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
             .unwrap();
 
         println!("{generated}");
@@ -1983,13 +1951,9 @@ Ok(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
-            .expand_for_recip(
-                &request.recipients[0],
-                &request.substitutions,
-                &request.content,
-            )
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
             .unwrap();
 
         let parsed = MimePart::parse(generated.as_str()).unwrap();
@@ -2048,13 +2012,9 @@ Ok(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
-            .expand_for_recip(
-                &request.recipients[0],
-                &request.substitutions,
-                &request.content,
-            )
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
             .unwrap();
 
         let parsed = MimePart::parse(generated.as_str()).unwrap();
@@ -2117,13 +2077,9 @@ Ok(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
-            .expand_for_recip(
-                &request.recipients[0],
-                &request.substitutions,
-                &request.content,
-            )
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
             .unwrap();
 
         let parsed = MimePart::parse(generated.as_str()).unwrap();
@@ -2153,9 +2109,35 @@ Ok(
         );
     }
 
+    /// A cache failure maps to 503 and a compile failure to 422, even when
+    /// `compile` has wrapped the error in field context.
+    #[test]
+    fn compile_err_status_follows_error_kind() {
+        let cache =
+            anyhow::Error::from(CompileError::Cache(Arc::new(anyhow::anyhow!("timed out"))))
+                .context("failed parsing field 'content' as template");
+        let app_err = compile_err(cache);
+        k9::assert_equal!(app_err.code, StatusCode::SERVICE_UNAVAILABLE);
+        k9::assert_equal!(
+            app_err.err.to_string(),
+            "failed parsing field 'content' as template: timed out"
+        );
+
+        let compile = anyhow::Error::from(CompileError::Compile(Arc::new(anyhow::anyhow!(
+            "syntax error"
+        ))))
+        .context("failed parsing field 'content' as template");
+        let app_err = compile_err(compile);
+        k9::assert_equal!(app_err.code, StatusCode::UNPROCESSABLE_ENTITY);
+        k9::assert_equal!(
+            app_err.err.to_string(),
+            "failed parsing field 'content' as template: syntax error"
+        );
+    }
+
     /// Generate the message for a recipient named `recip_name` with `header`
     /// set to `value` in content.headers.
-    fn generate_with_header(
+    async fn generate_with_header(
         recip_name: Option<&str>,
         header: &str,
         value: &str,
@@ -2187,12 +2169,8 @@ Ok(
             template_dialect: Default::default(),
         };
         request.normalize()?;
-        let compiled = request.compile()?;
-        compiled.expand_for_recip(
-            &request.recipients[0],
-            &request.substitutions,
-            &request.content,
-        )
+        let compiled = request.compile().await?;
+        compiled.expand_for_recip(&request.recipients[0], &request.substitutions)
     }
 
     /// Verifies that a user-supplied address header in the generic headers map
@@ -2206,6 +2184,7 @@ Ok(
             "Cc",
             "\"{{ name }}\" <cc@example.com>",
         )
+        .await
         .unwrap();
         let parsed = MimePart::parse(generated.as_str()).unwrap();
         k9::snapshot!(
@@ -2239,7 +2218,9 @@ Ok(
     /// rather than being emitted as corrupt free text.
     #[tokio::test]
     async fn test_user_address_header_malformed_errors() {
-        let err = generate_with_header(None, "Cc", "this is not an address").unwrap_err();
+        let err = generate_with_header(None, "Cc", "this is not an address")
+            .await
+            .unwrap_err();
         k9::assert_equal!(
             err.to_string(),
             "parsing Cc header value \"this is not an address\""
@@ -2251,7 +2232,7 @@ Ok(
     /// expand_for_recip.
     #[tokio::test]
     async fn test_user_address_header_empty_value_is_not_an_error() {
-        let generated = generate_with_header(None, "Cc", "").unwrap();
+        let generated = generate_with_header(None, "Cc", "").await.unwrap();
         let parsed = MimePart::parse(generated.as_str()).unwrap();
         let raw = parsed
             .headers()
@@ -2296,13 +2277,9 @@ Ok(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
-            .expand_for_recip(
-                &request.recipients[0],
-                &request.substitutions,
-                &request.content,
-            )
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
             .unwrap();
 
         println!("{generated}");
@@ -2395,13 +2372,9 @@ Some(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
-            .expand_for_recip(
-                &request.recipients[0],
-                &request.substitutions,
-                &request.content,
-            )
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
             .unwrap();
 
         println!("{generated}");
@@ -2465,15 +2438,11 @@ Some(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
 
         // Recipient: gets default To from their own email+name
         let generated = compiled
-            .expand_for_recip(
-                &request.recipients[0],
-                &request.substitutions,
-                &request.content,
-            )
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
             .unwrap();
         let parsed = MimePart::parse(generated.as_str()).unwrap();
         let structure = parsed.simplified_structure().unwrap();
@@ -2551,15 +2520,11 @@ Some(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
 
         // Recipient 0: no override, to_header renders to pre-defined default
         let generated0 = compiled
-            .expand_for_recip(
-                &request.recipients[0],
-                &request.substitutions,
-                &request.content,
-            )
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
             .unwrap();
         let parsed0 = MimePart::parse(generated0.as_str()).unwrap();
         let structure0 = parsed0.simplified_structure().unwrap();
@@ -2589,11 +2554,7 @@ Some(
 
         // Recipient 1: overrides to_header with custom value
         let generated1 = compiled
-            .expand_for_recip(
-                &request.recipients[1],
-                &request.substitutions,
-                &request.content,
-            )
+            .expand_for_recip(&request.recipients[1], &request.substitutions)
             .unwrap();
         let parsed1 = MimePart::parse(generated1.as_str()).unwrap();
         let structure1 = parsed1.simplified_structure().unwrap();
@@ -2654,13 +2615,9 @@ Some(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
-            .expand_for_recip(
-                &request.recipients[0],
-                &request.substitutions,
-                &request.content,
-            )
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
             .unwrap();
 
         println!("{generated}");
@@ -2749,13 +2706,9 @@ Don't expand in here {{ name }}
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
         let generated = compiled
-            .expand_for_recip(
-                &request.recipients[0],
-                &request.substitutions,
-                &request.content,
-            )
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
             .unwrap();
 
         println!("Generated: {generated}");
@@ -2858,7 +2811,7 @@ Some(
         };
 
         request.normalize().unwrap();
-        let compiled = request.compile().unwrap();
+        let compiled = request.compile().await.unwrap();
 
         // Static (marker-free values): X-Static-1, X-Static-2, Cc, From, and
         // Subject (the latter two copied verbatim into the header map by
@@ -2878,11 +2831,7 @@ Some(
         k9::assert_equal!(dynamic_count, 2);
 
         let generated = compiled
-            .expand_for_recip(
-                &request.recipients[0],
-                &request.substitutions,
-                &request.content,
-            )
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
             .unwrap();
 
         let parsed = MimePart::parse(generated.as_str()).unwrap();

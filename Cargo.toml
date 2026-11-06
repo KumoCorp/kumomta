@@ -135,6 +135,7 @@ axum-streams = {version="0.23", features=["text"]}
 backtrace = "0.3"
 bitflags = "2.11"
 bitstring = "0.2"
+blake3 = "1.8"
 bstr = {version="1.12", features=["serde"]}
 bytes = "1.0"
 camino = "1.1"

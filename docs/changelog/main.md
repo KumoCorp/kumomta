@@ -165,6 +165,17 @@
    2x faster with a large, nested substitution context.
    Thanks to @akshitsethi0023! #637
 
+ * The [HTTP injection API](../reference/http/kumod/api_inject_v1_post.md) now
+   caches compiled templates across requests. A `content` field or header
+   whose text was seen in an earlier request is reused from the cache instead
+   of being compiled again. The win is largest for the `Handlebars` dialect,
+   whose compiler is far slower than its renderer. Jinja compiles quickly
+   enough that the gain there is modest. The cache is named
+   `compiled_templates` and its capacity can be tuned with
+   [kumo.set_lruttl_cache_capacity](../reference/kumo/set_lruttl_cache_capacity.md).
+   A capacity of zero turns the cache off.
+   Thanks to @akshitsethi0023! #638
+
 ## Fixes
 
  * With DNSSEC validation enabled, the hickory resolver backend could

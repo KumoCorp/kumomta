@@ -5,17 +5,22 @@ edition = "2021"
 
 [dependencies]
 anyhow.workspace = true
+blake3.workspace = true
 handlebars = {workspace = true, features=["string_helpers"]}
+linkme.workspace = true
+lruttl = { path = "../lruttl" }
 minijinja-contrib.workspace = true
 minijinja.workspace = true
 mod-smtp-response-normalize = { path = "../mod-smtp-response-normalize" }
 self_cell.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 criterion = {workspace=true}
 k9.workspace = true
+tokio = {workspace=true, features=["macros", "rt"]}
 
 [[bench]]
 name = "expand"
