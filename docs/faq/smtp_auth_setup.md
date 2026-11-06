@@ -25,9 +25,12 @@ end)
 
 Three things to watch for:
 
-## AUTH PLAIN only
+## Supported mechanisms
 
-KumoMTA implements AUTH PLAIN. `AUTH LOGIN` is deprecated and is not supported, and there is no Lua hook to add it. If a legacy client can only do `AUTH LOGIN`, front KumoMTA with another MTA (such as Postfix) that accepts `AUTH LOGIN` and relays onward.
+KumoMTA implements AUTH PLAIN, and the OAuth 2.0 mechanisms OAUTHBEARER and
+XOAUTH2 when their [smtp_server_auth_oauthbearer](../reference/events/smtp_server_auth_oauthbearer.md)
+and [smtp_server_auth_xoauth2](../reference/events/smtp_server_auth_xoauth2.md)
+handlers are defined. `AUTH LOGIN` is deprecated and is not supported, and there is no Lua hook to add it. If a legacy client can only do `AUTH LOGIN`, front KumoMTA with another MTA (such as Postfix) that accepts `AUTH LOGIN` and relays onward.
 
 ## TLS is required for AUTH
 

@@ -7,6 +7,7 @@ use crate::logging::rejection::{log_rejection, LogRejection};
 use crate::metrics_helper::smtp_rejected_for_service;
 use crate::queue::{DeliveryProto, IncrementAttempts, InsertReason, QueueConfig, QueueManager};
 use crate::ready_queue::{AttemptConnectionDisposition, Dispatcher, QueueDispatcher};
+use crate::sasl::{BearerResponse, SaslMech};
 use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
@@ -15,7 +16,7 @@ use cidr_map::{CidrMap, CidrSet};
 use config::{
     any_err, declare_event, load_config, serialize_options, CallbackSignature, SerdeWrappedValue,
 };
-use data_encoding::BASE64;
+use data_encoding::{BASE64, BASE64URL_NOPAD};
 use data_loader::KeySource;
 use derive_where::derive_where;
 use kumo_api_types::egress_path::TlsMode;
@@ -23,7 +24,7 @@ use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::prometheus::HistogramTimer;
 use kumo_prometheus::{declare_metric, AtomicCounter};
 use kumo_server_common::acct::{log_authn, AuthnAuditRecord};
-use kumo_server_common::authn_authz::{AuthInfo, Identity, IdentityContext};
+use kumo_server_common::authn_authz::{AuthInfo, Identity};
 use kumo_server_common::http_server::auth::AuthKindResult;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription, ShuttingDownError};
 use kumo_server_runtime::{accept_error_pause, spawn, Runtime};
@@ -115,6 +116,24 @@ static SMTP_SERVER_AUTH_PLAIN: Single(
     authz: &str,
     authc: &str,
     password: &str,
+    connection_metadata: ConnectionMetaData
+) -> SerdeWrappedValue<AuthKindResult>;
+}
+
+declare_event! {
+static SMTP_SERVER_AUTH_OAUTHBEARER: Single(
+    "smtp_server_auth_oauthbearer",
+    authz: &str,
+    token: &str,
+    connection_metadata: ConnectionMetaData
+) -> SerdeWrappedValue<AuthKindResult>;
+}
+
+declare_event! {
+static SMTP_SERVER_AUTH_XOAUTH2: Single(
+    "smtp_server_auth_xoauth2",
+    user: &str,
+    token: &str,
     connection_metadata: ConnectionMetaData
 ) -> SerdeWrappedValue<AuthKindResult>;
 }
@@ -1469,12 +1488,13 @@ impl SmtpServerSession {
             return Ok(ReadLine::Disconnected);
         }
 
+        let limit = override_limit.unwrap_or(self.params.line_length_hard_limit);
         let mut too_long = false;
         tracing::trace!("reading line");
 
         loop {
             if let Some(i) = CRLF.find(&self.read_buffer) {
-                if i > self.params.line_length_hard_limit || too_long {
+                if i > limit || too_long {
                     self.read_buffer.drain(0..i + 2);
                     SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                         conn_meta: self.meta.clone_inner(),
@@ -1497,8 +1517,7 @@ impl SmtpServerSession {
                 });
             }
             tracing::trace!("read_buffer len is {}", self.read_buffer.len());
-            if self.read_buffer.len() > override_limit.unwrap_or(self.params.line_length_hard_limit)
-            {
+            if self.read_buffer.len() > limit {
                 tracing::trace!("line is too long, clearing buffer and setting flag");
                 self.read_buffer.clear();
                 too_long = true;
@@ -1506,8 +1525,8 @@ impl SmtpServerSession {
 
             // Didn't find a complete line, fill up the rest of the buffer
             let mut data = [0u8; 1024];
-            let limit = data.len().min(self.params.line_length_hard_limit);
-            let data = &mut data[0..limit];
+            let chunk_len = data.len().min(self.params.line_length_hard_limit);
+            let data = &mut data[0..chunk_len];
             tokio::select! {
                 _ = tokio::time::sleep(self.params.client_timeout) => {
                     return Ok(ReadLine::TimedOut);
@@ -1782,8 +1801,18 @@ impl SmtpServerSession {
                 return Ok(());
             }
 
-            let line = match self.read_line(None).await? {
+            let hard_limit = self.params.line_length_hard_limit;
+            let line = match self
+                .read_line(Some(hard_limit.max(MAX_AUTH_LINE_LEN)))
+                .await?
+            {
                 ReadLine::Disconnected => return Ok(()),
+                // RFC 4954 section 4 allows AUTH lines up to 12288 octets
+                ReadLine::Line(line) if line.len() > hard_limit && !is_auth_command(&line) => {
+                    self.write_response(500, "5.2.3 line too long", None, RejectDisconnect::If421)
+                        .await?;
+                    continue;
+                }
                 ReadLine::Line(line) => line,
                 ReadLine::InvalidUtf8 => {
                     self.write_response(
@@ -1903,12 +1932,22 @@ impl SmtpServerSession {
                 Ok(MaybePartialCommand::Full(Command::Ehlo(domain))) => {
                     let domain = domain.to_string();
 
+                    let auth;
                     let mut extensions =
                         vec!["PIPELINING", "ENHANCEDSTATUSCODES", "8BITMIME", "SMTPUTF8"];
                     if self.tls_active.is_none() {
                         extensions.push("STARTTLS");
                     } else {
-                        extensions.push("AUTH PLAIN");
+                        let mechs = self.enabled_sasl_mechs().await?;
+                        auth = format!(
+                            "AUTH {}",
+                            mechs
+                                .iter()
+                                .map(|mech| mech.name())
+                                .collect::<Vec<_>>()
+                                .join(" ")
+                        );
+                        extensions.push(&auth);
                     }
                     if self.params.allow_xclient {
                         extensions.push("XCLIENT ADDR PORT DESTADDR DESTPORT");
@@ -2269,6 +2308,11 @@ impl SmtpServerSession {
                     if let Ok(cert) = X509::from_der(peer_cert.as_ref()) {
                         tls_info.subject_name = subject_name(&cert);
                     }
+                    // The RFC 8705 x5t#S256 form, for certificate-bound tokens
+                    self.meta.set_meta(
+                        "tls_peer_cert_sha256",
+                        BASE64URL_NOPAD.encode(&openssl::sha::sha256(peer_cert.as_ref())),
+                    );
                 }
 
                 if !tls_info.cipher.is_empty() {
@@ -2639,6 +2683,65 @@ impl SmtpServerSession {
         Ok(())
     }
 
+    /// PLAIN is always enabled; the bearer token mechanisms are only
+    /// enabled when a handler is registered for their event
+    async fn enabled_sasl_mechs(&self) -> anyhow::Result<Vec<SaslMech>> {
+        let config = load_config().await?;
+        let mut mechs = vec![SaslMech::Plain];
+        if config.has_callback(&SMTP_SERVER_AUTH_OAUTHBEARER)? {
+            mechs.push(SaslMech::OAuthBearer);
+        }
+        if config.has_callback(&SMTP_SERVER_AUTH_XOAUTH2)? {
+            mechs.push(SaslMech::XOAuth2);
+        }
+        config.put();
+        Ok(mechs)
+    }
+
+    /// Sends a 334 SASL challenge and reads the client's response line.
+    /// Returns Err with the disposition to use if no response was read,
+    /// in which case the client has already been sent a reply.
+    async fn read_sasl_response(
+        &mut self,
+        challenge: &str,
+        line: &str,
+    ) -> anyhow::Result<Result<String, CommandDisposition>> {
+        self.write_response(334, challenge, None, RejectDisconnect::If421)
+            .await?;
+        let (code, message, disposition) = match self.read_line(Some(MAX_AUTH_LINE_LEN)).await? {
+            ReadLine::Disconnected => return Ok(Err(CommandDisposition::Terminate)),
+            ReadLine::Line(raw) => return Ok(Ok(raw)),
+            ReadLine::InvalidUtf8 => (
+                501,
+                "5.5.2 Invalid UTF-8 in authentication exchange".to_string(),
+                CommandDisposition::Continue,
+            ),
+            ReadLine::TimedOut => (
+                421,
+                format!("4.3.2 {} idle too long", self.params.hostname),
+                CommandDisposition::Terminate,
+            ),
+            ReadLine::ShuttingDown => (
+                421,
+                format!("4.3.2 {} shutting down", self.params.hostname),
+                CommandDisposition::Terminate,
+            ),
+            ReadLine::TooLong => (
+                500,
+                "5.5.6 authentication exchange line too long".to_string(),
+                CommandDisposition::Continue,
+            ),
+        };
+        self.write_response(
+            code,
+            message,
+            Some(line.to_string()),
+            RejectDisconnect::If421,
+        )
+        .await?;
+        Ok(Err(disposition))
+    }
+
     async fn process_auth(
         &mut self,
         sasl_mech: String,
@@ -2673,16 +2776,20 @@ impl SmtpServerSession {
             .await?;
             return Ok(CommandDisposition::Continue);
         }
-        if sasl_mech != "PLAIN" {
-            self.write_response(
-                504,
-                format!("5.5.4 AUTH {sasl_mech} not supported"),
-                Some(line),
-                RejectDisconnect::If421,
-            )
-            .await?;
-            return Ok(CommandDisposition::Continue);
-        }
+        let mech = match SaslMech::parse(&sasl_mech) {
+            Some(SaslMech::Plain) => SaslMech::Plain,
+            Some(mech) if self.enabled_sasl_mechs().await?.contains(&mech) => mech,
+            _ => {
+                self.write_response(
+                    504,
+                    format!("5.5.4 AUTH {sasl_mech} not supported"),
+                    Some(line),
+                    RejectDisconnect::If421,
+                )
+                .await?;
+                return Ok(CommandDisposition::Continue);
+            }
+        };
         if self.tls_active.is_none() {
             self.write_response(
                 524,
@@ -2694,57 +2801,14 @@ impl SmtpServerSession {
             return Ok(CommandDisposition::Continue);
         }
 
-        let raw_response = if let Some(r) = initial_response {
-            r
-        } else {
-            self.write_response(334, " ", None, RejectDisconnect::If421)
-                .await?;
+        let raw_response = match initial_response {
+            Some(r) => r,
             // The client's credential arrives on this continuation line;
             // redacted_response, computed above, already masks it.
-            match self.read_line(Some(16384)).await? {
-                ReadLine::Disconnected => return Ok(CommandDisposition::Terminate),
-                ReadLine::Line(raw) => raw,
-                ReadLine::InvalidUtf8 => {
-                    self.write_response(
-                        501,
-                        "5.5.2 Invalid UTF-8 in authentication exchange",
-                        Some(line),
-                        RejectDisconnect::If421,
-                    )
-                    .await?;
-                    return Ok(CommandDisposition::Continue);
-                }
-                ReadLine::TimedOut => {
-                    self.write_response(
-                        421,
-                        format!("4.3.2 {} idle too long", self.params.hostname),
-                        Some(line),
-                        RejectDisconnect::If421,
-                    )
-                    .await?;
-                    return Ok(CommandDisposition::Terminate);
-                }
-                ReadLine::ShuttingDown => {
-                    self.write_response(
-                        421,
-                        format!("4.3.2 {} shutting down", self.params.hostname),
-                        Some(line),
-                        RejectDisconnect::If421,
-                    )
-                    .await?;
-                    return Ok(CommandDisposition::Terminate);
-                }
-                ReadLine::TooLong => {
-                    self.write_response(
-                        500,
-                        "5.5.6 authentication exchange line too long",
-                        Some(line),
-                        RejectDisconnect::If421,
-                    )
-                    .await?;
-                    return Ok(CommandDisposition::Continue);
-                }
-            }
+            None => match self.read_sasl_response(" ", &line).await? {
+                Ok(r) => r,
+                Err(disposition) => return Ok(disposition),
+            },
         };
 
         if raw_response == "*" {
@@ -2772,52 +2836,86 @@ impl SmtpServerSession {
             return Ok(CommandDisposition::Continue);
         };
 
-        // RFC 4616 says that the message is:
-        // [authzid] NUL authcid NUL passwd
-        let fields: Vec<_> = payload.split(|&b| b == 0).collect();
-        let (authz, authc, pass) = match fields.len() {
-            3 => (
-                std::str::from_utf8(&fields[0]),
-                std::str::from_utf8(&fields[1]),
-                std::str::from_utf8(&fields[2]),
-            ),
-            _ => {
-                self.write_response(
-                    501,
-                    "5.5.2 Invalid decoded PLAIN response",
-                    Some(response),
-                    RejectDisconnect::If421,
-                )
-                .await?;
-                return Ok(CommandDisposition::Continue);
+        let (authz, authc, result) = match mech {
+            SaslMech::Plain => {
+                // RFC 4616 says that the message is:
+                // [authzid] NUL authcid NUL passwd
+                let fields: Vec<_> = payload.split(|&b| b == 0).collect();
+                let (authz, authc, pass) = match fields.len() {
+                    3 => (
+                        std::str::from_utf8(&fields[0]),
+                        std::str::from_utf8(&fields[1]),
+                        std::str::from_utf8(&fields[2]),
+                    ),
+                    _ => {
+                        self.write_response(
+                            501,
+                            "5.5.2 Invalid decoded PLAIN response",
+                            Some(response),
+                            RejectDisconnect::If421,
+                        )
+                        .await?;
+                        return Ok(CommandDisposition::Continue);
+                    }
+                };
+
+                let (authz, authc, pass) = match (authz, authc, pass) {
+                    (Ok(a), Ok(b), Ok(c)) => (a, b, c),
+                    _ => {
+                        self.write_response(
+                            501,
+                            "5.5.2 Invalid UTF8 in decoded PLAIN response",
+                            Some(response),
+                            RejectDisconnect::If421,
+                        )
+                        .await?;
+                        return Ok(CommandDisposition::Continue);
+                    }
+                };
+
+                // If no authorization id was set, assume the same as
+                // the authenticated id
+                let authz = if authz.is_empty() { authc } else { authz };
+
+                let result = self
+                    .call_callback_sig(
+                        &SMTP_SERVER_AUTH_PLAIN,
+                        (authz, authc, pass, self.meta.clone()),
+                    )
+                    .await?;
+                (authz.to_string(), authc.to_string(), result)
+            }
+            SaslMech::OAuthBearer | SaslMech::XOAuth2 => {
+                let (decoded, sig) = if mech == SaslMech::OAuthBearer {
+                    (
+                        crate::sasl::decode_oauthbearer(&payload),
+                        &SMTP_SERVER_AUTH_OAUTHBEARER,
+                    )
+                } else {
+                    (
+                        crate::sasl::decode_xoauth2(&payload),
+                        &SMTP_SERVER_AUTH_XOAUTH2,
+                    )
+                };
+                let Some(BearerResponse { user, token }) = decoded else {
+                    self.write_response(
+                        501,
+                        format!("5.5.2 Invalid decoded {} response", mech.name()),
+                        Some(response),
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
+                    return Ok(CommandDisposition::Continue);
+                };
+
+                let result = self
+                    .call_callback_sig(sig, (user.as_str(), token.as_str(), self.meta.clone()))
+                    .await?;
+                (user.clone(), user, result)
             }
         };
 
-        let (authz, authc, pass) = match (authz, authc, pass) {
-            (Ok(a), Ok(b), Ok(c)) => (a, b, c),
-            _ => {
-                self.write_response(
-                    501,
-                    "5.5.2 Invalid UTF8 in decoded PLAIN response",
-                    Some(response),
-                    RejectDisconnect::If421,
-                )
-                .await?;
-                return Ok(CommandDisposition::Continue);
-            }
-        };
-
-        // If no authorization id was set, assume the same as
-        // the authenticated id
-        let authz = if authz.is_empty() { authc } else { authz };
-
-        let wrapped = match self
-            .call_callback_sig(
-                &SMTP_SERVER_AUTH_PLAIN,
-                (authz, authc, pass, self.meta.clone()),
-            )
-            .await?
-        {
+        let wrapped = match result {
             Err(rej) => {
                 self.write_response(rej.code, rej.message, Some(response), rej.disconnect)
                     .await?;
@@ -2827,29 +2925,40 @@ impl SmtpServerSession {
         };
 
         let attempted_identity = Identity {
-            identity: authc.to_string(),
-            context: IdentityContext::SmtpAuthPlainAuthentication,
+            identity: authc.clone(),
+            context: mech.authentication_context(),
         };
 
         let (success, auth_info) = match wrapped {
+            AuthKindResult::Bool(true) if authc.is_empty() && mech == SaslMech::OAuthBearer => {
+                // The authzid is optional in OAUTHBEARER; the identity
+                // has to come from the token instead
+                tracing::error!(
+                    "{} returned true but the client did not send an \
+                     authorization identity; return an AuthInfo instead",
+                    mech.event_name()
+                );
+                let auth_info = self.meta.auth_info.lock().clone();
+                (false, auth_info)
+            }
             AuthKindResult::Bool(false) => {
                 let auth_info = self.meta.auth_info.lock().clone();
                 (false, auth_info)
             }
             AuthKindResult::Bool(true) => {
-                self.authorization_id.replace(authz.to_string());
-                self.authentication_id.replace(authc.to_string());
-                self.meta.set_meta("authz_id", authz);
-                self.meta.set_meta("authn_id", authc);
+                self.authorization_id.replace(authz.clone());
+                self.authentication_id.replace(authc.clone());
+                self.meta.set_meta("authz_id", authz.as_str());
+                self.meta.set_meta("authn_id", authc.as_str());
 
                 let mut auth_info = self.meta.auth_info.lock();
                 auth_info.add_identity(Identity {
-                    identity: authz.to_string(),
-                    context: IdentityContext::SmtpAuthPlainAuthorization,
+                    identity: authz,
+                    context: mech.authorization_context(),
                 });
                 auth_info.add_identity(Identity {
-                    identity: authc.to_string(),
-                    context: IdentityContext::SmtpAuthPlainAuthentication,
+                    identity: authc,
+                    context: mech.authentication_context(),
                 });
 
                 (true, auth_info.clone())
@@ -2857,30 +2966,27 @@ impl SmtpServerSession {
             AuthKindResult::AuthInfo(info) => {
                 // Reconcile what they returned.
                 // In particular, they may not have explicitly
-                // populated identities with SmtpAuthPlainAuthentication or
-                // SmtpAuthPlainAuthorization contexts so we may
+                // populated identities with the authentication or
+                // authorization contexts for this mechanism so we may
                 // need to infer something reasonable
                 let mut seen_authc = false;
                 let mut seen_authz = false;
 
                 if info.identities.is_empty() {
                     anyhow::bail!(
-                        "smtp_server_auth_plain returned an AuthInfo \
-                                with an empty identities list, which is not supported"
+                        "{} returned an AuthInfo \
+                                with an empty identities list, which is not supported",
+                        mech.event_name()
                     );
                 }
 
                 for ident in &info.identities {
-                    match ident.context {
-                        IdentityContext::SmtpAuthPlainAuthentication => {
-                            seen_authc = true;
-                            self.authentication_id.replace(ident.identity.to_string());
-                        }
-                        IdentityContext::SmtpAuthPlainAuthorization => {
-                            seen_authz = true;
-                            self.authorization_id.replace(ident.identity.to_string());
-                        }
-                        _ => {}
+                    if ident.context == mech.authentication_context() {
+                        seen_authc = true;
+                        self.authentication_id.replace(ident.identity.to_string());
+                    } else if ident.context == mech.authorization_context() {
+                        seen_authz = true;
+                        self.authorization_id.replace(ident.identity.to_string());
                     }
                 }
 
@@ -2907,17 +3013,30 @@ impl SmtpServerSession {
             }
         };
 
+        let mut disposition = CommandDisposition::Continue;
         if success {
+            self.meta.set_meta("auth_mech", mech.name());
             self.write_response(235, "2.7.0 AUTH OK!", None, RejectDisconnect::If421)
                 .await?;
         } else {
-            self.write_response(
-                535,
-                "5.7.8 AUTH invalid",
-                Some(response),
-                RejectDisconnect::If421,
-            )
-            .await?;
+            let mut responded = false;
+            // The client answers the error challenge with a dummy
+            // response before we can send the final failure
+            if let Some(challenge) = mech.failure_challenge() {
+                if let Err(d) = self.read_sasl_response(challenge, &line).await? {
+                    disposition = d;
+                    responded = true;
+                }
+            }
+            if !responded {
+                self.write_response(
+                    535,
+                    "5.7.8 AUTH invalid",
+                    Some(response),
+                    RejectDisconnect::If421,
+                )
+                .await?;
+            }
         }
 
         log_authn(AuthnAuditRecord {
@@ -2928,7 +3047,7 @@ impl SmtpServerSession {
         })
         .await?;
 
-        Ok(CommandDisposition::Continue)
+        Ok(disposition)
     }
 
     async fn process_data(&mut self, mut data: Vec<u8>, activity: &Activity) -> anyhow::Result<()> {
@@ -3571,6 +3690,12 @@ struct WriteError;
 /// The maximum line length defined by the SMTP RFCs.
 /// This does not include the CRLF.
 const MAX_LINE_LEN: usize = 998;
+const MAX_AUTH_LINE_LEN: usize = 12288;
+
+fn is_auth_command(line: &str) -> bool {
+    line.get(..5)
+        .is_some_and(|verb| verb.eq_ignore_ascii_case("AUTH "))
+}
 
 #[derive(PartialEq)]
 enum ReadLine {
@@ -3704,16 +3829,21 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
                 .await?
                 .and_then(|s| s.parse().ok()),
         );
+        let mech = msg
+            .get_meta_string("auth_mech")
+            .await?
+            .and_then(|name| SaslMech::parse(&name))
+            .unwrap_or(SaslMech::Plain);
         if let Some(identity) = msg.get_meta_string("authn_id").await? {
             auth_info.add_identity(Identity {
                 identity,
-                context: IdentityContext::SmtpAuthPlainAuthentication,
+                context: mech.authentication_context(),
             });
         }
         if let Some(identity) = msg.get_meta_string("authz_id").await? {
             auth_info.add_identity(Identity {
                 identity,
-                context: IdentityContext::SmtpAuthPlainAuthorization,
+                context: mech.authorization_context(),
             });
         }
 

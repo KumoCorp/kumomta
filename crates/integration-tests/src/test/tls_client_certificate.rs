@@ -1,10 +1,12 @@
 use crate::kumod::{DaemonWithMaildir, DeliverySummary, MailGenParams};
+use data_encoding::{BASE64, BASE64URL_NOPAD};
 use k9::assert_equal;
 use kumo_log_types::RecordType;
 use rcgen::{
     BasicConstraints, CertificateParams, CertifiedIssuer, DistinguishedName, DnType,
     ExtendedKeyUsagePurpose, IsCa, KeyPair, KeyUsagePurpose,
 };
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::time::Duration;
 
@@ -227,6 +229,18 @@ async fn tls_client_certificate_rustls_openssl_fail() -> anyhow::Result<()> {
     tls_client_certificate(env, ex).await
 }
 
+/// The x5t#S256 thumbprint of the first certificate in a PEM chain
+fn leaf_cert_sha256(pem: &str) -> anyhow::Result<String> {
+    let body: String = pem
+        .lines()
+        .skip_while(|line| !line.starts_with("-----BEGIN CERTIFICATE"))
+        .skip(1)
+        .take_while(|line| !line.starts_with("-----END CERTIFICATE"))
+        .collect();
+    let der = BASE64.decode(body.as_bytes())?;
+    Ok(BASE64URL_NOPAD.encode(&Sha256::digest(&der)))
+}
+
 async fn tls_client_certificate(
     env: Vec<(&str, &str)>,
     expected: DeliverySummary,
@@ -234,6 +248,10 @@ async fn tls_client_certificate(
     let expect_peer = env
         .iter()
         .any(|(name, _)| *name == "KUMOD_CLIENT_REQUIRED_CA");
+    let client_cert = env
+        .iter()
+        .find(|(name, _)| *name == "KUMOD_CLIENT_CERTIFICATE")
+        .map(|(_, pem)| pem.to_string());
     let mut daemon = DaemonWithMaildir::start_with_env(env).await?;
     let mut client = daemon.smtp_client().await?;
 
@@ -267,6 +285,12 @@ async fn tls_client_certificate(
             assert_equal!(
                 reception.tls_peer_subject_name.as_ref().unwrap(),
                 &vec![format!("CN={COMMON_NAME}")]
+            );
+            assert_equal!(
+                reception.meta.get("tls_peer_cert_sha256"),
+                Some(&serde_json::Value::String(leaf_cert_sha256(
+                    client_cert.as_deref().unwrap()
+                )?))
             );
         }
     }

@@ -8,6 +8,11 @@ When hosting relay users it is important to protect your infrastructure from mal
 !!! note
     Authentication in KumoMTA can only occur on a TLS protected connection after `STARTTLS` has successfully been processed. This is because AUTH PLAIN credentials can be decoded and should not be sent over an open connection.
 
+KumoMTA supports `AUTH PLAIN`, and the OAuth 2.0 bearer token mechanisms `AUTH OAUTHBEARER` and `AUTH XOAUTH2`. The bearer token mechanisms are only offered when a handler for [smtp_server_auth_oauthbearer](../../reference/events/smtp_server_auth_oauthbearer.md) or [smtp_server_auth_xoauth2](../../reference/events/smtp_server_auth_xoauth2.md) is registered; see those pages for an example that validates tokens with your identity provider.
+
+!!! note
+    KumoMTA only validates the tokens that clients present. How clients obtain them is configured in your identity provider: following [RFC 9700](https://www.rfc-editor.org/rfc/rfc9700), mail clients should use the authorization code grant with PKCE, and should be issued tokens whose audience is restricted to your SMTP service.
+
 ## Checking Authentication Against a Static User Table
 
 The simplest implementation of AUTH checking could be implemented by checking against a static value or table:
