@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CacheValue","MapKey"],"fn":["register"],"struct":["MemoizeParams","Memoized"]};

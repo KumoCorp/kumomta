@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CompileError","PreparedContext","TemplateDialect"],"struct":["Template","TemplateEngine"]};

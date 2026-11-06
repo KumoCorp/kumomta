@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["active_writer_locations"],"struct":["WriterLocation","WriterRegistration"]};

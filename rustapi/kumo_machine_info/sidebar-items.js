@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CloudProvider"],"mod":["aws","azure","gcp"],"struct":["MachineInfo"]};
