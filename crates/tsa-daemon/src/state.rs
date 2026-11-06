@@ -184,6 +184,10 @@ pub struct ReadyQSuspensionEntry {
     pub reason: String,
     pub source: String,
     pub expires: DateTime<Utc>,
+    #[serde(default)]
+    pub rule: Option<Rule>,
+    #[serde(default)]
+    pub action: Option<Action>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
@@ -351,6 +355,8 @@ impl TsaState {
                 source: value.source.clone(),
                 reason: value.reason.clone(),
                 expires: value.expires,
+                rule: value.rule.clone(),
+                action: value.action.clone(),
             });
         }
 

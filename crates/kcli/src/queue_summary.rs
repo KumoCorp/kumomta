@@ -1,5 +1,6 @@
 use clap::Parser;
 use kumo_api_client::KumoApiClient;
+use kumo_api_types::tsa::ReadyQSuspension;
 use kumo_api_types::ReadyQueueStateRequest;
 use lexicmp::natural_lexical_cmp;
 use mailexchanger::MailExchanger;
@@ -58,6 +59,10 @@ pub struct QueueSummaryCommand {
     /// Filter queues to those associated with a DNS domain
     #[arg(long)]
     domain: Option<String>,
+
+    /// Resolve active automation rule hashes using the TSA daemon
+    #[arg(long, value_name = "URL")]
+    tsa_endpoint: Option<Url>,
 }
 
 #[derive(Default, Debug)]
@@ -234,6 +239,25 @@ impl QueueMetrics {
 impl QueueSummaryCommand {
     pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
         let client = KumoApiClient::new(endpoint.clone());
+        let rule_details = if let Some(tsa_endpoint) = &self.tsa_endpoint {
+            let tsa_client = KumoApiClient::new(tsa_endpoint.clone());
+            Some(
+                tsa_client
+                    .tsa_suspensions_v1()
+                    .await?
+                    .ready_q
+                    .into_iter()
+                    .map(|suspension| {
+                        (
+                            format!("{}-{}", suspension.site_name, suspension.rule_hash),
+                            suspension,
+                        )
+                    })
+                    .collect::<HashMap<_, _>>(),
+            )
+        } else {
+            None
+        };
         let suspended_domains = client.admin_suspend_list_v1().await?;
         let bounced_domains = client.admin_bounce_list_v1().await?;
         let suspended_sites = client.admin_suspend_ready_q_list_v1().await?;
@@ -325,7 +349,9 @@ impl QueueSummaryCommand {
             let mut status = vec![];
 
             if let Some(s) = suspended_sites.iter().find(|s| s.name == m.name) {
-                status.push(format!("🛑suspend: {}", s.reason));
+                let mut description = format!("🛑suspend: {}", s.reason);
+                append_rule_details(&mut description, &s.reason, rule_details.as_ref());
+                status.push(description);
             }
 
             if let Some(states) = ready_queue_states.states_by_ready_queue.get(&m.name) {
@@ -395,6 +421,110 @@ impl QueueSummaryCommand {
         tabout::tabulate_output(&sched_columns, &sched_rows, &mut std::io::stdout())?;
 
         Ok(())
+    }
+}
+
+fn append_rule_details(
+    description: &mut String,
+    reason: &str,
+    rule_details: Option<&HashMap<String, ReadyQSuspension>>,
+) {
+    let Some(rule_details) = rule_details else {
+        return;
+    };
+    let Some(rule_hash) = reason
+        .split_once("rule_hash=")
+        .and_then(|(_, suffix)| suffix.split(')').next())
+    else {
+        return;
+    };
+    let Some(suspension) = rule_details.get(rule_hash) else {
+        description.push_str(" [rule details unavailable from TSA]");
+        return;
+    };
+    let (Some(rule), Some(action)) = (&suspension.rule, &suspension.action) else {
+        description.push_str(" [rule details unavailable from TSA]");
+        return;
+    };
+
+    let regex = rule
+        .regex
+        .iter()
+        .map(|regex| regex.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    description.push_str(&format!(
+        " [rule: regex=({regex}); action={action:?}; trigger={:?}; duration={:?}]",
+        rule.trigger, rule.duration
+    ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use kumo_api_types::shaping::{Action, Regex, Rule, Trigger};
+    use std::time::Duration;
+
+    #[test]
+    fn expands_rule_hash_to_active_rule_details() {
+        let hash = "demo->example.com@smtp_client-abc123";
+        let suspension = ReadyQSuspension {
+            rule_hash: "abc123".to_string(),
+            site_name: "demo->example.com@smtp_client".to_string(),
+            reason: "automation rule: 550 5.1.1".to_string(),
+            source: "demo".to_string(),
+            expires: Utc::now(),
+            rule: Some(Rule {
+                regex: vec![Regex::try_from("550 5\\.1\\.1".to_string()).unwrap()],
+                action: vec![Action::Suspend],
+                trigger: Trigger::default(),
+                duration: Duration::from_secs(60),
+                was_rollup: false,
+                match_internal: false,
+            }),
+            action: Some(Action::Suspend),
+        };
+        let rule_details = HashMap::from([(hash.to_string(), suspension)]);
+        let reason = format!("automation rule: 550 5.1.1 (rule_hash={hash})");
+        let mut description = format!("🛑suspend: {reason}");
+
+        append_rule_details(&mut description, &reason, Some(&rule_details));
+
+        assert!(description.contains("regex=(550 5\\.1\\.1)"));
+        assert!(description.contains("action=Suspend"));
+        assert!(description.contains("duration=60s"));
+    }
+
+    #[test]
+    fn leaves_suspension_unchanged_without_tsa_lookup() {
+        let reason = "automation rule: suspended (rule_hash=demo->example.com@smtp_client-abc123)";
+        let original = format!("🛑suspend: {reason}");
+        let mut description = original.clone();
+
+        append_rule_details(&mut description, reason, None);
+
+        assert_eq!(description, original);
+    }
+
+    #[test]
+    fn reports_missing_details_only_when_tsa_lookup_is_enabled() {
+        let hash = "demo->example.com@smtp_client-abc123";
+        let reason = format!("automation rule: suspended (rule_hash={hash})");
+        let original = format!("🛑suspend: {reason}");
+        let mut rule_details = HashMap::new();
+
+        for legacy_entry in [false, true] {
+            if legacy_entry {
+                rule_details.insert(hash.to_string(), ReadyQSuspension::default());
+            }
+            let mut description = original.clone();
+            append_rule_details(&mut description, &reason, Some(&rule_details));
+            assert_eq!(
+                description,
+                format!("{original} [rule details unavailable from TSA]")
+            );
+        }
     }
 }
 

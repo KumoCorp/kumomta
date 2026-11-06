@@ -227,6 +227,7 @@ async fn create_ready_q_suspension(
     action_hash: &ActionHash,
     rule_hash: &str,
     rule: &Rule,
+    action: &Action,
     record: &JsonLogRecord,
     source: &str,
     events: &mut Vec<SubscriptionItem>,
@@ -247,6 +248,8 @@ async fn create_ready_q_suspension(
                     reason,
                     source,
                     expires,
+                    rule: Some(rule.clone()),
+                    action: Some(action.clone()),
                 },
             );
     }
@@ -257,6 +260,8 @@ async fn create_ready_q_suspension(
         reason,
         source: source.to_string(),
         expires,
+        rule: Some(rule.clone()),
+        action: Some(action.clone()),
     }));
 
     Ok(())
@@ -354,6 +359,7 @@ async fn publish_log_v1_impl(
                                 &action_hash,
                                 &rule_hash,
                                 m,
+                                action,
                                 &record,
                                 source,
                                 events,
@@ -685,6 +691,8 @@ pub async fn import_suspensions_from_sqlite(
                         reason,
                         source,
                         expires,
+                        rule: None,
+                        action: None,
                     },
                 );
             }
