@@ -10,6 +10,11 @@
     "doc": null
   },
   {
+    "name": "compiled_templates",
+    "capacity": 1024,
+    "doc": "Compiled templates from the kumo-template module."
+  },
+  {
     "name": "dkim_key_cache",
     "capacity": 1024,
     "doc": "Caches dkim loaded signing keys based on their KeySource spec"

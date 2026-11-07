@@ -108,6 +108,7 @@ impl LogHookState {
 
     async fn do_record(&mut self, record: JsonLogRecord) -> anyhow::Result<()> {
         tracing::trace!("do_record {record:?}");
+        let record = Arc::new(record);
 
         if record.reception_protocol.as_deref() == Some("LogRecord") {
             return Ok(());
@@ -139,20 +140,21 @@ impl LogHookState {
         };
 
         let mut record_text = Vec::new();
-        self.template_engine.add_global("log_record", &record)?;
-
         if let Some(template) =
             Self::resolve_template(&self.params, &self.template_engine, record.kind)
         {
-            template.render_to_write(&record, &mut record_text)?;
+            let prepared = self
+                .template_engine
+                .prepare_context_with_alias(record.clone(), "log_record")?;
+            record_text = template.render_prepared(&prepared)?.into_bytes();
         } else {
-            serde_json::to_writer(&mut record_text, &record).context("serializing record")?;
+            serde_json::to_writer(&mut record_text, &*record).context("serializing record")?;
         }
         if record_text.last() != Some(&b'\n') {
             record_text.push(b'\n');
         }
 
-        let record_json = serde_json::to_value(&record)?;
+        let record_json = serde_json::to_value(&*record)?;
 
         let mut recipients = vec![];
         for recip in &record.recipient {
@@ -212,11 +214,11 @@ impl LogHookState {
         Ok(())
     }
 
-    fn resolve_template<'a>(
+    fn resolve_template(
         params: &LogHookParams,
-        template_engine: &'a TemplateEngine,
+        template_engine: &TemplateEngine,
         kind: RecordType,
-    ) -> Option<Template<'a, 'a>> {
+    ) -> Option<Template> {
         if let Some(pr) = params.per_record.get(&kind) {
             if pr.template.is_some() {
                 let label = format!("{kind:?}");

@@ -1,6 +1,6 @@
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::queue::insert_context::InsertReason;
-use crate::queue::manager::{QueueManager, MANAGER};
+use crate::queue::manager::QueueManager;
 use crate::queue::queue::{Queue, QueueHandle};
 use crate::queue::strategy::{QueueStructure, WheelV1Entry, SINGLETON_WHEEL, SINGLETON_WHEEL_V2};
 use crate::queue::wait_for_message_batch;
@@ -48,18 +48,22 @@ pub async fn queue_meta_maintainer() -> anyhow::Result<()> {
     shutdown.shutting_down().await;
     tracing::trace!("queue_meta_maintainer: system is shutting down");
     loop {
+        // Drop cached failures: during shutdown nothing re-resolves to clear
+        // them, and one left in the map would stop this loop from finishing.
+        QueueManager::purge_failed();
+
+        if !QueueManager::work_remains() && ReadyQueueManager::number_of_queues() == 0 {
+            tracing::debug!("All queues are reaped");
+            drop(activity);
+            return Ok(());
+        }
+
         tracing::trace!("queue_meta_maintainer: get all scheduled queue names");
         let names = QueueManager::all_queue_names();
         tracing::trace!(
             "queue_meta_maintainer: got {} scheduled queue names",
             names.len()
         );
-
-        if names.is_empty() && ReadyQueueManager::number_of_queues() == 0 {
-            tracing::debug!("All queues are reaped");
-            drop(activity);
-            return Ok(());
-        }
 
         for name in names {
             tracing::trace!("queue_meta_maintainer: examine {name}");
@@ -70,13 +74,9 @@ pub async fn queue_meta_maintainer() -> anyhow::Result<()> {
                 }
 
                 if queue.is_empty() && ReadyQueueManager::number_of_queues() == 0 {
-                    if MANAGER
-                        .named
-                        .remove_if(&name, |_key, _queue| {
-                            queue.is_empty() && ReadyQueueManager::number_of_queues() == 0
-                        })
-                        .is_some()
-                    {
+                    if QueueManager::remove_handle_if(&name, &queue, || {
+                        queue.is_empty() && ReadyQueueManager::number_of_queues() == 0
+                    }) {
                         tracing::debug!("{name}: there are no more queues and the scheduled queue is empty, reaping");
                     }
                 }

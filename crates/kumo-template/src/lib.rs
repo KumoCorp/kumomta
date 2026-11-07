@@ -1,11 +1,15 @@
 use handlebars::{Handlebars, Renderable, Template as HandlebarsTemplate};
+use lruttl::declare_cache;
+use minijinja::value::{Enumerator, Object, ValueKind};
 use minijinja::{Environment, Template as JinjaTemplate, Value as JinjaValue};
 use minijinja_contrib::add_to_environment;
 use self_cell::self_cell;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::sync::{Arc, LazyLock, OnceLock};
+use std::time::Duration;
+use thiserror::Error;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TemplateDialect {
@@ -15,15 +19,65 @@ pub enum TemplateDialect {
     Handlebars,
 }
 
-enum Engine {
-    Jinja {
-        env: Environment<'static>,
-    },
-    Static,
-    Handlebars {
-        registry: Handlebars<'static>,
-        globals: HashMap<String, serde_json::Value>,
-    },
+/// Builds the minijinja environment that every Jinja template renders with.
+fn new_jinja_environment() -> Environment<'static> {
+    let mut env = Environment::new();
+    env.set_unknown_method_callback(minijinja_contrib::pycompat::unknown_method_callback);
+    add_to_environment(&mut env);
+
+    env.add_filter(
+        "normalize_smtp_response",
+        mod_smtp_response_normalize::normalize,
+    );
+
+    env
+}
+
+/// The registry every Handlebars [`Template`] renders against. A handlebars
+/// template compiles independently of any registry and consults a registry at
+/// render time only to look up helpers. One shared instance serves every
+/// template.
+static HANDLEBARS_REGISTRY: LazyLock<Handlebars<'static>> = LazyLock::new(|| {
+    let mut registry = Handlebars::new();
+    registry.set_recursive_lookup(true);
+    registry
+});
+
+/// Converts a minijinja compile error into an error that names the template
+/// and quotes the offending line of `source`.
+fn describe_jinja_error(err: minijinja::Error, source: &str) -> anyhow::Error {
+    let mut reason = String::new();
+
+    if let Some(detail) = err.detail() {
+        write!(&mut reason, "{}: {}", err.kind(), detail).ok();
+    } else {
+        write!(&mut reason, "{}", err.kind()).ok();
+    }
+
+    if let Some((line_no, source_line)) = err.line().and_then(|line| {
+        source
+            .lines()
+            .nth(line - 1) // err.line() is 1-based
+            .map(|source_line| (line, source_line))
+    }) {
+        let truncated_line = &source_line[..source_line.ceil_char_boundary(1024)];
+
+        if let Some(name) = err.name() {
+            write!(
+                &mut reason,
+                " (in template '{name}' line {line_no}: '{truncated_line}')"
+            )
+            .ok();
+        } else {
+            write!(
+                &mut reason,
+                " (in template line {line_no}: '{truncated_line}')"
+            )
+            .ok();
+        }
+    }
+
+    anyhow::anyhow!("{reason}")
 }
 
 /// Returns true when `source` contains none of the expansion markers of
@@ -51,81 +105,6 @@ fn trim_static_source(dialect: TemplateDialect, source: &str) -> &str {
     }
 }
 
-pub enum Template<'env, 'source> {
-    Jinja(JinjaTemplate<'env, 'source>),
-    Static(&'env str),
-    Handlebars {
-        engine: &'env TemplateEngine,
-        template: &'env HandlebarsTemplate,
-    },
-}
-
-impl<'env, 'source> Template<'env, 'source> {
-    /// Returns true when this template renders its source verbatim, ignoring
-    /// the context.
-    pub fn is_static(&self) -> bool {
-        matches!(self, Self::Static(_))
-    }
-
-    pub fn render<S: Serialize>(&self, ctx: S) -> anyhow::Result<String> {
-        match &self {
-            Self::Jinja(t) => Ok(t.render(ctx)?),
-            Self::Static(s) => Ok(s.to_string()),
-            Self::Handlebars { .. } => {
-                let mut output: Vec<u8> = vec![];
-                self.render_to_write(&ctx, &mut output)?;
-                Ok(String::from_utf8(output)?)
-            }
-        }
-    }
-
-    pub fn render_to_write<S: Serialize, W: std::io::Write>(
-        &self,
-        ctx: S,
-        mut w: W,
-    ) -> anyhow::Result<()> {
-        match &self {
-            Self::Jinja(t) => {
-                t.render_captured_to(ctx, w)?;
-                Ok(())
-            }
-            Self::Static(s) => {
-                w.write_all(s.as_bytes())?;
-                Ok(())
-            }
-            Self::Handlebars { engine, template } => {
-                let Engine::Handlebars { registry, globals } = &engine.engine else {
-                    anyhow::bail!("impossible Handlebars Template vs. TemplateEngine state")
-                };
-
-                let context = serde_json::to_value(ctx)?;
-                let context = merge_contexts(globals, context);
-                let context = handlebars::Context::from(context);
-
-                let output = render_handlebars(registry, template, &context)?;
-                w.write_all(output.as_bytes())?;
-                Ok(())
-            }
-        }
-    }
-
-    /// Renders this template against a context already converted to the native
-    /// form of the engine, returning the rendered output.
-    pub fn render_prepared(&self, ctx: &PreparedContext) -> anyhow::Result<String> {
-        match (self, ctx) {
-            (Self::Jinja(t), PreparedContext::Jinja(value)) => Ok(t.render(value)?),
-            (Self::Static(s), _) => Ok(s.to_string()),
-            (Self::Handlebars { engine, template }, PreparedContext::Handlebars(context)) => {
-                let Engine::Handlebars { registry, .. } = &engine.engine else {
-                    anyhow::bail!("impossible Handlebars Template vs. TemplateEngine state")
-                };
-                render_handlebars(registry, template, context)
-            }
-            _ => anyhow::bail!("prepared context dialect does not match template dialect"),
-        }
-    }
-}
-
 /// Renders `template` against `context` with the escaping rule the registry
 /// expects: substitutions are html-escaped only for a `.html` template name.
 fn render_handlebars(
@@ -145,20 +124,240 @@ fn render_handlebars(
     Ok(template.renders(registry, context, &mut render_context)?)
 }
 
-/// A rendering context converted once into the native form of the active
-/// dialect. Obtained from [`TemplateEngine::prepare_context`] and rendered
-/// against with [`Template::render_prepared`].
+/// A rendering context converted once into the native form of a dialect.
 pub enum PreparedContext {
     Jinja(JinjaValue),
     Static,
     Handlebars(handlebars::Context),
 }
 
-/// Holds a set of templates
+impl PreparedContext {
+    fn new<CTX>(dialect: TemplateDialect, context: CTX) -> anyhow::Result<Self>
+    where
+        CTX: Serialize,
+    {
+        Ok(match dialect {
+            TemplateDialect::Jinja => Self::Jinja(JinjaValue::from_serialize(context)),
+            TemplateDialect::Static => Self::Static,
+            TemplateDialect::Handlebars => {
+                Self::Handlebars(handlebars::Context::from(serde_json::to_value(context)?))
+            }
+        })
+    }
+}
+
+/// A Jinja render context that converts its value on the first lookup, at
+/// most once, and also defines a global value named `alias` that returns
+/// that value.
+struct LazyContext<CTX> {
+    inner: Arc<CTX>,
+    alias: String,
+    converted: OnceLock<JinjaValue>,
+}
+
+impl<CTX: Serialize> LazyContext<CTX> {
+    fn value(&self) -> &JinjaValue {
+        self.converted
+            .get_or_init(|| JinjaValue::from_serialize(&*self.inner))
+    }
+}
+
+impl<CTX> std::fmt::Debug for LazyContext<CTX> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fmt.debug_struct("LazyContext")
+            .field("alias", &self.alias)
+            .field("converted", &self.converted.get().is_some())
+            .finish()
+    }
+}
+
+impl<CTX: Serialize + Send + Sync + 'static> Object for LazyContext<CTX> {
+    fn get_value(self: &Arc<Self>, key: &JinjaValue) -> Option<JinjaValue> {
+        let key = key.as_str()?;
+        let value = self.value();
+        if value.kind() == ValueKind::Invalid {
+            // Return the `Invalid` value to ensure that the error is
+            // not rendered as an empty value.
+            return Some(value.clone());
+        }
+        if key == self.alias {
+            // The alias is explicitly defined as returning the entire value,
+            // taking precedence over a hypothetical conflicting field with
+            // the same name.
+            return Some(value.clone());
+        }
+        // A missing name must yield None rather than undefined, otherwise the
+        // engine would stop short of its own globals such as `range`.
+        value
+            .get_attr(key)
+            .ok()
+            .filter(|value| !value.is_undefined())
+    }
+
+    fn enumerate(self: &Arc<Self>) -> Enumerator {
+        match self.value().try_iter() {
+            Ok(keys) => Enumerator::Values(
+                keys.filter(|key| key.as_str() != Some(self.alias.as_str()))
+                    .chain(std::iter::once(JinjaValue::from(self.alias.as_str())))
+                    .collect(),
+            ),
+            Err(_) => Enumerator::NonEnumerable,
+        }
+    }
+}
+
+type JinjaTemplateRef<'a> = JinjaTemplate<'a, 'a>;
+
+self_cell!(
+    /// A compiled Jinja template kept together with the environment it
+    /// borrows from.
+    struct OwnedJinja {
+        owner: Environment<'static>,
+        #[covariant]
+        dependent: JinjaTemplateRef,
+    }
+);
+
+enum Compiled {
+    Static(String),
+    Jinja(OwnedJinja),
+    Handlebars(HandlebarsTemplate),
+}
+
+struct TemplateInner {
+    dialect: TemplateDialect,
+    name: String,
+    compiled: Compiled,
+}
+
+/// A compiled template. It owns everything it needs to render, is `Send` and
+/// `Sync`, and is cheap to clone: every clone shares the same compiled state
+/// and can be cached or rendered concurrently from any task.
+#[derive(Clone)]
+pub struct Template(Arc<TemplateInner>);
+
+impl std::fmt::Debug for Template {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fmt.debug_struct("Template")
+            .field("dialect", &self.0.dialect)
+            .field("name", &self.0.name)
+            .field("is_static", &self.is_static())
+            .finish()
+    }
+}
+
+impl Template {
+    /// Compiles `source` as a template of `dialect` named `name`. A name
+    /// ending in `.html` enables html entity escaping of substitutions.
+    /// If `source` is free of expansion markers, a Static Template is
+    /// returned.
+    fn compile(dialect: TemplateDialect, name: &str, source: &str) -> anyhow::Result<Self> {
+        let compiled = if source_is_static(dialect, source) {
+            Compiled::Static(trim_static_source(dialect, source).to_string())
+        } else {
+            match dialect {
+                TemplateDialect::Static => Compiled::Static(source.to_string()),
+                TemplateDialect::Jinja => {
+                    let mut env = new_jinja_environment();
+                    env.add_template_owned(name.to_string(), source.to_string())
+                        .map_err(|err| describe_jinja_error(err, source))?;
+                    Compiled::Jinja(OwnedJinja::try_new(env, |env| env.get_template(name))?)
+                }
+                TemplateDialect::Handlebars => Compiled::Handlebars(
+                    HandlebarsTemplate::compile_with_name(source, name.to_string())?,
+                ),
+            }
+        };
+
+        Ok(Self(Arc::new(TemplateInner {
+            dialect,
+            name: name.to_string(),
+            compiled,
+        })))
+    }
+
+    pub fn dialect(&self) -> TemplateDialect {
+        self.0.dialect
+    }
+
+    pub fn name(&self) -> &str {
+        &self.0.name
+    }
+
+    /// Returns true when this template renders its source verbatim
+    pub fn is_static(&self) -> bool {
+        matches!(self.0.compiled, Compiled::Static(_))
+    }
+
+    /// Renders this template against `ctx`, returning the rendered output.
+    pub fn render<S: Serialize>(&self, ctx: S) -> anyhow::Result<String> {
+        if let Compiled::Static(s) = &self.0.compiled {
+            return Ok(s.clone());
+        }
+        self.render_prepared(&PreparedContext::new(self.0.dialect, ctx)?)
+    }
+
+    /// Renders this template against a prepared context,
+    /// returning the rendered output.
+    pub fn render_prepared(&self, ctx: &PreparedContext) -> anyhow::Result<String> {
+        match (&self.0.compiled, ctx) {
+            (Compiled::Static(s), _) => Ok(s.clone()),
+            (Compiled::Jinja(cell), PreparedContext::Jinja(value)) => {
+                Ok(cell.borrow_dependent().render(value)?)
+            }
+            (Compiled::Handlebars(template), PreparedContext::Handlebars(context)) => {
+                render_handlebars(&HANDLEBARS_REGISTRY, template, context)
+            }
+            _ => anyhow::bail!("prepared context dialect does not match template dialect"),
+        }
+    }
+}
+
+/// Marks a compile error as distinct from a failure of the cache lookup machinery.
+#[derive(Debug, Error)]
+#[error("{0:#}")]
+struct CompileFailure(anyhow::Error);
+
+/// The reason [`TemplateEngine::compile`] failed.
+#[derive(Debug, Clone, Error)]
+pub enum CompileError {
+    /// The source does not and will never compile.
+    #[error("{0:#}")]
+    Compile(Arc<anyhow::Error>),
+    /// The cache could not answer, perhaps due to a timeout.
+    /// Potentially retryable.
+    #[error("{0:#}")]
+    Cache(Arc<anyhow::Error>),
+}
+
+/// Identifies a compiled template in [`COMPILED_TEMPLATES`] by a digest of
+/// its dialect, name and source.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct TemplateKey([u8; 32]);
+
+impl TemplateKey {
+    fn new(dialect: TemplateDialect, name: &str, source: &str) -> Self {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&[dialect as u8]);
+        hasher.update(&(name.len() as u64).to_le_bytes());
+        hasher.update(name.as_bytes());
+        hasher.update(source.as_bytes());
+        Self(hasher.finalize().into())
+    }
+}
+
+declare_cache! {
+/// Compiled templates from the kumo-template module.
+static COMPILED_TEMPLATES: LruCacheWithTtl<TemplateKey, Template>::new("compiled_templates", 1024);
+}
+
+const COMPILED_TEMPLATE_TTL: Duration = Duration::from_secs(600);
+
+/// Compiles templates in a specific dialect and optionally
+/// provides a registry for named fragments.
 pub struct TemplateEngine {
     dialect: TemplateDialect,
-    engine: Engine,
-    literals: HashMap<String, String>,
+    templates: HashMap<String, Template>,
 }
 
 impl TemplateEngine {
@@ -167,36 +366,14 @@ impl TemplateEngine {
     }
 
     pub fn with_dialect(dialect: TemplateDialect) -> Self {
-        let engine = match dialect {
-            TemplateDialect::Jinja => {
-                let mut env = Environment::new();
-                env.set_unknown_method_callback(
-                    minijinja_contrib::pycompat::unknown_method_callback,
-                );
-                add_to_environment(&mut env);
-
-                env.add_filter(
-                    "normalize_smtp_response",
-                    mod_smtp_response_normalize::normalize,
-                );
-
-                Engine::Jinja { env }
-            }
-            TemplateDialect::Static => Engine::Static,
-            TemplateDialect::Handlebars => {
-                let mut registry = Handlebars::new();
-                registry.set_recursive_lookup(true);
-                Engine::Handlebars {
-                    registry,
-                    globals: HashMap::new(),
-                }
-            }
-        };
         Self {
             dialect,
-            engine,
-            literals: HashMap::new(),
+            templates: HashMap::new(),
         }
+    }
+
+    pub fn dialect(&self) -> TemplateDialect {
+        self.dialect
     }
 
     /// Add a named template with the specified source. If name ends with
@@ -209,209 +386,117 @@ impl TemplateEngine {
     pub fn add_template<N, S>(&mut self, name: N, source: S) -> anyhow::Result<()>
     where
         N: Into<String>,
-        S: Into<String>,
+        S: AsRef<str>,
     {
         let name = name.into();
-        let mut source = source.into();
-
-        if source_is_static(self.dialect, &source) {
-            source.truncate(trim_static_source(self.dialect, &source).len());
-            self.literals.insert(name, source);
-            return Ok(());
-        }
-
-        match &mut self.engine {
-            Engine::Jinja { env } => {
-                let source: Cow<'_, str> = source.into();
-
-                Ok(env
-                    .add_template_owned(name, source.clone())
-                    .map_err(|err| {
-                        let mut reason = String::new();
-
-                        if let Some(detail) = err.detail() {
-                            write!(&mut reason, "{}: {}", err.kind(), detail).ok();
-                        } else {
-                            write!(&mut reason, "{}", err.kind()).ok();
-                        }
-
-                        if let Some((line_no, source_line)) = err.line().and_then(|line| {
-                            source
-                                .lines()
-                                .nth(line - 1) // err.line() is 1-based
-                                .map(|source_line| (line, source_line))
-                        }) {
-                            let truncated_line =
-                                &source_line[..source_line.ceil_char_boundary(1024)];
-
-                            if let Some(name) = err.name() {
-                                write!(
-                                    &mut reason,
-                                    " (in template '{name}' line {line_no}: '{truncated_line}')"
-                                )
-                                .ok();
-                            } else {
-                                write!(
-                                    &mut reason,
-                                    " (in template line {line_no}: '{truncated_line}')"
-                                )
-                                .ok();
-                            }
-                        }
-
-                        anyhow::anyhow!("{reason}")
-                    })?)
-            }
-            Engine::Static => anyhow::bail!("Static dialect cannot hold a dynamic template"),
-            Engine::Handlebars { registry, .. } => {
-                registry.register_template_string(&name, source)?;
-                Ok(())
-            }
-        }
+        let template = Template::compile(self.dialect, &name, source.as_ref())?;
+        self.templates.insert(name, template);
+        Ok(())
     }
 
-    /// Get a reference to a named template
-    pub fn get_template(&self, name: &str) -> anyhow::Result<Template<'_, '_>> {
-        if let Some(source) = self.literals.get(name) {
-            return Ok(Template::Static(source));
-        }
-        match &self.engine {
-            Engine::Jinja { env } => Ok(Template::Jinja(env.get_template(name)?)),
-            Engine::Static => anyhow::bail!("template {name} is not defined"),
-            Engine::Handlebars { registry, .. } => {
-                let template = registry
-                    .get_template(name)
-                    .ok_or_else(|| anyhow::anyhow!("template {name} is not defined"))?;
-
-                Ok(Template::Handlebars {
-                    engine: self,
-                    template,
-                })
-            }
-        }
+    /// Returns the template registered under `name` with
+    /// [`TemplateEngine::add_template`].
+    pub fn get_template(&self, name: &str) -> anyhow::Result<Template> {
+        self.templates
+            .get(name)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("template {name} is not defined"))
     }
 
-    /// Converts a context into the native form of the active dialect, merging in
-    /// the globals previously added with [`TemplateEngine::add_global`].
+    /// Compiles `source` as a template named `name`, without registering it.
+    /// The compilation is cached.
+    pub async fn compile(&self, name: &str, source: &str) -> Result<Template, CompileError> {
+        let dialect = self.dialect;
+
+        // Static fragments are returned directly, as the copy is much cheaper
+        // than maintaining a cached entry.
+        if source_is_static(dialect, source) {
+            return Template::compile(dialect, name, source)
+                .map_err(|err| CompileError::Compile(Arc::new(err)));
+        }
+
+        let key = TemplateKey::new(dialect, name, source);
+        let lookup = COMPILED_TEMPLATES
+            .get_or_try_insert(&key, |_| COMPILED_TEMPLATE_TTL, async {
+                Template::compile(dialect, name, source).map_err(CompileFailure)
+            })
+            .await
+            .map_err(|err| {
+                if err.downcast_ref::<CompileFailure>().is_some() {
+                    CompileError::Compile(err)
+                } else {
+                    CompileError::Cache(err)
+                }
+            })?;
+        Ok(lookup.item)
+    }
+
+    /// Converts `context` into the native form for this engine's dialect,
+    /// producing a [`PreparedContext`] that can render more than one template
+    /// without being converted again.
     pub fn prepare_context<CTX>(&self, context: CTX) -> anyhow::Result<PreparedContext>
     where
         CTX: Serialize,
     {
-        match &self.engine {
-            Engine::Jinja { .. } => Ok(PreparedContext::Jinja(JinjaValue::from_serialize(context))),
-            Engine::Static => Ok(PreparedContext::Static),
-            Engine::Handlebars { globals, .. } => {
-                let context = serde_json::to_value(context)?;
-                let context = merge_contexts(globals, context);
-                Ok(PreparedContext::Handlebars(handlebars::Context::from(
-                    context,
-                )))
-            }
-        }
+        PreparedContext::new(self.dialect, context)
     }
 
-    /// Define a global value that can be reference by all templates
-    pub fn add_global<N, V>(&mut self, name: N, value: V) -> anyhow::Result<()>
+    /// Converts `context` as [`TemplateEngine::prepare_context`] does, and in
+    /// addition binds the whole converted value to a global variable
+    /// named `alias`.
+    pub fn prepare_context_with_alias<CTX>(
+        &self,
+        context: Arc<CTX>,
+        alias: &str,
+    ) -> anyhow::Result<PreparedContext>
     where
-        N: Into<String>,
-        V: Serialize,
+        CTX: Serialize + Send + Sync + 'static,
     {
-        match &mut self.engine {
-            Engine::Jinja { env } => env.add_global(name.into(), JinjaValue::from_serialize(value)),
-            Engine::Static => { /* NOP */ }
-            Engine::Handlebars { globals, .. } => {
-                globals.insert(name.into(), serde_json::to_value(value)?);
+        Ok(match self.dialect {
+            TemplateDialect::Jinja => {
+                PreparedContext::Jinja(JinjaValue::from_object(LazyContext {
+                    inner: context,
+                    alias: alias.to_string(),
+                    converted: OnceLock::new(),
+                }))
             }
-        }
-
-        Ok(())
+            TemplateDialect::Static => PreparedContext::Static,
+            TemplateDialect::Handlebars => {
+                let mut root = serde_json::to_value(&*context)?;
+                let whole = root.clone();
+                if let Some(fields) = root.as_object_mut() {
+                    fields.insert(alias.to_string(), whole);
+                }
+                PreparedContext::Handlebars(handlebars::Context::from(root))
+            }
+        })
     }
 
+    /// Compiles `source` and renders it against `context` in one step.
     pub fn render<CTX>(&self, name: &str, source: &str, context: CTX) -> anyhow::Result<String>
     where
-        CTX: serde::Serialize,
+        CTX: Serialize,
     {
-        if source_is_static(self.dialect, source) {
-            return Ok(trim_static_source(self.dialect, source).to_string());
-        }
-        match &self.engine {
-            Engine::Jinja { env } => Ok(env.render_named_str(name, source, context)?),
-            Engine::Static => Ok(source.to_string()),
-            Engine::Handlebars { .. } => {
-                let template = HandlebarsTemplate::compile_with_name(source, name.to_string())?;
-                let template = Template::Handlebars {
-                    engine: self,
-                    template: &template,
-                };
-
-                template.render(context)
-            }
-        }
+        Template::compile(self.dialect, name, source)?.render(context)
     }
 }
-
-fn merge_contexts(
-    globals: &HashMap<String, serde_json::Value>,
-    over: serde_json::Value,
-) -> serde_json::Value {
-    match over {
-        serde_json::Value::Object(mut obj) => {
-            for (k, v) in globals {
-                if !obj.contains_key(k) {
-                    obj.insert(k.into(), v.clone());
-                }
-            }
-            serde_json::Value::Object(obj)
-        }
-        other => other,
-    }
-}
-
-pub type TemplateList<'a> = Vec<Template<'a, 'a>>;
-
-self_cell!(
-    /// CompiledTemplates is useful when you have a set of templates
-    /// that you will expand frequently in a tight loop.
-    /// Because the underlying crate returns only references to `Template`s,
-    /// it is a covariant, self-referential structure that needs to be
-    /// constructed like this:
-    ///
-    /// ```rust
-    /// fn get_templates<'b>(
-    ///   engine: &'b TemplateEngine
-    /// ) -> anyhow::Result<TemplateList<'b>> {
-    ///   let mut templates = vec![];
-    ///   templates.push(engine.get_template("something")?);
-    ///   Ok(templates)
-    /// }
-    ///
-    /// let engine = TemplateEngine::new();
-    /// engine.add_template("something", "some text")?;
-    /// let compiled = CompiledTemplates::try_new(engine, |engine| {
-    ///   get_templates(engine)
-    /// });
-    /// ```
-    pub struct CompiledTemplates {
-        owner: TemplateEngine,
-        #[covariant]
-        dependent: TemplateList,
-    }
-);
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
+    const DIALECTS: [TemplateDialect; 3] = [
+        TemplateDialect::Jinja,
+        TemplateDialect::Handlebars,
+        TemplateDialect::Static,
+    ];
+
     /// A marker-free source is a static template and renders to itself across
     /// every dialect, ignoring the supplied context.
     #[test]
     fn marker_free_source_is_static() {
-        for dialect in [
-            TemplateDialect::Jinja,
-            TemplateDialect::Handlebars,
-            TemplateDialect::Static,
-        ] {
+        for dialect in DIALECTS {
             let mut engine = TemplateEngine::with_dialect(dialect);
             engine
                 .add_template("h", "In-Reply-To: <abc@example.com>")
@@ -428,7 +513,7 @@ mod tests {
         }
     }
 
-    /// Confirms `Template::Static` renders a marker-free source to the same
+    /// Confirms a static template renders a marker-free source to the same
     /// bytes the real engine would have produced for it, for Jinja (whose
     /// lexer strips trailing bytes) and Handlebars (whose lexer does not).
     #[test]
@@ -474,11 +559,7 @@ mod tests {
     /// directly, for dynamic and static templates in every dialect.
     #[test]
     fn render_prepared_matches_render() {
-        for dialect in [
-            TemplateDialect::Jinja,
-            TemplateDialect::Handlebars,
-            TemplateDialect::Static,
-        ] {
+        for dialect in DIALECTS {
             let mut engine = TemplateEngine::with_dialect(dialect);
             engine.add_template("dyn", "hello {{ name }}").unwrap();
             engine.add_template("lit", "no markers here").unwrap();
@@ -520,28 +601,329 @@ mod tests {
     }
 
     /// HTML auto-escaping applies to substituted values, never to literal
-    /// markup. A marker-free source is all literal and renders unescaped.
+    /// markup, and is selected by the `.html` name suffix in both engine
+    /// dialects. A marker-free source is all literal and renders unescaped.
     #[test]
     fn html_escaping_applies_only_to_substitutions() {
         let literal = "<b>bold &amp; <i>italic</i></b>";
 
-        let mut engine = TemplateEngine::with_dialect(TemplateDialect::Handlebars);
-        engine.add_template("static.html", literal).unwrap();
-        let static_template = engine.get_template("static.html").unwrap();
-        assert!(static_template.is_static());
-        k9::assert_equal!(
-            static_template.render(json!({})).unwrap(),
-            literal.to_string()
-        );
+        for dialect in [TemplateDialect::Jinja, TemplateDialect::Handlebars] {
+            let mut engine = TemplateEngine::with_dialect(dialect);
+            engine.add_template("static.html", literal).unwrap();
+            let static_template = engine.get_template("static.html").unwrap();
+            assert!(static_template.is_static());
+            k9::assert_equal!(
+                static_template.render(json!({})).unwrap(),
+                literal.to_string()
+            );
 
-        engine
-            .add_template("dynamic.html", "<b>{{ v }}</b>")
-            .unwrap();
-        let dynamic_template = engine.get_template("dynamic.html").unwrap();
-        assert!(!dynamic_template.is_static());
-        k9::assert_equal!(
-            dynamic_template.render(json!({"v": "a & b"})).unwrap(),
-            "<b>a &amp; b</b>".to_string()
+            engine
+                .add_template("dynamic.html", "<b>{{ v }}</b>")
+                .unwrap();
+            let dynamic_template = engine.get_template("dynamic.html").unwrap();
+            assert!(!dynamic_template.is_static());
+            k9::assert_equal!(
+                dynamic_template.render(json!({"v": "a & b"})).unwrap(),
+                "<b>a &amp; b</b>".to_string()
+            );
+
+            engine
+                .add_template("dynamic.txt", "<b>{{ v }}</b>")
+                .unwrap();
+            k9::assert_equal!(
+                engine
+                    .get_template("dynamic.txt")
+                    .unwrap()
+                    .render(json!({"v": "a & b"}))
+                    .unwrap(),
+                "<b>a & b</b>".to_string()
+            );
+        }
+    }
+
+    /// A compile error reports the template name and the offending line.
+    #[test]
+    fn compile_error_names_template() {
+        let mut engine = TemplateEngine::with_dialect(TemplateDialect::Jinja);
+        let err = engine.add_template("t.txt", "ok\n{{ name").unwrap_err();
+        k9::snapshot!(
+            err.to_string(),
+            "syntax error: unexpected end of input, expected end of variable block (in template 't.txt' line 2: '{{ name')"
         );
+    }
+
+    /// A template from the cached compile path renders the same output as the
+    /// same source registered with add_template, in every dialect.
+    #[tokio::test]
+    async fn compile_matches_add_template() {
+        for dialect in DIALECTS {
+            let ctx = json!({"name": "Alice"});
+            for source in ["hello {{ name }}", "no markers here", "trailing\n"] {
+                let mut engine = TemplateEngine::with_dialect(dialect);
+                engine.add_template("t.txt", source).unwrap();
+                let registered = engine.get_template("t.txt").unwrap();
+
+                let compiled = engine.compile("t.txt", source).await.unwrap();
+                k9::assert_equal!(compiled.is_static(), registered.is_static());
+                k9::assert_equal!(
+                    compiled.render(&ctx).unwrap(),
+                    registered.render(&ctx).unwrap()
+                );
+            }
+        }
+    }
+
+    /// Repeated compiles of the same dialect, name and source share one
+    /// compilation. A change to any of the three compiles afresh.
+    #[tokio::test]
+    async fn compile_shares_one_compilation() {
+        let source = "cached {{ name }} compile_shares_one_compilation";
+        let jinja = TemplateEngine::with_dialect(TemplateDialect::Jinja);
+        let first = jinja.compile("t.txt", source).await.unwrap();
+        let again = jinja.compile("t.txt", source).await.unwrap();
+        assert!(Arc::ptr_eq(&first.0, &again.0));
+
+        let other_name = jinja.compile("u.txt", source).await.unwrap();
+        assert!(!Arc::ptr_eq(&first.0, &other_name.0));
+
+        let hbs = TemplateEngine::with_dialect(TemplateDialect::Handlebars);
+        let other_dialect = hbs.compile("t.txt", source).await.unwrap();
+        assert!(!Arc::ptr_eq(&first.0, &other_dialect.0));
+        k9::assert_equal!(other_dialect.dialect(), TemplateDialect::Handlebars);
+
+        k9::assert_equal!(
+            first.render(json!({"name": "Alice"})).unwrap(),
+            "cached Alice compile_shares_one_compilation".to_string()
+        );
+    }
+
+    // Rendering a static template skips the conversion step where
+    // serialization would fail, unlike a dynamic template of the same dialect.
+    #[test]
+    fn static_render_does_not_serialize_context() {
+        struct Unserializable;
+
+        impl Serialize for Unserializable {
+            fn serialize<S>(&self, _ser: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                Err(serde::ser::Error::custom("cannot serialize"))
+            }
+        }
+
+        for dialect in [TemplateDialect::Jinja, TemplateDialect::Handlebars] {
+            let mut engine = TemplateEngine::with_dialect(dialect);
+            engine.add_template("lit", "no markers here").unwrap();
+            k9::assert_equal!(
+                engine
+                    .get_template("lit")
+                    .unwrap()
+                    .render(Unserializable)
+                    .unwrap(),
+                "no markers here".to_string()
+            );
+
+            engine.add_template("dyn", "hello {{ name }}").unwrap();
+            let err = engine
+                .get_template("dyn")
+                .unwrap()
+                .render(Unserializable)
+                .unwrap_err();
+            let expected = match dialect {
+                TemplateDialect::Jinja => {
+                    "could not serialize to value: cannot serialize".to_string()
+                }
+                _ => "cannot serialize".to_string(),
+            };
+            k9::assert_equal!(err.to_string(), expected);
+        }
+    }
+
+    /// A compile failure comes back through the cache as the `Compile`
+    /// variant with its message intact.
+    #[tokio::test]
+    async fn compile_reports_errors() {
+        let engine = TemplateEngine::with_dialect(TemplateDialect::Jinja);
+        let err = engine.compile("bad.txt", "{{ nope").await.unwrap_err();
+        assert!(
+            matches!(err, CompileError::Compile(_)),
+            "expected Compile, got {err:?}"
+        );
+        k9::snapshot!(
+            err.to_string(),
+            "syntax error: unexpected end of input, expected end of variable block (in template 'bad.txt' line 1: '{{ nope')"
+        );
+    }
+
+    /// A log record that counts how many times it is serialized.
+    struct CountingRecord {
+        serializations: std::sync::atomic::AtomicUsize,
+    }
+
+    impl Serialize for CountingRecord {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            self.serializations
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            json!({"type": "Delivery", "size": 1047}).serialize(serializer)
+        }
+    }
+
+    fn counting_record() -> Arc<CountingRecord> {
+        Arc::new(CountingRecord {
+            serializations: std::sync::atomic::AtomicUsize::new(0),
+        })
+    }
+
+    /// A record that serializes to JSON with a `log_record` key that
+    /// (potentially) shadows the global alias name.
+    struct ShadowingRecord;
+
+    impl Serialize for ShadowingRecord {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            json!({"type": "Delivery", "log_record": "shadowed"}).serialize(serializer)
+        }
+    }
+
+    /// Checks that an aliased context exposes the value's fields at the top
+    /// level and the whole value under the alias, in both engine dialects.
+    #[test]
+    fn aliased_context_exposes_fields_and_whole_value() {
+        for dialect in [TemplateDialect::Jinja, TemplateDialect::Handlebars] {
+            let mut engine = TemplateEngine::with_dialect(dialect);
+            engine
+                .add_template("t", "{{ type }}/{{ size }} {{ log_record.type }}")
+                .unwrap();
+            let prepared = engine
+                .prepare_context_with_alias(counting_record(), "log_record")
+                .unwrap();
+            k9::assert_equal!(
+                engine
+                    .get_template("t")
+                    .unwrap()
+                    .render_prepared(&prepared)
+                    .unwrap(),
+                "Delivery/1047 Delivery".to_string()
+            );
+        }
+
+        let mut jinja = TemplateEngine::with_dialect(TemplateDialect::Jinja);
+        jinja
+            .add_template("json", "{{ log_record | tojson }}")
+            .unwrap();
+        let prepared = jinja
+            .prepare_context_with_alias(counting_record(), "log_record")
+            .unwrap();
+        k9::assert_equal!(
+            jinja
+                .get_template("json")
+                .unwrap()
+                .render_prepared(&prepared)
+                .unwrap(),
+            r#"{"size":1047,"type":"Delivery"}"#.to_string()
+        );
+    }
+
+    /// Checks that the alias wins over a field of the same name in both
+    /// engine dialects, with that field still reachable through the alias.
+    #[test]
+    fn aliased_context_alias_wins_over_field() {
+        for dialect in [TemplateDialect::Jinja, TemplateDialect::Handlebars] {
+            let mut engine = TemplateEngine::with_dialect(dialect);
+            engine
+                .add_template("t", "{{ log_record.type }}/{{ log_record.log_record }}")
+                .unwrap();
+            let prepared = engine
+                .prepare_context_with_alias(Arc::new(ShadowingRecord), "log_record")
+                .unwrap();
+            k9::assert_equal!(
+                engine
+                    .get_template("t")
+                    .unwrap()
+                    .render_prepared(&prepared)
+                    .unwrap(),
+                "Delivery/shadowed".to_string()
+            );
+        }
+    }
+
+    /// Reports the serialization failure for both a top-level field and the
+    /// alias itself when an aliased Jinja context value fails to serialize,
+    /// rather than rendering an empty substitution.
+    #[test]
+    fn aliased_context_reports_serialization_failure() {
+        struct Unserializable;
+
+        impl Serialize for Unserializable {
+            fn serialize<S>(&self, _ser: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                Err(serde::ser::Error::custom("cannot serialize"))
+            }
+        }
+
+        let mut engine = TemplateEngine::with_dialect(TemplateDialect::Jinja);
+        engine.add_template("field", "{{ name }}").unwrap();
+        engine.add_template("alias", "{{ log_record }}").unwrap();
+        let prepared = engine
+            .prepare_context_with_alias(Arc::new(Unserializable), "log_record")
+            .unwrap();
+        for (name, expected) in [
+            (
+                "field",
+                "could not serialize to value: cannot serialize (in field:1)",
+            ),
+            (
+                "alias",
+                "could not serialize to value: cannot serialize (in alias:1)",
+            ),
+        ] {
+            let err = engine
+                .get_template(name)
+                .unwrap()
+                .render_prepared(&prepared)
+                .unwrap_err();
+            k9::assert_equal!(err.to_string(), expected.to_string());
+        }
+    }
+
+    /// Converts a Jinja aliased context value at most once, on the first name
+    /// lookup of any kind, however many fields and renders read it.
+    /// Names not defined in the value must still be resolved against
+    /// engine-provided globals.
+    #[test]
+    fn aliased_context_serializes_at_most_once() {
+        let mut engine = TemplateEngine::with_dialect(TemplateDialect::Jinja);
+        engine
+            .add_template("fields", "{{ type }} {{ size }} {{ log_record.size }}")
+            .unwrap();
+        engine
+            .add_template("globals", "{{ range(3) | length }}")
+            .unwrap();
+
+        let record = counting_record();
+        let prepared = engine
+            .prepare_context_with_alias(record.clone(), "log_record")
+            .unwrap();
+        let reads = || {
+            record
+                .serializations
+                .load(std::sync::atomic::Ordering::Relaxed)
+        };
+
+        k9::assert_equal!(reads(), 0);
+        let globals = engine.get_template("globals").unwrap();
+        k9::assert_equal!(globals.render_prepared(&prepared).unwrap(), "3".to_string());
+        k9::assert_equal!(reads(), 1);
+
+        let fields = engine.get_template("fields").unwrap();
+        for _ in 0..3 {
+            k9::assert_equal!(
+                fields.render_prepared(&prepared).unwrap(),
+                "Delivery 1047 1047".to_string()
+            );
+        }
+        k9::assert_equal!(reads(), 1);
     }
 }

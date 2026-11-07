@@ -13,6 +13,7 @@ pub mod maintainer;
 pub mod manager;
 pub mod metrics;
 pub mod queue;
+pub mod resolver;
 pub mod strategy;
 pub mod test;
 
