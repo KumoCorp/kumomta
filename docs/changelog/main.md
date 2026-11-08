@@ -178,6 +178,10 @@
 
 ## Fixes
 
+ * The [AAA accounting log](../reference/kumo.aaa/configure_acct_log.md)
+   didn't finalize its active segment on shutdown, resulting in incomplete
+   writes unless you had set `max_segment_duration` to a relatively short value.
+
  * A graceful shutdown could hang indefinitely, logging
    `Still waiting for 1 pending activities... Queue Manager Meta Maintainer`
    until the process was killed. This was most likely to occur when stopping
