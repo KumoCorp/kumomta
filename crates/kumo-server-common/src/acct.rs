@@ -275,6 +275,7 @@ impl AuditLogParams {
             file.file
                 .write_all(&record_text)
                 .with_context(|| format!("writing record to {}", file.name.display()))?;
+            file.written += record_text.len() as u64;
 
             let need_rotate = file.written >= self.max_file_size
                 || file
@@ -363,14 +364,12 @@ mod test {
     use super::*;
     use crate::authn_authz::IdentityContext;
 
-    /// With no size or time based rotation, the only thing that can
-    /// complete the zstd frame is shutdown.
-    #[tokio::test]
-    async fn shutdown_finalizes_open_segment() -> anyhow::Result<()> {
-        let dir = tempfile::tempdir()?;
-        let params = AuditLogParams {
-            log_dir: dir.path().to_path_buf(),
-            max_file_size: AuditLogParams::default_max_file_size(),
+    /// Builds params that log everything into `log_dir`, with no time based
+    /// rotation and the given size limit.
+    fn params(log_dir: &std::path::Path, max_file_size: u64) -> AuditLogParams {
+        AuditLogParams {
+            log_dir: log_dir.to_path_buf(),
+            max_file_size,
             back_pressure: 16,
             compression_level: AuditLogParams::default_compression_level(),
             max_segment_duration: None,
@@ -380,34 +379,87 @@ mod test {
             log_authz_deny: true,
             log_authn_ok: true,
             log_authn_fail: true,
-        };
-        params.init().await?;
+        }
+    }
 
-        log_authn(AuthnAuditRecord {
+    fn authn_record(identity: &str) -> AcctLogRecord {
+        AcctLogRecord::Authentication(AuthnAuditRecord {
             timestamp: Utc::now(),
             attempted_identity: Identity {
-                identity: "daniel".to_string(),
+                identity: identity.to_string(),
                 context: IdentityContext::SmtpAuthPlainAuthentication,
             },
             success: true,
             auth_info: AuthInfo::default(),
         })
-        .await?;
+    }
+
+    /// Decode every segment in `dir`, returning the identity from each
+    /// record in filename order.
+    fn read_identities(dir: &std::path::Path) -> anyhow::Result<Vec<Vec<String>>> {
+        let mut paths: Vec<_> = std::fs::read_dir(dir)?
+            .map(|entry| entry.map(|e| e.path()))
+            .collect::<Result<_, _>>()?;
+        paths.sort();
+        paths
+            .iter()
+            .map(|path| {
+                let data = zstd::stream::decode_all(std::fs::File::open(path)?)?;
+                String::from_utf8(data)?
+                    .lines()
+                    .map(|line| match serde_json::from_str(line)? {
+                        AcctLogRecord::Authentication(authn) => {
+                            Ok(authn.attempted_identity.identity)
+                        }
+                        other => anyhow::bail!("unexpected record {other:?}"),
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// With no size or time based rotation, shutdown is required to complete
+    /// the zstd frame.
+    #[tokio::test]
+    async fn shutdown_finalizes_open_segment() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        params(dir.path(), AuditLogParams::default_max_file_size())
+            .init()
+            .await?;
+
+        let AcctLogRecord::Authentication(record) = authn_record("daniel") else {
+            unreachable!()
+        };
+        log_authn(record).await?;
 
         shutdown().await;
 
-        let files: Vec<_> = std::fs::read_dir(dir.path())?.collect::<Result<_, _>>()?;
-        k9::assert_equal!(files.len(), 1);
-        let data = zstd::stream::decode_all(std::fs::File::open(files[0].path())?)?;
-        let text = String::from_utf8(data)?;
-        let record: AcctLogRecord = serde_json::from_str(text.trim_end())?;
-        match record {
-            AcctLogRecord::Authentication(authn) => {
-                k9::assert_equal!(authn.success, true);
-                k9::assert_equal!(authn.attempted_identity.identity, "daniel");
-            }
-            other => anyhow::bail!("unexpected record {other:?}"),
+        k9::assert_equal!(
+            read_identities(dir.path())?,
+            vec![vec!["daniel".to_string()]]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn size_limit_rotates_segment() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let params = params(dir.path(), 1);
+        let mut current_file = None;
+
+        for identity in ["first", "second"] {
+            params.open_file_if_needed(&mut current_file)?;
+            params.do_record(&mut current_file, authn_record(identity))?;
+            assert!(
+                current_file.is_none(),
+                "segment must rotate after {identity}"
+            );
         }
+
+        k9::assert_equal!(
+            read_identities(dir.path())?,
+            vec![vec!["first".to_string()], vec!["second".to_string()]]
+        );
         Ok(())
     }
 }
