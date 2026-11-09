@@ -1,5 +1,6 @@
 use crate::{NumBytes, Number};
 use backtrace::Backtrace;
+use kumo_prometheus::ShardedCountAndSize;
 use parking_lot::Mutex;
 use std::alloc::{GlobalAlloc, Layout};
 use std::cell::Cell;
@@ -47,13 +48,17 @@ static MEDIUM_TRACKER: LazyLock<Mutex<AllocationTracker>> =
 unsafe impl<A: GlobalAlloc> GlobalAlloc for TrackingAllocator<A> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let ptr = unsafe { self.allocator.alloc(layout) };
-        track_allocation(ptr, layout.size());
+        if !ptr.is_null() {
+            track_allocation(ptr, layout.size());
+        }
         ptr
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         let ptr = unsafe { self.allocator.alloc_zeroed(layout) };
-        track_allocation(ptr, layout.size());
+        if !ptr.is_null() {
+            track_allocation(ptr, layout.size());
+        }
         ptr
     }
 
@@ -67,13 +72,18 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for TrackingAllocator<A> {
 
         let new_ptr = unsafe { self.allocator.realloc(old_ptr, layout, new_size) };
 
-        track_allocation(new_ptr, new_size);
+        if new_ptr.is_null() {
+            // Failed realloc leaves the original allocation live.
+            track_allocation(old_ptr, layout.size());
+        } else {
+            track_allocation(new_ptr, new_size);
+        }
         new_ptr
     }
 }
 
 fn track_allocation(ptr: *mut u8, size: usize) {
-    STATS.live.add(size);
+    STATS.live.add(ptr.addr(), size);
 
     if !STATS.track_callstacks.load(Relaxed) {
         return;
@@ -108,7 +118,7 @@ fn track_allocation(ptr: *mut u8, size: usize) {
 }
 
 fn track_dealloc(ptr: *mut u8, size: usize) {
-    STATS.live.sub(size);
+    STATS.live.sub(ptr.addr(), size);
 
     if !STATS.track_callstacks.load(Relaxed) {
         return;
@@ -248,13 +258,6 @@ impl AtomicCountAndSize {
         }
     }
 
-    fn load(&self) -> CountAndSize {
-        CountAndSize {
-            count: self.count.load(Relaxed).into(),
-            size: self.size.load(Relaxed).into(),
-        }
-    }
-
     /// Add an allocation.
     fn add(&self, size: usize) {
         self.count.fetch_add(1, Relaxed);
@@ -275,7 +278,7 @@ pub struct CountAndSize {
 }
 
 struct Stats {
-    live: AtomicCountAndSize,
+    live: ShardedCountAndSize,
     track_callstacks: AtomicBool,
     small: AtomicCountAndSize,
     medium: AtomicCountAndSize,
@@ -285,7 +288,7 @@ struct Stats {
 impl Stats {
     const fn new() -> Self {
         Self {
-            live: AtomicCountAndSize::zero(),
+            live: ShardedCountAndSize::new(),
             small: AtomicCountAndSize::zero(),
             medium: AtomicCountAndSize::zero(),
             large: AtomicCountAndSize::zero(),
@@ -294,11 +297,12 @@ impl Stats {
     }
 }
 
-/// Number of bytes allocated via the global allocator.
-/// Not all of these may be resident; the RSS value will
-/// typically be different from this value.
+/// Returns the sampled number of bytes allocated via the global allocator. Not
+/// all of these may be resident. The RSS value will typically differ.
+/// Concurrent updates can make this overestimate or underestimate the
+/// instantaneous total.
 pub fn counted_usage() -> usize {
-    STATS.live.size.load(Relaxed)
+    STATS.live.load_size()
 }
 
 pub fn set_tracking_callstacks(enable: bool) {
@@ -322,8 +326,6 @@ pub fn tracking_stats() -> TrackingStats {
             top_callstacks = BIG_TRACKER.lock().top_callstacks(MAX_STACKS);
             top_callstacks.append(&mut MEDIUM_TRACKER.lock().top_callstacks(MAX_STACKS));
 
-            // Resolve symbols while we are in_track so that the allocations
-            // made by this don't "pollute" the overall set of callstacks
             for stack in &mut top_callstacks {
                 stack.bt.resolve();
             }
@@ -332,9 +334,13 @@ pub fn tracking_stats() -> TrackingStats {
         }
     });
 
+    let live = STATS.live.load();
     TrackingStats {
         small_threshold: SMALL_SIZE.into(),
-        live: STATS.live.load(),
+        live: CountAndSize {
+            count: live.count.into(),
+            size: live.size.into(),
+        },
         top_callstacks,
     }
 }

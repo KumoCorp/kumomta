@@ -4096,6 +4096,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-stream",
+ "crossbeam-utils",
  "futures",
  "k9",
  "linkme",
