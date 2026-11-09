@@ -7,7 +7,7 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use kumo_api_types::shaping::{
-    Action, EgressPathConfigValue, EgressPathConfigValueUnchecked, Rule,
+    Action, EgressPathConfigValue, EgressPathConfigValueUnchecked, MatchedRule, Rule,
 };
 use kumo_api_types::tsa::{ReadyQSuspension, SchedQBounce, SchedQSuspension};
 use kumo_log_types::JsonLogRecord;
@@ -24,9 +24,10 @@ pub static TSA_STATE: OnceLock<TsaState> = OnceLock::new();
 pub struct RuleHash(#[serde(with = "serde_bytes")] [u8; 32]);
 
 impl RuleHash {
-    pub fn from_rule(rule: &Rule) -> Self {
+    /// Builds a `RuleHash` from the matched rule and its scope.
+    pub fn from_matched(matched: &MatchedRule) -> Self {
         let mut hasher = Sha256Hasher::new();
-        rule.hash(&mut hasher);
+        matched.hash_into(&mut hasher);
         Self(hasher.get_binary())
     }
 }
@@ -79,23 +80,27 @@ impl std::fmt::Debug for ActionHash {
 }
 
 impl ActionHash {
-    pub fn from_rule_and_record(rule: &Rule, action: &Action, record: &JsonLogRecord) -> Self {
+    pub fn from_matched_and_record(
+        matched: &MatchedRule,
+        action: &Action,
+        record: &JsonLogRecord,
+    ) -> Self {
         let mut hasher = Sha256Hasher::new();
-        rule.hash(&mut hasher);
+        matched.hash_into(&mut hasher);
         action.hash(&mut hasher);
         Self(hasher.get_binary(), SiteKey::from_record(record))
     }
 
     /// Returns the key for a provider-scoped override, derived from the
     /// provider name and source rather than the triggering record's site.
-    pub fn from_rule_action_and_provider(
-        rule: &Rule,
+    pub fn from_matched_action_and_provider(
+        matched: &MatchedRule,
         action: &Action,
         source: &str,
         provider: &str,
     ) -> Self {
         let mut hasher = Sha256Hasher::new();
-        rule.hash(&mut hasher);
+        matched.hash_into(&mut hasher);
         action.hash(&mut hasher);
         Self(
             hasher.get_binary(),
@@ -128,11 +133,14 @@ impl ActionHash {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct MatchingScope(RuleHash, SiteKey);
+pub struct EventKey(RuleHash, SiteKey);
 
-impl MatchingScope {
-    pub fn from_rule_and_record(rule: &Rule, record: &JsonLogRecord) -> Self {
-        Self(RuleHash::from_rule(rule), SiteKey::from_record(record))
+impl EventKey {
+    pub fn from_matched_and_record(matched: &MatchedRule, record: &JsonLogRecord) -> Self {
+        Self(
+            RuleHash::from_matched(matched),
+            SiteKey::from_record(record),
+        )
     }
 }
 
@@ -302,7 +310,7 @@ pub struct SchedQSuspensionEntry {
 
 #[derive(Default)]
 pub struct TsaState {
-    event_history: DashMap<MatchingScope, EventData>,
+    event_history: DashMap<EventKey, EventData>,
     config_overrides: DashMap<ActionHash, ConfigurationOverride>,
     schedq_bounces: DashMap<SchedQBounceKey, SchedQBounceEntry>,
     readyq_suspensions: DashMap<ActionHash, ReadyQSuspensionEntry>,
@@ -312,7 +320,7 @@ pub struct TsaState {
 #[derive(Serialize, Deserialize)]
 struct SerializableState {
     #[serde(default)]
-    event_history: HashMap<MatchingScope, EventData>,
+    event_history: HashMap<EventKey, EventData>,
     #[serde(default)]
     config_overrides: HashMap<ActionHash, ConfigurationOverride>,
     #[serde(default)]
@@ -326,7 +334,7 @@ struct SerializableState {
 impl TsaState {
     /// Record the current event and return the total number
     /// of records in the time period defined by the rule
-    pub fn record_event(&self, scope: &MatchingScope, rule: &Rule, record: &JsonLogRecord) -> u64 {
+    pub fn record_event(&self, scope: &EventKey, rule: &Rule, record: &JsonLogRecord) -> u64 {
         let mut series = self
             .event_history
             .entry(scope.clone())
@@ -341,28 +349,34 @@ impl TsaState {
     pub fn create_config_override(
         &self,
         scope: &ActionHash,
-        rule: &Rule,
+        matched: &MatchedRule,
         record: &JsonLogRecord,
         config: &EgressPathConfigValue,
         domain: &str,
         source: &str,
         prefer_rollup: PreferRollup,
     ) {
-        let reason = format!("automation rule: {}", regex_list_to_string(&rule.regex));
+        let reason = format!(
+            "automation rule: {}",
+            regex_list_to_string(&matched.rule.regex)
+        );
         self.insert_config_override(
             scope.clone(),
             ConfigurationOverride {
                 scope: OverrideScope::Domain {
                     domain: domain.to_string(),
                     mx_rollup: match prefer_rollup {
-                        PreferRollup::Yes => rule.was_rollup,
+                        // mx_rollup must match the rule's MatchScope, since on
+                        // reload the override is looked up by site_name when set.
+                        PreferRollup::Yes => matched.scope.is_rollup(),
+                        // SetDomainConfig always pins to the triggering domain.
                         PreferRollup::No => false,
                     },
                 },
                 reason,
                 source: source.to_string(),
                 option: config.clone().into(),
-                expires: record.timestamp + rule.duration,
+                expires: record.timestamp + matched.rule.duration,
             },
         );
     }
@@ -849,7 +863,7 @@ impl TsaState {
                 .unwrap_or(true)
         };
 
-        let keys_to_prune: Vec<MatchingScope> = self
+        let keys_to_prune: Vec<EventKey> = self
             .event_history
             .iter()
             .filter_map(|entry| {
@@ -1080,7 +1094,7 @@ pub async fn state_pruner() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kumo_api_types::shaping::{HashableTomlValue, Regex, Trigger};
+    use kumo_api_types::shaping::{HashableTomlValue, MatchScope, Regex, Trigger};
     use kumo_log_types::RecordType;
     use rfc5321::Response;
     use uuid::Uuid;
@@ -1187,10 +1201,12 @@ connection_limit = 3
             })],
             trigger: Trigger::Immediate,
             duration: std::time::Duration::from_secs(3600),
-            was_rollup: false,
-            provider_name: Some("yahoo".to_string()),
             match_internal: false,
         }
+    }
+
+    fn make_matched(rule: Rule, scope: MatchScope) -> MatchedRule {
+        MatchedRule { rule, scope }
     }
 
     fn make_record_at(timestamp: DateTime<Utc>, recipient: &str) -> JsonLogRecord {
@@ -1234,19 +1250,21 @@ connection_limit = 3
     fn provider_override_keeps_latest_expiry_on_refresh() {
         let state = TsaState::default();
         let rule = make_rule();
-        let action = &rule.action[0];
+        let matched = make_matched(rule, MatchScope::Provider("yahoo".to_string()));
+        let action = &matched.rule.action[0];
         let config = match action {
             Action::SetProviderConfig(config) => config,
             _ => panic!("expected SetProviderConfig"),
         };
-        let scope = ActionHash::from_rule_action_and_provider(&rule, action, "my-source", "yahoo");
+        let scope =
+            ActionHash::from_matched_action_and_provider(&matched, action, "my-source", "yahoo");
 
         let base = Utc::now();
         // A record timestamped 10 minutes later arrives first...
         let later = make_record_at(base + chrono::Duration::minutes(10), "two.example.com");
         state.create_provider_config_override(
             &scope,
-            &rule,
+            &matched.rule,
             &later,
             config,
             "yahoo",
@@ -1260,7 +1278,7 @@ connection_limit = 3
         let earlier = make_record_at(base, "one.example.com");
         state.create_provider_config_override(
             &scope,
-            &rule,
+            &matched.rule,
             &earlier,
             config,
             "yahoo",
@@ -1273,6 +1291,36 @@ connection_limit = 3
             second_expires,
             first_expires,
             "earlier-timestamped record must not shorten the override"
+        );
+    }
+
+    #[test]
+    fn identical_rules_in_different_scopes_get_distinct_keys() {
+        let base = Utc::now();
+        let record = make_record_at(base, "one.example.com");
+
+        // Same rule reached through a default/site rollup block and through a
+        // domain block: the scope must keep their keys apart.
+        let rollup = make_matched(make_rule(), MatchScope::Rollup);
+        let domain = make_matched(make_rule(), MatchScope::Domain);
+
+        let rollup_key = EventKey::from_matched_and_record(&rollup, &record);
+        let domain_key = EventKey::from_matched_and_record(&domain, &record);
+        assert_ne!(
+            rollup_key, domain_key,
+            "rollup and domain matches of the same rule must not share an EventKey"
+        );
+
+        // Same rule reached through two different provider blocks.
+        let prov_a = make_matched(make_rule(), MatchScope::Provider("yahoo".to_string()));
+        let prov_b = make_matched(make_rule(), MatchScope::Provider("office365".to_string()));
+        let prov_a_hash =
+            ActionHash::from_matched_and_record(&prov_a, &prov_a.rule.action[0], &record);
+        let prov_b_hash =
+            ActionHash::from_matched_and_record(&prov_b, &prov_b.rule.action[0], &record);
+        assert_ne!(
+            prov_a_hash, prov_b_hash,
+            "provider matches of the same rule must not share an ActionHash"
         );
     }
 }

@@ -2,7 +2,7 @@ use crate::database::Database;
 use crate::publish::submit_record;
 use crate::shaping_config::get_shaping;
 use crate::state::{
-    ActionHash, ConfigurationOverride, MatchingScope, OverrideScope, ReadyQSuspensionEntry,
+    ActionHash, ConfigurationOverride, EventKey, OverrideScope, ReadyQSuspensionEntry,
     SchedQBounceEntry, SchedQBounceKey, SchedQSuspensionEntry, SchedQSuspensionKey, TsaState,
     TSA_STATE,
 };
@@ -12,7 +12,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use chrono::{DateTime, Utc};
 use kumo_api_types::shaping::{
-    Action, EgressPathConfigValueUnchecked, Regex, Rule, Shaping, Trigger,
+    Action, EgressPathConfigValueUnchecked, MatchScope, MatchedRule, Regex, Rule, Shaping, Trigger,
 };
 use kumo_api_types::tsa::{
     ReadyQSuspension, SchedQBounce, SchedQSuspension, SubscriptionItem, SuspensionEntry,
@@ -56,6 +56,9 @@ pub fn make_router() -> RouterAndDocs {
     )
 }
 
+/// Whether a config override honors the scope the matched rule was found in
+/// (`Yes`: a rollup-block match writes a site_name override) or is pinned to
+/// the triggering domain regardless of that scope (`No`).
 #[derive(PartialEq, Clone, Copy)]
 pub enum PreferRollup {
     Yes,
@@ -314,21 +317,22 @@ async fn publish_log_v1_impl(
         let matches = shaping.match_rules(&record).await?;
 
         for m in &matches {
-            let expires = record.timestamp + chrono::Duration::from_std(m.duration)?;
+            let rule = &m.rule;
+            let expires = record.timestamp + chrono::Duration::from_std(rule.duration)?;
             if expires <= *now {
                 // Record was perhaps delayed and is already expired, no sense recording it now
                 continue;
             }
 
-            let matching_scope = MatchingScope::from_rule_and_record(m, &record);
+            let event_key = EventKey::from_matched_and_record(m, &record);
 
-            let triggered = match m.trigger {
+            let triggered = match rule.trigger {
                 Trigger::Immediate => true,
                 Trigger::Threshold(spec) => {
                     let count = TSA_STATE
                         .get()
                         .expect("state not initialized")
-                        .record_event(&matching_scope, m, &record);
+                        .record_event(&event_key, rule, &record);
 
                     count >= spec.limit
                 }
@@ -339,14 +343,14 @@ async fn publish_log_v1_impl(
             // To enact the action, we need to generate (or update) a row
             // in the db with its effects and its expiry
             if triggered {
-                for action in &m.action {
+                for action in &rule.action {
                     // Since there can be multiple actions within a match,
                     // ensure that the rule_hash that we use to record
                     // the effects of an action varies by the current
                     // action that we are iterating
                     let a_hash = action_hash(m, action);
                     let rule_hash = format!("{store_key}-{a_hash}");
-                    let action_hash = ActionHash::from_rule_and_record(m, action, &record);
+                    let action_hash = ActionHash::from_matched_and_record(m, action, &record);
 
                     tracing::debug!("{action:?} for {record:?}");
                     match action {
@@ -354,7 +358,7 @@ async fn publish_log_v1_impl(
                             create_ready_q_suspension(
                                 &action_hash,
                                 &rule_hash,
-                                m,
+                                rule,
                                 &record,
                                 source,
                                 events,
@@ -365,7 +369,7 @@ async fn publish_log_v1_impl(
                             create_tenant_suspension(
                                 &action_hash,
                                 &rule_hash,
-                                m,
+                                rule,
                                 &record,
                                 UseCampaign::No,
                                 events,
@@ -376,7 +380,7 @@ async fn publish_log_v1_impl(
                             create_tenant_suspension(
                                 &action_hash,
                                 &rule_hash,
-                                m,
+                                rule,
                                 &record,
                                 UseCampaign::Yes,
                                 events,
@@ -411,9 +415,9 @@ async fn publish_log_v1_impl(
                                     PreferRollup::No,
                                 );
                         }
-                        Action::SetProviderConfig(config) => match &m.provider_name {
-                            Some(provider_name) => {
-                                let provider_hash = ActionHash::from_rule_action_and_provider(
+                        Action::SetProviderConfig(config) => match &m.scope {
+                            MatchScope::Provider(provider_name) => {
+                                let provider_hash = ActionHash::from_matched_action_and_provider(
                                     m,
                                     action,
                                     source,
@@ -424,7 +428,7 @@ async fn publish_log_v1_impl(
                                     .expect("tsa_state missing")
                                     .create_provider_config_override(
                                         &provider_hash,
-                                        m,
+                                        rule,
                                         &record,
                                         config,
                                         provider_name,
@@ -432,7 +436,7 @@ async fn publish_log_v1_impl(
                                         source,
                                     );
                             }
-                            None => {
+                            _ => {
                                 // Defensive fallback: load-time validation already
                                 // rejects this action outside of a provider scope.
                                 tracing::warn!(
@@ -444,7 +448,7 @@ async fn publish_log_v1_impl(
                         Action::Bounce => {
                             create_bounce(
                                 &action_hash,
-                                m,
+                                rule,
                                 &record,
                                 UseTenant::No,
                                 UseCampaign::No,
@@ -455,7 +459,7 @@ async fn publish_log_v1_impl(
                         Action::BounceTenant => {
                             create_bounce(
                                 &action_hash,
-                                m,
+                                rule,
                                 &record,
                                 UseTenant::Yes,
                                 UseCampaign::No,
@@ -466,7 +470,7 @@ async fn publish_log_v1_impl(
                         Action::BounceCampaign => {
                             create_bounce(
                                 &action_hash,
-                                m,
+                                rule,
                                 &record,
                                 UseTenant::Yes,
                                 UseCampaign::Yes,
@@ -518,9 +522,9 @@ impl std::hash::Hasher for Sha256Hasher {
     }
 }
 
-fn action_hash(m: &Rule, action: &Action) -> String {
+fn action_hash(m: &MatchedRule, action: &Action) -> String {
     let mut hasher = Sha256Hasher::new();
-    m.hash(&mut hasher);
+    m.hash_into(&mut hasher);
     action.hash(&mut hasher);
     hasher.get()
 }
