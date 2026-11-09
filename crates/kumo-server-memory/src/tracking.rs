@@ -68,14 +68,27 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for TrackingAllocator<A> {
     }
 
     unsafe fn realloc(&self, old_ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        track_dealloc(old_ptr, layout.size());
+        let track_callstacks = STATS.track_callstacks.load(Relaxed);
+        let mut saved_callstack = None;
+        track_dealloc_with(old_ptr, layout.size(), track_callstacks, |entry| {
+            saved_callstack = entry;
+        });
 
         let new_ptr = unsafe { self.allocator.realloc(old_ptr, layout, new_size) };
 
         if new_ptr.is_null() {
             // Failed realloc leaves the original allocation live.
-            track_allocation(old_ptr, layout.size());
+            track_allocation_with(old_ptr, layout.size(), track_callstacks, || saved_callstack);
         } else {
+            if let Some(entry) = saved_callstack {
+                // Dropping the entry may deallocate through this allocator;
+                // the guard suppresses re-entrant tracking of that drop.
+                IN_TRACKER.with(|in_track| {
+                    let previous = in_track.replace(true);
+                    drop(entry);
+                    in_track.set(previous);
+                });
+            }
             track_allocation(new_ptr, new_size);
         }
         new_ptr
@@ -83,9 +96,24 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for TrackingAllocator<A> {
 }
 
 fn track_allocation(ptr: *mut u8, size: usize) {
+    track_allocation_with(ptr, size, STATS.track_callstacks.load(Relaxed), || {
+        Some(CallstackEntry {
+            size,
+            bt: Backtrace::new_unresolved(),
+        })
+    });
+}
+
+#[inline]
+fn track_allocation_with(
+    ptr: *mut u8,
+    size: usize,
+    track_callstacks: bool,
+    callstack: impl FnOnce() -> Option<CallstackEntry>,
+) {
     STATS.live.add(ptr.addr(), size);
 
-    if !STATS.track_callstacks.load(Relaxed) {
+    if !track_callstacks {
         return;
     }
 
@@ -102,13 +130,21 @@ fn track_allocation(ptr: *mut u8, size: usize) {
             let track = hash.should_sample_size(size);
 
             if track {
-                let bt = Backtrace::new_unresolved();
+                let entry = callstack();
                 if size < MEDIUM_SIZE {
                     STATS.medium.add(size);
-                    MEDIUM_TRACKER.lock().track_allocation(hash, size, bt);
+                    if let Some(entry) = entry {
+                        MEDIUM_TRACKER
+                            .lock()
+                            .track_allocation(hash, entry.size, entry.bt);
+                    }
                 } else {
                     STATS.large.add(size);
-                    BIG_TRACKER.lock().track_allocation(hash, size, bt);
+                    if let Some(entry) = entry {
+                        BIG_TRACKER
+                            .lock()
+                            .track_allocation(hash, entry.size, entry.bt);
+                    }
                 }
             }
 
@@ -118,9 +154,19 @@ fn track_allocation(ptr: *mut u8, size: usize) {
 }
 
 fn track_dealloc(ptr: *mut u8, size: usize) {
+    track_dealloc_with(ptr, size, STATS.track_callstacks.load(Relaxed), drop);
+}
+
+#[inline]
+fn track_dealloc_with(
+    ptr: *mut u8,
+    size: usize,
+    track_callstacks: bool,
+    removed: impl FnOnce(Option<CallstackEntry>),
+) {
     STATS.live.sub(ptr.addr(), size);
 
-    if !STATS.track_callstacks.load(Relaxed) {
+    if !track_callstacks {
         return;
     }
 
@@ -138,11 +184,13 @@ fn track_dealloc(ptr: *mut u8, size: usize) {
 
             if track {
                 if size < MEDIUM_SIZE {
-                    MEDIUM_TRACKER.lock().track_dealloc(hash, size);
+                    let entry = MEDIUM_TRACKER.lock().track_dealloc(hash, size);
                     STATS.medium.sub(size);
+                    removed(entry);
                 } else {
                     STATS.large.sub(size);
-                    BIG_TRACKER.lock().track_dealloc(hash, size);
+                    let entry = BIG_TRACKER.lock().track_dealloc(hash, size);
+                    removed(entry);
                 }
             }
 
@@ -214,8 +262,8 @@ impl AllocationTracker {
             .insert(ptr, CallstackEntry { size, bt });
     }
 
-    pub fn track_dealloc(&mut self, ptr: PtrHash, _size: usize) {
-        self.live_allocations.remove(&ptr);
+    pub fn track_dealloc(&mut self, ptr: PtrHash, _size: usize) -> Option<CallstackEntry> {
+        self.live_allocations.remove(&ptr)
     }
 
     pub fn top_callstacks(&self, max_stacks: usize) -> Vec<CallstackStats> {
