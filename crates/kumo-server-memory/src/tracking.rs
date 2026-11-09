@@ -63,8 +63,8 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for TrackingAllocator<A> {
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe { self.allocator.dealloc(ptr, layout) };
         track_dealloc(ptr, layout.size());
+        unsafe { self.allocator.dealloc(ptr, layout) };
     }
 
     unsafe fn realloc(&self, old_ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
