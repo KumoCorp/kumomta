@@ -387,3 +387,13 @@
    [msg:set_scheduling](../reference/message/set_scheduling.md), or set on a
    message before it was transferred to another node, was not always honored,
    so a message could be delivered after its expiration. This is now fixed. #671
+
+ * Reading a [kumo.domain_map](../reference/kumo.domain_map/new.md),
+   [kumo.cidr.make_map](../reference/kumo.cidr/make_map.md) or
+   [kumo.regex_set_map](../reference/kumo.regex_set_map/new.md) value back
+   out of a [kumo.memoize](../reference/kumo/memoize.md) cache copied the
+   whole map on every access, an O(N) cost in the number of entries. It is now
+   an O(1) reference count increment. The `queue.lua` helper reads its
+   compiled `queues.toml` domain map from such a cache for every received
+   message. In practical terms, that meant that the maximum ingress rate
+   possible would fall as the size of `queues.toml` increased.

@@ -8,6 +8,7 @@ use mod_memoize::CacheValue;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
+use std::sync::Arc;
 
 #[derive(Clone)]
 struct Node<V: Clone> {
@@ -36,7 +37,7 @@ impl<V: Debug + Clone> Debug for Node<V> {
 #[derive(Default, Clone, Serialize, Deserialize)]
 #[serde(from = "BTreeMap<String, V>", into = "BTreeMap<String,V>")]
 pub struct DomainMap<V: Clone> {
-    top: HashMap<String, Node<V>>,
+    top: Arc<HashMap<String, Node<V>>>,
 }
 
 impl LuaUserData for DomainMap<CacheValue> {
@@ -72,12 +73,12 @@ impl<V: Debug + Clone> Debug for DomainMap<V> {
 impl<V: Clone> DomainMap<V> {
     pub fn new() -> Self {
         Self {
-            top: HashMap::new(),
+            top: Arc::new(HashMap::new()),
         }
     }
 
     pub fn insert(&mut self, pattern: &str, value: V) {
-        let mut current = &mut self.top;
+        let mut current = Arc::make_mut(&mut self.top);
         let mut iter = pattern.rsplit('.').peekable();
         while let Some(seg) = iter.next() {
             let node = current.entry(seg.to_string()).or_insert_with(|| Node {
@@ -96,7 +97,7 @@ impl<V: Clone> DomainMap<V> {
     }
 
     pub fn get(&self, pattern: &str) -> Option<&V> {
-        let mut current = &self.top;
+        let mut current = &*self.top;
         let mut iter = pattern.rsplit('.').peekable();
         while let Some(seg) = iter.next() {
             match current.get(seg) {
@@ -222,5 +223,20 @@ mod tests {
 }
 "#
         );
+    }
+
+    #[test]
+    fn clone_is_shared_until_written() {
+        let mut map: DomainMap<u32> = DomainMap::new();
+        map.insert("example.com", 1);
+
+        let mut copy = map.clone();
+        assert!(Arc::ptr_eq(&map.top, &copy.top));
+
+        copy.insert("other.com", 2);
+        assert!(!Arc::ptr_eq(&map.top, &copy.top));
+        assert_eq!(map.get("other.com"), None);
+        assert_eq!(copy.get("other.com"), Some(&2));
+        assert_eq!(copy.get("example.com"), Some(&1));
     }
 }
