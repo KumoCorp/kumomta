@@ -202,6 +202,7 @@ pub enum Action {
     SuspendTenant,
     SuspendCampaign,
     SetDomainConfig(EgressPathConfigValue),
+    SetProviderConfig(EgressPathConfigValue),
     Bounce,
     BounceTenant,
     BounceCampaign,
@@ -232,9 +233,6 @@ pub struct Rule {
     #[serde(with = "duration_serde")]
     pub duration: Duration,
 
-    #[serde(skip)]
-    pub was_rollup: bool,
-
     /// if true, this rule can match kumomta internally generated
     /// Response messages, otherwise, the rule will skip testing
     /// against those.
@@ -251,11 +249,36 @@ impl Rule {
             .iter()
             .any(|r| r.is_match(response).unwrap_or(false))
     }
+}
 
-    pub fn clone_and_set_rollup(&self) -> Self {
-        let mut result = self.clone();
-        result.was_rollup = true;
-        result
+/// Which kind of shaping block a [`Rule`] was reached through while
+/// matching one record.
+#[cfg(feature = "lua")]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum MatchScope {
+    /// The `default` block or a site-name block, applying across the whole
+    /// site_name rollup.
+    Rollup,
+    /// A specific domain block.
+    Domain,
+    /// A provider block, named by the provider.
+    Provider(String),
+}
+
+/// Pairs a [`Rule`] with the [`MatchScope`] it was found in while matching.
+#[cfg(feature = "lua")]
+#[derive(Debug, Clone)]
+pub struct MatchedRule {
+    pub rule: Rule,
+    pub scope: MatchScope,
+}
+
+#[cfg(feature = "lua")]
+impl MatchedRule {
+    /// Writes a hash of the rule and its [`MatchScope`] together.
+    pub fn hash_into<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        self.rule.hash(hasher);
+        self.scope.hash(hasher);
     }
 }
 
@@ -343,7 +366,7 @@ impl ShapingInner {
         params
     }
 
-    pub async fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<Rule>> {
+    pub async fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<MatchedRule>> {
         use rfc5321::parser::ForwardPath;
         // Extract the domain from the recipient.
         let recipient = ForwardPath::try_from(
@@ -393,7 +416,7 @@ impl ShapingInner {
         record: &JsonLogRecord,
         domain: &str,
         site_name: &str,
-    ) -> Vec<Rule> {
+    ) -> Vec<MatchedRule> {
         let mut result = vec![];
         let response = record.response.to_single_line();
         tracing::trace!("Consider rules for {response}");
@@ -410,7 +433,10 @@ impl ShapingInner {
                     // true, you should avoid using `default` for
                     // automation.  Honestly, it's best to avoid
                     // using `default` for automation.
-                    result.push(rule.clone_and_set_rollup());
+                    result.push(MatchedRule {
+                        rule: rule.clone(),
+                        scope: MatchScope::Rollup,
+                    });
                 }
             }
         }
@@ -423,7 +449,10 @@ impl ShapingInner {
                         prov.provider_name
                     );
                     if rule.matches(is_internal, &response) {
-                        result.push(rule.clone());
+                        result.push(MatchedRule {
+                            rule: rule.clone(),
+                            scope: MatchScope::Provider(prov.provider_name.clone()),
+                        });
                     }
                 }
             }
@@ -434,7 +463,10 @@ impl ShapingInner {
             for rule in &by_site.automation {
                 tracing::trace!("Consider \"{site_name}\" rule {rule:?} for {response}");
                 if rule.matches(is_internal, &response) {
-                    result.push(rule.clone_and_set_rollup());
+                    result.push(MatchedRule {
+                        rule: rule.clone(),
+                        scope: MatchScope::Rollup,
+                    });
                 }
             }
         }
@@ -444,7 +476,10 @@ impl ShapingInner {
             for rule in &by_domain.automation {
                 tracing::trace!("Consider \"{domain}\" rule {rule:?} for {response}");
                 if rule.matches(is_internal, &response) {
-                    result.push(rule.clone());
+                    result.push(MatchedRule {
+                        rule: rule.clone(),
+                        scope: MatchScope::Domain,
+                    });
                 }
             }
         }
@@ -512,6 +547,25 @@ impl Collector {
             CheckLevel::Ignore => {}
             CheckLevel::Warn => self.warnings.push(msg.into()),
             CheckLevel::Error => self.errors.push(msg.into()),
+        }
+    }
+}
+
+/// Reject a `SetProviderConfig` action found outside a provider block.
+/// The override it generates is attached to the provider that matched the
+/// rule, and a rule outside a provider block never matches one.
+#[cfg(feature = "lua")]
+fn reject_provider_only_actions(automation: &[Rule], scope: &str, collector: &mut Collector) {
+    for rule in automation {
+        if rule
+            .action
+            .iter()
+            .any(|action| matches!(action, Action::SetProviderConfig(_)))
+        {
+            collector.push(
+                CheckLevel::Error,
+                format!("SetProviderConfig is only valid within a provider block, but was used in {scope}"),
+            );
         }
     }
 }
@@ -703,6 +757,11 @@ impl Shaping {
             if let Some(mut partial) = item.default.take() {
                 let domain = "default";
                 partial.domain_name.replace(domain.to_string());
+                reject_provider_only_actions(
+                    &partial.automation,
+                    "the default block",
+                    &mut collector,
+                );
                 match by_domain.get_mut(domain) {
                     Some(existing) => {
                         existing.merge_from(partial);
@@ -715,6 +774,11 @@ impl Shaping {
 
             for (domain, mut partial) in item.domains {
                 partial.domain_name.replace(domain.clone());
+                reject_provider_only_actions(
+                    &partial.automation,
+                    &format!("domain '{domain}'"),
+                    &mut collector,
+                );
 
                 if let Ok(name) = fully_qualify(&domain) {
                     if name.num_labels() == 1 {
@@ -963,7 +1027,7 @@ impl Shaping {
         &self.inner.warnings
     }
 
-    pub async fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<Rule>> {
+    pub async fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<MatchedRule>> {
         self.inner.match_rules(record).await
     }
 
@@ -1027,8 +1091,10 @@ impl LuaUserData for Shaping {
             let record: JsonLogRecord = lua.from_value(record)?;
             let rules = this.match_rules(&record).await.map_err(any_err)?;
             let mut result = vec![];
-            for rule in rules {
-                result.push(lua.to_value(&rule)?);
+            for matched in rules {
+                // Only the rule, in its original shape, crosses into lua. The
+                // match-time scope stays internal to Rust.
+                result.push(lua.to_value(&matched.rule)?);
             }
             Ok(result)
         });
@@ -1730,6 +1796,43 @@ enable_tls = "Required"
     }
 
     #[tokio::test]
+    async fn test_set_provider_config_rejected_outside_provider() {
+        // SetProviderConfig attaches its override to the matched provider.
+        let shaping = make_shaping_configs(&[r#"
+["example.com"]
+mx_rollup = false
+
+[["example.com".automation]]
+regex = "x"
+action = {SetProviderConfig={name="connection_limit", value=3}}
+duration = "1hr"
+"#])
+        .await;
+
+        k9::assert_equal!(
+            shaping.get_errors(),
+            ["SetProviderConfig is only valid within a provider block, but was used in domain 'example.com'".to_string()]
+                .as_slice()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_provider_config_accepted_in_provider() {
+        let shaping = make_shaping_configs(&[r#"
+[provider."acme"]
+match=[{DomainSuffix=".acme"}]
+
+[[provider."acme".automation]]
+regex = "x"
+action = {SetProviderConfig={name="connection_limit", value=3}}
+duration = "1hr"
+"#])
+        .await;
+
+        k9::assert_equal!(shaping.get_errors(), ([] as [String; 0]).as_slice());
+    }
+
+    #[tokio::test]
     async fn test_provider() {
         let shaping = make_shaping_configs(&[r#"
 [provider."Office 365"]
@@ -1883,7 +1986,7 @@ match_internal = true
             .await
             .unwrap();
         k9::assert_equal!(
-            matches[0].regex[0].to_string(),
+            matches[0].rule.regex[0].to_string(),
             "default",
             "matches against default automation rule"
         );
@@ -1907,7 +2010,7 @@ match_internal = true
             .await
             .unwrap();
         k9::assert_equal!(
-            matches[0].regex[0].to_string(),
+            matches[0].rule.regex[0].to_string(),
             "woot_domain",
             "matches against domain rule with mx_rollup=false"
         );
@@ -1917,7 +2020,7 @@ match_internal = true
             .await
             .unwrap();
         k9::assert_equal!(
-            matches[0].regex[0].to_string(),
+            matches[0].rule.regex[0].to_string(),
             "fake_rollup",
             "matches against domain rule with mx_rollup=true"
         );
@@ -1941,7 +2044,7 @@ match_internal = true
             .await
             .unwrap();
         assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].regex[0].to_string(), "nested_rollup");
+        assert_eq!(matches[0].rule.regex[0].to_string(), "nested_rollup");
         assert!(shaping
             .match_rules(&make_record(
                 "nested_rollup",
@@ -1957,9 +2060,14 @@ match_internal = true
             .await
             .unwrap();
         k9::assert_equal!(
-            matches[0].regex[0].to_string(),
+            matches[0].rule.regex[0].to_string(),
             "provider",
             "matches against provider rule"
+        );
+        k9::assert_equal!(
+            matches[0].scope,
+            MatchScope::Provider("provider".to_string()),
+            "provider rule's scope names the matched provider"
         );
 
         let matches = shaping
@@ -1971,7 +2079,7 @@ match_internal = true
             .await
             .unwrap();
         k9::assert_equal!(
-            matches[0].regex[0].to_string(),
+            matches[0].rule.regex[0].to_string(),
             "provider",
             "internal response matches against provider rule"
         );
@@ -2174,7 +2282,6 @@ MergedEntry {
             ],
             trigger: Immediate,
             duration: 5400s,
-            was_rollup: false,
             match_internal: false,
         },
     ],
@@ -2382,7 +2489,6 @@ MergedEntry {
             ],
             trigger: Immediate,
             duration: 5400s,
-            was_rollup: false,
             match_internal: false,
         },
     ],
@@ -2524,7 +2630,6 @@ MergedEntry {
             ],
             trigger: Immediate,
             duration: 5400s,
-            was_rollup: false,
             match_internal: false,
         },
         Rule {
@@ -2538,7 +2643,6 @@ MergedEntry {
             ],
             trigger: Immediate,
             duration: 7200s,
-            was_rollup: false,
             match_internal: false,
         },
     ],

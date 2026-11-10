@@ -40,5 +40,10 @@ tracing = {workspace=true}
 utoipa = {workspace=true}
 version-info = {path="../version-info"}
 
+[dev-dependencies]
+fancy-regex = {workspace=true}
+k9 = {workspace=true}
+uuid = {workspace=true, features=["serde"]}
+
 [lints]
 workspace = true

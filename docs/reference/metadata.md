@@ -53,3 +53,4 @@ table tbody tr td:nth-of-type(2) {
 |Message|`campaign`|specify the name/identifier of the campaign. Must be a string value.||
 |Message|`routing_domain`|Overrides the domain of the recipient domain for routing purposes.|{{since('2023.08.22-4d895015', inline=True)}}|
 |Message|`extra`|Per-recipient metadata supplied via the HTTP injection API's recipient-level `metadata` field. The value is the supplied object; accessible from Lua hooks via `msg:get_meta('extra')`.|{{since('2026.05.12-a6845223', inline=True)}}|
+|Message|`sticky_egress_source`|The name of the egress source selected for the message by a pool whose [selection_strategy](kumo/make_egress_pool/selection_strategy.md) is `StickyWeightedRoundRobin`. Later selections from that pool reuse this source.|{{since('dev', inline=True)}}|

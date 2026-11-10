@@ -63,6 +63,13 @@
 
 ## Other Changes and Enhancements
 
+ * [kumo.make_egress_pool](../reference/kumo/make_egress_pool/index.md) accepts
+   a new
+   [selection_strategy](../reference/kumo/make_egress_pool/selection_strategy.md)
+   parameter. Setting it to `StickyWeightedRoundRobin` records the source
+   chosen for a message's first attempt and reuses that source for later
+   attempts, as long as the source remains part of the pool. #670
+
  * Implicit TLS (SMTPS) is now supported on both the inbound and outbound SMTP
    paths.
    [kumo.start_esmtp_listener](../reference/kumo/start_esmtp_listener/index.md)
@@ -175,6 +182,17 @@
    [kumo.set_lruttl_cache_capacity](../reference/kumo/set_lruttl_cache_capacity.md).
    A capacity of zero turns the cache off.
    Thanks to @akshitsethi0023! #638
+
+ * Traffic shaping automation rules in a `provider` block can now set a
+   configuration override scoped to the whole provider, the triggering
+   `site_name`, or just the triggering domain:
+    * [`SetProviderConfig`](../reference/kumo.shaping/load.md#traffic-shaping-automation-rules)
+      (new) scopes the override to the whole provider, covering every
+      `site_name` matched by the provider.
+    * `SetConfig` now applies the override to the triggering domain's
+      `site_name` (`mx_rollup=true`). It previously behaved like `SetDomainConfig`.
+    * `SetDomainConfig` applies the override only to the triggering domain
+      (`mx_rollup=false`).
 
 ## Fixes
 
@@ -365,6 +383,11 @@
    tight loop, or panic the process, depending on how many delivery attempts it
    had already made. Thanks to @edgarsendernet! #644
 
+ * A per-message expiration set via
+   [msg:set_scheduling](../reference/message/set_scheduling.md), or set on a
+   message before it was transferred to another node, was not always honored,
+   so a message could be delivered after its expiration. This is now fixed. #671
+   
  * The [HTTP injection API](../reference/http/kumod/api_inject_v1_post.md)
    no longer parses and rebuilds RFC822 string content when
    `template_dialect` is `Static`. This avoids rewriting headers and MIME

@@ -31,6 +31,9 @@ pub struct ReadyQueueFull;
 enum InsertResult {
     Delayed,
     Ready(Message),
+    /// The message had reached its deadline and was expired and removed
+    /// from the spool. The caller must not insert it anywhere.
+    Expired,
 }
 
 /// There can sometimes be a small (eg: 20ms or so) discrepancy

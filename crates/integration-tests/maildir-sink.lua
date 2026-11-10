@@ -77,7 +77,40 @@ kumo.on('xfer_message_received', function(msg)
   msg:set_meta('sunk', 'received via xfer')
 end)
 
-local function apply_rejections(envelope_addr)
+-- An unretried greylist entry is forgotten after this long, and the next
+-- attempt is treated as a first attempt.
+local GREYLIST_LIFETIME_SECONDS = 3600
+
+-- Emulates a greylisting receiver for an envelope address of the form
+-- `greylist-KEY-DELAY@domain`, where DELAY is a duration such as `1s`
+-- or `5m`. Every attempt from a given EHLO domain for a given KEY is
+-- deferred until DELAY has elapsed since the first such attempt.
+--
+-- The first-attempt time is recorded as a one-per-lifetime throttle,
+-- which is shared across every Lua VM in the process: the first call
+-- is admitted and starts the clock, and later calls report how long
+-- remains until the throttle resets, which yields the elapsed time.
+local function apply_greylist(envelope_addr, conn_meta)
+  local key, delay = envelope_addr.user:match '^greylist%-([^%-]+)%-(.+)$'
+  if not key then
+    return
+  end
+  local delay_seconds = kumo.time.parse_duration(delay).seconds
+  local throttle_name =
+    string.format('greylist/%s/%s', conn_meta:get_meta 'ehlo_domain', key)
+  local result = kumo
+    .make_throttle(throttle_name, string.format('local:1/%ds', GREYLIST_LIFETIME_SECONDS))
+    :throttle()
+  if not result.throttled then
+    kumo.reject(451, '4.7.1 greylisted, try again later')
+  end
+  local elapsed = GREYLIST_LIFETIME_SECONDS - result.reset_after.secs
+  if elapsed < delay_seconds then
+    kumo.reject(451, '4.7.1 greylisted, try again later')
+  end
+end
+
+local function apply_rejections(envelope_addr, conn_meta)
   if string.find(envelope_addr.user, 'full-enh') then
     kumo.reject(452, '4.1.1 mailbox is full')
   end
@@ -99,14 +132,15 @@ local function apply_rejections(envelope_addr)
   if utils.starts_with(envelope_addr.user, '550-') then
     kumo.reject(550, 'you said ' .. envelope_addr.user)
   end
+  apply_greylist(envelope_addr, conn_meta)
 end
 
-kumo.on('smtp_server_rcpt_to', function(recipient)
-  apply_rejections(recipient)
+kumo.on('smtp_server_rcpt_to', function(recipient, conn_meta)
+  apply_rejections(recipient, conn_meta)
 end)
 
-kumo.on('smtp_server_mail_from', function(sender)
-  apply_rejections(sender)
+kumo.on('smtp_server_mail_from', function(sender, conn_meta)
+  apply_rejections(sender, conn_meta)
 end)
 
 kumo.on('smtp_server_message_received', function(msg)
