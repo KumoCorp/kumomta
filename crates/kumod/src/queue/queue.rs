@@ -766,141 +766,74 @@ impl Queue {
         msg.delay_by(delay).await
     }
 
-    async fn increment_attempts_and_update_delay(
-        &self,
-        msg: Message,
-    ) -> anyhow::Result<Option<Message>> {
-        let id = *msg.id();
-        // Pre-calculate the delay, prior to incrementing the number of attempts,
-        // as the delay_for_attempt uses a zero-based attempt number to figure
-        // the interval
-        let num_attempts = msg.get_num_attempts();
-        let delay = self.queue_config.borrow().delay_for_attempt(num_attempts);
-        msg.increment_num_attempts();
+    /// Expire `msg` when its due time has reached its deadline: the
+    /// per-message `expires` from set_scheduling when present, otherwise the
+    /// queue's max_age measured from the message's creation. A message with no
+    /// due time is treated as due now. On expiry, this logs an Expiration
+    /// record and removes the message from the spool. It returns `Ok(true)`
+    /// when it expired the message, in which case the caller must not go on
+    /// to insert it.
+    async fn expire_if_past_deadline(
+        self: &Arc<Self>,
+        msg: &Message,
+        due: Option<DateTime<Utc>>,
+    ) -> anyhow::Result<bool> {
+        let now = Utc::now();
+        // A due time already in the past means the message is due now,
+        // since it cannot be delivered before the present moment.
+        let due = due.unwrap_or(now).max(now);
 
-        // Compute some jitter. The default retry_interval is 20 minutes for
-        // which 1 minute is desired. To accomodate different intervals we translate
-        // that to allowing up to 1/20th of the retry_interval as jitter, but we
-        // cap it to 1 minute so that it doesn't result in excessive divergence
-        // for very large intervals.
-        let jitter_magnitude =
-            (self.queue_config.borrow().retry_interval.as_secs_f32() / 20.0).min(60.0);
-        let jitter = (rand::random::<f32>() * jitter_magnitude) - (jitter_magnitude / 2.0);
-        let delay = kumo_chrono_helper::seconds(delay.num_seconds() + jitter as i64)?;
-
-        match msg.get_scheduling().await?.and_then(|sched| sched.expires) {
-            Some(expires) => {
-                // Per-message expiry
-                match msg.delay_by(delay).await? {
-                    Some(next_due) => {
-                        if next_due >= expires {
-                            tracing::debug!(
-                                "expiring {id} {next_due} > scheduled expiry {expires}"
-                            );
-                            log_disposition(LogDisposition {
-                                kind: RecordType::Expiration,
-                                msg,
-                                site: "",
-                                peer_address: None,
-                                response: Response {
-                                    code: 551,
-                                    enhanced_code: Some(EnhancedStatusCode {
-                                        class: 5,
-                                        subject: 4,
-                                        detail: 7,
-                                    }),
-                                    content: format!(
-                                        "Next delivery time would be at {next_due} \
-                                        which exceeds the expiry time {expires} \
-                                        configured via set_scheduling"
-                                    ),
-                                    command: None,
-                                },
-                                egress_pool: self.queue_config.borrow().egress_pool.as_deref(),
-                                egress_source: None,
-                                relay_disposition: None,
-                                delivery_protocol: None,
-                                tls_info: None,
-                                source_address: None,
-                                provider: self.queue_config.borrow().provider_name.as_deref(),
-                                session_id: None,
-                                recipient_list: None,
-                            })
-                            .await;
-                            SpoolManager::remove_from_spool(id).await?;
-                            return Ok(None);
-                        }
-                        tracing::trace!(
-                            "increment_attempts_and_update_delay: delaying {id} \
-                            by {delay} (num_attempts={num_attempts}), next_due={next_due:?}"
-                        );
-                    }
-                    None => {
-                        // Due immediately; cannot be an expiry.
-                        // I really wouldn't expect to hit this ever; seems impossible!
-                        tracing::trace!(
-                            "increment_attempts_and_update_delay: delaying {id} \
-                            by {delay} (num_attempts={num_attempts}), next_due=immediately"
-                        );
-                    }
-                }
-            }
+        let content = match msg.get_scheduling().await?.and_then(|sched| sched.expires) {
+            Some(expires) if due >= expires => format!(
+                "Next delivery time would be at {due} which exceeds the \
+                expiry time {expires} configured via set_scheduling"
+            ),
+            Some(_) => return Ok(false),
             None => {
-                // Regular queue based expiry
-
-                let now = Utc::now();
                 let max_age = self.queue_config.borrow().get_max_age();
-                let age = msg.age(now);
-                let delayed_age = age.checked_add(&delay);
-                if delayed_age.map_or(true, |delayed_age| delayed_age > max_age) {
-                    let delayed_age = format_duration(
-                        delayed_age
-                            .and_then(|d| d.to_std().ok())
-                            .unwrap_or(Duration::MAX),
-                    );
-                    let max_age = format_duration(max_age.to_std().unwrap_or(Duration::ZERO));
-                    tracing::debug!("expiring {id} {delayed_age} > {max_age}");
-                    log_disposition(LogDisposition {
-                        kind: RecordType::Expiration,
-                        msg,
-                        site: "",
-                        peer_address: None,
-                        response: Response {
-                            code: 551,
-                            enhanced_code: Some(EnhancedStatusCode {
-                                class: 5,
-                                subject: 4,
-                                detail: 7,
-                            }),
-                            content: format!(
-                                "Next delivery time would be {delayed_age} \
-                        after creation, which exceeds max_age={max_age}"
-                            ),
-                            command: None,
-                        },
-                        egress_pool: self.queue_config.borrow().egress_pool.as_deref(),
-                        egress_source: None,
-                        relay_disposition: None,
-                        delivery_protocol: None,
-                        tls_info: None,
-                        source_address: None,
-                        provider: self.queue_config.borrow().provider_name.as_deref(),
-                        session_id: None,
-                        recipient_list: None,
-                    })
-                    .await;
-                    SpoolManager::remove_from_spool(id).await?;
-                    return Ok(None);
+                let due_age = msg.age(due);
+                if due_age < max_age {
+                    return Ok(false);
                 }
-                let next_due = msg.delay_by(delay).await?;
-                tracing::trace!(
-                    "increment_attempts_and_update_delay: delaying {id} \
-                    by {delay} (num_attempts={num_attempts}), next_due={next_due:?}"
-                );
+                format!(
+                    "Next delivery time would be {due_age} after creation, \
+                    which exceeds max_age={max_age}",
+                    due_age = format_duration(due_age.to_std().unwrap_or(Duration::ZERO)),
+                    max_age = format_duration(max_age.to_std().unwrap_or(Duration::ZERO)),
+                )
             }
-        }
+        };
 
-        Ok(Some(msg))
+        let id = *msg.id();
+        tracing::debug!("expiring {id}: {content}");
+        log_disposition(LogDisposition {
+            kind: RecordType::Expiration,
+            msg: msg.clone(),
+            site: "",
+            peer_address: None,
+            response: Response {
+                code: 551,
+                enhanced_code: Some(EnhancedStatusCode {
+                    class: 5,
+                    subject: 4,
+                    detail: 7,
+                }),
+                content,
+                command: None,
+            },
+            egress_pool: self.queue_config.borrow().egress_pool.as_deref(),
+            egress_source: None,
+            relay_disposition: None,
+            delivery_protocol: None,
+            tls_info: None,
+            source_address: None,
+            provider: self.queue_config.borrow().provider_name.as_deref(),
+            session_id: None,
+            recipient_list: None,
+        })
+        .await;
+        SpoolManager::remove_from_spool(id).await?;
+        Ok(true)
     }
 
     /// Performs the raw re-insertion of a message into a scheduled queue.
@@ -914,59 +847,15 @@ impl Queue {
         context: InsertContext,
     ) -> anyhow::Result<()> {
         if increment_attempts == IncrementAttempts::Yes {
-            match self.increment_attempts_and_update_delay(msg).await? {
-                Some(msg) => {
-                    return self.insert(msg, context, None).await;
-                }
-                None => {
-                    // It was expired and removed from the spool
-                    return Ok(());
-                }
-            };
+            self.increment_attempts_and_update_delay_without_expiry(&msg)
+                .await?;
         } else if let Some(delay) = delay {
             msg.delay_by(delay).await?;
         } else {
             msg.delay_with_jitter(60).await?;
         }
 
-        if let Some(due) = msg.get_due() {
-            let max_age = self.queue_config.borrow().get_max_age();
-            // The age of the message at its next due time
-            let due_age = msg.age(due);
-            if due_age >= max_age {
-                let id = *msg.id();
-                tracing::debug!("expiring {id} {due_age} > {max_age}");
-                log_disposition(LogDisposition {
-                    kind: RecordType::Expiration,
-                    msg,
-                    site: "localhost",
-                    peer_address: None,
-                    response: Response {
-                        code: 551,
-                        enhanced_code: Some(EnhancedStatusCode {
-                            class: 5,
-                            subject: 4,
-                            detail: 7,
-                        }),
-                        content: format!("Next delivery time {due_age} > {max_age}"),
-                        command: None,
-                    },
-                    egress_pool: self.queue_config.borrow().egress_pool.as_deref(),
-                    egress_source: None,
-                    relay_disposition: None,
-                    delivery_protocol: None,
-                    tls_info: None,
-                    source_address: None,
-                    provider: self.queue_config.borrow().provider_name.as_deref(),
-                    session_id: None,
-                    recipient_list: None,
-                })
-                .await;
-                SpoolManager::remove_from_spool(id).await?;
-                return Ok(());
-            }
-        }
-
+        // insert expires the message if its new due time is past its deadline.
         self.insert(msg, context, None).await?;
 
         Ok(())
@@ -980,7 +869,13 @@ impl Queue {
     ) -> anyhow::Result<InsertResult> {
         tracing::trace!("insert_delayed {}", msg.id());
 
-        match msg.get_due() {
+        let due = msg.get_due();
+
+        if self.expire_if_past_deadline(&msg, due).await? {
+            return Ok(InsertResult::Expired);
+        }
+
+        match due {
             None => Ok(InsertResult::Ready(msg)),
             Some(due) => {
                 let now = Utc::now();
@@ -1013,6 +908,7 @@ impl Queue {
         loop {
             match self.insert_delayed(msg.clone(), context.clone()).await? {
                 InsertResult::Delayed => return Ok(()),
+                InsertResult::Expired => return Ok(()),
                 // Maybe delay_with_jitter computed an immediate
                 // time? Let's try again
                 InsertResult::Ready(_) => {
@@ -1738,6 +1634,7 @@ impl Queue {
 
         match self.insert_delayed(msg.clone(), context.clone()).await? {
             InsertResult::Delayed => Ok(()),
+            InsertResult::Expired => Ok(()),
             InsertResult::Ready(msg) => {
                 self.insert_ready(msg.clone(), context, deadline).await?;
                 Ok(())

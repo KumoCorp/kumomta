@@ -375,3 +375,8 @@
  * xfer: a message moved into an xfer queue could be expired, retried in a
    tight loop, or panic the process, depending on how many delivery attempts it
    had already made. Thanks to @edgarsendernet! #644
+
+ * A per-message expiration set via
+   [msg:set_scheduling](../reference/message/set_scheduling.md), or set on a
+   message before it was transferred to another node, was not always honored,
+   so a message could be delivered after its expiration. This is now fixed. #671
