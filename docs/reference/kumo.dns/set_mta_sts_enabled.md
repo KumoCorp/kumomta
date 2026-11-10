@@ -28,6 +28,15 @@ posture. In short:
   modify the *site_name*?
 * `enable_mta_sts` (egress path) — do we let a resolved policy require TLS?
 
+{{since('dev', indent=True)}}
+    An accepted MX NODATA response selects the domain itself as an implicit MX,
+    using its A/AAAA addresses. That host is subject to the same MTA-STS policy
+    evaluation, including policies returned from the cache. An `enforce` policy
+    must permit the domain's own hostname; its TLS requirement applies when
+    `enable_mta_sts` is enabled. Without an enforce policy, MTA-STS adds no TLS
+    requirement; configured TLS floors and applicable DANE requirements still
+    apply. Address literals bypass policy lookup.
+
 ## Why this is a global option
 
 MTA-STS policy is a property of the destination *routing domain*, but several

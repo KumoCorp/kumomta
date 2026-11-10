@@ -160,27 +160,71 @@ async fn get_policy_for_domain_impl(
     Ok(policy)
 }
 
-/*
 #[cfg(test)]
 mod test {
     use super::*;
+    use dns_resolver::TestResolver;
+    use hickory_resolver::proto::op::ResponseCode;
+    use hickory_resolver::proto::rr::RecordType;
+    use policy::test::TestGetter;
+    use policy::PolicyMode;
 
+    /// Exercise the real cache, not set_test_policies. TestGetter stands in for
+    /// a successful authenticated HTTPS fetch; it does not test authentication.
+    /// MX routing and SMTP enforcement are covered by the integration tests.
     #[tokio::test]
-    async fn get_gmail_policy() {
-        k9::snapshot!(
-            get_policy_for_domain("gmail.com").await.unwrap(),
-            r#"
-MtaStsPolicy {
-    mode: Enforce,
-    mx: [
-        "gmail-smtp-in.l.google.com",
-        "*.gmail-smtp-in.l.google.com",
-    ],
-    max_age: 86400,
-    fields: {},
-}
-"#
+    async fn cached_enforce_survives_mx_and_txt_nodata() {
+        let domain = "cached-implicit-mx.example";
+        let name = Name::from_str_relaxed(domain).unwrap();
+        let before = TestResolver::default()
+            .with_zone(
+                r#"
+$ORIGIN cached-implicit-mx.example.
+@        60 MX 10 mail.cached-implicit-mx.example.
+_mta-sts 60 TXT "v=STSv1; id=original;"
+"#,
+            )
+            .unwrap();
+        let getter = TestGetter::new([(
+            "https://mta-sts.cached-implicit-mx.example/.well-known/mta-sts.txt",
+            "version: STSv1\nmode: enforce\nmx: mail.cached-implicit-mx.example\nmax_age: 3600",
+        )]);
+        assert!(cache_lookup(&name).is_none());
+        assert!(!before.resolve_mx(domain).await.unwrap().is_empty());
+        let original = get_policy_for_domain_impl(domain, &before, &getter)
+            .await
+            .unwrap();
+
+        // Model the DNS answers after the MX cache expires: accepted, unsigned
+        // NODATA, with usable addresses and no TXT discovery record. This must
+        // not discard the still-unexpired authenticated policy.
+        let after = TestResolver::default()
+            .with_zone(
+                r#"
+$ORIGIN cached-implicit-mx.example.
+@ 60 A    192.0.2.1
+@ 60 AAAA 2001:db8::1
+"#,
+            )
+            .unwrap();
+        let mx = after.resolve(name.clone(), RecordType::MX).await.unwrap();
+        assert_eq!(mx.response_code, ResponseCode::NoError);
+        assert!(mx.records.is_empty());
+        assert!(!mx.nxdomain && !mx.secure && !mx.bogus);
+        assert!(!after.resolve_ip(domain).await.unwrap().is_empty());
+        assert!(dns::resolve_dns_record(domain, &after).await.is_err());
+        assert!(
+            cache_lookup(&name).is_some(),
+            "policy must still be unexpired"
         );
+
+        // Use the public lookup with its real Getter. Without the cached
+        // policy this fails on missing TXT, before any network HTTP request.
+        let retained = get_policy_for_domain(domain, Some(&after)).await.unwrap();
+        assert!(Arc::ptr_eq(&original, &retained));
+        assert_eq!(retained.mode, PolicyMode::Enforce);
+        assert_eq!(retained.max_age, 3600);
+        assert!(retained.mx_name_matches("mail.cached-implicit-mx.example."));
+        assert!(!retained.mx_name_matches("cached-implicit-mx.example."));
     }
 }
-*/

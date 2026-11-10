@@ -731,10 +731,12 @@ impl MailExchanger {
         let is_mx = by_pref.iter().all(|p| p.is_mx);
 
         // Evaluate MTA-STS against this domain's own resolution, before
-        // site_name rollup. A domain whose enforce policy matches none of its
-        // MX hosts is undeliverable and fails resolution so that it
-        // self-isolates rather than affecting a shared site.
-        let mta_sts = if is_mx && is_mta_sts_enabled() {
+        // site_name rollup, including the implicit MX selected by NODATA.
+        // Missing MX records do not invalidate a cached enforce policy.
+        // Address literals bypass policy lookup in resolve_impl.
+        // A domain whose enforce policy matches none of its MX hosts fails
+        // resolution so that it self-isolates rather than affecting a shared site.
+        let mta_sts = if is_mta_sts_enabled() {
             match apply_mta_sts(name_fq, &mut by_pref, &mut hosts, &mut expires, resolver).await {
                 Ok(status) => status,
                 Err(error) => {
@@ -1717,6 +1719,30 @@ MailExchanger {
 }
 "#
         );
+    }
+
+    #[tokio::test]
+    async fn mx_lookup_no_mx_falls_back_to_aaaa() {
+        let resolver = fixture_resolver(&[r#"
+$ORIGIN implicit-v6.example.
+@ 300 AAAA 2001:db8::1
+"#]);
+        let mx = MailExchanger::resolve_via("implicit-v6.example", Some(&resolver))
+            .await
+            .unwrap();
+        assert!(!mx.is_mx);
+        assert!(!mx.is_domain_literal);
+        assert_eq!(mx.mta_sts, PolicyMode::None);
+        assert_eq!(mx.hosts, hosts(&["implicit-v6.example."]));
+        let ResolvedMxAddresses::Addresses(addresses) = mx
+            .resolve_addresses(Some(&resolver), IpLookupStrategy::Ipv6Only, 50, 10)
+            .await
+        else {
+            panic!("expected implicit MX addresses");
+        };
+        assert_eq!(addresses.len(), 1);
+        assert_eq!(addresses[0].name, "implicit-v6.example.");
+        assert_eq!(addresses[0].addr.ip(), Some("2001:db8::1".parse().unwrap()));
     }
 
     #[tokio::test]
