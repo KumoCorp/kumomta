@@ -648,12 +648,13 @@ impl<'a> Compiled<'a> {
         match &self.body {
             CompiledBody::Rfc822(template) => {
                 let content = template.render_prepared(&prepared)?;
-
-                // Return early if template is static, no need to do anything.
+                // The Static dialect means the caller supplied a complete,
+                // ready-to-send message (potentially already DKIM-signed 
+                // outside the MTA). Parsing and rebuilding it risks invalidating
+                // those signatures, so emit it verbatim.
                 if self.engine.dialect() == TemplateDialect::Static {
-                    return Ok(content.to_string());
+                      return Ok(content);
                 }
-
                 let mut msg = MimePart::parse(&*content)
                     .with_context(|| format!("failed to parse content: {content}"))?
                     .rebuild(None)
