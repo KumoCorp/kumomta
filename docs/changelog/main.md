@@ -176,11 +176,16 @@
    A capacity of zero turns the cache off.
    Thanks to @akshitsethi0023! #638
 
- * Traffic shaping automation rules defined in a `provider` block can now use a new
-   [SetProviderConfig](../reference/kumo.shaping/load.md#traffic-shaping-automation-rules)
-   action. Like `SetConfig` it sets a configuration override when a rule
-   matches, but scopes the override to the provider rather than the
-   triggering domain.
+ * Traffic shaping automation rules in a `provider` block can now set a
+   configuration override scoped to the whole provider, the triggering
+   `site_name`, or just the triggering domain:
+    * [`SetProviderConfig`](../reference/kumo.shaping/load.md#traffic-shaping-automation-rules)
+      (new) scopes the override to the whole provider, covering every
+      `site_name` matched by the provider.
+    * `SetConfig` now applies the override to the triggering domain's
+      `site_name` (`mx_rollup=true`). It previously behaved like `SetDomainConfig`.
+    * `SetDomainConfig` applies the override only to the triggering domain
+      (`mx_rollup=false`).
 
 ## Fixes
 

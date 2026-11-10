@@ -182,7 +182,13 @@ The following fields are possible in an automation rule:
    [Supported Regex Syntax is documented here](https://docs.rs/fancy-regex/latest/fancy_regex/#syntax)
  * `action` - required action to take.  Can be one of:
     * `"Suspend"` - Suspend delivery
-    * `{SetConfig{name="NAME", value="VALUE"}}` - define a configuration override that sets `NAME=VALUE`.
+    * `{SetConfig{name="NAME", value="VALUE"}}` - define a configuration
+      override that sets `NAME=VALUE`, rolled up to the triggering domain's
+      `site_name` unless the rule was defined in a domain block with
+      `mx_rollup=false`. Use `SetProviderConfig` instead to cover every
+      `site_name` a `provider` block matches. The rollup for a rule in a
+      `provider` block is {{since('dev', inline=True)}}. Before that a
+      `provider`-block `SetConfig` behaved like `SetDomainConfig`.
     * `{SetDomainConfig{name="NAME", value="VALUE"}}` - define a configuration
       override that sets `NAME=VALUE`, but with `mx_rollup=false`, even if the
       rule was defined inside a domain where `mx_rollup=true`. {{since('2024.11.08-d383b033',

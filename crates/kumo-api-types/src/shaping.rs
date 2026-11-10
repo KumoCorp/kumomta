@@ -265,15 +265,6 @@ pub enum MatchScope {
     Provider(String),
 }
 
-#[cfg(feature = "lua")]
-impl MatchScope {
-    /// Whether the matched block applies across a site_name rollup, as opposed
-    /// to one domain or a provider.
-    pub fn is_rollup(&self) -> bool {
-        matches!(self, MatchScope::Rollup)
-    }
-}
-
 /// Pairs a [`Rule`] with the [`MatchScope`] it was found in while matching.
 #[cfg(feature = "lua")]
 #[derive(Debug, Clone)]

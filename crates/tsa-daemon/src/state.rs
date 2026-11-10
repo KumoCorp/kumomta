@@ -7,12 +7,12 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use kumo_api_types::shaping::{
-    Action, EgressPathConfigValue, EgressPathConfigValueUnchecked, MatchedRule, Rule,
+    Action, EgressPathConfigValue, EgressPathConfigValueUnchecked, MatchScope, MatchedRule, Rule,
 };
 use kumo_api_types::tsa::{ReadyQSuspension, SchedQBounce, SchedQSuspension};
 use kumo_log_types::JsonLogRecord;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::hash::Hash;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
@@ -366,9 +366,16 @@ impl TsaState {
                 scope: OverrideScope::Domain {
                     domain: domain.to_string(),
                     mx_rollup: match prefer_rollup {
-                        // mx_rollup must match the rule's MatchScope, since on
-                        // reload the override is looked up by site_name when set.
-                        PreferRollup::Yes => matched.scope.is_rollup(),
+                        // SetConfig honors the scope the rule matched in.
+                        // mx_rollup=true applies the override at the triggering
+                        // domain's site_name (its MX cluster). A rollup
+                        // (default/site) or provider match uses it, while a
+                        // rule from an mx_rollup=false domain block stays
+                        // pinned to the domain.
+                        PreferRollup::Yes => match &matched.scope {
+                            MatchScope::Rollup | MatchScope::Provider(_) => true,
+                            MatchScope::Domain => false,
+                        },
                         // SetDomainConfig always pins to the triggering domain.
                         PreferRollup::No => false,
                     },
@@ -578,6 +585,24 @@ impl TsaState {
         });
         let num_entries = entries.len();
 
+        // A domain's overrides all share one mx_rollup flag in the exported
+        // table. When a domain has both a rolled-up and a pinned override, we
+        // resolve the conflict to rolled-up: that keeps a site- or
+        // provider-scoped override covering its whole MX cluster rather than
+        // shrinking to the one triggering domain. Such a conflict means the
+        // operator's rules for that domain are internally inconsistent, and it
+        // is up to them to make the domain consistently roll up or not.
+        let mut rollup_domains = BTreeSet::new();
+        for over in &entries {
+            if let OverrideScope::Domain {
+                domain,
+                mx_rollup: true,
+            } = &over.scope
+            {
+                rollup_domains.insert(domain.clone());
+            }
+        }
+
         for over in entries {
             let scope_entry = match &over.scope {
                 OverrideScope::Provider { provider, .. } => {
@@ -592,11 +617,15 @@ impl TsaState {
                         .as_table_mut()
                         .unwrap()
                 }
-                OverrideScope::Domain { domain, mx_rollup } => doc
+                OverrideScope::Domain { domain, .. } => doc
                     .entry(domain)
                     .or_insert_with(|| {
                         let mut tbl = toml_edit::Table::new();
-                        tbl["mx_rollup"] = value(*mx_rollup);
+                        // Use the rollup-wins flag computed over all of this
+                        // domain's overrides (rollup_domains above), rather
+                        // than deciding it from whichever override for the
+                        // domain is inserted into the table first.
+                        tbl["mx_rollup"] = value(rollup_domains.contains(domain));
                         Item::Table(tbl)
                     })
                     .as_table_mut()
@@ -1112,26 +1141,46 @@ mod tests {
         }
     }
 
-    /// Renders the overlay for an override, with the non-deterministic
-    /// `expires` timestamp replaced by a fixed placeholder for snapshotting.
+    /// Replaces the non-deterministic `# expires:` lines in an exported
+    /// overlay with a relative offset (rounded up to a 10s boundary), making
+    /// the overlay stable to snapshot while keeping the ordering between
+    /// entries visible.
+    fn normalize_overlay(exported: String) -> String {
+        let now = Utc::now();
+        exported
+            .lines()
+            .map(|line| match line.strip_prefix("# expires: ") {
+                Some(ts) => {
+                    // Render the expiry relative to now, rounded up to a 10s
+                    // boundary to absorb test execution time. That keeps the
+                    // snapshot stable while still revealing the ordering
+                    // between entries.
+                    let expires = DateTime::parse_from_rfc3339(ts)
+                        .expect("expires is rfc3339")
+                        .with_timezone(&Utc);
+                    let secs = (expires - now).num_seconds().max(0);
+                    let rounded = (secs + 9) / 10 * 10;
+                    let rel = if rounded % 60 == 0 {
+                        format!("{} minutes", rounded / 60)
+                    } else {
+                        format!("{rounded}s")
+                    };
+                    format!("# expires: <in {rel}>")
+                }
+                None => line.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Renders the overlay for one override, normalized for snapshotting.
     fn export_normalized(over: ConfigurationOverride) -> String {
         let state = TsaState::default();
         state.insert_config_override(
             ActionHash::from_legacy_hash_and_site(&"0".repeat(64), "site"),
             over,
         );
-        state
-            .export_config_override_toml()
-            .lines()
-            .map(|line| {
-                if line.starts_with("# expires: ") {
-                    "# expires: <normalized>".to_string()
-                } else {
-                    line.to_string()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+        normalize_overlay(state.export_config_override_toml())
     }
 
     #[test]
@@ -1154,7 +1203,7 @@ mod tests {
 [provider.yahoo.sources.my-source]
 # reason: automation rule: TS04
 # triggering domain: one.example.com
-# expires: <normalized>
+# expires: <in 60 minutes>
 connection_limit = 3
 
 
@@ -1182,7 +1231,7 @@ mx_rollup = false
 
 ["example.com".sources.my-source]
 # reason: automation rule: TS04
-# expires: <normalized>
+# expires: <in 60 minutes>
 connection_limit = 3
 
 
@@ -1192,17 +1241,21 @@ connection_limit = 3
         );
     }
 
-    fn make_rule() -> Rule {
+    fn make_rule_with_action(action: Action) -> Rule {
         Rule {
             regex: vec![Regex::try_from("x".to_string()).unwrap()],
-            action: vec![Action::SetProviderConfig(EgressPathConfigValue {
-                name: "connection_limit".to_string(),
-                value: HashableTomlValue::from(toml::Value::Integer(3)),
-            })],
+            action: vec![action],
             trigger: Trigger::Immediate,
             duration: std::time::Duration::from_secs(3600),
             match_internal: false,
         }
+    }
+
+    fn make_rule() -> Rule {
+        make_rule_with_action(Action::SetProviderConfig(EgressPathConfigValue {
+            name: "connection_limit".to_string(),
+            value: HashableTomlValue::from(toml::Value::Integer(3)),
+        }))
     }
 
     fn make_matched(rule: Rule, scope: MatchScope) -> MatchedRule {
@@ -1321,6 +1374,168 @@ connection_limit = 3
         assert_ne!(
             prov_a_hash, prov_b_hash,
             "provider matches of the same rule must not share an ActionHash"
+        );
+    }
+
+    #[test]
+    fn provider_set_config_override_rolls_up() {
+        // A provider-matched SetConfig rolls the override up to the triggering
+        // domain's site_name: the rendered table contains mx_rollup=true.
+        let state = TsaState::default();
+        let matched = make_matched(make_rule(), MatchScope::Provider("yahoo".to_string()));
+        let record = make_record_at(Utc::now(), "one.example.com");
+        let config = EgressPathConfigValue {
+            name: "connection_limit".to_string(),
+            value: HashableTomlValue::from(toml::Value::Integer(3)),
+        };
+        let scope = ActionHash::from_matched_and_record(&matched, &matched.rule.action[0], &record);
+        state.create_config_override(
+            &scope,
+            &matched,
+            &record,
+            &config,
+            "one.example.com",
+            "my-source",
+            PreferRollup::Yes,
+        );
+
+        k9::snapshot!(
+            normalize_overlay(state.export_config_override_toml()),
+            r#"
+# Generated by tsa-daemon
+# Number of entries: 1
+
+["one.example.com"]
+mx_rollup = true
+
+["one.example.com".sources]
+
+["one.example.com".sources.my-source]
+# reason: automation rule: x
+# expires: <in 60 minutes>
+connection_limit = 3
+
+
+# Generated by tsa-daemon
+# Number of entries: 1
+"#
+        );
+    }
+
+    /// Insert one override for `one.example.com` under the shared `my-source`,
+    /// with the given scope, rollup preference, option name and expiry.
+    fn insert_scoped_override(
+        state: &TsaState,
+        scope: MatchScope,
+        prefer_rollup: PreferRollup,
+        option: &str,
+        expiry: DateTime<Utc>,
+    ) {
+        let matched = make_matched(make_rule(), scope);
+        // Back-date the record to make the override it produce expire at
+        // `expiry`.
+        let record = make_record_at(
+            expiry - chrono::Duration::from_std(matched.rule.duration).unwrap(),
+            "one.example.com",
+        );
+        let action_hash =
+            ActionHash::from_matched_and_record(&matched, &matched.rule.action[0], &record);
+        let config = EgressPathConfigValue {
+            name: option.to_string(),
+            value: HashableTomlValue::from(toml::Value::Integer(1)),
+        };
+        state.create_config_override(
+            &action_hash,
+            &matched,
+            &record,
+            &config,
+            "one.example.com",
+            "my-source",
+            prefer_rollup,
+        );
+    }
+
+    /// Give one domain both a pinned (SetDomainConfig) and a rolled-up (provider
+    /// SetConfig) override with the given expiries, and return the rendered
+    /// overlay (normalized for snapshotting).
+    fn render_mixed_scope(pinned_expiry: DateTime<Utc>, rollup_expiry: DateTime<Utc>) -> String {
+        let state = TsaState::default();
+        insert_scoped_override(
+            &state,
+            MatchScope::Domain,
+            PreferRollup::No,
+            "max_message_rate",
+            pinned_expiry,
+        );
+        insert_scoped_override(
+            &state,
+            MatchScope::Provider("yahoo".to_string()),
+            PreferRollup::Yes,
+            "connection_limit",
+            rollup_expiry,
+        );
+        normalize_overlay(state.export_config_override_toml())
+    }
+
+    #[test]
+    fn mixed_scope_override_table_rolls_up() {
+        // A domain with both a pinned (SetDomainConfig) and a rolled-up
+        // (provider SetConfig) override shares one mx_rollup flag, which comes
+        // out true whichever override's expiry sorts first in the export. The
+        // two renderings differ only in the order of the two options.
+        let early = Utc::now() + chrono::Duration::minutes(10);
+        let late = Utc::now() + chrono::Duration::minutes(20);
+
+        // Pinned override expires first and sorts ahead of the rolled-up one.
+        k9::snapshot!(
+            render_mixed_scope(early, late),
+            r#"
+# Generated by tsa-daemon
+# Number of entries: 2
+
+["one.example.com"]
+mx_rollup = true
+
+["one.example.com".sources]
+
+["one.example.com".sources.my-source]
+# reason: automation rule: x
+# expires: <in 10 minutes>
+max_message_rate = 1
+# reason: automation rule: x
+# expires: <in 20 minutes>
+connection_limit = 1
+
+
+# Generated by tsa-daemon
+# Number of entries: 2
+"#
+        );
+
+        // Rolled-up override expires first.
+        k9::snapshot!(
+            render_mixed_scope(late, early),
+            r#"
+# Generated by tsa-daemon
+# Number of entries: 2
+
+["one.example.com"]
+mx_rollup = true
+
+["one.example.com".sources]
+
+["one.example.com".sources.my-source]
+# reason: automation rule: x
+# expires: <in 10 minutes>
+connection_limit = 1
+# reason: automation rule: x
+# expires: <in 20 minutes>
+max_message_rate = 1
+
+
+# Generated by tsa-daemon
+# Number of entries: 2
+"#
         );
     }
 }

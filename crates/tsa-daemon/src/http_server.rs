@@ -57,8 +57,8 @@ pub fn make_router() -> RouterAndDocs {
 }
 
 /// Whether a config override honors the scope the matched rule was found in
-/// (`Yes`: a rollup-block match writes a site_name override) or is pinned to
-/// the triggering domain regardless of that scope (`No`).
+/// (`Yes`: a rollup-block or provider-block match writes a site_name override)
+/// or is pinned to the triggering domain regardless of that scope (`No`).
 #[derive(PartialEq, Clone, Copy)]
 pub enum PreferRollup {
     Yes,
