@@ -230,6 +230,35 @@ trigger = {Threshold="5/hr"}
 action = "Suspend"
 duration = "1 hour"
 
+#===== office365 and office365-dane (Microsoft 365 business tenants)
+# default provider configs in policy-extra/shaping.toml
+# Business tenants send the same deferral texts as consumer outlook, e.g.
+# 451 4.3.2 Temporary server error. Please try again later ATTR2
+# 451 4.7.652 The mail server [x.x.x.x] has exceeded the maximum number of connections. (S3115)
+[[provider."office365".automation]]
+regex = "The mail server.*has exceeded the maximum number of connections"
+trigger = {Threshold="2/hr"}
+action = {SetConfig={name="connection_limit", value=1}}
+duration = "1 hour"
+
+[[provider."office365".automation]]
+regex = "Temporary server error. Please try again later"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "1 hour"
+
+[[provider."office365-dane".automation]]
+regex = "The mail server.*has exceeded the maximum number of connections"
+trigger = {Threshold="2/hr"}
+action = {SetConfig={name="connection_limit", value=1}}
+duration = "1 hour"
+
+[[provider."office365-dane".automation]]
+regex = "Temporary server error. Please try again later"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "1 hour"
+
 #===== icloud.com
 # default provider configs in policy-extra/shaping.toml
 [[provider."apple".automation]]
