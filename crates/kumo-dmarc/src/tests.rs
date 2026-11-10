@@ -540,6 +540,26 @@ async fn dmarc_pct_rate() {
     k9::assert_greater_than!(total_failures, lower_bound);
 }
 
+#[tokio::test]
+async fn dmarc_record_version_prefix() {
+    for (txt, expect_record) in [
+        ("v=DMARC1; p=reject", true),
+        ("v=DMARC1;p=reject", true),
+        ("v=DMARC1 ; p=reject", true),
+        ("v=DMARC1\t;p=reject", true),
+        ("v=DMARC10; p=reject", false),
+        ("v=DMARC2; p=reject", false),
+    ] {
+        let resolver = TestResolver::default().with_txt("_dmarc.example.com", txt.to_string());
+        let resolution = crate::fetch_dmarc_records("_dmarc.example.com", &resolver).await;
+        assert_eq!(
+            matches!(resolution, crate::DmarcRecordResolution::Records(_)),
+            expect_record,
+            "{txt:?}"
+        );
+    }
+}
+
 async fn evaluate_ip<'a>(
     TestData {
         from_domain,
