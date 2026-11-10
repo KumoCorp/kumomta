@@ -648,6 +648,12 @@ impl<'a> Compiled<'a> {
         match &self.body {
             CompiledBody::Rfc822(template) => {
                 let content = template.render_prepared(&prepared)?;
+
+                // Return early if template is static, no need to do anything.
+                if self.engine.dialect() == TemplateDialect::Static {
+                    return Ok(content.to_string());
+                }
+
                 let mut msg = MimePart::parse(&*content)
                     .with_context(|| format!("failed to parse content: {content}"))?
                     .rebuild(None)
