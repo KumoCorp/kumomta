@@ -1,3 +1,4 @@
+use crate::egress_source::STICKY_EGRESS_SOURCE_META_KEY;
 use crate::http_server::inject_v1::activity_for_peer;
 use crate::logging::disposition::{log_disposition, LogDisposition};
 use crate::queue::{DeliveryProto, QueueConfig, QueueManager};
@@ -77,6 +78,9 @@ impl SavedQueueInfo {
         msg.unset_meta("routing_domain").await?;
         msg.unset_meta("tenant").await?;
         msg.unset_meta("campaign").await?;
+        // The receiving node has its own, independently configured pools. A
+        // sticky source name chosen on this node is not defined there.
+        msg.unset_meta(STICKY_EGRESS_SOURCE_META_KEY).await?;
         msg.set_scheduling(None).await?;
         msg.set_due(None).await?;
         msg.set_num_attempts(0);
