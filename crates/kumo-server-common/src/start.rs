@@ -84,6 +84,7 @@ impl StartConfig<'_> {
 
         // after waiting for those to idle out, shut down logging
         shutdown_future.await;
+        crate::acct::shutdown().await;
 
         tracing::info!("Shutdown completed OK!");
 

@@ -153,6 +153,7 @@ crc32fast = "1.5.0"
 criterion = "0.7"
 crossbeam-queue= "0.3"
 crossbeam-skiplist= "0.1"
+crossbeam-utils = "0.8.23"
 crossterm = { version = "0.28.0", features = ["event-stream"] } # sync with ratatui
 dashmap = "6.1"
 data-encoding = "2.6"
