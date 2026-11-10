@@ -1592,6 +1592,42 @@ impl QueueDispatcher for HttpInjectionGeneratorDispatcher {
 #[cfg(test)]
 mod test {
     use super::*;
+    #[tokio::test]
+    async fn test_static_content_preservation() {
+        let input = concat!(
+            "From: Acme <billing@sender.example>\r\n",
+            "To: Alice <alice@example.com>\r\n",
+            "Subject: Your invoice\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: text/plain; charset=us-ascii\r\n",
+            "Content-Transfer-Encoding: 7bit\r\n",
+            "\r\n",
+            "Hello Alice.\r\n",
+        );
+
+        let mut request: InjectV1Request = serde_json::from_value(serde_json::json!({
+            "envelope_sender": "bounce@sender.example",
+            "content": input,
+            "template_dialect": "Static",
+            "trace_headers": {
+                "received_header": false,
+                "supplemental_header": false
+            },
+            "recipients": [{"email": "alice@example.com"}]
+        }))
+        .unwrap();
+
+        request.normalize().unwrap();
+        let compiled = request.compile().await.unwrap();
+
+        let generated = compiled
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
+            .unwrap();
+
+        eprintln!("Injected Input: {input:?}\nGenerated Output: {generated:?}");
+
+        assert_eq!(generated, input, "Static content was rewritten");
+    }
 
     #[tokio::test]
     async fn test_generate_basic() {
