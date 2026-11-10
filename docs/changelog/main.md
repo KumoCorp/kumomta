@@ -364,3 +364,10 @@
  * xfer: a message moved into an xfer queue could be expired, retried in a
    tight loop, or panic the process, depending on how many delivery attempts it
    had already made. Thanks to @edgarsendernet! #644
+
+ * The [HTTP injection API](../reference/http/kumod/api_inject_v1_post.md)
+   no longer parses and rebuilds RFC822 string content when
+   `template_dialect` is `Static`. This avoids rewriting headers and MIME
+   bodies, which could invalidate DKIM signatures applied before injection. Static string content is no longer validated for parseability during
+   injection, and a missing `MIME-Version` header is no longer added
+   automatically, though line endings are still normalized to CRLF. #648
