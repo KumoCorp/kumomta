@@ -408,8 +408,19 @@ pub struct InjectV1Request {
     ///
     ///  * `Jinja` - this is the implied default.  The Mini Jinja
     ///    template dialect will be parsed and evaluated.
+    ///
+    /// {{since('dev', inline=True)}}
+    ///
+    /// RFC822 string content is no longer parsed or rebuilt.
+    /// It is not validated for parseability,
+    /// and a missing `MIME-Version` header is not added automatically.
+    /// Line endings are still normalized to CRLF. Callers are responsible
+    /// for supplying a complete, conformant message.
+    ///
     ///  * `Static` - The content is treated as a static string and
     ///    no template expansion will be performed
+    ///
+    ///
     ///  * `Handlebars` - The content will be evaluated by a handlebars
     ///    compatible template engine.
     #[serde(default)]
