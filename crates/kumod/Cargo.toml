@@ -58,6 +58,7 @@ mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "seriali
 mod-dns-resolver = {path="../mod-dns-resolver"}
 mod-serde = {path="../mod-serde"}
 mod-time = {path="../mod-time"}
+mta-sts = {path="../mta-sts"}
 nix = {workspace=true, features=["resource", "user"]}
 num-format.workspace = true
 openssl.workspace = true

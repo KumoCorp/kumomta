@@ -1,7 +1,9 @@
 use crate::kumod::{DaemonWithMaildirOptions, MailGenParams};
 use anyhow::Context;
+use kumo_api_types::{InspectReadyQV1Request, TraceSmtpClientV1Payload};
 use kumo_log_types::RecordType::{Delivery, TransientFailure};
-use std::time::Duration;
+use std::path::Path;
+use std::time::{Duration, Instant};
 
 /// End-to-end coverage for the MTA-STS aliasing fix (#484): a domain whose
 /// enforce-mode policy permits none of its MX hosts must fail to resolve with a
@@ -387,4 +389,228 @@ async fn mta_sts_cleartext_veto_defers_enforce_domain() -> anyhow::Result<()> {
     k9::assert_equal!(daemon.extract_maildir_messages()?.len(), 1);
 
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum CachedStsPolicy {
+    Enforce,
+    Testing,
+    None,
+    Absent,
+    ExpiredEnforce,
+}
+
+async fn wait_for_marker(path: &Path) -> anyhow::Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !path.try_exists()? {
+        anyhow::ensure!(Instant::now() < deadline, "waiting for {}", path.display());
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    Ok(())
+}
+
+/// The policy hook simulates fetching an authenticated body and fills the real
+/// MTA-STS cache. Production fetch/cache semantics are tested in the mta-sts
+/// crate; this test checks promotion, MX expiry/SERVFAIL, and dispatcher reuse.
+async fn run_cached_policy_mx_failure(policy: CachedStsPolicy) -> anyhow::Result<()> {
+    let mode = match policy {
+        CachedStsPolicy::Enforce | CachedStsPolicy::ExpiredEnforce => "enforce",
+        CachedStsPolicy::Testing => "testing",
+        CachedStsPolicy::None => "none",
+        CachedStsPolicy::Absent => "absent",
+    };
+    let mut options = DaemonWithMaildirOptions::new()
+        .policy_file("mta-sts-veto-mx-failure.lua")
+        .env("KUMOD_TEST_STS_MODE", mode)
+        .env("KUMOD_HIDE_STARTTLS", "1")
+        // The source deliberately holds a connection while the test observes
+        // promotion. Do not let the sink's normal 3s idle timeout race it.
+        .env("KUMOD_TEST_SINK_CLIENT_TIMEOUT", "60s");
+    if matches!(policy, CachedStsPolicy::ExpiredEnforce) {
+        options = options.env("KUMOD_TEST_STS_MAX_AGE", "2");
+    }
+    let mut daemon = options.start().await.context("start MX-failure fixture")?;
+    let tracer = daemon.source.trace_client().await?;
+    let mut client = daemon.smtp_client().await?;
+
+    // The sink rejects this recipient without closing the connection. The
+    // source's rewrite-status hook holds the dispatcher before it logs the
+    // result, allowing a sibling to be promoted onto the same ready queue.
+    let response = MailGenParams {
+        recip: Some("450-hold@nopolicy.example.com"),
+        ..Default::default()
+    }
+    .send(&mut client)
+    .await?;
+    anyhow::ensure!(response.code == 250, "{response:?}");
+    wait_for_marker(&daemon.source.dir.path().join("dispatcher-held")).await?;
+
+    let response = MailGenParams {
+        recip: Some("user@target.example.com"),
+        ..Default::default()
+    }
+    .send(&mut client)
+    .await?;
+    anyhow::ensure!(response.code == 250, "{response:?}");
+
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let session_id = loop {
+        let queue = daemon
+            .source
+            .api_client()
+            .admin_inspect_ready_q_v1(&InspectReadyQV1Request {
+                queue_name: "unspecified->shared.example.com@smtp_client".to_string(),
+                include_scheduled_queues: true,
+            })
+            .await?;
+        if queue.state.ready_count == 1 {
+            anyhow::ensure!(queue.state.connection_count == 1, "{queue:?}");
+            anyhow::ensure!(queue.dispatchers.len() == 1, "{queue:?}");
+            anyhow::ensure!(
+                queue
+                    .scheduled_queue_names
+                    .as_ref()
+                    .is_some_and(|names| names.iter().any(|name| name == "target.example.com")),
+                "target was not promoted: {queue:?}"
+            );
+            break queue.dispatchers[0].session_id;
+        }
+        anyhow::ensure!(Instant::now() < deadline, "target was not ready: {queue:?}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let promotion: serde_json::Value = serde_json::from_slice(&std::fs::read(
+        daemon.source.dir.path().join("promotion-mx.json"),
+    )?)?;
+    let expected_mode = match policy {
+        CachedStsPolicy::Enforce | CachedStsPolicy::ExpiredEnforce => "Enforce",
+        CachedStsPolicy::Testing => "Testing",
+        CachedStsPolicy::None | CachedStsPolicy::Absent => "None",
+    };
+    anyhow::ensure!(promotion["mta_sts"] == expected_mode, "{promotion}");
+    anyhow::ensure!(
+        promotion["domain_name"] == "target.example.com.",
+        "{promotion}"
+    );
+    anyhow::ensure!(
+        promotion["hosts"] == serde_json::json!(["shared.example.com."]),
+        "{promotion}"
+    );
+
+    if matches!(policy, CachedStsPolicy::Enforce) {
+        // The target is the only fixture policy. Check that it really entered
+        // the production cache, not just that the test hook returned Enforce.
+        // Its 86400s lifetime far exceeds this test's bounded barriers.
+        let sizes = daemon
+            .source
+            .api_client()
+            .get_metrics(|m| {
+                (m.name().as_str() == "lruttl_cache_size"
+                    && m.label_is("cache_name", "mta_sts_policy"))
+                .then(|| m.value())
+            })
+            .await?;
+        anyhow::ensure!(sizes == vec![1.0], "policy was not cached: {sizes:?}");
+    }
+
+    if matches!(policy, CachedStsPolicy::ExpiredEnforce) {
+        // This negative control must outlive the 2s policy, not just its 1s
+        // MX TTL. No new promotion/policy fetch runs while we hold the sender.
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+    std::fs::write(daemon.source.dir.path().join("release-dispatcher"), "")?;
+    wait_for_marker(&daemon.source.dir.path().join("mx-failed")).await?;
+    let mx_failure = std::fs::read_to_string(daemon.source.dir.path().join("mx-failed"))?;
+    anyhow::ensure!(mx_failure.contains("Server Failure"), "{mx_failure}");
+
+    anyhow::ensure!(
+        daemon
+            .wait_for_source_summary(
+                |s| s.get(&Delivery).copied().unwrap_or(0) > 0
+                    || s.get(&TransientFailure).copied().unwrap_or(0) >= 2,
+                Duration::from_secs(30),
+            )
+            .await,
+        "target has no delivery outcome"
+    );
+    let events = tracer.stop().await?;
+    daemon.stop_both().await?;
+    let records = daemon.source.collect_logs().await?;
+    let creator = records
+        .iter()
+        .find(|r| {
+            r.kind == TransientFailure
+                && r.recipient
+                    .iter()
+                    .any(|r| r == "450-hold@nopolicy.example.com")
+        })
+        .context("creator's RCPT rejection")?;
+    anyhow::ensure!(creator.response.code == 450, "{creator:?}");
+    anyhow::ensure!(creator.tls_cipher.is_none(), "{creator:?}");
+    anyhow::ensure!(creator.session_id == Some(session_id), "{creator:?}");
+    let target = records
+        .iter()
+        .find(|r| {
+            matches!(r.kind, Delivery | TransientFailure)
+                && r.recipient.iter().any(|r| r == "user@target.example.com")
+        })
+        .context("target outcome")?;
+    anyhow::ensure!(
+        target.session_id == creator.session_id,
+        "dispatcher was not reused: {target:?}"
+    );
+    // A dispatcher keeps its session_id when it replaces its TCP connection.
+    anyhow::ensure!(
+        events
+            .iter()
+            .filter(|event| event.payload == TraceSmtpClientV1Payload::Connected)
+            .count()
+            == 1,
+        "expected reuse of the original TCP connection: {events:#?}"
+    );
+    anyhow::ensure!(target.tls_cipher.is_none(), "{target:?}");
+
+    if matches!(policy, CachedStsPolicy::Enforce) {
+        anyhow::ensure!(
+            target.kind == TransientFailure,
+            "cached enforce was bypassed: {target:?}"
+        );
+        k9::assert_equal!(target.response.code, 451);
+        k9::assert_equal!(
+            target.response.content.as_str(),
+            "KumoMTA internal: target.example.com publishes an MTA-STS enforce \
+             policy requiring TLS, but the connection to \
+             unspecified->shared.example.com@smtp_client is cleartext; \
+             deferring rather than delivering without TLS"
+        );
+        anyhow::ensure!(daemon.extract_maildir_messages()?.is_empty());
+    } else {
+        anyhow::ensure!(target.kind == Delivery, "unexpected veto: {target:?}");
+        k9::assert_equal!(daemon.extract_maildir_messages()?.len(), 1);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn mta_sts_mx_failure_retains_cached_enforce() -> anyhow::Result<()> {
+    run_cached_policy_mx_failure(CachedStsPolicy::Enforce).await
+}
+
+#[tokio::test]
+async fn mta_sts_mx_failure_without_cached_policy_allows_plaintext() -> anyhow::Result<()> {
+    run_cached_policy_mx_failure(CachedStsPolicy::Absent).await
+}
+
+#[tokio::test]
+async fn mta_sts_mx_failure_with_cached_testing_allows_plaintext() -> anyhow::Result<()> {
+    run_cached_policy_mx_failure(CachedStsPolicy::Testing).await
+}
+
+#[tokio::test]
+async fn mta_sts_mx_failure_with_cached_none_allows_plaintext() -> anyhow::Result<()> {
+    run_cached_policy_mx_failure(CachedStsPolicy::None).await
+}
+
+#[tokio::test]
+async fn mta_sts_mx_failure_with_expired_enforce_allows_plaintext() -> anyhow::Result<()> {
+    run_cached_policy_mx_failure(CachedStsPolicy::ExpiredEnforce).await
 }

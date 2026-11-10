@@ -1186,8 +1186,15 @@ impl SmtpDispatcher {
             Some(mx) => mx.mta_sts,
             None => match MailExchanger::resolve(routing_domain).await {
                 Ok(mx) => mx.mta_sts,
-                // Without a definitive policy we do not synthesize a veto.
-                Err(_) => return Ok(None),
+                Err(_) => {
+                    // An MX failure must not discard an established, unexpired
+                    // enforce policy. Do not discover a new policy here or
+                    // synthesize one for a domain with no cached requirement.
+                    let policy_domain =
+                        has_colon_port(routing_domain).map_or(routing_domain, |(domain, _)| domain);
+                    mta_sts::get_cached_policy_for_domain(policy_domain)
+                        .map_or(PolicyMode::None, |policy| policy.mode)
+                }
             },
         };
 
