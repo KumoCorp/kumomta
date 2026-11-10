@@ -1631,9 +1631,7 @@ mod test {
             .expand_for_recip(&request.recipients[0], &request.substitutions)
             .unwrap();
 
-        eprintln!("Injected Input: {input:?}\nGenerated Output: {generated:?}");
-
-        assert_eq!(generated, input, "Static content was rewritten");
+        k9::assert_equal!(generated, input, "Static content was rewritten");
     }
 
     #[tokio::test]
