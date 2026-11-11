@@ -133,7 +133,7 @@ impl Rfc2045Info {
 
         match headers.content_disposition() {
             Ok(Some(cd)) => {
-                inline = cd.value == "inline";
+                inline = cd.value.eq_ignore_ascii_case(b"inline");
                 cd_file_name = cd.get("filename");
             }
             Ok(None) => {}
@@ -1046,11 +1046,22 @@ impl<'a> MimePart<'a> {
         my_idx: Option<u8>,
     ) -> Result<SimplifiedStructurePointers> {
         let info = Rfc2045Info::new(&self.headers);
-        let is_inline = info
-            .attachment_options
-            .as_ref()
-            .map(|ao| ao.inline)
-            .unwrap_or(true);
+        // Content-ID identifies a MIME entity; it doesn't make that entity
+        // an attachment. Prefer an explicit disposition, otherwise only a
+        // filename is an attachment hint. Keep Content-ID in attachment_options
+        // for callers that need the original metadata.
+        let is_inline = self
+            .headers
+            .content_disposition()
+            .ok()
+            .flatten()
+            .map(|cd| cd.value.eq_ignore_ascii_case(b"inline"))
+            .unwrap_or_else(|| {
+                info.attachment_options
+                    .as_ref()
+                    .and_then(|ao| ao.file_name.as_ref())
+                    .is_none()
+            });
 
         if let Some(ct) = &info.content_type {
             if is_inline {
@@ -1918,6 +1929,75 @@ Ok(
 )
 "
         );
+    }
+
+    #[test]
+    fn simplified_structure_body_with_content_id() {
+        for (content_type, body) in [
+            ("text/plain", "Plain text body with a Content-ID"),
+            ("text/html", "<p>HTML body with a Content-ID</p>"),
+            ("text/x-amp-html", "<p>AMP body with a Content-ID</p>"),
+        ] {
+            for disposition in [
+                "",
+                "Content-Disposition: inline\r\n",
+                "Content-Disposition: Inline\r\n",
+            ] {
+                let message = format!(
+                    "Content-Type: {content_type}; charset=us-ascii\r\n\
+                     Content-ID: <body@example.com>\r\n\
+                     Content-Transfer-Encoding: quoted-printable\r\n\
+                     {disposition}\r\n{body}"
+                );
+                let part = MimePart::parse(message).unwrap();
+                let structure = part.simplified_structure_pointers().unwrap();
+                let body_ptr = match content_type {
+                    "text/plain" => structure.text_part,
+                    "text/html" => structure.html_part,
+                    _ => structure.amp_html_part,
+                };
+                let body_part = part
+                    .resolve_ptr(body_ptr.expect("expected message body"))
+                    .unwrap();
+                assert_eq!(body_part.body().unwrap(), DecodedBody::Text(body.into()));
+                assert_eq!(
+                    body_part.headers().content_id().unwrap().unwrap().0,
+                    "body@example.com"
+                );
+                assert!(structure.attachments.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn simplified_structure_content_id_body_with_text_attachment() {
+        for attachment_headers in [
+            "Content-Type: text/plain\r\nContent-Disposition: attachment\r\n",
+            "Content-Type: text/plain\r\nContent-Disposition: attachment; filename=notes.txt\r\n",
+            "Content-Type: text/plain; name=notes.txt\r\n",
+        ] {
+            let message = format!(
+                "Content-Type: multipart/mixed; boundary=parts\r\n\r\n\
+                 --parts\r\n\
+                 Content-Type: text/plain; charset=us-ascii\r\n\
+                 Content-ID: <body@example.com>\r\n\
+                 Content-Transfer-Encoding: quoted-printable\r\n\r\n\
+                 Message body=21\r\n\
+                 --parts\r\n\
+                 Content-ID: <attachment@example.com>\r\n\
+                 {attachment_headers}\r\n\
+                 Attachment contents\r\n\
+                 --parts--\r\n"
+            );
+            let part = MimePart::parse(message).unwrap();
+            let structure = part.simplified_structure().unwrap();
+            assert_eq!(structure.text.unwrap(), "Message body!\r\n");
+            assert_eq!(structure.attachments.len(), 1);
+            assert_eq!(
+                structure.attachments[0].body().unwrap(),
+                DecodedBody::Text("Attachment contents\r\n".into())
+            );
+        }
     }
 
     #[test]
