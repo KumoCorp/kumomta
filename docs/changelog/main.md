@@ -194,6 +194,11 @@
     * `SetDomainConfig` applies the override only to the triggering domain
       (`mx_rollup=false`).
 
+ * The `queue.lua` helper loads a large `queues.toml` much faster. With
+   2000 domain entries the load went from roughly 300ms to under 50ms, and
+   resolving the configuration for a new scheduled queue from roughly 240us
+   to roughly 10us.
+
 ## Fixes
 
  * The [AAA accounting log](../reference/kumo.aaa/configure_acct_log.md)
@@ -387,6 +392,11 @@
    [msg:set_scheduling](../reference/message/set_scheduling.md), or set on a
    message before it was transferred to another node, was not always honored,
    so a message could be delivered after its expiration. This is now fixed. #671
+
+ * `queue.lua`: a known queue option with an invalid value, such as
+   `max_age = 'bogus'` in a `[queue.'domain']` block, was silently treated as
+   a tenant named `max_age` and the setting was discarded. It is now reported
+   as a configuration error when the file is loaded.
 
  * Reading a [kumo.domain_map](../reference/kumo.domain_map/new.md),
    [kumo.cidr.make_map](../reference/kumo.cidr/make_map.md) or

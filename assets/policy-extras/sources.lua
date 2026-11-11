@@ -11,7 +11,27 @@ local PoolSourceEntry = Record('PoolSourceEntry', {
 
 local PoolConfig = Map(String, PoolSourceEntry)
 
+local CACHED_EGRESS_SOURCE_OPTION_NAMES = nil
+
+local function is_egress_source_option_name(name)
+  if not CACHED_EGRESS_SOURCE_OPTION_NAMES then
+    CACHED_EGRESS_SOURCE_OPTION_NAMES = {}
+    for _, field in ipairs(kumo.egress_source_field_names()) do
+      CACHED_EGRESS_SOURCE_OPTION_NAMES[field] = true
+    end
+  end
+  return CACHED_EGRESS_SOURCE_OPTION_NAMES[name] == true
+end
+
+--- Checks whether `name` is a valid `kumo.make_egress_source` option and,
+--- if so, whether `value` is an acceptable value for it.
+--- Returns `is_option, err`: `is_option` is true when `name` is a known
+--- option and `value` is valid for it. `err` is non-nil only when `name`
+--- is a known option but `value` is invalid.
 local function is_egress_source_option(name, value)
+  if not is_egress_source_option_name(name) then
+    return false, nil
+  end
   local p = { [name] = value }
   if name ~= 'name' then
     -- Ensure that we have the required name field
@@ -19,13 +39,9 @@ local function is_egress_source_option(name, value)
   end
   local status, err = pcall(kumo.make_egress_source, p)
   if not status then
-    local err = typing.extract_deserialize_error(err)
-    if tostring(err):find 'invalid' then
-      return false, err
-    end
-    return false, nil
+    return false, typing.extract_deserialize_error(err)
   end
-  return status
+  return true
 end
 
 local SourceConfig = Record('SourceConfig', {
@@ -281,6 +297,11 @@ weight = 1
 
   -- Verify that an empty pool still shows up in the data
   assert(parsed.pools.AlwaysSuspended)
+
+  utils.assert_eq(is_egress_source_option('source_address', '10.0.0.1'), true)
+  local is_option, err = is_egress_source_option('not_an_option', 1)
+  utils.assert_eq(is_option, false)
+  utils.assert_eq(err, nil)
 
   local status, data_or_error = pcall(load_data, {
     kumo.serde.toml_parse [[

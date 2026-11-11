@@ -1,4 +1,5 @@
 use crate::epoch::{get_current_epoch, ConfigEpoch};
+pub use crate::field_names::struct_field_names;
 use crate::pool::{pool_get, pool_put};
 pub use crate::pool::{set_gc_on_put, set_max_age, set_max_spare, set_max_use};
 use anyhow::Context;
@@ -19,6 +20,7 @@ use std::sync::{LazyLock, Once};
 use std::time::Instant;
 
 pub mod epoch;
+mod field_names;
 mod pool;
 
 static POLICY_FILE: LazyLock<Mutex<Option<PathBuf>>> = LazyLock::new(|| Mutex::new(None));
