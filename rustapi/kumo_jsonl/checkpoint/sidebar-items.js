@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CHECKPOINT_TEMP_MAX_AGE","CHECKPOINT_TEMP_PREFIX"],"fn":["is_reserved_checkpoint_name","sweep_orphaned_temp_files"],"struct":["CheckpointData"]};

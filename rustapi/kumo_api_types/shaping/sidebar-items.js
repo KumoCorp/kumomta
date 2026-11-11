@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Action","CheckLevel","MatchScope","ProviderMatch","Trigger"],"fn":["register"],"struct":["EgressPathConfigValue","EgressPathConfigValueUnchecked","HashableTomlValue","MatchedRule","MergedEntry","ProviderEntry","Regex","Rule","Shaping","ShapingMergeOptions"]};

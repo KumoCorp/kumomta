@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["IncludeOriginalMessage","ReportAction"],"struct":["DiagnosticCode","PerMessageReportEntry","PerRecipientReportEntry","Recipient","RemoteMta","Report","ReportGenerationParams","ReportStatus"]};
