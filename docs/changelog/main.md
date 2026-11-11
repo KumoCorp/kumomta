@@ -387,10 +387,3 @@
    [msg:set_scheduling](../reference/message/set_scheduling.md), or set on a
    message before it was transferred to another node, was not always honored,
    so a message could be delivered after its expiration. This is now fixed. #671
-   
- * The [HTTP injection API](../reference/http/kumod/api_inject_v1_post.md)
-   no longer parses and rebuilds RFC822 string content when
-   `template_dialect` is `Static`. This avoids rewriting headers and MIME
-   bodies, which could invalidate DKIM signatures applied before injection. Static string content is no longer validated for parseability during
-   injection, and a missing `MIME-Version` header is no longer added
-   automatically, though line endings are still normalized to CRLF. #648
