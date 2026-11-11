@@ -408,8 +408,19 @@ pub struct InjectV1Request {
     ///
     ///  * `Jinja` - this is the implied default.  The Mini Jinja
     ///    template dialect will be parsed and evaluated.
+    ///
+    /// {{since('dev', inline=True)}}
+    ///
+    /// RFC822 string content is no longer parsed or rebuilt.
+    /// It is not validated for parseability,
+    /// and a missing `MIME-Version` header is not added automatically.
+    /// Line endings are still normalized to CRLF. Callers are responsible
+    /// for supplying a complete, conformant message.
+    ///
     ///  * `Static` - The content is treated as a static string and
     ///    no template expansion will be performed
+    ///
+    ///
     ///  * `Handlebars` - The content will be evaluated by a handlebars
     ///    compatible template engine.
     #[serde(default)]
@@ -648,6 +659,13 @@ impl<'a> Compiled<'a> {
         match &self.body {
             CompiledBody::Rfc822(template) => {
                 let content = template.render_prepared(&prepared)?;
+                // The Static dialect means the caller supplied a complete,
+                // ready-to-send message (potentially already DKIM-signed 
+                // outside the MTA). Parsing and rebuilding it risks invalidating
+                // those signatures, so emit it verbatim.
+                if self.engine.dialect() == TemplateDialect::Static {
+                      return Ok(content);
+                }
                 let mut msg = MimePart::parse(&*content)
                     .with_context(|| format!("failed to parse content: {content}"))?
                     .rebuild(None)
@@ -1592,6 +1610,40 @@ impl QueueDispatcher for HttpInjectionGeneratorDispatcher {
 #[cfg(test)]
 mod test {
     use super::*;
+    #[tokio::test]
+    async fn test_static_content_preservation() {
+        let input = concat!(
+            "From: Acme <billing@sender.example>\r\n",
+            "To: Alice <alice@example.com>\r\n",
+            "Subject: Your invoice\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: text/plain; charset=us-ascii\r\n",
+            "Content-Transfer-Encoding: 7bit\r\n",
+            "\r\n",
+            "Hello Alice.\r\n",
+        );
+
+        let mut request: InjectV1Request = serde_json::from_value(serde_json::json!({
+            "envelope_sender": "bounce@sender.example",
+            "content": input,
+            "template_dialect": "Static",
+            "trace_headers": {
+                "received_header": false,
+                "supplemental_header": false
+            },
+            "recipients": [{"email": "alice@example.com"}]
+        }))
+        .unwrap();
+
+        request.normalize().unwrap();
+        let compiled = request.compile().await.unwrap();
+
+        let generated = compiled
+            .expand_for_recip(&request.recipients[0], &request.substitutions)
+            .unwrap();
+
+        k9::assert_equal!(generated, input, "Static content was rewritten");
+    }
 
     #[tokio::test]
     async fn test_generate_basic() {
