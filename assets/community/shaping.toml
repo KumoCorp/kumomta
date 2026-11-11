@@ -328,6 +328,27 @@ max_deliveries_per_connection = 10
 connection_limit = 10
 enable_tls = "Required"
 
+# 20261111
+#==== Bell Canada (bell.net, sympatico.ca, bellaliant.net)
+# All three MX hostnames resolve to the same two hosts, so one provider covers them.
+# The 11th message on a connection is refused with
+#   450 Exceed Max Senders per connection from a.b.c.d
+# Observed on every session that reached 11 messages; sessions of 10 or fewer were accepted.
+[provider."bell"]
+match=[
+        {MXSuffix=".bell.net"},
+        {MXSuffix=".sympatico.ca"},
+        {MXSuffix=".bellaliant.net"},
+]
+max_deliveries_per_connection = 10
+
+# 20261111
+# At 10 per connection this reply should not occur; if it does, Bell has lowered the limit.
+[[provider."bell".automation]]
+regex = "Exceed Max Senders per connection"
+action = {SetConfig={name="max_deliveries_per_connection", value=5}}
+duration = "2 hours"
+
 #===== qq.com
 [provider."qq.com"]
 match=[{MXSuffix=".qq.com"}]
