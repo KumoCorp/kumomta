@@ -125,11 +125,6 @@ duration = "2 hours"
 # https://techcommunity.microsoft.com/t5/exchange-team-blog/implementing-inbound-smtp-dane-with-dnssec-for-exchange-online/ba-p/3939694
 # https://sendersupport.olc.protection.outlook.com/pm/Policies
 
-[provider."outlook"]
-match=[{MXSuffix=".olc.protection.outlook.com"}]
-max_deliveries_per_connection = 50
-provider_connection_limit = 5
-
 [provider."office365"]
 match=[{MXSuffix=".mail.protection.outlook.com"}]
 max_deliveries_per_connection = 50
@@ -141,6 +136,19 @@ match=[{MXSuffix=".mx.microsoft"}]
 # configured to work correctly with DNSSEC or DANE out
 # of the box, so we leave it disabled.
 # enable_dane = true
+max_deliveries_per_connection = 50
+provider_connection_limit = 5
+
+# Some Outlook.com consumer domains have moved to the DANE hosts too.
+# Their hosts also match office365-dane above. When several providers
+# match, the last one wins, so this block must stay after office365-dane.
+[provider."outlook"]
+match=[
+  {MXSuffix=".olc.protection.outlook.com"},
+  {HostName="hotmail-cz.f-v1.mx.microsoft"},
+  {HostName="hotmail-nl.b-v1.mx.microsoft"},
+  {HostName="outlook-cz.d-v1.mx.microsoft"},
+]
 max_deliveries_per_connection = 50
 provider_connection_limit = 5
 
