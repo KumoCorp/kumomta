@@ -107,7 +107,7 @@ enum StartTlsEhlo {
     Hidden,
 }
 
-/// The expected outcome of delivery to the MTA-STS testing domain.
+/// The expected outcome of delivery under the fixture's MTA-STS policy.
 enum Expect {
     DeliveredOverTls,
     DeliveredInPlaintext,
@@ -141,9 +141,22 @@ async fn run_testing_policy_case(
     starttls: StartTlsEhlo,
     expect: Expect,
 ) -> anyhow::Result<()> {
+    run_mta_sts_policy_case("recipient@testing.example.com", tls, starttls, expect).await
+}
+
+/// The fixture's policy hook proves routing/TLS behavior, not policy-cache
+/// retention or HTTPS authentication. The mta-sts crate separately exercises
+/// the real cache in cached_enforce_survives_mx_and_txt_nodata.
+async fn run_mta_sts_policy_case(
+    recip: &str,
+    tls: &str,
+    starttls: StartTlsEhlo,
+    expect: Expect,
+) -> anyhow::Result<()> {
     let mut options = DaemonWithMaildirOptions::new()
         .policy_file("mta-sts.lua")
-        .env("KUMOD_TESTING_TLS", tls);
+        .env("KUMOD_TESTING_TLS", tls)
+        .env("KUMOD_ENABLE_MTA_STS", "1");
     if let StartTlsEhlo::Hidden = starttls {
         options = options.env("KUMOD_HIDE_STARTTLS", "1");
     }
@@ -151,7 +164,7 @@ async fn run_testing_policy_case(
 
     let mut client = daemon.smtp_client().await.context("make smtp_client")?;
     let response = MailGenParams {
-        recip: Some("recipient@testing.example.com"),
+        recip: Some(recip),
         ..Default::default()
     }
     .send(&mut client)
@@ -193,6 +206,18 @@ async fn run_testing_policy_case(
                 "expected a deferral, got {outcome:?}"
             );
             k9::assert_equal!(mask_peer_port(&outcome.response.content).as_str(), expected);
+            anyhow::ensure!(outcome.response.is_transient(), "{outcome:?}");
+            anyhow::ensure!(
+                !records.iter().any(|r| r.kind == Delivery),
+                "unexpected source delivery: {records:?}"
+            );
+            let sink_records = daemon.sink.collect_logs().await?;
+            anyhow::ensure!(
+                !sink_records
+                    .iter()
+                    .any(|r| r.kind == kumo_log_types::RecordType::Reception),
+                "sink accepted a message: {sink_records:?}"
+            );
             anyhow::ensure!(delivered == 0, "{delivered} messages in the maildir");
         }
     }
@@ -281,6 +306,91 @@ async fn mta_sts_testing_disabled_delivers_plaintext() -> anyhow::Result<()> {
     run_testing_policy_case(
         "Disabled",
         StartTlsEhlo::Advertised,
+        Expect::DeliveredInPlaintext,
+    )
+    .await
+}
+
+/// NODATA selects an implicit MX, but does not exempt that host from enforce.
+#[tokio::test]
+async fn mta_sts_implicit_mx_rejects_disallowed_host() -> anyhow::Result<()> {
+    run_mta_sts_policy_case(
+        "recipient@implicit-denied.example.com",
+        "OpportunisticInsecure",
+        StartTlsEhlo::Hidden,
+        Expect::Deferred(
+            "failed to resolve queue implicit-denied.example.com: MTA-STS enforce \
+             policy for implicit-denied.example.com permits none of its MX hosts \
+             [\"implicit-denied.example.com.\"]; allowed mx patterns: [\"allowed.example.net\"]. \
+             The destination is undeliverable until its MTA-STS policy is corrected.",
+        ),
+    )
+    .await
+}
+
+/// A permitted implicit MX must offer STARTTLS even with an opportunistic floor.
+#[tokio::test]
+async fn mta_sts_implicit_mx_requires_starttls() -> anyhow::Result<()> {
+    run_mta_sts_policy_case(
+        "recipient@implicit-enforce.example.com",
+        "OpportunisticInsecure",
+        StartTlsEhlo::Hidden,
+        Expect::Deferred(
+            "KumoMTA internal: failed to connect to any candidate hosts: tls policy is \
+             Required but STARTTLS is not advertised by ResolvedAddress { name: \
+             \"implicit-enforce.example.com.\", addr: 127.0.0.1, is_secure: false }:{port}",
+        ),
+    )
+    .await
+}
+
+/// Enforce also raises an insecure floor to authenticated TLS for implicit MX.
+#[tokio::test]
+async fn mta_sts_implicit_mx_rejects_untrusted_cert() -> anyhow::Result<()> {
+    run_mta_sts_policy_case(
+        "recipient@implicit-enforce.example.com",
+        "OpportunisticInsecure",
+        StartTlsEhlo::Advertised,
+        Expect::Deferred(
+            "KumoMTA internal: failed to connect to any candidate hosts: TLS handshake \
+             with ResolvedAddress { name: \"implicit-enforce.example.com.\", addr: 127.0.0.1, \
+             is_secure: false }:{port} failed: invalid peer certificate: UnknownIssuer",
+        ),
+    )
+    .await
+}
+
+/// Legitimate no-policy NODATA remains deliverable using the configured TLS floor.
+#[tokio::test]
+async fn mta_sts_implicit_mx_without_policy_delivers_plaintext() -> anyhow::Result<()> {
+    run_mta_sts_policy_case(
+        "recipient@implicit-nopolicy.example.com",
+        "OpportunisticInsecure",
+        StartTlsEhlo::Hidden,
+        Expect::DeliveredInPlaintext,
+    )
+    .await
+}
+
+/// Testing mode neither blocks a nonmatching implicit host nor requires TLS.
+#[tokio::test]
+async fn mta_sts_implicit_mx_testing_delivers_plaintext() -> anyhow::Result<()> {
+    run_mta_sts_policy_case(
+        "recipient@implicit-testing.example.com",
+        "OpportunisticInsecure",
+        StartTlsEhlo::Hidden,
+        Expect::DeliveredInPlaintext,
+    )
+    .await
+}
+
+/// Address literals are direct routes, not implicit MX policy domains.
+#[tokio::test]
+async fn mta_sts_address_literal_delivers_plaintext() -> anyhow::Result<()> {
+    run_mta_sts_policy_case(
+        "recipient@[127.0.0.1]",
+        "OpportunisticInsecure",
+        StartTlsEhlo::Hidden,
         Expect::DeliveredInPlaintext,
     )
     .await

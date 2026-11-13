@@ -1,4 +1,4 @@
--- Source policy for the mta_sts_enforce_impossible integration test.
+-- Source policy for the MTA-STS host and TLS enforcement tests.
 local kumo = require 'kumo'
 
 local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
@@ -56,6 +56,24 @@ $ORIGIN testing.example.com.
 @    600 MX 10 mail.testing.example.com.
 mail 600 A  127.0.0.1
 ]],
+    -- These domains return accepted MX NODATA, not NXDOMAIN or SERVFAIL.
+    -- The recipient domain itself is the implicit MX host.
+    [[
+$ORIGIN implicit-denied.example.com.
+@ 600 A 127.0.0.1
+]],
+    [[
+$ORIGIN implicit-enforce.example.com.
+@ 600 A 127.0.0.1
+]],
+    [[
+$ORIGIN implicit-nopolicy.example.com.
+@ 600 A 127.0.0.1
+]],
+    [[
+$ORIGIN implicit-testing.example.com.
+@ 600 A 127.0.0.1
+]],
   }
 
   kumo.dns.configure_test_mta_sts {
@@ -77,6 +95,24 @@ mode: testing
 mx: mail.testing.example.com
 max_age: 86400
 ]],
+    ['implicit-denied.example.com'] = [[
+version: STSv1
+mode: enforce
+mx: allowed.example.net
+max_age: 86400
+]],
+    ['implicit-enforce.example.com'] = [[
+version: STSv1
+mode: enforce
+mx: implicit-enforce.example.com
+max_age: 86400
+]],
+    ['implicit-testing.example.com'] = [[
+version: STSv1
+mode: testing
+mx: allowed.example.net
+max_age: 86400
+]],
   }
 end)
 
@@ -95,8 +131,10 @@ kumo.on('get_egress_path_config', function(domain)
     prohibited_hosts = {},
     -- Direct the resolved 127.0.0.1 MX host at the sink.
     smtp_port = SINK_PORT,
-    -- Only testing.example.com needs enable_mta_sts set, to verify that its
-    -- testing-mode policy leaves the configured enable_tls unchanged.
-    enable_mta_sts = domain == 'testing.example.com',
+    -- The implicit-MX tests opt in for every domain, including address literals.
+    -- The explicit good.example.com host-matching test only tests routing and
+    -- does not require the sink's self-signed certificate to be trusted.
+    enable_mta_sts = domain == 'testing.example.com'
+      or os.getenv 'KUMOD_ENABLE_MTA_STS' == '1',
   }
 end)

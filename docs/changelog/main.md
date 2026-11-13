@@ -201,6 +201,9 @@
 
 ## Fixes
 
+ * Fixed MTA-STS policy checks being skipped for implicit MX routes, where a
+   domain has no MX records and delivery uses its own A/AAAA addresses.
+
  * The [AAA accounting log](../reference/kumo.aaa/configure_acct_log.md)
    didn't finalize its active segment on shutdown, resulting in incomplete
    writes unless you had set `max_segment_duration` to a relatively short value.
