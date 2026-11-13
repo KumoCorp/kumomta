@@ -1,0 +1,66 @@
+# Sample SMTP responses used to sanity check assets/bounce_classifier/iana.toml.
+#
+# Each entry maps a bounce class to a list of sample inputs that are
+# expected to classify as that class when run through the classifier
+# built from the given rule file(s). There is one sample per rule in
+# assets/bounce_classifier/iana.toml.
+[rules]
+InvalidRecipient = [
+  "451 4.1.1 mailbox unavailable",
+  "450 4.2.4 mailing list expansion failed",
+  "551 4.7.17 mailbox owner has changed",
+]
+BadDomain = [
+  "550 5.1.10 null mx",
+  "551 4.7.18 domain owner has changed",
+]
+InactiveMailbox = [
+  "550 5.1.6 mailbox has moved",
+  "550 5.2.1 mailbox disabled",
+  "525 4.7.13 user account is disabled",
+]
+InvalidSender = [
+  "550 5.1.7 bad sender mailbox address syntax",
+  "550 5.7.27 send address has null mx",
+]
+QuotaIssues = [
+  "552 5.2.2 mailbox is stuffed",
+  "552 5.2.3 message length exceeds administrative limit",
+  "452 4.3.1 mail system full",
+  "554 5.3.4 message too large for system",
+]
+NoAnswerFromHost = [
+  "451 4.4.1 no answer from host",
+]
+BadConnection = [
+  "421 4.4.2 bad connection",
+]
+DNSFailure = [
+  "451 4.4.3 directory server failure",
+]
+RoutingErrors = [
+  "550 5.4.4 unable to route",
+  "550 5.4.6 routing loop detected",
+]
+TransientFailure = [
+  "451 4.4.5 mail system congestion",
+]
+MessageExpired = [
+  "550 5.4.7 delivery time expired",
+]
+ProtocolErrors = [
+  "550 5.5.1 invalid command",
+  "550 5.6.1 media not supported",
+]
+AuthenticationFailed = [
+  "550 5.7.2 delivery not authorized, message refused",
+]
+PolicyRelated = [
+  "550 5.7.38 mail flood detected",
+]
+TooManyRecipients = [
+  # No sample: this rule's own class is always shadowed by the
+  # broader ProtocolErrors rule earlier in iana.toml (both match
+  # "x.5.3 "), so no input can ever classify as TooManyRecipients
+  # until that ordering/specificity is fixed.
+]
