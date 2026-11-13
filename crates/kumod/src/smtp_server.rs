@@ -1630,10 +1630,13 @@ impl SmtpServerSession {
                 }
                 proxy_header_consumed = true;
             }
+            // Bytes read together with the PROXY header are the start of the
+            // client's TLS handshake.
+            let already_read = std::mem::take(&mut *self.read_buffer);
             // The peer speaks only TLS and cannot read a cleartext 421. Treat
             // an acceptor-build failure (bad cert or key) the same as a failed
             // handshake: drop the connection silently instead of replying.
-            let handshake = match self.perform_tls_handshake().await {
+            let handshake = match self.perform_tls_handshake_after(already_read).await {
                 Ok(succeeded) => succeeded,
                 Err(err) => {
                     tracing::error!("TLS acceptor setup failed: {err:#}");
@@ -2252,10 +2255,25 @@ impl SmtpServerSession {
     /// Returns whether the handshake succeeded. A failed handshake consumes the
     /// socket, leaving the session with none. The caller must drop the
     /// connection.
-    #[instrument(skip(self))]
     async fn perform_tls_handshake(&mut self) -> anyhow::Result<bool> {
+        self.perform_tls_handshake_after(Vec::new()).await
+    }
+
+    /// Like `perform_tls_handshake`, for a client whose first TLS bytes,
+    /// `already_read`, have already been read from the socket: the TLS
+    /// session gets them before it reads from the socket.
+    #[instrument(skip(self, already_read))]
+    async fn perform_tls_handshake_after(&mut self, already_read: Vec<u8>) -> anyhow::Result<bool> {
         let acceptor = self.params.build_tls_acceptor().await?;
-        match acceptor.accept(self.socket.take().unwrap()).await {
+        let accept = acceptor.accept_with(self.socket.take().unwrap(), |conn| {
+            let mut bytes = already_read.as_slice();
+            while !bytes.is_empty() && conn.read_tls(&mut bytes).is_ok() {}
+            // The bytes may hold the whole ClientHello: process them now, or
+            // the handshake would wait for more from the socket. An error
+            // stays in the session and fails the handshake below.
+            let _ = conn.process_new_packets();
+        });
+        match accept.await {
             Ok(stream) => {
                 let (_io, conn) = stream.get_ref();
                 let mut tls_info = TlsInformation {
