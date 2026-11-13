@@ -59,6 +59,10 @@ struct Opt {
     #[arg(long)]
     starttls: bool,
 
+    /// Whether to use implicit TLS (SMTPS) for submission
+    #[arg(long, conflicts_with = "starttls")]
+    implicit_tls: bool,
+
     /// Take the message contents from the specified file
     #[arg(long)]
     body_file: Option<PathBuf>,
@@ -145,6 +149,18 @@ fn parse_header(arg: &str) -> Result<MailHeader<'static>, String> {
 
 fn parse_throttle(arg: &str) -> Result<ThrottleSpec, String> {
     ThrottleSpec::try_from(arg)
+}
+
+/// A generator is pointed at test listeners whose certificates are typically
+/// self-signed, so peer verification is deliberately not required here.
+fn tls_options() -> TlsOptions {
+    TlsOptions {
+        insecure: true,
+        prefer_openssl: false,
+        alt_name: None,
+        dane_tlsa: vec![],
+        ..Default::default()
+    }
 }
 
 struct InjectClient {
@@ -454,6 +470,20 @@ impl Opt {
                 .with_context(|| format!("failed to connect to {}", self.target))?;
         let mut client = SmtpClient::with_stream(stream, &self.target, timeouts);
 
+        // With implicit TLS the banner itself is encrypted, so the handshake
+        // has to happen before we try to read it.
+        if self.implicit_tls {
+            match client.tls_connect(tls_options()).await? {
+                TlsStatus::FailedHandshake(error) => {
+                    anyhow::bail!(
+                        "implicit TLS handshake with {} failed: {error}",
+                        self.target
+                    );
+                }
+                TlsStatus::Info(_) => {}
+            }
+        }
+
         // Read banner
         let banner_timeout = client.timeouts().banner_timeout;
         let banner = client.read_response(None, banner_timeout).await?;
@@ -463,15 +493,7 @@ impl Opt {
         let caps = client.ehlo(&self.pick_a_domain()).await?;
 
         if self.starttls && caps.contains_key("STARTTLS") {
-            client
-                .starttls(TlsOptions {
-                    insecure: true,
-                    prefer_openssl: false,
-                    alt_name: None,
-                    dane_tlsa: vec![],
-                    ..Default::default()
-                })
-                .await?;
+            client.starttls(tls_options()).await?;
         }
 
         Ok(client)
