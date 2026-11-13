@@ -327,7 +327,7 @@ impl TestResolver {
             record_type: RecordType::TXT,
         };
 
-        let mut records = RecordSet::new(authority.clone(), RecordType::TXT, 0);
+        let mut records = RecordSet::with_ttl(authority.clone(), RecordType::TXT, 60);
         for item in value {
             records.add_rdata(RData::TXT(TXT::new(vec![item])));
         }
@@ -448,7 +448,7 @@ impl TestResolver {
             secure: zone.secure,
             bogus: false,
             why_bogus: None,
-            expires: Instant::now() + Duration::from_secs(60),
+            expires: Instant::now() + Duration::from_secs(records.ttl().into()),
             response_code: ResponseCode::NoError,
         })
     }
@@ -920,9 +920,63 @@ impl Resolver for AggregateResolver {
 
 #[cfg(test)]
 mod tests {
-    use super::ptr_host;
+    use super::{ptr_host, TestResolver};
+    use hickory_resolver::proto::rr::{Name, RecordType};
     use std::net::{Ipv4Addr, Ipv6Addr};
     use std::str::FromStr;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn test_resolver_honors_record_ttl() {
+        let resolver = TestResolver::default()
+            .with_zone("$ORIGIN short-ttl.example.com.\n@ 1 MX 10 mail.example.com.\n")
+            .unwrap();
+        let before = Instant::now();
+        let answer = resolver
+            .get(
+                &Name::from_str("short-ttl.example.com.").unwrap(),
+                RecordType::MX,
+            )
+            .unwrap();
+        let after = Instant::now();
+        assert!(!answer.records.is_empty());
+        assert!(answer.expires >= before + Duration::from_secs(1));
+        assert!(answer.expires <= after + Duration::from_secs(1));
+    }
+
+    #[test]
+    fn test_resolver_txt_default_ttl() {
+        let resolver = TestResolver::default().with_txt("default-ttl.example.com", "test");
+        let before = Instant::now();
+        let answer = resolver
+            .get(
+                &Name::from_str("default-ttl.example.com.").unwrap(),
+                RecordType::TXT,
+            )
+            .unwrap();
+        let after = Instant::now();
+        assert!(!answer.records.is_empty());
+        assert!(answer.expires >= before + Duration::from_secs(60));
+        assert!(answer.expires <= after + Duration::from_secs(60));
+    }
+
+    #[test]
+    fn test_resolver_honors_zero_ttl() {
+        let resolver = TestResolver::default()
+            .with_zone("$ORIGIN zero-ttl.example.com.\n@ 0 MX 10 mail.example.com.\n")
+            .unwrap();
+        let before = Instant::now();
+        let answer = resolver
+            .get(
+                &Name::from_str("zero-ttl.example.com.").unwrap(),
+                RecordType::MX,
+            )
+            .unwrap();
+        let after = Instant::now();
+        assert!(!answer.records.is_empty());
+        assert!(answer.expires >= before);
+        assert!(answer.expires <= after);
+    }
 
     #[test]
     fn test_ptr_host() {
