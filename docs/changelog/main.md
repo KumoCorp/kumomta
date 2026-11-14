@@ -407,3 +407,8 @@
    compiled `queues.toml` domain map from such a cache for every received
    message. In practical terms, that meant that the maximum ingress rate
    possible would fall as the size of `queues.toml` increased.
+
+*  Prevent queued loggers from retaining original messages ([#657](https://github.com/KumoCorp/kumomta/issues/657))
+   Queued loggers only need the log record, but were retaining the
+   original message until the record was processed. This could cause
+   excessive memory usage when logging large messages.

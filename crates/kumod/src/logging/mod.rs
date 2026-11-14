@@ -333,7 +333,9 @@ impl Logger {
                 }
             }
             LoggerImpl::Queue { sender, .. } => {
-                match sender.try_send(LogCommand::Record(record, msg)) {
+                // Dispose of the message as we no longer need it
+                drop(msg);
+                match sender.try_send(LogCommand::Record(record, None)) {
                     Ok(()) => Ok(()),
                     Err(TrySendError::Full(record)) => {
                         SUBMIT_FULL
