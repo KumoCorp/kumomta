@@ -6,6 +6,7 @@ use mlua::{Lua, MultiValue, UserData, UserDataMethods, Value};
 use redis::aio::{ConnectionLike, ConnectionManager, ConnectionManagerConfig};
 use redis::cluster::ClusterClient;
 use redis::cluster_async::ClusterConnection;
+use redis::cluster_routing::{MultipleNodeRoutingInfo, ResponsePolicy, RoutingInfo};
 pub use redis::{
     cmd, Cmd, FromRedisValue, RedisError, Script, ScriptInvocation, Value as RedisValue,
 };
@@ -327,7 +328,23 @@ pub enum ConnectionWrapper {
 
 impl ConnectionWrapper {
     pub async fn ping(&mut self) -> anyhow::Result<()> {
-        Ok(redis::cmd("PING").query_async(self).await?)
+        match self {
+            Self::Single(_) => Ok(redis::cmd("PING").query_async(self).await?),
+            // Require only one primary to respond to avoid discarding a recoverable
+            // connection during failover.
+            Self::Cluster(cluster) => {
+                cluster
+                    .route_command(
+                        &redis::cmd("PING"),
+                        RoutingInfo::MultiNode((
+                            MultipleNodeRoutingInfo::AllMasters,
+                            Some(ResponsePolicy::OneSucceeded),
+                        )),
+                    )
+                    .await?;
+                Ok(())
+            }
+        }
     }
 }
 
