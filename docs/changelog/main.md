@@ -407,3 +407,5 @@
    compiled `queues.toml` domain map from such a cache for every received
    message. In practical terms, that meant that the maximum ingress rate
    possible would fall as the size of `queues.toml` increased.
+
+* Redis Cluster connections are no longer discarded during recycling when an individual primary becomes unavailable. Previously, the connection health check required every primary to respond to `PING`, causing otherwise usable connections to be rejected during failover. The check now requires only one primary to respond successfully, allowing redis-rs to retain the connection and recover from node failures. #663
