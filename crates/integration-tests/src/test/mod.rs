@@ -23,6 +23,8 @@ mod end_to_end_webhook;
 mod end_to_end_webhook_batch;
 mod expires;
 mod http_auth;
+mod http_inject_batch;
+mod http_inject_batch_templates;
 mod http_inject_compression;
 mod http_inject_concurrency_limit;
 mod http_inject_deferred;
