@@ -63,6 +63,12 @@
 
 ## Other Changes and Enhancements
 
+ * [HTTP listeners](../reference/kumo/start_http_listener/index.md) now support
+   Zstandard request decompression via `Content-Encoding: zstd` and negotiated
+   response compression via `Accept-Encoding: zstd`. This applies to KumoMTA,
+   TSA, and proxy HTTP listeners. Existing gzip, deflate, and uncompressed
+   clients remain supported; request body limits still apply after decompression.
+
  * [kumo.make_egress_pool](../reference/kumo/make_egress_pool/index.md) accepts
    a new
    [selection_strategy](../reference/kumo/make_egress_pool/selection_strategy.md)

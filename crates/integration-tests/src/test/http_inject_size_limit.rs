@@ -1,6 +1,50 @@
 use crate::kumod::{DaemonWithMaildir, MailGenParams};
 use anyhow::Context;
 use k9::assert_equal;
+use kumo_log_types::RecordType;
+
+#[tokio::test]
+async fn http_inject_size_limit_zstd() -> anyhow::Result<()> {
+    let mut daemon = DaemonWithMaildir::start()
+        .await
+        .context("DaemonWithMaildir::start")?;
+
+    let limit = 2 * 1024 * 1024;
+    let payload = serde_json::json!({
+        "envelope_sender": "sender@example.com",
+        "recipients": [{"email": "user@example.com"}],
+        "content": format!("Subject: Zstd size limit\r\n\r\n{}", "a".repeat(limit)),
+    });
+    let json_data = serde_json::to_vec(&payload)?;
+    let compressed_data = zstd::stream::encode_all(json_data.as_slice(), 1)?;
+    assert!(json_data.len() > limit);
+    assert!(compressed_data.len() < limit);
+
+    let response = kumo_http_client::builder()
+        .build()?
+        .post(&format!(
+            "http://{}/api/inject/v1",
+            daemon.source.listener("http")
+        ))
+        .header("Content-Encoding", "zstd")
+        .header("Content-Type", "application/json")
+        .body(compressed_data)
+        .send()
+        .await?;
+
+    assert_equal!(response.status(), 413);
+    assert_equal!(
+        &*response.bytes().await?,
+        b"Failed to buffer the request body: length limit exceeded"
+    );
+
+    daemon.stop_both().await.context("stop_both")?;
+    assert_equal!(daemon.extract_maildir_messages()?.len(), 0);
+    let summary = daemon.dump_logs().await.context("dump_logs")?;
+    assert_equal!(summary.source_counts.get(&RecordType::Reception), None);
+
+    Ok(())
+}
 
 /// Asserts that request_body_limit is effective and has a
 /// known response

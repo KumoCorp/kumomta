@@ -278,6 +278,20 @@ impl AppState {
     }
 }
 
+fn http_compression_layers() -> (CompressionLayer, RequestDecompressionLayer) {
+    (
+        CompressionLayer::new()
+            .deflate(true)
+            .gzip(true)
+            .zstd(true)
+            .quality(tower_http::CompressionLevel::Fastest),
+        RequestDecompressionLayer::new()
+            .deflate(true)
+            .gzip(true)
+            .zstd(true),
+    )
+}
+
 impl HttpListenerParams {
     fn default_listen() -> String {
         "127.0.0.1:8000".to_string()
@@ -305,11 +319,7 @@ impl HttpListenerParams {
         router_and_docs: RouterAndDocs,
         runtime: Option<tokio::runtime::Handle>,
     ) -> anyhow::Result<()> {
-        let compression_layer: CompressionLayer = CompressionLayer::new()
-            .deflate(true)
-            .gzip(true)
-            .quality(tower_http::CompressionLevel::Fastest);
-        let decompression_layer = RequestDecompressionLayer::new().deflate(true).gzip(true);
+        let (compression_layer, decompression_layer) = http_compression_layers();
 
         let socket = crate::listener::bind_with_backlog(&self.listen, self.listen_backlog)
             .with_context(|| format!("listen on {}", self.listen))?;
@@ -686,4 +696,194 @@ async fn set_diagnostic_log_filter_v1(
 ) -> Result<(), AppError> {
     set_diagnostic_log_filter(&request.filter)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::http_compression_layers;
+    use axum::extract::{DefaultBodyLimit, Json};
+    use axum::http::{header, StatusCode};
+    use axum::routing::{get, post};
+    use axum::Router;
+    use std::future::IntoFuture;
+    use std::io::{Read, Write};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn http_compression() -> anyhow::Result<()> {
+        let received = Arc::new(AtomicUsize::new(0));
+        let count = received.clone();
+        let (compression, decompression) = http_compression_layers();
+        let router = Router::new()
+            .route(
+                "/echo",
+                post(move |Json(value): Json<serde_json::Value>| async move {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    Json(value)
+                }),
+            )
+            .route("/small", get(|| async { "small" }))
+            .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
+            .layer(compression)
+            .layer(decompression);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let endpoint = format!("http://{}", listener.local_addr()?);
+        let server = axum::serve(listener, router).into_future();
+
+        let check = async {
+            let client = kumo_http_client::builder()
+                .no_gzip()
+                .no_deflate()
+                .no_brotli()
+                .no_zstd()
+                .timeout(Duration::from_secs(10))
+                .build()?;
+            let expected =
+                serde_json::json!({"content": "HTTP compression round trip\r\n".repeat(100)});
+            let json = serde_json::to_vec(&expected)?;
+            assert!(json.len() > 32);
+
+            for (accept, encoding) in [
+                (None, None),
+                (Some("identity"), None),
+                (Some("gzip"), Some("gzip")),
+                (Some("deflate"), Some("deflate")),
+                (Some("zstd"), Some("zstd")),
+                (Some("zstd;q=0"), None),
+                (Some("zstd;q=0, gzip"), Some("gzip")),
+                (Some("zstd, gzip;q=0.5"), Some("zstd")),
+                (Some("gzip, zstd;q=0.5"), Some("gzip")),
+            ] {
+                let mut request = client
+                    .post(format!("{endpoint}/echo"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(json.clone());
+                if let Some(accept) = accept {
+                    request = request.header(header::ACCEPT_ENCODING, accept);
+                }
+                let response = request.send().await?;
+                assert_eq!(response.status(), StatusCode::OK, "{accept:?}");
+                assert_eq!(
+                    response
+                        .headers()
+                        .get(header::CONTENT_ENCODING)
+                        .map(|h| h.to_str().unwrap()),
+                    encoding,
+                    "{accept:?}"
+                );
+                if encoding.is_some() {
+                    assert!(response
+                        .headers()
+                        .get_all(header::VARY)
+                        .iter()
+                        .any(|value| {
+                            value
+                                .to_str()
+                                .unwrap()
+                                .split(',')
+                                .any(|part| part.trim().eq_ignore_ascii_case("accept-encoding"))
+                        }));
+                }
+                let body = response.bytes().await?;
+                let mut decoded = Vec::new();
+                match encoding {
+                    Some("gzip") => {
+                        flate2::read::GzDecoder::new(body.as_ref()).read_to_end(&mut decoded)?;
+                    }
+                    Some("deflate") => {
+                        flate2::read::ZlibDecoder::new(body.as_ref()).read_to_end(&mut decoded)?;
+                    }
+                    Some("zstd") => decoded = zstd::stream::decode_all(body.as_ref())?,
+                    None => decoded.extend_from_slice(&body),
+                    _ => unreachable!(),
+                }
+                assert_eq!(
+                    serde_json::from_slice::<serde_json::Value>(&decoded)?,
+                    expected
+                );
+            }
+
+            let small = client
+                .get(format!("{endpoint}/small"))
+                .header(header::ACCEPT_ENCODING, "zstd")
+                .send()
+                .await?;
+            assert!(small.headers().get(header::CONTENT_ENCODING).is_none());
+            assert_eq!(small.text().await?, "small");
+
+            let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+            gzip.write_all(&json)?;
+            let mut deflate =
+                flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+            deflate.write_all(&json)?;
+            let zstd = zstd::stream::encode_all(json.as_slice(), 1)?;
+            for (encoding, body) in [
+                ("gzip", gzip.finish()?),
+                ("deflate", deflate.finish()?),
+                ("zstd", zstd.clone()),
+            ] {
+                let response = client
+                    .post(format!("{endpoint}/echo"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::CONTENT_ENCODING, encoding)
+                    .body(body)
+                    .send()
+                    .await?;
+                assert_eq!(response.status(), StatusCode::OK, "{encoding}");
+                assert_eq!(response.json::<serde_json::Value>().await?, expected);
+            }
+
+            let mut encoder = zstd::stream::Encoder::new(Vec::new(), 1)?;
+            encoder.include_checksum(true)?;
+            encoder.write_all(&json)?;
+            let mut truncated = encoder.finish()?;
+            truncated.pop();
+            let oversized_json = serde_json::to_vec(&serde_json::json!({
+                "content": "a".repeat(2 * 1024 * 1024)
+            }))?;
+            let oversized = zstd::stream::encode_all(oversized_json.as_slice(), 1)?;
+            assert!(oversized_json.len() > 2 * 1024 * 1024);
+            assert!(oversized.len() < 2 * 1024 * 1024);
+            let mut large_window = zstd;
+            assert_eq!(large_window[4] & 0x20, 0);
+            // A 256 MiB window exceeds libzstd's default 128 MiB streaming limit.
+            large_window[5] = 0x90;
+            let accepted = received.load(Ordering::SeqCst);
+            for (encoding, body, status) in [
+                (
+                    "zstd",
+                    b"not a zstd frame".to_vec(),
+                    StatusCode::BAD_REQUEST,
+                ),
+                ("zstd", truncated, StatusCode::BAD_REQUEST),
+                ("zstd", oversized, StatusCode::PAYLOAD_TOO_LARGE),
+                ("zstd", large_window, StatusCode::BAD_REQUEST),
+                ("brotli", json, StatusCode::UNSUPPORTED_MEDIA_TYPE),
+            ] {
+                let response = client
+                    .post(format!("{endpoint}/echo"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::CONTENT_ENCODING, encoding)
+                    .body(body)
+                    .send()
+                    .await?;
+                assert_eq!(response.status(), status);
+                if status == StatusCode::PAYLOAD_TOO_LARGE {
+                    assert_eq!(
+                        response.text().await?,
+                        "Failed to buffer the request body: length limit exceeded"
+                    );
+                }
+                assert_eq!(received.load(Ordering::SeqCst), accepted);
+            }
+            Ok::<_, anyhow::Error>(())
+        };
+
+        tokio::select! {
+            result = server => anyhow::bail!("HTTP test server stopped unexpectedly: {result:?}"),
+            result = check => result,
+        }
+    }
 }
