@@ -36,12 +36,19 @@ impl Record {
         cx.spf_aligned = super::results::DmarcResult::Fail;
         let mut dkim_errors = Vec::new();
         let mut spf_errors = Vec::new();
+        let mut dkim_signing_domain: Option<String> = None;
+        let mut spf_domain: Option<String> = None;
+
+        // Initialize props with dynamic information
+        let mut props = BTreeMap::new();
+        let base_domain = dmarc_domain.strip_prefix("_dmarc.").unwrap_or(dmarc_domain);
+        props.insert("dmarc.domain".into(), base_domain.into());
 
         if rand::random::<u8>() % 100 >= self.rate {
             return DispositionWithContext {
                 result: Disposition::Pass,
                 context: format!("sampled_out due to pct={}", self.rate),
-                props: BTreeMap::new(),
+                props,
             };
         }
 
@@ -54,6 +61,7 @@ impl Record {
 
                     if let Some(dkim_domain) = dkim.props.get("header.d") {
                         if let Ok(dkim_domain_str) = dkim_domain.to_str() {
+                            dkim_signing_domain = Some(dkim_domain_str.to_string());
                             if is_relaxed_aligned(cx.from_domain, dkim_domain_str) {
                                 dkim_errors.clear();
                                 cx.dkim_aligned = super::results::DmarcResult::Pass;
@@ -75,6 +83,7 @@ impl Record {
 
                     if let Some(dkim_domain) = dkim.props.get("header.d") {
                         if let Ok(dkim_domain_str) = dkim_domain.to_str() {
+                            dkim_signing_domain = Some(dkim_domain_str.to_string());
                             if is_strict_aligned(cx.from_domain, dkim_domain_str) {
                                 dkim_errors.clear();
                                 cx.dkim_aligned = super::results::DmarcResult::Pass;
@@ -90,12 +99,19 @@ impl Record {
             }
         }
 
+        // Add DKIM signing domain to props if available
+        if let Some(signing_domain) = dkim_signing_domain {
+            props.insert("dmarc.dkim-signing-domain".into(), signing_domain.into());
+        }
+
         if auth_result_is_pass(&cx.spf_result) {
-            let spf_domain = spf_alignment_domain(&cx.spf_result.props).or(cx.mail_from_domain);
+            spf_domain = spf_alignment_domain(&cx.spf_result.props)
+                .or(cx.mail_from_domain)
+                .map(|s| s.to_string());
 
             match self.align_spf {
                 Mode::Relaxed => {
-                    if let Some(mail_from_domain) = spf_domain {
+                    if let Some(mail_from_domain) = &spf_domain {
                         if is_relaxed_aligned(cx.from_domain, mail_from_domain) {
                             cx.spf_aligned = super::results::DmarcResult::Pass;
                         } else {
@@ -105,7 +121,7 @@ impl Record {
                     }
                 }
                 Mode::Strict => {
-                    if let Some(mail_from_domain) = spf_domain {
+                    if let Some(mail_from_domain) = &spf_domain {
                         if !is_strict_aligned(cx.from_domain, mail_from_domain) {
                             cx.spf_aligned = super::results::DmarcResult::Fail;
                             spf_errors.push("DMARC: SPF strict check failed".to_string());
@@ -117,13 +133,28 @@ impl Record {
             }
         }
 
+        // Add SPF domain to props if available
+        if let Some(spf_domain_val) = spf_domain {
+            props.insert("dmarc.spf-domain".into(), spf_domain_val.into());
+        }
+
+        // Add alignment results to props
+        props.insert(
+            "dmarc.dkim-alignment-result".into(),
+            format!("{:?}", cx.dkim_aligned).to_lowercase().into(),
+        );
+        props.insert(
+            "dmarc.spf-alignment-result".into(),
+            format!("{:?}", cx.spf_aligned).to_lowercase().into(),
+        );
+
         if cx.dkim_aligned == super::results::DmarcResult::Pass
             || cx.spf_aligned == super::results::DmarcResult::Pass
         {
             return DispositionWithContext {
                 result: Disposition::Pass,
                 context: "Success".into(),
-                props: BTreeMap::new(),
+                props,
             };
         }
 
@@ -144,14 +175,14 @@ impl Record {
             return DispositionWithContext {
                 result,
                 context: alignment_context,
-                props: BTreeMap::new(),
+                props,
             };
         }
 
         DispositionWithContext {
             result: self.disposition(sender_domain_alignment),
             context: "No aligned DKIM or SPF".into(),
-            props: BTreeMap::new(),
+            props,
         }
     }
 
