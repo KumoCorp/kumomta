@@ -8,6 +8,7 @@ anyhow.workspace = true
 bytes.workspace = true
 futures.workspace = true
 kumo-api-types = {path="../kumo-api-types", default-features=false}
+kumo-http-client = {path="../kumo-http-client"}
 kumo-prometheus = {path="../kumo-prometheus"}
 reqwest = {workspace=true, default-features=false, features=["json", "rustls-tls", "stream"]}
 serde.workspace = true

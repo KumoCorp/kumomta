@@ -42,7 +42,7 @@ async fn http_inject_compression_gzip() -> anyhow::Result<()> {
         compressed_data.len()
     );
 
-    let client = reqwest::Client::new();
+    let client = kumo_http_client::builder().build().unwrap();
     let response = client
         .post(&format!(
             "http://{}/api/inject/v1",
@@ -128,7 +128,7 @@ async fn http_inject_compression_deflate() -> anyhow::Result<()> {
     encoder.write_all(&json_data)?;
     let compressed_data = encoder.finish()?;
 
-    let client = reqwest::Client::new();
+    let client = kumo_http_client::builder().build().unwrap();
     let response = client
         .post(&format!(
             "http://{}/api/inject/v1",
@@ -176,7 +176,8 @@ async fn http_inject_compression_zstd() -> anyhow::Result<()> {
     let compressed_data = zstd::stream::encode_all(json_data.as_slice(), 1)?;
     assert!(compressed_data.len() < json_data.len());
 
-    let response = reqwest::Client::new()
+    let response = kumo_http_client::builder()
+        .build()?
         .post(&format!(
             "http://{}/api/inject/v1",
             daemon.source.listener("http")
@@ -233,7 +234,7 @@ async fn http_inject_compression_zstd_invalid() -> anyhow::Result<()> {
 
     // Keep the decoded JSON intact, but omit part of the frame checksum.
     let truncated = compressed_data[..compressed_data.len() - 1].to_vec();
-    let client = reqwest::Client::new();
+    let client = kumo_http_client::builder().build()?;
     for body in [b"not a zstd frame".to_vec(), truncated] {
         let response = client
             .post(&format!(
@@ -269,7 +270,7 @@ async fn http_inject_uncompressed_backward_compatibility() -> anyhow::Result<()>
         "content": "Subject: Backward Compatibility\r\n\r\nThis message is not compressed"
     });
 
-    let client = reqwest::Client::new();
+    let client = kumo_http_client::builder().build().unwrap();
     let response = client
         .post(&format!(
             "http://{}/api/inject/v1",
@@ -307,7 +308,7 @@ async fn http_inject_unsupported_compression() -> anyhow::Result<()> {
         "content": "Subject: Test\r\n\r\nTest message"
     });
 
-    let client = reqwest::Client::new();
+    let client = kumo_http_client::builder().build().unwrap();
     let response = client
         .post(&format!(
             "http://{}/api/inject/v1",
@@ -337,7 +338,7 @@ async fn http_response_compression() -> anyhow::Result<()> {
     let mut daemon = DaemonWithMaildir::start()
         .await
         .context("DaemonWithMaildir::start")?;
-    let client = reqwest::Client::builder()
+    let client = kumo_http_client::builder()
         .no_gzip()
         .no_deflate()
         .no_brotli()

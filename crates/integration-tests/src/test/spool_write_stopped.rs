@@ -265,7 +265,12 @@ async fn spool_write_stopped_load_shedding() -> anyhow::Result<()> {
             "http://{}/api/check-liveness/v1",
             daemon.source.listener("http")
         );
-        let response = reqwest::Client::new().get(&url).send().await?;
+        let response = kumo_http_client::builder()
+            .build()
+            .unwrap()
+            .get(&url)
+            .send()
+            .await?;
         let status = response.status();
         let body = response.text().await?;
         assert_equal!(
@@ -287,7 +292,9 @@ async fn spool_write_stopped_load_shedding() -> anyhow::Result<()> {
         send_one(&daemon).await.context("send after reopening")?,
         250
     );
-    let response = reqwest::Client::new()
+    let response = kumo_http_client::builder()
+        .build()
+        .unwrap()
         .get(format!(
             "http://{}/api/check-liveness/v1",
             daemon.source.listener("http")

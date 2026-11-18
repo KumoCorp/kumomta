@@ -207,7 +207,7 @@ pub async fn post<T: reqwest::IntoUrl, B: serde::Serialize>(
     url: T,
     body: &B,
 ) -> reqwest::Result<reqwest::Response> {
-    reqwest::Client::builder()
+    kumo_http_client::builder()
         .timeout(TIMEOUT)
         .build()?
         .post(url)

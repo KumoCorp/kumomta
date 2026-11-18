@@ -425,7 +425,7 @@ impl Opt {
     }
 
     async fn make_http_client(&self) -> anyhow::Result<InjectClient> {
-        let client = HttpClient::builder()
+        let client = kumo_http_client::builder()
             .timeout(Duration::from_secs(60))
             .build()?;
         let url = if self.target == "127.0.0.1:2025" {

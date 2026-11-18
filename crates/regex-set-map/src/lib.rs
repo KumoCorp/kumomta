@@ -5,12 +5,13 @@ use mod_memoize::CacheValue;
 use regex::{RegexSet, RegexSetBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(try_from = "RegexSetMapBuilder<V>", into = "RegexSetMapBuilder<V>")]
 pub struct RegexSetMap<V: Clone> {
     set: RegexSet,
-    pattern_to_value: Vec<V>,
+    pattern_to_value: Arc<[V]>,
 }
 
 impl<V: Clone> RegexSetMap<V> {
@@ -28,7 +29,7 @@ impl<V: Clone> From<RegexSetMap<V>> for RegexSetMapBuilder<V> {
         let patterns = map.set.patterns().to_vec();
         RegexSetMapBuilder {
             patterns,
-            pattern_to_value: map.pattern_to_value,
+            pattern_to_value: map.pattern_to_value.to_vec(),
         }
     }
 }
@@ -75,7 +76,7 @@ impl<V: Clone> RegexSetMapBuilder<V> {
             .map_err(|err| format!("compiling rules: {err:#}"))?;
         Ok(RegexSetMap {
             set,
-            pattern_to_value: self.pattern_to_value,
+            pattern_to_value: self.pattern_to_value.into(),
         })
     }
 }
@@ -145,5 +146,24 @@ mod test {
                 "expected {input} -> {output:?}"
             );
         }
+    }
+
+    #[test]
+    fn clone_is_shared_until_written() {
+        let mut builder = RegexSetMapBuilder::new();
+        builder.add_rule("quota", 500);
+        let map = builder.build().unwrap();
+
+        let copy = map.clone();
+        assert!(Arc::ptr_eq(&map.pattern_to_value, &copy.pattern_to_value));
+
+        let mut builder = RegexSetMapBuilder::from(map);
+        builder.add_rule("inactive", 501);
+        let map = builder.build().unwrap();
+
+        assert_eq!(map.lookup("inactive"), Some(&501));
+        assert_eq!(map.lookup("quota"), Some(&500));
+        assert_eq!(copy.lookup("inactive"), None);
+        assert_eq!(copy.lookup("quota"), Some(&500));
     }
 }

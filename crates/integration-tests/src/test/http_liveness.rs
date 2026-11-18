@@ -5,7 +5,7 @@ use anyhow::Context;
 async fn http_liveness_kumod() -> anyhow::Result<()> {
     let mut daemon = DaemonWithMaildir::start().await?;
 
-    let client = reqwest::Client::new();
+    let client = kumo_http_client::builder().build().unwrap();
     let response = client
         .get(&format!(
             "http://{}/api/check-liveness/v1",
@@ -32,7 +32,7 @@ async fn http_liveness_kumod() -> anyhow::Result<()> {
 async fn http_liveness_tsa() -> anyhow::Result<()> {
     let mut daemon = DaemonWithTsa::start().await?;
 
-    let client = reqwest::Client::new();
+    let client = kumo_http_client::builder().build().unwrap();
     let response = client
         .get(&format!(
             "http://{}/tsa/status",

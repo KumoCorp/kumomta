@@ -62,8 +62,28 @@ commands = [
 
 if "ubuntu" in container:
     doc_deps = []
+    doc_tool_commands = []
     if "ubuntu:22.04" in container:
         doc_deps += ["podman"]
+    if "ubuntu:24.04" in container:
+        # venv is required to install the docs tooling below without
+        # colliding with the externally-managed system python.
+        doc_deps += ["python3-venv"]
+        doc_tool_commands += [
+            # zensical, installed as a standalone tool.
+            "python3 -m venv /opt/zensical"
+            " && /opt/zensical/bin/pip install --no-cache-dir zensical==0.0.62"
+            " && ln -s /opt/zensical/bin/zensical /usr/local/bin/zensical",
+            # mkdocs with the material theme and the plugins the docs config
+            # loads. The click reinstall works around
+            # https://github.com/squidfunk/mkdocs-material/issues/8478
+            "python3 -m venv /opt/mkdocs"
+            " && /opt/mkdocs/bin/pip install --no-cache-dir"
+            " mkdocs-material mkdocs-macros-plugin mkdocs-include-markdown-plugin"
+            " mkdocs-exclude mkdocs-git-revision-date-localized-plugin"
+            " && /opt/mkdocs/bin/pip install --no-cache-dir --force-reinstall click==8.2.1"
+            " && ln -s /opt/mkdocs/bin/mkdocs /usr/local/bin/mkdocs",
+        ]
 
     commands = (
         [
@@ -99,6 +119,7 @@ if "ubuntu" in container:
             "apt update",
             "apt install -yqq --no-install-recommends gh",
         ]
+        + doc_tool_commands
     )
 
     dockerfile += "ENV DEBIAN_FRONTEND=noninteractive\n"

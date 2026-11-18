@@ -20,13 +20,14 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::Debug;
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::sync::Arc;
 
 #[derive(Clone, PartialEq)]
 pub struct CidrMap<V>
 where
     V: Clone,
 {
-    root: Option<Node<V>>,
+    root: Arc<Option<Node<V>>>,
 }
 
 impl<V> Debug for CidrMap<V>
@@ -50,7 +51,7 @@ where
             }
         }
 
-        if let Some(root) = &self.root {
+        if let Some(root) = self.root() {
             walk(root, &mut map);
         }
 
@@ -424,7 +425,7 @@ where
     V: Clone,
 {
     fn default() -> Self {
-        Self { root: None }
+        Self::new()
     }
 }
 
@@ -433,7 +434,9 @@ where
     V: Clone,
 {
     pub fn new() -> Self {
-        Self { root: None }
+        Self {
+            root: Arc::new(None),
+        }
     }
 
     pub fn contains(&self, ip: IpAddr) -> bool {
@@ -446,7 +449,7 @@ where
     }
 
     pub fn get_prefix_match_cidr(&self, key: &AnyIpCidr) -> Option<&V> {
-        let node = self.root.as_ref()?;
+        let node = self.root()?;
         Self::find_item(node, key)
     }
 
@@ -471,11 +474,12 @@ where
     where
         V: Clone,
     {
-        match self.root {
+        let root = Arc::make_mut(&mut self.root);
+        match root {
             None => {
-                self.root = Some(Node::new_leaf(key, value));
+                *root = Some(Node::new_leaf(key, value));
             }
-            Some(ref mut node) => {
+            Some(node) => {
                 node.insert_uncompressed(key, value);
             }
         }
@@ -487,11 +491,12 @@ where
     where
         V: Clone + PartialEq,
     {
-        match self.root {
+        let root = Arc::make_mut(&mut self.root);
+        match root {
             None => {
-                self.root = Some(Node::new_leaf(key, value));
+                *root = Some(Node::new_leaf(key, value));
             }
-            Some(ref mut node) => {
+            Some(node) => {
                 node.insert(key, value);
             }
         }
@@ -501,7 +506,7 @@ where
     ///
     /// An empty map doesn't have any nodes (i.e. `None`).
     pub fn root(&self) -> Option<&Node<V>> {
-        self.root.as_ref()
+        (*self.root).as_ref()
     }
 
     /// Iterate over all values in the map
@@ -801,6 +806,27 @@ mod test {
     "::1": "loopbackv6",
 }
 "#
+        );
+    }
+
+    #[test]
+    fn clone_is_shared_until_written() {
+        let mut map: CidrMap<&str> = CidrMap::new();
+        map.insert(parse_cidr("10.0.0.0/8").unwrap(), "ten");
+
+        let mut copy = map.clone();
+        assert!(Arc::ptr_eq(&map.root, &copy.root));
+
+        copy.insert(parse_cidr("192.168.0.0/16").unwrap(), "private");
+        assert!(!Arc::ptr_eq(&map.root, &copy.root));
+        assert_eq!(map.get_prefix_match("192.168.1.1".parse().unwrap()), None);
+        assert_eq!(
+            copy.get_prefix_match("192.168.1.1".parse().unwrap()),
+            Some(&"private")
+        );
+        assert_eq!(
+            copy.get_prefix_match("10.1.1.1".parse().unwrap()),
+            Some(&"ten")
         );
     }
 }

@@ -26,6 +26,11 @@ jobs:
 
       - name: Install cargo-cooldown
         uses: baptiste0928/cargo-install@v3
+        # Build the subcommand with stable rather than the channel pinned in
+        # rust-toolchain.toml, which can lag behind what cargo-cooldown's own
+        # MSRV requires.
+        env:
+          RUSTUP_TOOLCHAIN: stable
         with:
           crate: cargo-cooldown
 

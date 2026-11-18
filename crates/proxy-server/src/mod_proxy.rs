@@ -25,6 +25,11 @@ pub struct ProxyListenerParams {
     /// Address to listen on (e.g., "127.0.0.1:1080")
     pub listen: String,
 
+    /// Accept-queue depth requested of the kernel. Defaults to the kernel
+    /// maximum (`net.core.somaxconn` on Linux).
+    #[serde(default)]
+    pub listen_backlog: Option<u32>,
+
     /// Hostname for self-signed certificate generation if no cert is provided
     #[serde(default = "ProxyListenerParams::default_hostname")]
     pub hostname: String,
@@ -159,7 +164,9 @@ impl ProxyListenerParams {
 
     /// Start the proxy listener
     pub async fn start(self) -> anyhow::Result<()> {
-        let listener = TcpListener::bind(&self.listen).await?;
+        let listener =
+            kumo_server_common::listener::bind_with_backlog(&self.listen, self.listen_backlog)?;
+        let listener = TcpListener::from_std(listener)?;
         let addr = listener.local_addr()?;
         let keepalive = Arc::new(self.tcp_keepalive.build());
 

@@ -63,6 +63,7 @@ mod source_selection_rate;
 mod source_selection_rate_pool;
 mod spf_basic;
 mod spool_write_stopped;
+mod sticky_source;
 mod suspend_delivery_ready_q;
 mod suspend_delivery_ready_q_and_deliver;
 mod suspend_delivery_scheduled_q;

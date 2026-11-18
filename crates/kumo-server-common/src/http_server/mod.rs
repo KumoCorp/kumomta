@@ -13,7 +13,7 @@ use data_loader::KeySource;
 use kumo_server_memory::{get_usage_and_limit, tracking_stats, JemallocStats};
 use kumo_server_runtime::spawn;
 use serde::Deserialize;
-use std::net::{IpAddr, SocketAddr, TcpListener};
+use std::net::{IpAddr, SocketAddr};
 use tower_http::compression::CompressionLayer;
 use tower_http::decompression::RequestDecompressionLayer;
 use tower_http::trace::TraceLayer;
@@ -55,6 +55,11 @@ pub struct HttpListenerParams {
 
     #[serde(default = "HttpListenerParams::default_listen")]
     pub listen: String,
+
+    /// Accept-queue depth requested of the kernel. Defaults to the kernel
+    /// maximum (`net.core.somaxconn` on Linux).
+    #[serde(default)]
+    pub listen_backlog: Option<u32>,
 
     #[serde(default)]
     pub use_tls: bool,
@@ -316,7 +321,7 @@ impl HttpListenerParams {
     ) -> anyhow::Result<()> {
         let (compression_layer, decompression_layer) = http_compression_layers();
 
-        let socket = TcpListener::bind(&self.listen)
+        let socket = crate::listener::bind_with_backlog(&self.listen, self.listen_backlog)
             .with_context(|| format!("listen on {}", self.listen))?;
         let addr = socket.local_addr()?;
 
@@ -728,7 +733,7 @@ mod test {
         let server = axum::serve(listener, router).into_future();
 
         let check = async {
-            let client = reqwest::Client::builder()
+            let client = kumo_http_client::builder()
                 .no_gzip()
                 .no_deflate()
                 .no_brotli()

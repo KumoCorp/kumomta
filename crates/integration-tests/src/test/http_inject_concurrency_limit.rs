@@ -23,7 +23,7 @@ async fn http_inject_concurrency_limit() -> anyhow::Result<()> {
         "content": { "subject": "concurrency", "text_body": "Hello!" },
     });
 
-    let client = reqwest::Client::new();
+    let client = kumo_http_client::builder().build().unwrap();
 
     // First request holds the slot for the duration of the policy sleep.
     let first = {

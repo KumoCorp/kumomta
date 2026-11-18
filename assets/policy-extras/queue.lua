@@ -68,20 +68,30 @@ end)
 ---
 ]]
 
--- Return true if the `name` and `value` pair provided
--- is a valid queue configuration option.
--- It does this by asking the internal rust code to validate it.
-local function is_queue_config_option(name, value)
-  local p = { [name] = value }
-  local status, err = pcall(kumo.make_queue_config, p)
-  if not status then
-    local err = typing.extract_deserialize_error(err)
-    if tostring(err):find 'invalid type' then
-      return false, err
+local CACHED_QUEUE_CONFIG_OPTION_NAMES = nil
+
+local function is_queue_config_option_name(name)
+  if not CACHED_QUEUE_CONFIG_OPTION_NAMES then
+    CACHED_QUEUE_CONFIG_OPTION_NAMES = {}
+    for _, field in ipairs(kumo.queue_config_field_names()) do
+      CACHED_QUEUE_CONFIG_OPTION_NAMES[field] = true
     end
+  end
+  return CACHED_QUEUE_CONFIG_OPTION_NAMES[name] == true
+end
+
+-- Returns the tuple `(is_option, err)`. `is_option` is true when `name` is
+-- a kumo.make_queue_config option and `value` is acceptable for it.
+-- `err` is non-nil only when `name` is an option but `value` is invalid.
+local function is_queue_config_option(name, value)
+  if not is_queue_config_option_name(name) then
     return false, nil
   end
-  return status
+  local status, err = pcall(kumo.make_queue_config, { [name] = value })
+  if not status then
+    return false, typing.extract_deserialize_error(err)
+  end
+  return true
 end
 
 mod.is_queue_config_option = is_queue_config_option
@@ -150,15 +160,17 @@ local function parse_tenant_with_campaign(data)
   }
   -- print('parse_tenant_with_campaign', kumo.serde.json_encode_pretty(data))
   for k, v in pairs(data) do
-    -- Since we allow an arbitrary key to map to a campaign, and a mixture
-    -- of known-to-lua and known-to-rust options, short of replicating
-    -- the logic in the typing module here, the best option is just to
-    -- try to assign it, and if it raises an error, then it must be
-    -- a campaign value.
-    local status, result = pcall(function()
+    -- The TOML schema places campaign names as keys in the same table as
+    -- the queue options, with no marker to tell them apart. A key is a
+    -- campaign name unless it matches a TenantWithCampaignConfig field or
+    -- a known make_queue_config option name. A known option with an
+    -- invalid value is assigned anyway: the typed record then raises the
+    -- validation error, rather than the bad value being filed as a
+    -- campaign.
+    local is_option, err = is_queue_config_option(k, v)
+    if is_option or err or TenantWithCampaignConfig:has_field(k) then
       tenant[k] = v
-    end)
-    if not status then
+    else
       tenant.campaigns[k] = v
     end
   end
@@ -172,15 +184,17 @@ local function parse_domain(data)
   }
   -- print('parse_domain', kumo.serde.json_encode_pretty(data))
   for k, v in pairs(data) do
-    -- Since we allow an arbitrary key to map to a tenant, and a mixture
-    -- of known-to-lua and known-to-rust options, short of replicating
-    -- the logic in the typing module here, the best option is just to
-    -- try to assign it, and if it raises an error, then it must be
-    -- a tenant value.
-    local status, result = pcall(function()
+    -- The TOML schema places tenant names as keys in the same table as
+    -- the queue options, with no marker to tell them apart. A key is a
+    -- tenant name unless it matches a DomainConfig field or a known
+    -- make_queue_config option name. A known option with an invalid
+    -- value is assigned anyway: the typed record then raises the
+    -- validation error, rather than the bad value being filed as a
+    -- tenant.
+    local is_option, err = is_queue_config_option(k, v)
+    if is_option or err or DomainConfig:has_field(k) then
       domain[k] = v
-    end)
-    if not status then
+    else
       domain.tenants[k] = parse_tenant_with_campaign(v)
     end
   end
@@ -749,6 +763,36 @@ egress_pool = "bar"
     resolve_config(data, 'gmail.com', 'mytenant', 'campaign', nil).egress_pool,
     'bar'
   )
+
+  -- A name that is not a QueueConfig field is never an option, whatever
+  -- its value. A QueueConfig field with an invalid value reports the error
+  -- rather than answering "not an option".
+  utils.assert_eq(is_queue_config_option('max_age', '3 days'), true)
+  local is_option, err = is_queue_config_option('tenants', {})
+  utils.assert_eq(is_option, false)
+  utils.assert_eq(err, nil)
+  local is_option, err = is_queue_config_option('max_age', 'bogus')
+  utils.assert_eq(is_option, false)
+  assert(err ~= nil)
+
+  -- A bad value for a known option is a load error.
+  local status, err = pcall(merge_data, {
+    kumo.toml_parse [=[
+[queue.'example.com']
+ max_age = 'bogus'
+]=],
+  })
+  assert(not status)
+  utils.assert_matches(err, "invalid value for field 'max_age'")
+
+  local status, err = pcall(merge_data, {
+    kumo.toml_parse [=[
+[queue.'example.com'.'mytenant']
+ retry_interval = 'bogus'
+]=],
+  })
+  assert(not status)
+  utils.assert_matches(err, "invalid value for field 'retry_interval'")
 
   utils.assert_eq(resolve_overall_throttle_specs(data, nil, nil), {})
   utils.assert_eq(

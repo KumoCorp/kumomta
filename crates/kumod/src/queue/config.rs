@@ -120,7 +120,7 @@ impl Default for QueueConfig {
 
 /// The largest seconds value that can be passed to chrono::Duration::try_seconds
 /// before it returns None.
-const MAX_CHRONO_SECONDS: i64 = i64::MAX / 1_000;
+pub(crate) const MAX_CHRONO_SECONDS: i64 = i64::MAX / 1_000;
 
 impl QueueConfig {
     /// Compute the throughput ceilings implied by the queue config.
@@ -204,8 +204,8 @@ impl QueueConfig {
             Some(limit) => delay.min(limit),
         };
 
-        chrono::Duration::try_seconds((delay as i64).min(MAX_CHRONO_SECONDS))
-            .expect("seconds to always be <= MAX_CHRONO_SECONDS")
+        let delay = delay.min(MAX_CHRONO_SECONDS as u64) as i64;
+        chrono::Duration::try_seconds(delay).expect("seconds to always be <= MAX_CHRONO_SECONDS")
     }
 
     /// Compute the delay from the current point in time until
@@ -234,7 +234,7 @@ impl QueueConfig {
         // based on the number of attempts
         let overall_delay: i64 = (1..num_attempts)
             .map(|i| self.delay_for_attempt(i).num_seconds())
-            .sum();
+            .fold(0, i64::saturating_add);
         let overall_delay = chrono::Duration::try_seconds(overall_delay.min(MAX_CHRONO_SECONDS))
             .expect("seconds to always be <= MAX_CHRONO_SECONDS");
 
@@ -269,7 +269,7 @@ impl QueueConfig {
     ) -> chrono::Duration {
         let overall_delay: i64 = (1..num_attempts)
             .map(|i| self.delay_for_attempt(i).num_seconds())
-            .sum();
+            .fold(0, i64::saturating_add);
         let overall_delay = chrono::Duration::try_seconds(overall_delay.min(MAX_CHRONO_SECONDS))
             .expect("seconds to always be <= MAX_SECONDS");
 

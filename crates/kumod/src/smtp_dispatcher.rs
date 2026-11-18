@@ -20,7 +20,7 @@ use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
 use kumo_prometheus::declare_metric;
 use kumo_server_lifecycle::{ShutdownSubcription, ShuttingDownError};
 use kumo_server_runtime::spawn;
-use mailexchanger::{PolicyMode, ResolvedMxAddresses};
+use mailexchanger::{is_dane_enabled, MailExchanger, PolicyMode, ResolvedMxAddresses};
 use message::message::QueueNameComponents;
 use message::Message;
 use rfc5321::parser::{EnvelopeAddress, ForwardPath, ReversePath};
@@ -677,6 +677,7 @@ impl SmtpDispatcher {
         };
 
         self.source_address.take();
+        self.tls_info.take();
         dispatcher.set_detail("connect+banner");
         let (mut client, source_address, implicit_tls_info) = tokio::select! {
             _ = shutdown.shutting_down() => {
@@ -779,8 +780,8 @@ impl SmtpDispatcher {
 
     /// Negotiate the TLS posture for a cleartext connection and, when the
     /// policy calls for it, upgrade to TLS via STARTTLS. Returns whether TLS
-    /// ended up enabled on the session. DANE and MTA-STS policy are applied to
-    /// the effective `enable_tls` before the decision.
+    /// ended up enabled on the session. DANE and MTA-STS policy may raise, but
+    /// never lower, the configured `enable_tls` before the decision.
     async fn negotiate_tls(
         &mut self,
         dispatcher: &Dispatcher,
@@ -797,11 +798,6 @@ impl SmtpDispatcher {
 
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
-        // Set when DANE published TLSA records that turned out to be unusable:
-        // STARTTLS is then mandatory (the host committed to TLS) even though we
-        // cannot authenticate it, so MTA-STS may add authentication but must not
-        // relax the requirement back to opportunistic.
-        let mut dane_requires_starttls = false;
 
         let mut certificate_from_pem = None;
         let mut private_key_from_pem = None;
@@ -883,27 +879,23 @@ impl SmtpDispatcher {
                         self.tracer.diagnostic(Level::INFO, || {
                             format!("DANE records for {} are: {dane_tlsa:?}", address.name)
                         });
-                        enable_tls = Tls::Required;
+                        enable_tls = enable_tls.at_least(Tls::Required);
                         // Do not use MTA-STS when we have usable DANE records
                         mta_sts_eligible = false;
                     }
                     DaneStatus::Unusable => {
                         record_dane_result("unusable");
                         // RFC 7672 section 4.1: TLSA records are published
-                        // but none are usable; STARTTLS is required but we
-                        // cannot authenticate the peer. The domain has no
-                        // usable DANE policy, so MTA-STS may still apply as
-                        // an authentication fallback (but must not relax the
-                        // mandatory STARTTLS).
+                        // but none are usable. STARTTLS is required, but DANE
+                        // cannot authenticate the peer.
                         self.tracer.diagnostic(Level::INFO, || {
                             format!(
                                 "DANE TLSA records for {} exist but none are usable; \
-                                     requiring unauthenticated STARTTLS",
+                                     requiring STARTTLS without DANE authentication",
                                 address.name
                             )
                         });
-                        enable_tls = Tls::RequiredInsecure;
-                        dane_requires_starttls = true;
+                        enable_tls = enable_tls.at_least(Tls::RequiredInsecure);
                     }
                     DaneStatus::TempFail(reason) => {
                         record_dane_result("tempfail");
@@ -951,19 +943,16 @@ impl SmtpDispatcher {
         if mta_sts_eligible && path_config.enable_mta_sts {
             match dispatcher.mx.as_ref().map(|mx| mx.mta_sts) {
                 Some(PolicyMode::Enforce) => {
-                    enable_tls = Tls::Required;
+                    enable_tls = enable_tls.at_least(Tls::Required);
                     self.tracer.diagnostic(Level::INFO, || {
                         "MTA-STS enforce policy in effect; requiring TLS".to_string()
                     });
                 }
                 Some(PolicyMode::Testing) => {
-                    // Don't relax a mandatory STARTTLS established by
-                    // unusable DANE TLSA records.
-                    if !dane_requires_starttls {
-                        enable_tls = Tls::OpportunisticInsecure;
-                    }
+                    // RFC 8461 section 5: a testing policy is reported but
+                    // must not change delivery.
                     self.tracer.diagnostic(Level::INFO, || {
-                        "MTA-STS testing policy in effect".to_string()
+                        "MTA-STS testing policy in effect; TLS posture unchanged".to_string()
                     });
                 }
                 None | Some(PolicyMode::None) => {}
@@ -1132,6 +1121,95 @@ impl SmtpDispatcher {
 
     fn has_broken_tls(&self, site_name: &str) -> bool {
         self.site_has_broken_tls || BROKEN_TLS_BY_SITE.get(site_name).is_some()
+    }
+
+    /// Checks whether the shared connection this message would be sent over can
+    /// meet the message's TLS requirements. Returns a TransientFailure response
+    /// to defer the message if it cannot, or `None` if delivery may proceed.
+    async fn tls_policy_veto(
+        &self,
+        dispatcher: &Dispatcher,
+        msg: &Message,
+    ) -> anyhow::Result<Option<Response>> {
+        let (enable_dane, enable_mta_sts) = {
+            let config = dispatcher.path_config.borrow();
+            (config.enable_dane, config.enable_mta_sts)
+        };
+
+        if enable_dane && !is_dane_enabled() {
+            return Ok(Some(Response {
+                code: 451,
+                enhanced_code: Some(EnhancedStatusCode {
+                    class: 4,
+                    subject: 7,
+                    detail: 0,
+                }),
+                content: "KumoMTA internal: enable_dane is set on this egress \
+                    path but kumo.dns.set_dane_enabled was not used to enable \
+                    MX-time safety checks, so DANE authentication cannot be \
+                    guaranteed. Either kumo.dns.set_dane_enabled(true) MUST be \
+                    configured to deliver with DANE, or you must set \
+                    enable_dane=false on this egress path if you \
+                    don't need to use DANE."
+                    .to_string(),
+                command: None,
+            }));
+        }
+
+        if !enable_mta_sts {
+            // No MTA-STS policy to enforce
+            return Ok(None);
+        }
+
+        if self.tls_info.is_some() {
+            // We're using TLS, which satisfies the policy
+            return Ok(None);
+        }
+
+        let queue_name = msg.get_queue_name().await?;
+        let components = QueueNameComponents::parse(&queue_name);
+        let routing_domain = components
+            .routing_domain
+            .as_deref()
+            .unwrap_or(&components.domain);
+
+        // `dispatcher.mx` may belong to a different domain than this message is
+        // routing to, since several domains can share one connection. Reuse it,
+        // without re-resolving, only when its domain matches this message's
+        // routing domain.
+        let pinned = dispatcher.mx.as_ref().filter(|mx| {
+            mx.domain_name
+                .trim_end_matches('.')
+                .eq_ignore_ascii_case(routing_domain.trim_end_matches('.'))
+        });
+        let mta_sts = match pinned {
+            Some(mx) => mx.mta_sts,
+            None => match MailExchanger::resolve(routing_domain).await {
+                Ok(mx) => mx.mta_sts,
+                // Without a definitive policy we do not synthesize a veto.
+                Err(_) => return Ok(None),
+            },
+        };
+
+        if mta_sts != PolicyMode::Enforce {
+            return Ok(None);
+        }
+
+        Ok(Some(Response {
+            code: 451,
+            enhanced_code: Some(EnhancedStatusCode {
+                class: 4,
+                subject: 7,
+                detail: 0,
+            }),
+            content: format!(
+                "KumoMTA internal: {routing_domain} publishes an MTA-STS enforce policy \
+                 requiring TLS, but the connection to {site} is cleartext; deferring rather \
+                 than delivering without TLS",
+                site = dispatcher.name
+            ),
+            command: None,
+        }))
     }
 
     async fn log_disposition(
@@ -1354,12 +1432,16 @@ impl QueueDispatcher for SmtpDispatcher {
             recipients_this_batch.len()
         ));
 
-        let send_result = self
-            .client
-            .as_mut()
-            .unwrap()
-            .send_mail_multi_recip(sender, recipients_this_batch.clone(), &*data)
-            .await;
+        let send_result = match self.tls_policy_veto(dispatcher, &msg).await? {
+            Some(response) => Err(ClientError::Rejected(response)),
+            None => {
+                self.client
+                    .as_mut()
+                    .unwrap()
+                    .send_mail_multi_recip(sender, recipients_this_batch.clone(), &*data)
+                    .await
+            }
+        };
 
         let mut result_per_rcpt = vec![];
         let mut rewrite_eligible = false;

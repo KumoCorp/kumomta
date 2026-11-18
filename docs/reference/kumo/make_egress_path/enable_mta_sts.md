@@ -4,9 +4,9 @@
 
 When set to `true` (which is the default), a resolved
 [MTA-STS](https://datatracker.ietf.org/doc/html/rfc8461) policy for the
-destination domain will be used to adjust the effective value of `enable_tls`.
-You can set it to `false` to prevent a policy from raising the TLS posture for
-this egress path.
+destination domain adjusts the effective value of `enable_tls` as described
+below. You can set it to `false` to prevent a policy from changing the TLS
+posture for this egress path.
 
 {{since('2026.09.22-a276d4a8', indent=True)}}
     This option influences only whether the TLS portion of the MTA-STS policy
@@ -36,16 +36,30 @@ max_age: 86400
 The `mode` field describes the intended policy of the destination site, while
 the `mx` fields place restrictions on the allowable list of MX hosts.
 
-If the `mode` for the destination domain is set to `"enforce"`, then the
-connection will be made with `enable_tls="Required"`. Candidate MX hosts that do
-not match the `mx` fields are removed during resolution, so by the time a
-connection is attempted the candidate set already satisfies the policy.
+The effective value of `enable_tls` depends on the policy `mode`, the value
+configured for this egress path, and the KumoMTA version:
 
-If the `mode` is set to `"testing"`, then the connection will be made
-with `enable_tls="OpportunisticInsecure"`.
+| MTA-STS `mode` | Configured `enable_tls` | Earlier versions | {{since('dev', inline=True)}} |
+| --- | --- | --- | --- |
+| `enforce` | Any value | `Required` | `Required` |
+| `testing` | `Opportunistic` | `OpportunisticInsecure` | `Opportunistic` |
+| `testing` | `OpportunisticInsecure` | `OpportunisticInsecure` | `OpportunisticInsecure` |
+| `testing` | `Required` | `OpportunisticInsecure` | `Required` |
+| `testing` | `RequiredInsecure` | `OpportunisticInsecure` | `RequiredInsecure` |
+| `testing` | `Disabled` | `OpportunisticInsecure` | `Disabled` |
+| `none` | Any value | The configured value | The configured value |
 
-If the `mode` is set to `"none"`, then your configured value for `enable_tls`
-will be used.
+{{since('dev', indent=True)}}
+    A policy can only raise the effective `enable_tls`, never lower it. In
+    earlier versions a `testing` policy replaced any configured value with the
+    weaker `OpportunisticInsecure`, dropping certificate verification and
+    making STARTTLS optional even on a `Required` path.
 
-If `enable_dane=true` and `TLSA` records are present, then any MTA-STS policy
-will be ignored.
+For `enforce`, MX resolution removes any host that does not match the
+policy's `mx` fields, leaving only hosts the policy permits by the time a
+connection is attempted.
+
+The table describes delivery without DANE. When `enable_dane=true` and the
+destination publishes usable `TLSA` records, the MTA-STS policy is ignored in
+favor of DANE; when the records are present but unusable, DANE mandates
+STARTTLS and a `testing` policy cannot relax it. See [enable_dane](enable_dane.md).

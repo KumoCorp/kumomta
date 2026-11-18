@@ -1,4 +1,5 @@
 use crate::epoch::{get_current_epoch, ConfigEpoch};
+pub use crate::field_names::struct_field_names;
 use crate::pool::{pool_get, pool_put};
 pub use crate::pool::{set_gc_on_put, set_max_age, set_max_spare, set_max_use};
 use anyhow::Context;
@@ -19,6 +20,7 @@ use std::sync::{LazyLock, Once};
 use std::time::Instant;
 
 pub mod epoch;
+mod field_names;
 mod pool;
 
 static POLICY_FILE: LazyLock<Mutex<Option<PathBuf>>> = LazyLock::new(|| Mutex::new(None));
@@ -105,6 +107,16 @@ pub fn is_validating() -> bool {
     VALIDATE_ONLY.load(Ordering::Relaxed)
 }
 
+tokio::task_local! {
+    static POLICY_LOADING: ();
+}
+
+/// Returns true when the current task is inside the evaluation of the
+/// top-level policy chunk performed by `load_config`.
+pub fn is_policy_loading() -> bool {
+    POLICY_LOADING.try_with(|_| ()).is_ok()
+}
+
 pub fn validation_failed() -> bool {
     VALIDATION_FAILED.load(Ordering::Relaxed)
 }
@@ -166,7 +178,7 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
         };
 
         let _timer = latency_timer("context-creation");
-        func.call_async::<()>(()).await?;
+        POLICY_LOADING.scope((), func.call_async::<()>(())).await?;
     }
     LUA_COUNT.inc();
 

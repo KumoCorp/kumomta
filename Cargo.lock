@@ -747,6 +747,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3742e5902f4b964758253f98bbe24afc2efd8245778448cd3440c026c36e0fd6"
 
 [[package]]
+name = "blake3"
+version = "1.8.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d9e454fc11f76977dc803893aff6304ed33d6a26efae8696573bea74baa27ae"
+dependencies = [
+ "arrayvec",
+ "cc",
+ "cfg-if",
+ "constant_time_eq",
+ "cpufeatures 0.3.1",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1375,6 +1388,12 @@ name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
+
+[[package]]
+name = "constant_time_eq"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "cookie-factory"
@@ -3486,6 +3505,7 @@ dependencies = [
  "kumo-api-client",
  "kumo-api-types",
  "kumo-dkim",
+ "kumo-http-client",
  "kumo-jsonl",
  "kumo-log-types",
  "kumo-server-common",
@@ -3814,6 +3834,7 @@ dependencies = [
  "k9",
  "kumo-api-client",
  "kumo-api-types",
+ "kumo-http-client",
  "kumo-prometheus",
  "lexicmp",
  "mailexchanger",
@@ -3875,6 +3896,7 @@ dependencies = [
  "bytes",
  "futures",
  "kumo-api-types",
+ "kumo-http-client",
  "kumo-prometheus",
  "reqwest",
  "serde",
@@ -3896,6 +3918,7 @@ dependencies = [
  "fancy-regex",
  "futures-util",
  "k9",
+ "kumo-http-client",
  "kumo-log-types",
  "mailexchanger",
  "mlua",
@@ -3984,6 +4007,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-http-client"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+]
+
+[[package]]
 name = "kumo-jsonl"
 version = "0.1.0"
 dependencies = [
@@ -4049,6 +4079,7 @@ dependencies = [
  "chrono",
  "gethostname 1.1.0",
  "in-container",
+ "kumo-http-client",
  "kumo-mac-address",
  "machine-uid",
  "mockito",
@@ -4067,6 +4098,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-stream",
+ "crossbeam-utils",
  "futures",
  "k9",
  "linkme",
@@ -4108,6 +4140,7 @@ dependencies = [
  "human_bytes",
  "k9",
  "kumo-api-types",
+ "kumo-http-client",
  "kumo-jsonl",
  "kumo-machine-info",
  "kumo-prometheus",
@@ -4154,6 +4187,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "socket2 0.6.5",
  "sysinfo",
  "tempfile",
  "throttle",
@@ -4241,15 +4275,20 @@ name = "kumo-template"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "criterion",
  "handlebars",
  "k9",
+ "linkme",
+ "lruttl",
  "minijinja",
  "minijinja-contrib",
  "mod-smtp-response-normalize",
  "self_cell",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]
@@ -4316,6 +4355,7 @@ dependencies = [
  "kumo-chrono-helper",
  "kumo-counter-series",
  "kumo-dmarc",
+ "kumo-http-client",
  "kumo-jsonl",
  "kumo-log-types",
  "kumo-prometheus",
@@ -5225,6 +5265,7 @@ dependencies = [
  "futures-util",
  "humantime",
  "k9",
+ "kumo-http-client",
  "mail-builder",
  "mailparse",
  "mlua",
@@ -5262,6 +5303,7 @@ dependencies = [
  "linkme",
  "lruttl",
  "mlua",
+ "parking_lot",
  "serde",
  "serde_json",
  "test-log",
@@ -5454,6 +5496,7 @@ dependencies = [
  "futures",
  "hickory-resolver",
  "k9",
+ "kumo-http-client",
  "linkme",
  "lruttl",
  "reqwest",
@@ -9229,6 +9272,7 @@ dependencies = [
  "hdrhistogram",
  "humanize-rs",
  "humansize",
+ "kumo-http-client",
  "lipsum",
  "mailparsing",
  "nix 0.30.1",
@@ -9271,8 +9315,10 @@ dependencies = [
  "clap",
  "config",
  "dashmap",
+ "fancy-regex",
  "hex",
  "humansize",
+ "k9",
  "kumo-api-types",
  "kumo-log-types",
  "kumo-server-common",
@@ -9297,6 +9343,7 @@ dependencies = [
  "toml_edit 0.23.10+spec-1.0.0",
  "tracing",
  "utoipa",
+ "uuid",
  "version-info",
 ]
 

@@ -45,7 +45,7 @@ theme:
 plugins:
   - search
   - social:
-      cards: !ENV [CARDS, False]
+      enabled: !ENV [CARDS, False]
   - git-revision-date-localized:
       enabled: !ENV [GIT_DATES, False]
       enable_creation_date: true

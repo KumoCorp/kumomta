@@ -22,6 +22,26 @@ use spool::SpoolId;
 use std::sync::Arc;
 use throttle::ThrottleSpec;
 
+/// Registers `name` as a function returning the option names accepted by
+/// the `make_*` function that deserializes into `T`.
+fn register_field_names<T: serde::de::DeserializeOwned>(
+    lua: &Lua,
+    kumo_mod: &mlua::Table,
+    name: &str,
+) -> anyhow::Result<()> {
+    let fields = config::struct_field_names::<T>().ok_or_else(|| {
+        anyhow::anyhow!(
+            "{name}: {} does not call deserialize_struct (e.g. #[serde(flatten)], a hand-written Deserialize impl, or a non-struct type)",
+            std::any::type_name::<T>()
+        )
+    })?;
+    kumo_mod.set(
+        name,
+        lua.create_function(move |_lua, ()| Ok(fields.to_vec()))?,
+    )?;
+    Ok(())
+}
+
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let kumo_mod = get_or_create_module(lua, "kumo")?;
 
@@ -292,6 +312,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             Ok(source)
         })?,
     )?;
+
+    register_field_names::<QueueConfig>(lua, &kumo_mod, "queue_config_field_names")?;
+    register_field_names::<EgressSource>(lua, &kumo_mod, "egress_source_field_names")?;
+    register_field_names::<EsmtpDomain>(lua, &kumo_mod, "listener_domain_field_names")?;
 
     kumo_mod.set(
         "make_egress_pool",

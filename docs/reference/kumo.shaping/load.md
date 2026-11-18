@@ -182,11 +182,29 @@ The following fields are possible in an automation rule:
    [Supported Regex Syntax is documented here](https://docs.rs/fancy-regex/latest/fancy_regex/#syntax)
  * `action` - required action to take.  Can be one of:
     * `"Suspend"` - Suspend delivery
-    * `{SetConfig{name="NAME", value="VALUE"}}` - define a configuration override that sets `NAME=VALUE`.
+    * `{SetConfig{name="NAME", value="VALUE"}}` - define a configuration
+      override that sets `NAME=VALUE`, rolled up to the triggering domain's
+      `site_name` unless the rule was defined in a domain block with
+      `mx_rollup=false`. Use `SetProviderConfig` instead to cover every
+      `site_name` a `provider` block matches. The rollup for a rule in a
+      `provider` block is {{since('dev', inline=True)}}. Before that a
+      `provider`-block `SetConfig` behaved like `SetDomainConfig`.
     * `{SetDomainConfig{name="NAME", value="VALUE"}}` - define a configuration
       override that sets `NAME=VALUE`, but with `mx_rollup=false`, even if the
       rule was defined inside a domain where `mx_rollup=true`. {{since('2024.11.08-d383b033',
       inline=True)}}
+    * `{SetProviderConfig{name="NAME", value="VALUE"}}` - for a rule defined
+      inside a `provider` block, define a configuration override that sets
+      `NAME=VALUE` on that provider to apply it to every destination domain the
+      provider matches rather than only the triggering domain. The override is
+      written as a `provider` source block, so `NAME` applies to each matching
+      `site_name` independently. This action only accepts options that apply to
+      one `site_name`. The `provider_` prefixed options, such as
+      `provider_connection_limit`, which enforce a limit across the whole
+      provider, are static configuration in the `provider` block definition and
+      cannot be set here. Matched outside a `provider` block the action has no
+      effect.
+      {{since('dev', inline=True)}}
  * `trigger` - optional. Can be one of:
     * `"Immediate"` - this is the default. The action is taken each time a `regex` matches.
     * `{Threshold="10/hr"}` - defines a threshold; the action won't trigger in this case until 10 events have occurred in the preceding hour.

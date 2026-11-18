@@ -1,6 +1,7 @@
 pub use crate::counter::*;
 use crate::labels::MetricLabel;
 use crate::registry::StreamingCollector;
+pub use crate::sharded::{CountAndSize, ShardedCountAndSize};
 use async_stream::stream;
 use futures::stream::BoxStream;
 use futures::StreamExt;
@@ -19,6 +20,7 @@ pub mod counter_bundle;
 pub mod labels;
 pub mod parser;
 pub mod registry;
+mod sharded;
 pub use prometheus;
 
 struct CounterRegistryInner<K, V: AtomicCounterEntry> {

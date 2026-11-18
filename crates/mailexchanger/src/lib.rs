@@ -1,8 +1,8 @@
 use crate::site_name::factor_names;
 use anyhow::Context;
 use dns_resolver::{
-    get_resolver, has_colon_port, ip_lookup, DnsError, DomainClassification, IpLookupStrategy,
-    Name, Resolver,
+    get_resolver, has_colon_port, ip_lookup, resolve_dane, DaneStatus, DnsError,
+    DomainClassification, IpLookupStrategy, Name, Resolver,
 };
 use hickory_resolver::proto::op::ResponseCode;
 use hickory_resolver::proto::rr::{RData, RecordType};
@@ -35,6 +35,23 @@ pub fn set_mta_sts_enabled(enabled: bool) {
 
 pub fn is_mta_sts_enabled() -> bool {
     MTA_STS_ENABLED.load(Ordering::Relaxed)
+}
+
+/// Whether MX resolution probes TLSA records to detect the `dane_insecure`
+/// condition in `resolve_uncached`. Defaults to false, toggled via
+/// `kumo.dns.set_dane_enabled`, since the per-egress-path `enable_dane` is not
+/// yet known at resolution time.
+static DANE_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// Enables or disables the TLSA probe. Takes effect only for resolutions
+/// performed after the call: already-cached resolutions keep the site_name
+/// they were given until their TTL expires.
+pub fn set_dane_enabled(enabled: bool) {
+    DANE_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn is_dane_enabled() -> bool {
+    DANE_ENABLED.load(Ordering::Relaxed)
 }
 
 /// When a policy fetch fails transiently we don't want to pin a "no policy"
@@ -581,6 +598,26 @@ async fn apply_mta_sts(
     Ok(mta_sts)
 }
 
+/// Returns true as soon as any MX host publishes secure TLSA records at port
+/// 25, whether usable or present-but-unusable. Returns false when every
+/// lookup fails or nothing publishes DANE. Port 25 is the SMTP DANE reference
+/// identity. Callers exclude port-overridden delivery before probing.
+async fn host_set_publishes_dane(hosts: &[String]) -> bool {
+    for host in hosts {
+        let bare = match has_colon_port(host) {
+            Some((label, _)) => label,
+            None => host.as_str(),
+        };
+        if matches!(
+            resolve_dane(bare, 25).await,
+            Ok(DaneStatus::Records(_) | DaneStatus::Unusable)
+        ) {
+            return true;
+        }
+    }
+    false
+}
+
 impl MailExchanger {
     pub async fn resolve(domain_name: &str) -> anyhow::Result<Arc<Self>> {
         Self::resolve_via(domain_name, None).await
@@ -722,7 +759,26 @@ impl MailExchanger {
             .map(|pref| (pref.pref, pref.hosts))
             .collect();
 
-        let site_name = factor_names(&hosts);
+        // An insecure domain whose MX hosts also publish DANE TLSA records gets a
+        // distinct site_name below, so it cannot share a ready queue with a
+        // DNSSEC-secure domain on the same hosts and reuse a connection that was
+        // not DANE-authenticated for that secure domain.
+        let dane_insecure = is_mx
+            && !is_secure
+            // TLSA records for SMTP DANE are published at port 25, so the probe
+            // below only applies when this domain delivers to the standard port.
+            // If SRV routing is ever added, the TLSA port comes from the SRV
+            // target rather than 25, and this probe would need that port instead.
+            && opt_port.is_none()
+            && is_dane_enabled()
+            && host_set_publishes_dane(&hosts).await;
+
+        let factored = factor_names(&hosts);
+        let site_name = if dane_insecure {
+            format!("[dane-insecure]{factored}")
+        } else {
+            factored
+        };
         tracing::debug!(
             target: "mx_resolve",
             domain = domain_name,

@@ -3,6 +3,11 @@ import glob
 import os
 import subprocess
 
+# Path to the toml2jsonc helper. The docker-based mkdocs image copies it to
+# /util/toml2jsonc; an in-image build overrides this to point at the binary it
+# built from the workspace.
+TOML2JSONC = os.environ.get("TOML2JSONC", "/util/toml2jsonc")
+
 # https://mkdocs-macros-plugin.readthedocs.io/en/latest/macros/
 def define_env(env):
     @env.macro
@@ -121,7 +126,7 @@ def define_env(env):
         toml = remove_indent(toml)
         adjusted_toml = apply_indent(toml)
 
-        p = subprocess.Popen(["/util/toml2jsonc"],
+        p = subprocess.Popen([TOML2JSONC],
                 encoding='utf-8',
                 stdin=subprocess.PIPE,
                 stderr=subprocess.PIPE,

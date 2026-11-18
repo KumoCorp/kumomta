@@ -2,19 +2,21 @@ use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::insert_context::{InsertContext, InsertReason};
 use crate::queue::maintainer::queue_meta_maintainer;
 use crate::queue::queue::QueueHandle;
+use crate::queue::resolver::{
+    wrap_cached, Acquire, AdmitToken, ResolverMap, NEGATIVE_CACHE, SCHEDULED_QUEUE_COUNT,
+};
 use crate::queue::{opt_timeout_at, IncrementAttempts, Queue};
 use crate::smtp_server::RejectError;
 use crate::spool::SpoolManager;
 use ::config::{declare_event, load_config};
 use config::SerdeWrappedValue;
-use dashmap::DashMap;
 use kumo_prometheus::declare_metric;
+use kumo_server_lifecycle::{is_shutting_down, Activity, ShuttingDownError};
 use message::Message;
 use mod_time::TimeDelta;
 use rfc5321::Response;
 use std::sync::{Arc, LazyLock};
-use std::time::{Duration, Instant};
-use tokio::sync::Semaphore;
+use std::time::Instant;
 use tracing::instrument;
 
 pub static MANAGER: LazyLock<QueueManager> = LazyLock::new(|| QueueManager::new());
@@ -29,11 +31,6 @@ declare_metric! {
 static INSERT_LATENCY: Histogram("queue_insert_latency");
 }
 
-declare_metric! {
-/// how many scheduled queues are tracked by the QueueManager
-pub static SCHEDULED_QUEUE_COUNT: IntGauge("scheduled_queue_count");
-}
-
 declare_event! {
 pub static REQUEUE_MESSAGE_SIG: Multiple(
     "requeue_message",
@@ -46,20 +43,17 @@ pub static REQUEUE_MESSAGE_SIG: Multiple(
 }
 
 pub struct QueueManager {
-    pub named: DashMap<String, QueueSlot>,
+    resolver: ResolverMap<Queue>,
 }
 
-pub enum QueueSlot {
-    Handle(QueueHandle),
-    Resolving(Arc<Semaphore>),
-    // Negative caching
-    Failed { error: String, expires: Instant },
-}
-
-#[derive(Clone)]
-enum SlotLease {
-    Handle(QueueHandle),
-    Resolving(Arc<Semaphore>),
+/// The outcome of finalizing a construction result.
+enum FinalizeDecision<T> {
+    /// Install the constructed handle.
+    Publish(T),
+    /// Remove the slot without caching, and return the failure to the caller.
+    Remove(anyhow::Error),
+    /// Cache the failure as a negative result, and return it to the caller.
+    CacheFailure(anyhow::Error),
 }
 
 impl QueueManager {
@@ -67,9 +61,12 @@ impl QueueManager {
         let main_runtime = kumo_server_runtime::get_main_runtime();
         main_runtime.spawn(queue_meta_maintainer());
         main_runtime.spawn(Queue::queue_config_maintainer());
-        Self {
-            named: DashMap::new(),
-        }
+        let resolver = ResolverMap::new(SCHEDULED_QUEUE_COUNT.clone(), |name| {
+            Activity::get(format!("Resolving queue {name}"))
+                .map(AdmitToken::new)
+                .map_err(anyhow::Error::from)
+        });
+        Self { resolver }
     }
 
     /// Insert message into a queue named `name`.
@@ -297,164 +294,129 @@ impl QueueManager {
             .await
     }
 
-    fn resolve_lease(name: &str) -> anyhow::Result<SlotLease> {
-        match MANAGER.named.get_mut(name) {
-            Some(mut item) => {
-                match item.value() {
-                    QueueSlot::Handle(handle) => return Ok(SlotLease::Handle(handle.clone())),
-                    QueueSlot::Resolving(sema) => return Ok(SlotLease::Resolving(sema.clone())),
-                    QueueSlot::Failed { error, expires } => {
-                        if *expires > Instant::now() {
-                            anyhow::bail!("{error}");
-                        }
-                        // Negative cache expired; can setup the slot for resolve
-                        let sema = Arc::new(Semaphore::new(1));
-                        *item.value_mut() = QueueSlot::Resolving(sema.clone());
-                        return Ok(SlotLease::Resolving(sema));
-                    }
-                }
-            }
-            None => {
-                let entry = MANAGER.named.entry(name.to_string()).or_insert_with(|| {
-                    SCHEDULED_QUEUE_COUNT.inc();
-                    QueueSlot::Resolving(Arc::new(Semaphore::new(1)))
-                });
-                match entry.value() {
-                    QueueSlot::Handle(handle) => return Ok(SlotLease::Handle(handle.clone())),
-                    QueueSlot::Resolving(sema) => return Ok(SlotLease::Resolving(sema.clone())),
-                    QueueSlot::Failed { error, .. } => {
-                        // We don't bother looking at expiry here: our first try
-                        // found nothing in the map, so if we see an entry now on
-                        // our second try then it must be new enough to be current.
-                        anyhow::bail!("{error}");
-                    }
-                }
-            }
-        }
-    }
-
-    /// Get the handle from the slot.
-    /// Intended to be called by `resolve` only, as an implementation detail.
-    ///
-    /// Propagate a negatively cached error without considering its expiry:
-    /// the assumption is that we are being called as part of an overlapping
-    /// sequence of calls that implicitly must be within whatever negative
-    /// caching period we use: if there was a failure in the overlap, we
-    /// want to propagate that same failure.
-    fn get_slot(name: &str) -> anyhow::Result<Option<QueueHandle>> {
-        match MANAGER.named.get(name) {
-            Some(item) => match item.value() {
-                QueueSlot::Handle(h) => Ok(Some(h.clone())),
-                QueueSlot::Resolving(_) => Ok(None),
-                QueueSlot::Failed { error, .. } => anyhow::bail!("{error}"),
-            },
-            None => Ok(None),
-        }
-    }
-
     /// Resolve a scheduled queue name to a handle,
     /// returning a pre-existing handle if it is already known.
     #[instrument]
     pub async fn resolve(name: &str) -> anyhow::Result<QueueHandle> {
         loop {
-            match Self::resolve_lease(name)? {
-                SlotLease::Handle(e) => return Ok(e),
-                SlotLease::Resolving(sema) => {
-                    match sema.acquire().await {
-                        Ok(_permit) => {
-                            // If we acquire the permit, we are responsible now for
-                            // driving the state of the SlotLease towards either
-                            // a resolution or a failure, as we have the only permit.
-                            //
-                            // We don't explicitly drop the permit here; in the
-                            // already-resolved case it will drop naturally when we return,
-                            // allowing other callers to proceed into their version of this
-                            // branch of code just like we're doing now.
-                            // This should be the fast path in the recently-created case.
-                            //
-                            // In the need-to-resolve case, the permit is also implicitly
-                            // dropped, but only after dropping the associated semaphore,
-                            // which has the effect of racing all waiters in another
-                            // iteration of this resolve loop.
+            match MANAGER.resolver.acquire(name) {
+                Acquire::Ready(handle) => return Ok(handle),
+                Acquire::Failed(error) => return Err(wrap_cached(error)),
+                Acquire::Refused(err) => return Err(err),
+                Acquire::Wait(attempt) => {
+                    // Another caller is already constructing this name. Wait
+                    // for it to finish, then re-acquire to read the outcome.
+                    attempt.wait().await;
+                    continue;
+                }
+                Acquire::Owner(owner) => {
+                    // This caller is admitted to build the queue. Do so
+                    // without holding any map lock.
+                    let result = Queue::new(name.to_string()).await;
+                    return Self::finalize(owner, result);
+                }
+            }
+        }
+    }
 
-                            match Self::get_slot(name)? {
-                                Some(handle) => {
-                                    // Someone else fully resolved the entry.
-                                    return Ok(handle);
-                                }
-                                None => {
-                                    // The current state is Resolving and we're responsible
-                                    // to drive it forwards.
+    /// Record the result of an owned construction: publish a handle, drop a
+    /// shutdown-caused failure, or cache any other failure as a negative
+    /// result for a limited time.
+    fn finalize(
+        owner: crate::queue::resolver::Owner<Queue>,
+        result: anyhow::Result<QueueHandle>,
+    ) -> anyhow::Result<QueueHandle> {
+        match Self::finalize_decision(result, is_shutting_down) {
+            FinalizeDecision::Publish(handle) => owner.publish(handle),
+            FinalizeDecision::Remove(err) => {
+                owner.remove();
+                Err(err)
+            }
+            FinalizeDecision::CacheFailure(err) => {
+                let err = Arc::new(err);
+                owner.fail(err.clone(), Instant::now() + NEGATIVE_CACHE);
+                Err(wrap_cached(err))
+            }
+        }
+    }
 
-                                    // Try to create the queue
-                                    let result = Queue::new(name.to_string()).await;
-
-                                    // Now update the state in the map.
-                                    // Both arms will replace the entry with either a success
-                                    // or failure entry, which will implicitly drop any
-                                    // Resolving entry and its associated Semaphore, which
-                                    // will in turn cause all pending sema.acquire operations
-                                    // to "fail" and wakeup so that they can attempt to re-acquire.
-                                    return match result {
-                                        Ok(entry) => {
-                                            // Success! move from Resolving -> Handle
-                                            if MANAGER
-                                                .named
-                                                .insert(
-                                                    name.to_string(),
-                                                    QueueSlot::Handle(entry.clone()),
-                                                )
-                                                .is_none()
-                                            {
-                                                SCHEDULED_QUEUE_COUNT.inc();
-                                            }
-                                            Ok(entry)
-                                        }
-                                        Err(err) => {
-                                            // Failed!
-                                            if MANAGER
-                                                .named
-                                                .insert(
-                                                    name.to_string(),
-                                                    QueueSlot::Failed {
-                                                        error: format!("{err:#}"),
-                                                        expires: Instant::now()
-                                                            + Duration::from_secs(60),
-                                                    },
-                                                )
-                                                .is_none()
-                                            {
-                                                SCHEDULED_QUEUE_COUNT.inc();
-                                            }
-                                            Err(err)
-                                        }
-                                    };
-                                }
-                            }
-                        }
-                        Err(_) => {
-                            // Semaphore was closed; perhaps it was cancelled or
-                            // otherwise failed. Let's retry the resolve.
-                            continue;
-                        }
-                    }
+    /// Decide how to finalize a construction result: publish the handle, drop
+    /// the slot for a shutdown-caused failure, or cache any other failure as a
+    /// negative result.
+    fn finalize_decision<T>(
+        result: anyhow::Result<T>,
+        shutting_down: impl Fn() -> bool,
+    ) -> FinalizeDecision<T> {
+        match result {
+            Ok(handle) => FinalizeDecision::Publish(handle),
+            Err(err) => {
+                if shutting_down() || ShuttingDownError::is_shutting_down(&err) {
+                    FinalizeDecision::Remove(err)
+                } else {
+                    FinalizeDecision::CacheFailure(err)
                 }
             }
         }
     }
 
     pub fn get_opt(name: &str) -> Option<QueueHandle> {
-        match MANAGER.named.get(name)?.value() {
-            QueueSlot::Handle(h) => Some(h.clone()),
-            QueueSlot::Resolving(_) | QueueSlot::Failed { .. } => None,
-        }
+        MANAGER.resolver.get_handle(name)
     }
 
     pub fn all_queue_names() -> Vec<String> {
-        let mut names = vec![];
-        for item in MANAGER.named.iter() {
-            names.push(item.key().to_string());
-        }
-        names
+        MANAGER.resolver.names()
+    }
+
+    /// Reap the handle named `name`, but only if the entry still holds exactly
+    /// `handle` and `pred` holds. Returns whether it was removed.
+    pub fn remove_handle_if(name: &str, handle: &QueueHandle, pred: impl FnOnce() -> bool) -> bool {
+        MANAGER.resolver.remove_handle_if(name, handle, pred)
+    }
+
+    /// Drop every negatively cached failure.
+    pub fn purge_failed() {
+        MANAGER.resolver.purge_failed();
+    }
+
+    /// Whether any handle or in-progress resolution remains. Cached failures do
+    /// not count as outstanding work.
+    pub fn work_remains() -> bool {
+        MANAGER.resolver.work_remains()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn finalize_decision_publishes_ok_result() {
+        let decision: FinalizeDecision<u32> = QueueManager::finalize_decision(Ok(7), || false);
+        assert!(matches!(decision, FinalizeDecision::Publish(7)));
+    }
+
+    #[test]
+    fn finalize_decision_removes_failure_during_shutdown() {
+        // Simulates is_shutting_down() flipping true while construction is
+        // already in flight: we drop the failure instead of caching it.
+        let err = anyhow::anyhow!("dns lookup failed");
+        let decision: FinalizeDecision<u32> = QueueManager::finalize_decision(Err(err), || true);
+        assert!(matches!(decision, FinalizeDecision::Remove(_)));
+    }
+
+    #[test]
+    fn finalize_decision_removes_shutting_down_error_before_flag() {
+        // A ShuttingDownError is authoritative on its own: it is never cached,
+        // regardless of what is_shutting_down() reports at finalize time.
+        let err = anyhow::Error::new(ShuttingDownError::new("Resolving queue q"));
+        let decision: FinalizeDecision<u32> = QueueManager::finalize_decision(Err(err), || false);
+        assert!(matches!(decision, FinalizeDecision::Remove(_)));
+    }
+
+    #[test]
+    fn finalize_decision_caches_other_failures() {
+        let err = anyhow::anyhow!("dns lookup failed");
+        let decision: FinalizeDecision<u32> = QueueManager::finalize_decision(Err(err), || false);
+        assert!(matches!(decision, FinalizeDecision::CacheFailure(_)));
     }
 }

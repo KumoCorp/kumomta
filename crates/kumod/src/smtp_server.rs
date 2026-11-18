@@ -707,6 +707,11 @@ pub struct EsmtpListenerParams {
 
     #[serde(default = "EsmtpListenerParams::default_max_connections")]
     max_connections: usize,
+
+    /// Accept-queue depth requested of the kernel. Defaults to the kernel
+    /// maximum (`net.core.somaxconn` on Linux).
+    #[serde(default)]
+    listen_backlog: Option<u32>,
 }
 
 impl EsmtpListenerParams {
@@ -721,9 +726,11 @@ impl EsmtpListenerParams {
     pub async fn run(self) -> anyhow::Result<()> {
         let connection_gauge = connection_gauge();
 
-        let listener = TcpListener::bind(&self.listen)
-            .await
-            .with_context(|| format!("failed to bind to {}", self.listen))?;
+        let listener =
+            kumo_server_common::listener::bind_with_backlog(&self.listen, self.listen_backlog)
+                .with_context(|| format!("failed to bind to {}", self.listen))?;
+        let listener = TcpListener::from_std(listener)
+            .with_context(|| format!("wrapping listener for {}", self.listen))?;
 
         let addr = listener.local_addr()?;
         tracing::info!("smtp listener on {addr:?}");

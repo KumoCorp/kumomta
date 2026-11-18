@@ -286,6 +286,11 @@ function mod.record(name, fields)
     return casting_validate_value(ty, other)
   end
 
+  --- Returns true if `k` is a declared field of this record type.
+  function ty:has_field(k)
+    return k ~= '_dynamic' and ty.fields[k] ~= nil
+  end
+
   local ctor_mt = {}
   setmetatable(ty, ctor_mt)
 

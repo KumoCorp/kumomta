@@ -3,15 +3,30 @@ use crate::disk_space::{MinFree, MonitoredPath};
 use crate::log::{mark_existing_logs_as_done_in_dir, OpenedFile};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::task::JoinHandle;
 use zstd::Encoder;
 
-static LOGGER: OnceLock<Sender<AcctLogRecord>> = OnceLock::new();
+static LOGGER: OnceLock<AcctLogger> = OnceLock::new();
+
+#[derive(Debug)]
+enum AcctCommand {
+    Record(AcctLogRecord),
+    /// Stop after writing every record queued ahead of this command.
+    Terminate,
+}
+
+struct AcctLogger {
+    tx: Sender<AcctCommand>,
+    /// Present until `shutdown` takes it to join the logger task.
+    task: Mutex<Option<JoinHandle<()>>>,
+}
 
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
@@ -76,23 +91,27 @@ impl AuditLogParams {
     pub async fn init(&self) -> anyhow::Result<()> {
         let (tx, rx) = channel(self.back_pressure);
         let params = self.clone();
-        tokio::spawn(async move {
+        let task = kumo_server_runtime::spawn_on_main("acct logger", async move {
             if let Err(err) = params.acct_logger(rx).await {
                 tracing::error!(
                     "AuditLogParams::acct_logger returned with error: {err}, \
                     audit logging will cease to function until the next restart!"
                 );
             }
-        });
+        })?;
 
-        if LOGGER.set(tx).is_err() {
+        let logger = AcctLogger {
+            tx,
+            task: Mutex::new(Some(task)),
+        };
+        if LOGGER.set(logger).is_err() {
             anyhow::bail!("AuditLogParams::init must not be called more than once");
         }
 
         Ok(())
     }
 
-    async fn acct_logger(self, mut rx: Receiver<AcctLogRecord>) -> anyhow::Result<()> {
+    async fn acct_logger(self, mut rx: Receiver<AcctCommand>) -> anyhow::Result<()> {
         if !config::is_validating() {
             if let Err(err) = mark_existing_logs_as_done_in_dir(&self.log_dir) {
                 tracing::error!("{err}");
@@ -116,10 +135,10 @@ impl AuditLogParams {
             let mut check_expire = false;
             let record = match deadline {
                 Some(deadline) => tokio::select! {
-                    r = rx.recv() => {
-                        match r {
-                            Some(r) => Some(r),
-                            None => return Ok(()),
+                    cmd = rx.recv() => {
+                        match cmd {
+                            Some(AcctCommand::Record(r)) => Some(r),
+                            Some(AcctCommand::Terminate) | None => return Ok(()),
                         }
                     }
                     _ = tokio::time::sleep_until(deadline.into()) => {
@@ -128,8 +147,8 @@ impl AuditLogParams {
                     }
                 },
                 None => match rx.recv().await {
-                    Some(r) => Some(r),
-                    None => return Ok(()),
+                    Some(AcctCommand::Record(r)) => Some(r),
+                    Some(AcctCommand::Terminate) | None => return Ok(()),
                 },
             };
 
@@ -256,6 +275,7 @@ impl AuditLogParams {
             file.file
                 .write_all(&record_text)
                 .with_context(|| format!("writing record to {}", file.name.display()))?;
+            file.written += record_text.len() as u64;
 
             let need_rotate = file.written >= self.max_file_size
                 || file
@@ -296,10 +316,27 @@ impl AcctLogRecord {
 
 async fn log_acct(record: AcctLogRecord) -> anyhow::Result<()> {
     tracing::trace!("Audit: {record:?}");
-    if let Some(sender) = LOGGER.get() {
-        sender.send(record).await?;
+    if let Some(logger) = LOGGER.get() {
+        logger.tx.send(AcctCommand::Record(record)).await?;
     }
     Ok(())
+}
+
+/// Stop the audit logger and finalize its open log segment. Records
+/// submitted before this call are written first. Blocks until the
+/// logger task has exited. Does nothing if the logger was never
+/// configured.
+pub async fn shutdown() {
+    let Some(logger) = LOGGER.get() else {
+        return;
+    };
+    logger.tx.send(AcctCommand::Terminate).await.ok();
+    let task = logger.task.lock().take();
+    if let Some(task) = task {
+        if let Err(err) = task.await {
+            tracing::error!("acct logger task failed: {err:#}");
+        }
+    }
 }
 
 pub async fn log_authz(record: AuditRecord) -> anyhow::Result<()> {
@@ -320,4 +357,109 @@ pub struct AuthnAuditRecord {
 
 pub async fn log_authn(record: AuthnAuditRecord) -> anyhow::Result<()> {
     log_acct(AcctLogRecord::Authentication(record)).await
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::authn_authz::IdentityContext;
+
+    /// Builds params that log everything into `log_dir`, with no time based
+    /// rotation and the given size limit.
+    fn params(log_dir: &std::path::Path, max_file_size: u64) -> AuditLogParams {
+        AuditLogParams {
+            log_dir: log_dir.to_path_buf(),
+            max_file_size,
+            back_pressure: 16,
+            compression_level: AuditLogParams::default_compression_level(),
+            max_segment_duration: None,
+            min_free_space: MinFree::default(),
+            min_free_inodes: MinFree::default(),
+            log_authz_allow: true,
+            log_authz_deny: true,
+            log_authn_ok: true,
+            log_authn_fail: true,
+        }
+    }
+
+    fn authn_record(identity: &str) -> AcctLogRecord {
+        AcctLogRecord::Authentication(AuthnAuditRecord {
+            timestamp: Utc::now(),
+            attempted_identity: Identity {
+                identity: identity.to_string(),
+                context: IdentityContext::SmtpAuthPlainAuthentication,
+            },
+            success: true,
+            auth_info: AuthInfo::default(),
+        })
+    }
+
+    /// Decode every segment in `dir`, returning the identity from each
+    /// record in filename order.
+    fn read_identities(dir: &std::path::Path) -> anyhow::Result<Vec<Vec<String>>> {
+        let mut paths: Vec<_> = std::fs::read_dir(dir)?
+            .map(|entry| entry.map(|e| e.path()))
+            .collect::<Result<_, _>>()?;
+        paths.sort();
+        paths
+            .iter()
+            .map(|path| {
+                let data = zstd::stream::decode_all(std::fs::File::open(path)?)?;
+                String::from_utf8(data)?
+                    .lines()
+                    .map(|line| match serde_json::from_str(line)? {
+                        AcctLogRecord::Authentication(authn) => {
+                            Ok(authn.attempted_identity.identity)
+                        }
+                        other => anyhow::bail!("unexpected record {other:?}"),
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// With no size or time based rotation, shutdown is required to complete
+    /// the zstd frame.
+    #[tokio::test]
+    async fn shutdown_finalizes_open_segment() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        params(dir.path(), AuditLogParams::default_max_file_size())
+            .init()
+            .await?;
+
+        let AcctLogRecord::Authentication(record) = authn_record("daniel") else {
+            unreachable!()
+        };
+        log_authn(record).await?;
+
+        shutdown().await;
+
+        k9::assert_equal!(
+            read_identities(dir.path())?,
+            vec![vec!["daniel".to_string()]]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn size_limit_rotates_segment() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let params = params(dir.path(), 1);
+        let mut current_file = None;
+
+        for identity in ["first", "second"] {
+            params.open_file_if_needed(&mut current_file)?;
+            params.do_record(&mut current_file, authn_record(identity))?;
+            assert!(
+                current_file.is_none(),
+                "segment must rotate after {identity}"
+            );
+        }
+
+        k9::assert_equal!(
+            read_identities(dir.path())?,
+            vec![vec!["first".to_string()], vec!["second".to_string()]]
+        );
+        Ok(())
+    }
 }

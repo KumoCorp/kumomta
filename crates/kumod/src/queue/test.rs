@@ -17,6 +17,41 @@ fn compute_schedule(config: &QueueConfig) -> Vec<i64> {
 }
 
 #[test]
+fn delay_for_attempt_saturates() {
+    // With no max_retry_interval, delay_for_attempt doubles the interval
+    // every attempt without bound. Every attempt must still produce a
+    // clamped, non-negative delay.
+    let config = QueueConfig {
+        retry_interval: Duration::from_secs(10),
+        max_retry_interval: None,
+        ..Default::default()
+    };
+
+    for attempt in 0..=u16::MAX {
+        let delay = config.delay_for_attempt(attempt).num_seconds();
+        assert!(
+            (0..=config::MAX_CHRONO_SECONDS).contains(&delay),
+            "attempt {attempt} produced out-of-range delay {delay}"
+        );
+    }
+
+    // The sum of all per-attempt delays must saturate, not overflow or go
+    // negative, for both the max_age-aware and ignoring variants.
+    for age in [
+        chrono::Duration::zero(),
+        chrono::Duration::try_days(1).expect("valid"),
+    ] {
+        assert!(config
+            .compute_delay_based_on_age(u16::MAX, age)
+            .map_or(true, |d| d >= chrono::Duration::zero()));
+        assert!(
+            config.compute_delay_based_on_age_ignoring_max_age(u16::MAX, age)
+                >= chrono::Duration::zero()
+        );
+    }
+}
+
+#[test]
 fn calc_due() {
     let config = QueueConfig {
         retry_interval: Duration::from_secs(2),

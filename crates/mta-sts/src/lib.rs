@@ -25,7 +25,7 @@ struct Getter {}
 impl policy::Get for Getter {
     fn http_get<'a>(&'a self, url: &'a str) -> BoxFuture<'a, anyhow::Result<String>> {
         Box::pin(async move {
-            let response = reqwest::Client::builder()
+            let response = kumo_http_client::builder()
                 // <https://datatracker.ietf.org/doc/html/rfc8461#section-3.3>
                 // HTTP 3xx redirects MUST NOT be followed
                 .redirect(reqwest::redirect::Policy::none())

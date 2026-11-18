@@ -29,28 +29,26 @@ jobs:
   build_docs:
     permissions:
       contents: write
-    runs-on: ubuntu-latest
+    runs-on: kumo-linux-16core-amd64
+    container: docker://ghcr.io/kumocorp/builder-for-ubuntu:24.04
+    env:
+      HOME: /root
     steps:
     - uses: actions/checkout@v7.0.1
-    - name: "Install Rust"
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        toolchain: stable
+    - name: Update PATH
+      run: echo /root/.cargo/bin >> $GITHUB_PATH
+    - name: Update env for rocksdb
+      run: |
+        echo ROCKSDB_LIB_DIR=/opt/kumomta/lib >> $GITHUB_ENV
+        echo ROCKSDB_STATIC=static >> $GITHUB_ENV
+        echo SNAPPY_LIB_DIR=/opt/kumomta/lib >> $GITHUB_ENV
+        echo SNAPPY_STATIC=static >> $GITHUB_ENV
+    - name: Fixup git permissions
+      run: git config --global --add safe.directory $PWD
     - name: "Setup sccache"
       uses: mozilla-actions/sccache-action@v0.0.11
-    - name: Install stylua
-      uses: baptiste0928/cargo-install@v3
-      with:
-        crate: stylua
-        features: lua54
-    - name: Install gelatyx
-      uses: baptiste0928/cargo-install@v3
-      with:
-        crate: gelatyx
     - name: Run build
-      run: |
-        echo "target" > .dockerignore
-        CI=false ./docs/build.sh
+      run: CI=false ./docs/build.sh
     - name: Publish
       if: ${{ github.event_name != 'pull_request' }}
       env:

@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = ["lua"]
-lua = ["dep:config", "dep:mlua", "dep:reqwest"]
+lua = ["dep:config", "dep:mlua", "dep:reqwest", "dep:kumo-http-client"]
 
 [dependencies]
 anyhow = {workspace=true}
@@ -19,6 +19,7 @@ mailexchanger = {path="../mailexchanger"}
 duration-serde = {path="../duration-serde"}
 fancy-regex = {workspace=true}
 futures-util = {workspace=true}
+kumo-http-client = {path="../kumo-http-client", optional=true}
 kumo-log-types = {path="../kumo-log-types"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"], optional=true}
 mod-memoize = {path="../mod-memoize"}

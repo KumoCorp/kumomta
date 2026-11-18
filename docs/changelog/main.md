@@ -51,6 +51,16 @@
   [httpinject_requests_rejected_total](../reference/metrics/kumod/httpinject_requests_rejected_total.md)
   counter expose the current load and rejections. #631
 
+* If you deliver with DANE, you **MUST** also enable the new global
+  [kumo.dns.set_dane_enabled](../reference/kumo.dns/set_dane_enabled.md) option
+  (default off) during `init`. Without it, a domain whose MX selection is not
+  DNSSEC-secure, but has the same [site_name](../reference/queues.md#site-names)
+  as another DNSSEC-secure domain introduces the possibility of a DANE downgrade.
+  Enabling the option separates these queues and makes this safe.  If you have
+  [enable_dane](../reference/kumo/make_egress_path/enable_dane.md) set but have
+  not set the global option, we will generate TransientFailure records instead
+  of delivering mail on that egress path to protect you from this misconfiguration.
+
 ## Other Changes and Enhancements
 
  * [HTTP listeners](../reference/kumo/start_http_listener/index.md) now support
@@ -58,6 +68,13 @@
    response compression via `Accept-Encoding: zstd`. This applies to KumoMTA,
    TSA, and proxy HTTP listeners. Existing gzip, deflate, and uncompressed
    clients remain supported; request body limits still apply after decompression.
+
+ * [kumo.make_egress_pool](../reference/kumo/make_egress_pool/index.md) accepts
+   a new
+   [selection_strategy](../reference/kumo/make_egress_pool/selection_strategy.md)
+   parameter. Setting it to `StickyWeightedRoundRobin` records the source
+   chosen for a message's first attempt and reuses that source for later
+   attempts, as long as the source remains part of the pool. #670
 
  * Implicit TLS (SMTPS) is now supported on both the inbound and outbound SMTP
    paths.
@@ -152,7 +169,56 @@
    microbenchmark this expands fields roughly 2-3x faster with the Jinja
    dialect and 3-5x faster with Handlebars.
 
+ * Handlebars templates no longer copy the substitution context a second time
+   when converting it into the engine's native form. This benefits the
+   [HTTP injection API](../reference/http/kumod/api_inject_v1_post.md) with
+   `"template_dialect": "Handlebars"`, as well as any other Handlebars
+   template expansion. In a microbenchmark this expands Handlebars templates
+   roughly 1.3-1.7x faster with a handful of substitution values, and roughly
+   2x faster with a large, nested substitution context.
+   Thanks to @akshitsethi0023! #637
+
+ * The [HTTP injection API](../reference/http/kumod/api_inject_v1_post.md) now
+   caches compiled templates across requests. A `content` field or header
+   whose text was seen in an earlier request is reused from the cache instead
+   of being compiled again. The win is largest for the `Handlebars` dialect,
+   whose compiler is far slower than its renderer. Jinja compiles quickly
+   enough that the gain there is modest. The cache is named
+   `compiled_templates` and its capacity can be tuned with
+   [kumo.set_lruttl_cache_capacity](../reference/kumo/set_lruttl_cache_capacity.md).
+   A capacity of zero turns the cache off.
+   Thanks to @akshitsethi0023! #638
+
+ * Traffic shaping automation rules in a `provider` block can now set a
+   configuration override scoped to the whole provider, the triggering
+   `site_name`, or just the triggering domain:
+    * [`SetProviderConfig`](../reference/kumo.shaping/load.md#traffic-shaping-automation-rules)
+      (new) scopes the override to the whole provider, covering every
+      `site_name` matched by the provider.
+    * `SetConfig` now applies the override to the triggering domain's
+      `site_name` (`mx_rollup=true`). It previously behaved like `SetDomainConfig`.
+    * `SetDomainConfig` applies the override only to the triggering domain
+      (`mx_rollup=false`).
+
+ * The `queue.lua` helper loads a large `queues.toml` much faster. With
+   2000 domain entries the load went from roughly 300ms to under 50ms, and
+   resolving the configuration for a new scheduled queue from roughly 240us
+   to roughly 10us.
+
 ## Fixes
+
+ * The [AAA accounting log](../reference/kumo.aaa/configure_acct_log.md)
+   didn't finalize its active segment on shutdown, resulting in incomplete
+   writes unless you had set `max_segment_duration` to a relatively short value.
+
+ * The `max_file_size` option of
+   [kumo.aaa.configure_acct_log](../reference/kumo.aaa/configure_acct_log.md)
+   had no effect. It now rotates the accounting log as documented.
+
+ * A graceful shutdown could hang indefinitely, logging
+   `Still waiting for 1 pending activities... Queue Manager Meta Maintainer`
+   until the process was killed. This was most likely to occur when stopping
+   while messages were being sent to a rate-limited destination. #654
 
  * With DNSSEC validation enabled, the hickory resolver backend could
    misclassify unsigned zones as DNSSEC-bogus and prevent delivery to the
@@ -164,6 +230,30 @@
    [kumo.dns.configure_unbound_resolver](../reference/kumo.dns/configure_unbound_resolver.md)
    in the meantime.  You only need to consider this if you require DNSSEC
    validation to be enabled (such as for DANE support).  Most users are unaffected.
+
+ * A destination's published MTA-STS or DANE policy can no longer lower the
+   [enable_tls](../reference/kumo/make_egress_path/enable_tls.md) configured for
+   an egress path. Previously an MTA-STS `testing` policy replaced the
+   configured value with `OpportunisticInsecure`, and DANE `TLSA` records that
+   were present but unusable replaced it with `RequiredInsecure`. Both dropped
+   certificate verification that the configured value required. The `testing`
+   case also made STARTTLS optional. A published policy now only raises the
+   effective posture, and a `testing` policy has no effect on it. Thanks to
+   @terrorobe! #616
+
+ * MTA-STS: When several domains share a ready queue (they resolve to the same
+   MX hosts), a message is no longer delivered over a cleartext connection that
+   another of those domains established, if the domain that message is
+   addressed to publishes an MTA-STS enforce policy. Such a message is now
+   deferred and logs a TransientFailure record with additional information,
+   rather than being sent without TLS.
+
+ * DANE: new
+   [kumo.dns.set_dane_enabled](../reference/kumo.dns/set_dane_enabled.md)
+   (default off). When enabled, a domain that is not DNSSEC-secure but shares
+   mail exchangers that publish DANE `TLSA` records with a DNSSEC-secure
+   domain gets a `[dane-insecure]`-prefixed *site_name*, keeping it in a
+   separate ready queue from that domain.
 
  * `AUTH PLAIN` credentials are now redacted from both inbound rejection logs
    and outbound delivery failure records, replaced with `[REDACTED]` in all log
@@ -296,3 +386,30 @@
  * RFC3464 parsing now correctly recognizes the RFC822 address type case
    insensitively and handles extraneous spaces in the `Original-Recipient`
    and `Final-Recipient` portions of the DSN. Thanks to @Harshjha3006! #640
+
+ * smtp_dispatcher: now correctly clears the reported `tls_info` when establishing
+   a fallback connection.
+
+ * xfer: a message moved into an xfer queue could be expired, retried in a
+   tight loop, or panic the process, depending on how many delivery attempts it
+   had already made. Thanks to @edgarsendernet! #644
+
+ * A per-message expiration set via
+   [msg:set_scheduling](../reference/message/set_scheduling.md), or set on a
+   message before it was transferred to another node, was not always honored,
+   so a message could be delivered after its expiration. This is now fixed. #671
+
+ * `queue.lua`: a known queue option with an invalid value, such as
+   `max_age = 'bogus'` in a `[queue.'domain']` block, was silently treated as
+   a tenant named `max_age` and the setting was discarded. It is now reported
+   as a configuration error when the file is loaded.
+
+ * Reading a [kumo.domain_map](../reference/kumo.domain_map/new.md),
+   [kumo.cidr.make_map](../reference/kumo.cidr/make_map.md) or
+   [kumo.regex_set_map](../reference/kumo.regex_set_map/new.md) value back
+   out of a [kumo.memoize](../reference/kumo/memoize.md) cache copied the
+   whole map on every access, an O(N) cost in the number of entries. It is now
+   an O(1) reference count increment. The `queue.lua` helper reads its
+   compiled `queues.toml` domain map from such a cache for every received
+   message. In practical terms, that meant that the maximum ingress rate
+   possible would fall as the size of `queues.toml` increased.

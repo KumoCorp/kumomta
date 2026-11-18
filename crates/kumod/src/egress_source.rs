@@ -573,6 +573,23 @@ impl EgressPoolEntry {
     }
 }
 
+/// Message metadata key holding the name of the source that a
+/// `StickyWeightedRoundRobin` pool selected for the message.
+pub const STICKY_EGRESS_SOURCE_META_KEY: &str = "sticky_egress_source";
+
+/// A pool assigns a source to a message either as a fresh choice on every
+/// attempt or as the same source kept across retries.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Default, mlua::FromLua)]
+pub enum SourceSelectionStrategy {
+    /// Weighted round robin across the pool entries on every selection.
+    #[default]
+    WeightedRoundRobin,
+    /// Weighted round robin for the first selection, recorded in the
+    /// message metadata under `sticky_egress_source`. Later selections
+    /// reuse that source for as long as it remains a member of the pool.
+    StickyWeightedRoundRobin,
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, mlua::FromLua)]
 #[serde(deny_unknown_fields)]
 pub struct EgressPool {
@@ -582,6 +599,9 @@ pub struct EgressPool {
     /// and the sources the constitute this pool
     #[serde(default)]
     pub entries: Vec<EgressPoolEntry>,
+
+    #[serde(default)]
+    pub selection_strategy: SourceSelectionStrategy,
 
     #[serde(default = "default_ttl", with = "duration_serde")]
     pub ttl: Duration,
@@ -602,6 +622,7 @@ impl EgressPool {
                             name: "unspecified".to_string(),
                             weight: 1,
                         }],
+                        selection_strategy: SourceSelectionStrategy::default(),
                         ttl: default_ttl(),
                     }
                 } else {
@@ -635,6 +656,7 @@ impl EgressPool {
 pub struct EgressPoolSourceSelector {
     pub name: String,
     entries: Vec<EgressPoolEntry>,
+    selection_strategy: SourceSelectionStrategy,
 
     index_and_weight: Mutex<IndexAndWeight>,
     ready_queue_names: Mutex<HashMap<String, CachedReadyQueueNameEntry>>,
@@ -686,6 +708,7 @@ impl EgressPoolSourceSelector {
         Self {
             name: pool.name.to_string(),
             entries,
+            selection_strategy: pool.selection_strategy,
             index_and_weight: Mutex::new(IndexAndWeight {
                 current_index: 0,
                 current_weight: 0,
@@ -698,7 +721,29 @@ impl EgressPoolSourceSelector {
     /// to track either a changed pool name or set of sources
     /// in the pool
     pub fn equivalent(&self, pool: &EgressPool) -> bool {
-        self.name == pool.name && self.entries == pool.entries
+        self.name == pool.name
+            && self.entries == pool.entries
+            && self.selection_strategy == pool.selection_strategy
+    }
+
+    /// Returns the entry named by a message's sticky source, provided
+    /// that source is still a usable member of this pool.
+    fn sticky_entry(&self, sticky_source: Option<&str>) -> Option<&EgressPoolEntry> {
+        let sticky_source = sticky_source?;
+        self.entries
+            .iter()
+            .find(|entry| entry.name == sticky_source)
+    }
+
+    /// Reads the message's sticky source when this pool is sticky.
+    /// Non-sticky pools never touch the message metadata here.
+    async fn load_sticky_source(&self, msg: &Message) -> anyhow::Result<Option<String>> {
+        match self.selection_strategy {
+            SourceSelectionStrategy::WeightedRoundRobin => Ok(None),
+            SourceSelectionStrategy::StickyWeightedRoundRobin => {
+                msg.get_meta_string(STICKY_EGRESS_SOURCE_META_KEY).await
+            }
+        }
     }
 
     fn get_ready_queue_for_source(
@@ -828,12 +873,26 @@ impl EgressPoolSourceSelector {
             return Ok(SourceInsertResult::NoSources);
         }
 
+        let sticky_source = self.load_sticky_source(&msg).await?;
+        let (candidates, record_selection): (&[EgressPoolEntry], bool) =
+            match self.sticky_entry(sticky_source.as_deref()) {
+                // The message's sticky source is the only candidate, even when
+                // it is suspended, throttled or full.
+                Some(entry) => (std::slice::from_ref(entry), false),
+                // Select from the whole pool. A sticky pool records the
+                // selected source on the message.
+                None => (
+                    &self.entries,
+                    self.selection_strategy == SourceSelectionStrategy::StickyWeightedRoundRobin,
+                ),
+            };
+
         let mut entries = vec![];
         let mut min_delay = None;
         let mut is_full = false;
 
         // filter to non-suspended pathways
-        for entry in &self.entries {
+        for entry in candidates {
             // Cheap early-out: if no source on this node is currently
             // auto-suspended, this is a single relaxed atomic load and
             // a branch — invisible in the hot path.
@@ -897,6 +956,13 @@ impl EgressPoolSourceSelector {
                                     .await?
                                     {
                                         None => {
+                                            if record_selection {
+                                                msg.set_meta(
+                                                    STICKY_EGRESS_SOURCE_META_KEY,
+                                                    source_name.clone(),
+                                                )
+                                                .await?;
+                                            }
                                             site.redeem_reservation(
                                                 msg,
                                                 reservation,
@@ -1047,9 +1113,8 @@ mod test {
     use super::*;
     use std::collections::HashMap;
 
-    #[test]
-    fn round_robin() {
-        let pool = EgressPool {
+    fn test_pool() -> EgressPool {
+        EgressPool {
             name: "pool".to_string(),
             entries: vec![
                 EgressPoolEntry {
@@ -1065,8 +1130,14 @@ mod test {
                     weight: 3,
                 },
             ],
+            selection_strategy: SourceSelectionStrategy::default(),
             ttl: default_ttl(),
-        };
+        }
+    }
+
+    #[test]
+    fn round_robin() {
+        let pool = test_pool();
 
         let rr = EgressPoolSourceSelector::new(&pool);
         let mut counts = HashMap::new();
@@ -1081,6 +1152,35 @@ mod test {
         assert_eq!(counts["one"], 50, "one");
         assert_eq!(counts["two"], 20, "two");
         assert_eq!(counts["three"], 30, "three");
+    }
+
+    #[test]
+    fn sticky_entry_resolution() {
+        let mut pool = test_pool();
+        pool.entries.push(EgressPoolEntry {
+            name: "disabled".to_string(),
+            weight: 0,
+        });
+        let selector = EgressPoolSourceSelector::new(&pool);
+
+        k9::assert_equal!(selector.sticky_entry(None), None);
+        k9::assert_equal!(
+            selector.sticky_entry(Some("two")).map(|e| e.name.as_str()),
+            Some("two")
+        );
+        k9::assert_equal!(selector.sticky_entry(Some("absent")), None);
+        k9::assert_equal!(selector.sticky_entry(Some("disabled")), None);
+    }
+
+    #[test]
+    fn strategy_change_is_not_equivalent() {
+        let pool = test_pool();
+        let selector = EgressPoolSourceSelector::new(&pool);
+        assert!(selector.equivalent(&pool));
+
+        let mut sticky = pool.clone();
+        sticky.selection_strategy = SourceSelectionStrategy::StickyWeightedRoundRobin;
+        assert!(!selector.equivalent(&sticky));
     }
 }
 

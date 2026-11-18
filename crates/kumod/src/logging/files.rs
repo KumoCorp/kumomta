@@ -12,6 +12,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use zstd::stream::write::Encoder;
 
@@ -221,11 +222,11 @@ impl LogThreadState {
             .or_else(|| self.params.per_record.get(&RecordType::Any))
     }
 
-    fn resolve_template<'a>(
+    fn resolve_template(
         params: &LogFileParams,
-        template_engine: &'a TemplateEngine,
+        template_engine: &TemplateEngine,
         kind: RecordType,
-    ) -> Option<Template<'a, 'a>> {
+    ) -> Option<Template> {
         if let Some(pr) = params.per_record.get(&kind) {
             if pr.template.is_some() {
                 let label = format!("{kind:?}");
@@ -276,6 +277,7 @@ impl LogThreadState {
 
     fn do_record(&mut self, record: JsonLogRecord) -> anyhow::Result<()> {
         tracing::trace!("do_record {record:?}");
+        let record = Arc::new(record);
         let file_key = if let Some(per_rec) = self.per_record(record.kind) {
             FileNameKey {
                 log_dir: per_rec
@@ -294,13 +296,15 @@ impl LogThreadState {
         };
 
         let mut record_text = Vec::new();
-        self.template_engine.add_global("log_record", &record)?;
         if let Some(template) =
             Self::resolve_template(&self.params, &self.template_engine, record.kind)
         {
-            template.render_to_write(&record, &mut record_text)?;
+            let prepared = self
+                .template_engine
+                .prepare_context_with_alias(record.clone(), "log_record")?;
+            record_text = template.render_prepared(&prepared)?.into_bytes();
         } else {
-            serde_json::to_writer(&mut record_text, &record).context("serializing record")?;
+            serde_json::to_writer(&mut record_text, &*record).context("serializing record")?;
         }
         if record_text.last() != Some(&b'\n') {
             record_text.push(b'\n');

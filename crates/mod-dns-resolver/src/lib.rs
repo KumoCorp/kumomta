@@ -112,6 +112,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     dns_mod.set(
+        "set_dane_enabled",
+        lua.create_function(move |_lua, enabled: bool| {
+            mailexchanger::set_dane_enabled(enabled);
+            Ok(())
+        })?,
+    )?;
+
+    dns_mod.set(
         "ptr_host",
         lua.create_function(move |_lua, ip: String| {
             let ip: IpAddr = ip.parse().map_err(any_err)?;

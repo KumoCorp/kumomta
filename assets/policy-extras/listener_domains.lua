@@ -10,17 +10,29 @@ local Bool, List, Map, Option, Record, String =
   typing.record,
   typing.string
 
-local function is_listener_domain_option(name, value)
-  local p = { [name] = value }
-  local status, err = pcall(kumo.make_listener_domain, p)
-  if not status then
-    local err = typing.extract_deserialize_error(err)
-    if tostring(err):find 'invalid' then
-      return false, err
+local CACHED_LISTENER_DOMAIN_OPTION_NAMES = nil
+
+local function is_listener_domain_option_name(name)
+  if not CACHED_LISTENER_DOMAIN_OPTION_NAMES then
+    CACHED_LISTENER_DOMAIN_OPTION_NAMES = {}
+    for _, field in ipairs(kumo.listener_domain_field_names()) do
+      CACHED_LISTENER_DOMAIN_OPTION_NAMES[field] = true
     end
+  end
+  return CACHED_LISTENER_DOMAIN_OPTION_NAMES[name] == true
+end
+
+-- `_dynamic` validator (see typing.lua's `record`) for
+-- kumo.make_listener_domain options.
+local function is_listener_domain_option(name, value)
+  if not is_listener_domain_option_name(name) then
     return false, nil
   end
-  return status
+  local status, err = pcall(kumo.make_listener_domain, { [name] = value })
+  if not status then
+    return false, typing.extract_deserialize_error(err)
+  end
+  return true
 end
 
 local ListenerConfig = Record('ListenerConfig', {
