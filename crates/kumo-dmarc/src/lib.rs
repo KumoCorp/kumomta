@@ -509,7 +509,7 @@ pub(crate) async fn fetch_dmarc_records(
     // TXT records can contain all sorts of stuff, let's walk through
     // the set that we retrieved and take the first one that parses
     for txt in initial_txt {
-        if txt.starts_with("v=DMARC1;") {
+        if txt.starts_with("v=DMARC1") {
             if let Ok(record) = Record::from_str(&txt) {
                 records.push(record);
             }

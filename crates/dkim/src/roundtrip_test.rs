@@ -315,3 +315,31 @@ sentation" style=3D"width:100%;">
         );
     }
 }
+
+#[tokio::test]
+async fn test_roundtrip_idn() {
+    // Records are published under the punycode name, as it would be in DNS
+    let resolver =
+        TestResolver::default().with_txt("xn--pckxan2p._domainkey.xn--wgv71a119e.jp", TEST_ZONE);
+
+    let email = "Subject: subject\r\nFrom: user@日本語.jp\r\n\r\nHello\r\n";
+    let parsed = ParsedEmail::parse(email).unwrap();
+
+    let signer = SignerBuilder::new()
+        .with_signed_headers(["From", "Subject"])
+        .unwrap()
+        .with_private_key(load_rsa_key())
+        .with_selector("セレクタ")
+        .with_signing_domain("日本語.jp")
+        .build()
+        .unwrap();
+    let header = signer.sign(&parsed).unwrap();
+    assert!(header.contains("d=日本語.jp;"), "{header}");
+    assert!(header.contains("s=セレクタ;"), "{header}");
+
+    let res = verify(&resolver, &format!("{header}\r\n{email}")).await;
+    assert_eq!(res.len(), 1);
+    assert_eq!(res[0].result, "pass", "{res:?}");
+    assert_eq!(res[0].props["header.d"], "日本語.jp");
+    assert_eq!(res[0].props["header.s"], "セレクタ");
+}
