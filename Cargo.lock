@@ -5364,6 +5364,7 @@ dependencies = [
  "deadpool",
  "duration-serde",
  "kumo-prometheus",
+ "kumo-redact",
  "linkme",
  "mlua",
  "redis",
@@ -5371,6 +5372,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "url",
  "which",
 ]
 

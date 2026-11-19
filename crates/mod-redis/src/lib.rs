@@ -2,6 +2,7 @@ use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_module};
 use deadpool::managed::{Manager, Metrics, Pool, RecycleError, RecycleResult};
 use kumo_prometheus::declare_metric;
+use kumo_redact::REDACTED;
 use mlua::{Lua, MultiValue, UserData, UserDataMethods, Value};
 use redis::aio::{ConnectionLike, ConnectionManager, ConnectionManagerConfig};
 use redis::cluster::ClusterClient;
@@ -15,6 +16,7 @@ use redis::{
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
+use std::fmt;
 use std::future::Future;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
@@ -278,7 +280,33 @@ pub enum NodeSpec {
     Cluster(Vec<String>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize)]
+fn push_node_label(label: &mut String, node: &str) {
+    use url::Position::{AfterPassword, BeforePassword};
+
+    let Some(url) = redis::parse_redis_url(node) else {
+        label.push_str("<invalid-node>");
+        return;
+    };
+    match url.clone().into_connection_info() {
+        // A Unix socket can carry a password outside the userinfo component.
+        Ok(info)
+            if matches!(info.addr, redis::ConnectionAddr::Unix(_))
+                && info.redis.password.is_some() =>
+        {
+            label.push_str(&info.addr.to_string());
+        }
+        Ok(_) if url.password().is_some() => {
+            // set_password would percent-encode the brackets in this display label.
+            label.push_str(&url[..BeforePassword]);
+            label.push_str(REDACTED);
+            label.push_str(&url[AfterPassword..]);
+        }
+        Ok(_) => label.push_str(node), // Preserve the original spelling, not URL normalization.
+        Err(_) => label.push_str(url.host_str().unwrap_or("<invalid-node>")),
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Deserialize)]
 pub struct RedisConnKey {
     pub node: NodeSpec,
     /// Enables reading from replicas for all new connections
@@ -302,6 +330,23 @@ pub struct RedisConnKey {
     pub wait_timeout: Option<Duration>,
     #[serde(default, with = "duration_serde")]
     pub response_timeout: Option<Duration>,
+}
+
+impl fmt::Debug for RedisConnKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RedisConnKey")
+            .field("service", &self.hash_label())
+            .field("read_from_replicas", &self.read_from_replicas)
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| REDACTED))
+            .field("cluster", &self.cluster)
+            .field("pool_size", &self.pool_size)
+            .field("connect_timeout", &self.connect_timeout)
+            .field("recycle_timeout", &self.recycle_timeout)
+            .field("wait_timeout", &self.wait_timeout)
+            .field("response_timeout", &self.response_timeout)
+            .finish()
+    }
 }
 
 pub enum ClientWrapper {
@@ -400,7 +445,9 @@ impl RedisConnKey {
                 config = config.set_response_timeout(duration);
             }
 
-            let mut info: ConnectionInfo = nodes[0]
+            let mut info: ConnectionInfo = nodes
+                .first()
+                .context("no Redis node configured")?
                 .as_str()
                 .into_connection_info()
                 .with_context(|| format!("building redis client {self:?}"))?;
@@ -482,14 +529,14 @@ impl RedisConnKey {
         }
         match &self.node {
             NodeSpec::Single(node) => {
-                label.push_str(node);
+                push_node_label(&mut label, node);
             }
             NodeSpec::Cluster(nodes) => {
                 for (idx, node) in nodes.iter().enumerate() {
                     if idx > 0 {
                         label.push(',');
                     }
-                    label.push_str(node);
+                    push_node_label(&mut label, node);
                 }
             }
         }
