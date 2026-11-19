@@ -1,6 +1,6 @@
 use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_sub_module};
-use data_loader::KeySource;
+use data_loader::SensitiveKeySource;
 use kumo_dkim::DkimPrivateKey;
 use kumo_prometheus::declare_metric;
 use lruttl::declare_cache;
@@ -17,7 +17,7 @@ static SIGNER_CACHE: LruCacheWithTtl<SignerConfig, Arc<CFSigner>>::new("dkim_sig
 }
 declare_cache! {
 /// Caches dkim loaded signing keys based on their KeySource spec
-static KEY_CACHE: LruCacheWithTtl<KeySource, Arc<DkimPrivateKey>>::new("dkim_key_cache", 1024);
+static KEY_CACHE: LruCacheWithTtl<SensitiveKeySource, Arc<DkimPrivateKey>>::new("dkim_key_cache", 1024);
 }
 
 declare_metric! {
@@ -145,7 +145,7 @@ pub struct SignerConfig {
     #[serde(default)]
     body_canonicalization: Canon,
 
-    key: KeySource,
+    key: SensitiveKeySource,
     #[serde(default)]
     over_sign: bool,
 
@@ -219,7 +219,10 @@ impl Signer {
 
 impl LuaUserData for Signer {}
 
-async fn cached_key_load(key: &KeySource, ttl: Duration) -> anyhow::Result<Arc<DkimPrivateKey>> {
+async fn cached_key_load(
+    key: &SensitiveKeySource,
+    ttl: Duration,
+) -> anyhow::Result<Arc<DkimPrivateKey>> {
     KEY_CACHE_LOOKUP.inc();
     KEY_CACHE
         .get_or_try_insert(key, |_| ttl, async {

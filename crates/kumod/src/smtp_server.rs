@@ -16,7 +16,7 @@ use config::{
     any_err, declare_event, load_config, serialize_options, CallbackSignature, SerdeWrappedValue,
 };
 use data_encoding::BASE64;
-use data_loader::KeySource;
+use data_loader::{KeySource, SensitiveKeySource};
 use derive_where::derive_where;
 use kumo_api_types::egress_path::TlsMode;
 use kumo_log_types::ResolvedAddress;
@@ -399,7 +399,7 @@ fn default_true() -> bool {
 struct TlsAcceptorConfigKey {
     pub hostname: String,
     pub tls_certificate: Option<KeySource>,
-    pub tls_private_key: Option<KeySource>,
+    pub tls_private_key: Option<SensitiveKeySource>,
     pub tls_required_client_ca: Option<KeySource>,
 }
 
@@ -442,7 +442,11 @@ impl ConcreteEsmtpListenerParams {
     pub async fn build_tls_acceptor(&self) -> anyhow::Result<TlsAcceptor> {
         let key = TlsAcceptorConfigKey {
             hostname: self.hostname.clone(),
-            tls_private_key: self.tls_private_key.clone(),
+            tls_private_key: self
+                .tls_private_key
+                .as_ref()
+                .map(KeySource::as_sensitive)
+                .cloned(),
             tls_certificate: self.tls_certificate.clone(),
             tls_required_client_ca: self.tls_required_client_ca.clone(),
         };

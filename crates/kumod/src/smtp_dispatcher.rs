@@ -10,7 +10,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use bounce_classify::{BounceClass, PreDefinedBounceClass};
 use config::{load_config, CallbackSignature};
-use data_loader::KeySource;
+use data_loader::{KeySource, SensitiveKeySource};
 use dns_resolver::{
     has_colon_port, resolve_a_or_aaaa, DaneStatus, IpLookupStrategy, SecureCnameStatus,
 };
@@ -44,7 +44,7 @@ static BROKEN_TLS_BY_SITE: LruCacheWithTtl<String, ()>::new("smtp_dispatcher_bro
 
 lruttl::declare_cache! {
 /// Caches smtp client certificates by KeySource spec
-static CLIENT_CERT: LruCacheWithTtl<KeySource, Result<Option<Arc<Box<[u8]>>>, String>>::new("smtp_dispatcher_client_certificate", 1024);
+static CLIENT_CERT: LruCacheWithTtl<SensitiveKeySource, Result<Option<Arc<Box<[u8]>>>, String>>::new("smtp_dispatcher_client_certificate", 1024);
 }
 
 declare_metric! {
@@ -1085,6 +1085,7 @@ impl SmtpDispatcher {
         &mut self,
         source: &KeySource,
     ) -> anyhow::Result<Option<Arc<Box<[u8]>>>> {
+        let source = source.as_sensitive();
         CLIENT_CERT
             .get_or_try_insert(source, |_| tokio::time::Duration::from_secs(300), async {
                 let data = source
