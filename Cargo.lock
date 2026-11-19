@@ -4112,6 +4112,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-redact"
+version = "0.1.0"
+
+[[package]]
 name = "kumo-server-common"
 version = "0.1.0"
 dependencies = [
@@ -7212,6 +7216,7 @@ dependencies = [
  "hickory-proto",
  "idna",
  "k9",
+ "kumo-redact",
  "kumo-tls-helper",
  "libc",
  "linkme",

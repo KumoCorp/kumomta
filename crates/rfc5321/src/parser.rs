@@ -797,9 +797,7 @@ pub enum Command {
     Unknown(BString),
 }
 
-/// Placeholder substituted for a secret when a command is rendered for logs
-/// or diagnostics rather than the wire.
-pub const REDACTED: &str = "[REDACTED]";
+pub use kumo_redact::REDACTED;
 
 /// Render an `AUTH` command line with its SASL initial-response
 /// masked as [`REDACTED`].  When `has_initial_response` is false,

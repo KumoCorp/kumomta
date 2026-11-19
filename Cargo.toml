@@ -19,6 +19,7 @@ members = [
   "crates/kumo-machine-info",
   "crates/kumo-http-client",
   "crates/kumo-prometheus",
+  "crates/kumo-redact",
   "crates/kumo-spf",
   "crates/kumo-template",
   "crates/kumo-tls-helper",
