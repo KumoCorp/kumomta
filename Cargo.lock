@@ -5301,6 +5301,7 @@ dependencies = [
  "dashmap",
  "duration-serde",
  "kumo-prometheus",
+ "kumo-redact",
  "linkme",
  "lruttl",
  "mlua",
@@ -5310,6 +5311,7 @@ dependencies = [
  "test-log",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

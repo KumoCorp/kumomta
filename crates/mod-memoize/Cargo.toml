@@ -9,6 +9,7 @@ config = {path="../config"}
 dashmap.workspace = true
 duration-serde = {path="../duration-serde"}
 kumo-prometheus = {path="../kumo-prometheus"}
+kumo-redact = {path="../kumo-redact"}
 linkme.workspace = true
 lruttl = {path="../lruttl"}
 test-log.workspace = true
@@ -18,6 +19,9 @@ mlua = {workspace=true, features=["vendored", "lua54", "async", "macros", "send"
 parking_lot = {workspace=true}
 serde = {workspace=true}
 serde_json = {workspace=true}
+
+[dev-dependencies]
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true
