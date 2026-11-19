@@ -20,7 +20,7 @@ use data_loader::KeySource;
 use derive_where::derive_where;
 use kumo_api_types::egress_path::TlsMode;
 use kumo_log_types::ResolvedAddress;
-use kumo_prometheus::prometheus::HistogramTimer;
+use kumo_prometheus::prometheus::{HistogramTimer, DEFAULT_BUCKETS};
 use kumo_prometheus::{declare_metric, AtomicCounter};
 use kumo_server_common::acct::{log_authn, AuthnAuditRecord};
 use kumo_server_common::authn_authz::{AuthInfo, Identity, IdentityContext};
@@ -133,7 +133,11 @@ static READ_DATA_LATENCY: Histogram("smtpsrv_read_data_duration");
 
 declare_metric! {
 /// how long it takes to process the DATA portion and enqueue
-static PROCESS_DATA_LATENCY: Histogram("smtpsrv_process_data_duration");
+static PROCESS_DATA_LATENCY: Histogram("smtpsrv_process_data_duration", {
+    let mut buckets = DEFAULT_BUCKETS.to_vec();
+    buckets.extend([30.0, 60.0, 90.0, 120.0, 180.0, 300.0]);
+    buckets
+});
 }
 
 #[derive(Debug, Hash, PartialEq, Eq)]
