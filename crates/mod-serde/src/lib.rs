@@ -1,3 +1,8 @@
+//! String parse errors preserve the parser's reason and location when available.
+//! Do not add the whole input as error context: unrelated fields may contain
+//! credentials. The parser itself may quote the offending line. For difficult
+//! parse failures, `mod_serde=trace` logs the original input.
+
 use anyhow::Context;
 use config::{
     any_err, get_or_create_module, get_or_create_sub_module, materialize_to_lua_value,
@@ -119,9 +124,8 @@ async fn load_files(lua: Lua, file_names: Vec<String>) -> mlua::Result<Vec<LuaVa
 }
 
 fn json_parse(lua: &Lua, text: String) -> mlua::Result<LuaValue> {
-    let stripped = json_comments::StripComments::new(text.as_bytes());
-    let obj: serde_json::Value = serde_json::from_reader(stripped)
-        .with_context(|| format!("parsing {text} as json"))
+    let obj = parse_json("string", text.as_bytes())
+        .inspect_err(|err| tracing::trace!(input = %text, error = %err, "JSON parse failed"))
         .map_err(any_err)?;
     lua.to_value_with(&obj, serialize_options())
 }
@@ -153,8 +157,8 @@ async fn toml_load(lua: Lua, file_name: String) -> mlua::Result<LuaValue> {
 }
 
 fn toml_parse(lua: &Lua, toml: String) -> mlua::Result<LuaValue> {
-    let obj: toml::Value = toml::from_str(&toml)
-        .with_context(|| format!("parsing {toml} as toml"))
+    let obj = parse_toml("string", &toml)
+        .inspect_err(|err| tracing::trace!(input = %toml, error = %err, "TOML parse failed"))
         .map_err(any_err)?;
     lua.to_value_with(&obj, serialize_options())
 }
@@ -248,7 +252,8 @@ async fn yaml_load(lua: Lua, file_name: String) -> mlua::Result<LuaValue> {
 
 fn yaml_parse(lua: &Lua, text: String) -> mlua::Result<LuaValue> {
     let value: JValue = serde_yaml::from_str(&text)
-        .with_context(|| format!("parsing {text} as yaml"))
+        .inspect_err(|err| tracing::trace!(input = %text, error = %err, "YAML parse failed"))
+        .context("parsing string as yaml")
         .map_err(any_err)?;
     lua.to_value_with(&value, serialize_options())
 }
@@ -261,6 +266,20 @@ fn yaml_encode(lua: &Lua, value: LuaValue) -> mlua::Result<String> {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn string_parse_errors_do_not_dump_the_whole_input() {
+        let lua = Lua::new();
+        for result in [
+            json_parse(&lua, "{\"password\":\"sibling-canary\",\n\"bad\": ]".into()),
+            toml_parse(&lua, "password = 'sibling-canary'\nbad = ]".into()),
+            yaml_parse(&lua, "password: sibling-canary\nbad: *unknown".into()),
+        ] {
+            let err = result.unwrap_err().to_string();
+            assert!(err.contains("parsing string"));
+            assert!(!err.contains("sibling-canary"));
+        }
+    }
 
     fn write(dir: &tempfile::TempDir, name: &str, contents: &str) -> String {
         let path = dir.path().join(name);
