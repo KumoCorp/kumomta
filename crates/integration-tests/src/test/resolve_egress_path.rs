@@ -1,7 +1,7 @@
 use crate::kumod::DaemonWithMaildirOptions;
 use anyhow::Context;
 use kumo_api_types::egress_path::CeilingSource;
-use kumo_api_types::ResolveEgressPathV1Request;
+use kumo_api_types::{ResolveEgressPathV1Request, ResolveEgressPathV1Response};
 
 #[tokio::test]
 async fn resolve_egress_path() -> anyhow::Result<()> {
@@ -17,13 +17,15 @@ async fn resolve_egress_path() -> anyhow::Result<()> {
     // route (source-inspect.lua routes every domain through
     // make.slow_send). DNS resolution is not required for this; the
     // protocol path uses the routing_domain directly.
-    let resp = api
-        .admin_resolve_egress_path_v1(&ResolveEgressPathV1Request {
+    let resp: ResolveEgressPathV1Response = super::fetch_inspection_and_assert_redaction(
+        &daemon.source,
+        "resolve-egress-path",
+        &ResolveEgressPathV1Request {
             domain: "inspect.example.com".to_string(),
             source: Some("my-source".to_string()),
-        })
-        .await
-        .context("admin_resolve_egress_path_v1")?;
+        },
+    )
+    .await?;
 
     anyhow::ensure!(resp.domain == "inspect.example.com");
     anyhow::ensure!(resp.source == "my-source");
@@ -34,8 +36,6 @@ async fn resolve_egress_path() -> anyhow::Result<()> {
     );
     // Lua-protocol path: MX not used, so we expect None here.
     anyhow::ensure!(resp.mx.is_none(), "expected mx=None; got {:?}", resp.mx);
-    // The path_config has the same overrides set by source-inspect.lua.
-    anyhow::ensure!(resp.path_config.connection_limit.limit == 1);
     // The synthetic reconnect-cycling rate ceiling is not in play
     // because no max_connection_rate is set, so the message-rate
     // ceiling should be None.
@@ -61,6 +61,10 @@ async fn resolve_egress_path() -> anyhow::Result<()> {
         })
         .await
         .context("admin_resolve_egress_path_v1 sched-rate")?;
+
+    let path = serde_json::to_value(&resp.path_config)?;
+    assert!(path["smtp_auth_plain_password"].is_null());
+    assert!(path["tls_private_key"].is_null());
 
     let mr = resp
         .constraints

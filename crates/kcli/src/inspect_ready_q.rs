@@ -347,7 +347,7 @@ mod tests {
                 suspended: None,
                 watchdog_threshold: Duration::from_secs(10 * 60),
             },
-            path_config,
+            path_config: path_config.redacted_for_inspection(),
             constraints,
             scheduled_queue_names: None,
             dispatchers: vec![],
@@ -551,7 +551,7 @@ connections: 4
         path_config.max_connection_rate = Some(throttle::ThrottleSpec::try_from("10/s").unwrap());
         let constraints = path_config.compute_constraints(None);
         let mut r = build_response();
-        r.path_config = path_config;
+        r.path_config = path_config.redacted_for_inspection();
         r.constraints = constraints;
 
         k9::snapshot!(

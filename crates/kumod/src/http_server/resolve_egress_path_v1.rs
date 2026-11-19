@@ -79,7 +79,7 @@ pub async fn resolve_v1(
         mx,
         queue_name,
         queue_config: queue_config_value,
-        path_config,
+        path_config: path_config.redacted_for_inspection(),
         constraints,
     }))
 }

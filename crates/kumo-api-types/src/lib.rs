@@ -747,10 +747,9 @@ pub struct InspectReadyQV1Response {
     #[schema(example = "smtp_client")]
     pub protocol: String,
     pub state: ReadyQueueStateSnapshot,
-    /// Snapshot of the egress path configuration in effect for this
-    /// queue.
+    /// Effective egress path settings. Configured secrets are shown as `[REDACTED]`.
     #[schema(value_type = Object)]
-    pub path_config: crate::egress_path::EgressPathConfig,
+    pub path_config: crate::egress_path::InspectedEgressPathConfig,
     /// Steady-state throughput ceilings implied by `path_config`.
     /// Each axis is tagged with the configuration term that
     /// produced it, so operators can tell whether a plateau in the
@@ -821,8 +820,9 @@ pub struct ResolveEgressPathV1Response {
     /// round-trip cleanly through the OpenAPI schema.
     #[schema(value_type = Object)]
     pub queue_config: serde_json::Value,
+    /// Effective egress path settings. Configured secrets are shown as `[REDACTED]`.
     #[schema(value_type = Object)]
-    pub path_config: crate::egress_path::EgressPathConfig,
+    pub path_config: crate::egress_path::InspectedEgressPathConfig,
     pub constraints: crate::egress_path::EffectiveConstraints,
 }
 

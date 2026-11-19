@@ -84,3 +84,29 @@ mod tsa_tenant_suspension;
 mod tsa_tenant_suspension_issue290;
 mod xclient;
 mod xfer;
+
+/// Check redaction on the JSON sent by the server, then decode it for the caller's assertions.
+async fn fetch_inspection_and_assert_redaction<T: serde::de::DeserializeOwned>(
+    daemon: &crate::kumod::KumoDaemon,
+    route: &str,
+    query: &impl kumo_api_types::ApplyToUrl,
+) -> anyhow::Result<T> {
+    let mut url = reqwest::Url::parse(&format!(
+        "http://{}/api/admin/{route}/v1",
+        daemon.listener("http")
+    ))?;
+    query.apply_to_url(&mut url);
+    let raw: serde_json::Value = daemon
+        .api_client()
+        .request_with_json_response(reqwest::Method::GET, url, &())
+        .await?;
+    let path = &raw["path_config"];
+    assert_eq!(path["connection_limit"]["limit"], 1);
+    assert_eq!(path["smtp_auth_plain_password"], "[REDACTED]");
+    assert_eq!(path["tls_private_key"], "[REDACTED]");
+    let cert = &path["tls_certificate"];
+    assert_eq!(cert["vault_mount"], "test");
+    assert_eq!(cert["vault_path"], "cert");
+    assert_eq!(cert["vault_token"], "[REDACTED]");
+    Ok(serde_json::from_value(raw)?)
+}

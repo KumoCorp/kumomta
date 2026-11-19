@@ -29,7 +29,7 @@ This is an object value, with the following properties:
 
   * `mx` - optional nullable [MxResolution](MxResolution.md). 
 
-  * `path_config` - required `object`. 
+  * `path_config` - required `object`. Effective egress path settings. Configured secrets are shown as `[REDACTED]`.
 
   * `queue_config` - required `object`. Snapshot of the resolved scheduled-queue configuration for
     this domain. Carried as an untyped JSON object because

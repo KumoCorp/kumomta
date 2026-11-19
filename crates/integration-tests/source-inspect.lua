@@ -85,6 +85,17 @@ kumo.on('get_egress_path_config', function(domain, _source_name, _site_name)
   -- queue's 100/s rate then shadows.
   if domain == 'sched-rate.example.com' then
     cfg.max_message_rate = '1000/s'
+  elseif domain == 'inspect.example.com' then
+    cfg.smtp_auth_plain_password = { key_data = 'inline-canary' }
+    cfg.tls_private_key = {
+      event_name = 'unused',
+      event_args = { 'event-canary' },
+    }
+    cfg.tls_certificate = {
+      vault_mount = 'test',
+      vault_path = 'cert',
+      vault_token = 'token-canary',
+    }
   end
   return kumo.make_egress_path(cfg)
 end)
