@@ -33,3 +33,7 @@ end)
 The filter syntax is quite powerful, allowing you set different levels for
 different crates.  The full set of filter directives are [explained
 here](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html#directives).
+
+Enable `TRACE` only where needed and treat the resulting logs as sensitive:
+
+* `kumo_api_types::shaping=trace` can log complete inputs during shaping validation.
