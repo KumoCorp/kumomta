@@ -36,4 +36,7 @@ here](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct
 
 Enable `TRACE` only where needed and treat the resulting logs as sensitive:
 
+* `mod_memoize=trace` logs lookup arguments and underlying errors.
+* Enable `mod_serde=trace` briefly: it logs the full input for every failed JSON, TOML, or YAML string parse, even if Lua catches the error.
 * `kumo_api_types::shaping=trace` can log complete inputs during shaping validation.
+* `kumo_tls_helper=trace` logs the underlying private-key PEM parser error, which can include bytes from a malformed key.

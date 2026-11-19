@@ -369,6 +369,28 @@ mod test {
         assert!(debug.contains(r#"private_key_from_pem: Some("[REDACTED]")"#));
         assert!(!debug.contains("[3, 4]"));
     }
+
+    #[test]
+    fn client_key_selection_checks_the_entire_bundle() {
+        fn options(pem: &str) -> TlsOptions {
+            TlsOptions {
+                private_key_from_pem: Some(Arc::new(Box::from(pem.as_bytes()))),
+                ..Default::default()
+            }
+        }
+        let bundle = "-----BEGIN RSA PRIVATE KEY-----\nAQ==\n-----END RSA PRIVATE KEY-----\n\
+                      -----BEGIN PRIVATE KEY-----\nAg==\n-----END PRIVATE KEY-----\n\
+                      -----BEGIN PRIVATE KEY-----\nAw==\n-----END PRIVATE KEY-----\n";
+        let key = options(bundle).load_private_key().unwrap().unwrap();
+        assert_eq!(key.secret_der(), &[2]);
+        let err = options(&format!("{bundle}-----BEGIN PRIVATE KEY-----fixture\n"))
+            .load_private_key()
+            .unwrap_err();
+        assert_eq!(
+            format!("{err:#}"),
+            "loading client private key: invalid PEM section start"
+        );
+    }
 }
 
 mod danger {
@@ -434,32 +456,5 @@ mod danger {
         fn supported_verify_schemes(&self) -> Vec<tokio_rustls::rustls::SignatureScheme> {
             self.0.signature_verification_algorithms.supported_schemes()
         }
-    }
-}
-
-#[cfg(test)]
-mod private_key_tests {
-    use super::*;
-
-    #[test]
-    fn client_key_selection_checks_the_entire_bundle() {
-        fn options(pem: &str) -> TlsOptions {
-            TlsOptions {
-                private_key_from_pem: Some(Arc::new(Box::from(pem.as_bytes()))),
-                ..Default::default()
-            }
-        }
-        let bundle = "-----BEGIN RSA PRIVATE KEY-----\nAQ==\n-----END RSA PRIVATE KEY-----\n\
-                      -----BEGIN PRIVATE KEY-----\nAg==\n-----END PRIVATE KEY-----\n\
-                      -----BEGIN PRIVATE KEY-----\nAw==\n-----END PRIVATE KEY-----\n";
-        let key = options(bundle).load_private_key().unwrap().unwrap();
-        assert_eq!(key.secret_der(), &[2]);
-        let err = options(&format!("{bundle}-----BEGIN PRIVATE KEY-----fixture\n"))
-            .load_private_key()
-            .unwrap_err();
-        assert_eq!(
-            format!("{err:#}"),
-            "loading client private key: invalid PEM section start"
-        );
     }
 }
