@@ -58,8 +58,7 @@ This is an object value, with the following properties:
 
   * `now` - required `string` (`date-time`). 
 
-  * `path_config` - required `object`. Snapshot of the egress path configuration in effect for this
-    queue.
+  * `path_config` - required `object`. Effective egress path settings. Configured secrets are shown as `[REDACTED]`.
 
   * `protocol` - required `string`. Protocol identifier as it appears in the ready queue name.
 

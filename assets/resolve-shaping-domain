@@ -118,7 +118,9 @@ kumo.on('main', function(...)
     print(kumo.format_queue_config_toml(queue_config))
     print '--- egress path config ---'
     print ''
-    print(kumo.format_egress_path_config_toml(path_config))
+    print(kumo.format_egress_path_config_toml(
+      kumo.inspect_egress_path_config(path_config)
+    ))
     print '--- effective ceilings ---'
     print ''
     io.write(kumo.format_egress_path_config_constraints(constraints))
@@ -133,7 +135,9 @@ kumo.on('main', function(...)
     if emitted_any_json then
       print ''
     end
-    print(kumo.serde.json_encode_pretty(path_config))
+    print(kumo.serde.json_encode_pretty(
+      kumo.inspect_egress_path_config(path_config)
+    ))
     emitted_any_json = true
   end
   if json_constraints then

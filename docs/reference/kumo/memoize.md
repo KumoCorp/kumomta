@@ -72,6 +72,8 @@ that will internally cache the result for the same set of parameters, and
 returns a new function that encodes that caching logic.  The return value is
 the *memoized function*.
 
+Enabling `mod_memoize=trace` in the [diagnostic log filter](set_diagnostic_log_filter.md) logs lookup arguments, including any credentials, and the underlying error on failure.
+
 !!! note
    The `kumo.memoize` call should happen *unconditionally* when your policy
    loads in order for the memoized function to be callable in all circumstances.

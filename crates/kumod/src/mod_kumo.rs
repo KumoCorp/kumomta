@@ -262,6 +262,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "inspect_egress_path_config",
+        lua.create_function(|lua, path_config: SerdeWrappedValue<EgressPathConfig>| {
+            lua.to_value(&path_config.0.redacted_for_inspection())
+        })?,
+    )?;
+
+    kumo_mod.set(
         "format_queue_config_toml",
         lua.create_function(|_lua, queue_config: SerdeWrappedValue<QueueConfig>| {
             mod_serde::toml_encode_pretty_compact(&queue_config.0).map_err(any_err)

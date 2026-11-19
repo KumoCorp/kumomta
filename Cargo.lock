@@ -1376,6 +1376,7 @@ dependencies = [
  "rand 0.8.8",
  "serde",
  "serde_json",
+ "serde_path_to_error",
  "sha2",
  "tokio",
  "tracing",
@@ -1796,7 +1797,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "config",
+ "kumo-redact",
  "mlua",
+ "ref-cast",
  "serde",
  "serde_bytes",
  "serde_json",
@@ -4111,6 +4114,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-redact"
+version = "0.1.0"
+
+[[package]]
 name = "kumo-server-common"
 version = "0.1.0"
 dependencies = [
@@ -4140,9 +4147,11 @@ dependencies = [
  "kumo-jsonl",
  "kumo-machine-info",
  "kumo-prometheus",
+ "kumo-redact",
  "kumo-server-lifecycle",
  "kumo-server-memory",
  "kumo-server-runtime",
+ "kumo-tls-helper",
  "libc",
  "linkme",
  "lruttl",
@@ -4292,6 +4301,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hickory-proto",
+ "kumo-redact",
  "linkme",
  "lruttl",
  "openssl",
@@ -5295,6 +5305,7 @@ dependencies = [
  "dashmap",
  "duration-serde",
  "kumo-prometheus",
+ "kumo-redact",
  "linkme",
  "lruttl",
  "mlua",
@@ -5304,6 +5315,7 @@ dependencies = [
  "test-log",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -5359,6 +5371,7 @@ dependencies = [
  "deadpool",
  "duration-serde",
  "kumo-prometheus",
+ "kumo-redact",
  "linkme",
  "mlua",
  "redis",
@@ -5366,6 +5379,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "url",
  "which",
 ]
 
@@ -5396,6 +5410,7 @@ dependencies = [
  "tokio",
  "toml",
  "toml_edit 0.23.10+spec-1.0.0",
+ "tracing",
 ]
 
 [[package]]
@@ -7210,6 +7225,7 @@ dependencies = [
  "hickory-proto",
  "idna",
  "k9",
+ "kumo-redact",
  "kumo-tls-helper",
  "libc",
  "linkme",

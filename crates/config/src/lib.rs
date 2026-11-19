@@ -599,38 +599,30 @@ impl<T> std::ops::DerefMut for SerdeWrappedValue<T> {
     }
 }
 
-/// Convert from a lua value to a deserializable type,
-/// with a slightly more helpful error message in case of failure.
-/// NOTE: the ", while processing" portion of the error messages generated
-/// here is coupled with a regex in typing.lua!
+/// Convert a Lua configuration value to `R`. If direct deserialization fails,
+/// retry after expanding userdata, including userdata nested in tables, via
+/// its `__pairs` metamethod.
+///
+/// Report the validator's reason and, when available, the failing field path.
+/// Do not dump the input table: it may contain unrelated secrets. For example,
+/// an invalid `smtp_port` can sit alongside a valid `smtp_auth_plain_password`.
 pub fn from_lua_value<R>(lua: &Lua, value: mlua::Value) -> mlua::Result<R>
 where
     R: serde::de::DeserializeOwned,
 {
-    let value_cloned = value.clone();
-    match lua.from_value(value) {
-        Ok(r) => Ok(r),
-        Err(err) => match materialize_to_lua_value(lua, value_cloned.clone()) {
-            Ok(materialized) => match lua.from_value(materialized.clone()) {
-                Ok(r) => Ok(r),
-                Err(err) => {
-                    let mut serializer = serde_json::Serializer::new(Vec::new());
-                    let serialized = match materialized.serialize(&mut serializer) {
-                        Ok(_) => String::from_utf8_lossy(&serializer.into_inner()).to_string(),
-                        Err(err) => format!("<unable to encode as json: {err:#}>"),
-                    };
-                    Err(mlua::Error::external(format!(
-                        "{err:#}, while processing {serialized}"
-                    )))
-                }
-            },
-            Err(materialize_err) => Err(mlua::Error::external(format!(
-                "{err:#}, while processing a userdata. \
-                    Additionally, encountered {materialize_err:#} \
-                    when trying to iterate the pairs of that userdata"
-            ))),
-        },
-    }
+    lua.from_value(value.clone()).or_else(|err| {
+        let materialized = materialize_to_lua_value(lua, value).map_err(|why| {
+            mlua::Error::external(format!("{err:#}; could not materialize Lua value: {why:#}"))
+        })?;
+        let de = mlua::serde::Deserializer::new(materialized);
+        serde_path_to_error::deserialize(de).map_err(|err| {
+            if err.path().iter().next().is_none() {
+                err.into_inner()
+            } else {
+                mlua::Error::external(format!("{} (at {})", err.inner(), err.path()))
+            }
+        })
+    })
 }
 
 /// CallbackSignature is a bit sugar to aid with statically typing event callback
@@ -891,6 +883,25 @@ impl<'a, T: Default> CallbackDisposition<'a, T> {
     pub fn or_default(self) -> T {
         self.result.unwrap_or_default()
     }
+}
+
+#[cfg(test)]
+#[test]
+fn conversion_preserves_nested_userdata() {
+    #[derive(Serialize, serde::Deserialize)]
+    struct Options {
+        enabled: bool,
+    }
+    impl UserData for Options {
+        fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+            impl_pairs_and_index(methods);
+        }
+    }
+    let lua = Lua::new();
+    let input = lua
+        .create_sequence_from([Options { enabled: true }])
+        .unwrap();
+    assert!(from_lua_value::<Vec<Options>>(&lua, Value::Table(input)).unwrap()[0].enabled);
 }
 
 pub fn serialize_options() -> mlua::SerializeOptions {

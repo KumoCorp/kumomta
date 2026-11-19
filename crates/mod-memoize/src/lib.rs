@@ -3,6 +3,7 @@ use config::{any_err, from_lua_value, get_or_create_module, load_config, seriali
 use dashmap::DashMap;
 use kumo_prometheus::declare_metric;
 use kumo_prometheus::prometheus::Counter;
+use kumo_redact::REDACTED;
 use lruttl::{ItemLookup, LruCacheWithTtl, PopulateAbandoned};
 use mlua::{
     FromLua, Function, IntoLua, Lua, LuaSerdeExt, MetaMethod, MultiValue, UserData,
@@ -320,7 +321,20 @@ struct MemoizeCache {
 
 static CACHES: LazyLock<DashMap<String, MemoizeCache>> = LazyLock::new(DashMap::new);
 
-type CacheKey = (Option<ConfigEpoch>, String);
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct CacheKey {
+    epoch: Option<ConfigEpoch>,
+    args_json: String,
+}
+
+impl std::fmt::Debug for CacheKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CacheKey")
+            .field("epoch", &self.epoch)
+            .field("args_json", &REDACTED)
+            .finish()
+    }
+}
 
 fn get_cache_by_name(
     name: &str,
@@ -632,8 +646,12 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                         } else {
                             None
                         };
-                        let key = serde_json::to_string(&key).map_err(any_err)?;
-                        let key = (epoch_key, key);
+                        let key = CacheKey {
+                            epoch: epoch_key,
+                            args_json: serde_json::to_string(&key).map_err(any_err)?,
+                        };
+
+                        tracing::trace!(cache = %cache_name, epoch = ?key.epoch, args = %key.args_json, detached = run_detached, "memoize lookup");
 
                         let value_result = if run_detached {
                             let args = multi_value_to_json_args(&lua, params.clone())?;
@@ -670,8 +688,9 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                                 return lookup.item.to_value(&lua);
                             }
                             Err(err) => {
-                                tracing::error!("{cache_name} {key:?} failed: {err:#}");
+                                tracing::error!("{cache_name} lookup failed");
                                 let error = format!("{err:#}");
+                                tracing::trace!(cache = %cache_name, args = %key.args_json, %error, "memoize lookup failed");
                                 // Retry an abandoned populate even when
                                 // retry_on_populate_timeout is unset: the cache
                                 // is still empty for this key.
@@ -758,6 +777,62 @@ mod test {
 
         assert_eq!(result, 1);
         assert_eq!(call_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn arguments_distinguish_cache_keys_but_are_redacted_in_debug() {
+        let epoch = Some(get_current_epoch());
+        let mut entries = HashMap::new();
+        for token in ["first-token", "second-token"] {
+            let key = CacheKey {
+                epoch,
+                args_json: serde_json::json!({"token": token}).to_string(),
+            };
+            let debug = format!("{key:?}");
+            assert!(debug.contains(r#"args_json: "[REDACTED]""#));
+            assert!(!debug.contains(token));
+            assert!(entries.insert(key, ()).is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn lookup_failure_logs_arguments_and_cause_only_at_trace() -> mlua::Result<()> {
+        use tracing_subscriber::fmt::MakeWriter;
+
+        static LOG: std::sync::Mutex<Vec<u8>> = std::sync::Mutex::new(Vec::new());
+        let lua = Lua::new();
+        register(&lua).unwrap();
+        let lookup: Function = lua
+            .load(
+                r#"
+            return require('kumo').memoize(function() error('backend-canary') end,
+                { name = 'test_memoize_failure', ttl = '1s', capacity = 1, detached = false })
+        "#,
+            )
+            .set_name("memoize-test")
+            .eval()?;
+        for level in [tracing::Level::DEBUG, tracing::Level::TRACE] {
+            let subscriber = tracing_subscriber::fmt()
+                .with_max_level(level)
+                .with_writer(|| LOG.make_writer())
+                .finish();
+            let _guard = tracing::subscriber::set_default(subscriber);
+            let err = lookup
+                .call_async::<()>("argument-canary")
+                .await
+                .unwrap_err();
+            assert!(err.to_string().contains("backend-canary"));
+            let text = String::from_utf8(std::mem::take(&mut *LOG.lock().unwrap())).unwrap();
+            let summary = text
+                .lines()
+                .find(|line| line.contains("test_memoize_failure lookup failed"))
+                .unwrap();
+            assert!(!summary.contains("canary"));
+            for marker in ["argument-canary", "backend-canary"] {
+                assert_eq!(text.contains(marker), level == tracing::Level::TRACE);
+            }
+        }
+        Ok(())
     }
 
     #[tokio::test]
@@ -874,7 +949,7 @@ mod test {
             cached_do_thing = kumo.memoize(do_thing, {
                 ttl = "1s",
                 capacity = 4,
-                name = "test_memoize_do_thing",
+                name = "test_memoize_blocked",
                 populate_timeout = "2s",
                 -- bare test Lua has no policy for load_config to reload, so
                 -- exercise the inline populate

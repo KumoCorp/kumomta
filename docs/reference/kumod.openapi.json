@@ -1744,7 +1744,7 @@
           },
           "path_config": {
             "type": "object",
-            "description": "Snapshot of the egress path configuration in effect for this\nqueue."
+            "description": "Effective egress path settings. Configured secrets are shown as `[REDACTED]`."
           },
           "protocol": {
             "type": "string",
@@ -2203,7 +2203,8 @@
             ]
           },
           "path_config": {
-            "type": "object"
+            "type": "object",
+            "description": "Effective egress path settings. Configured secrets are shown as `[REDACTED]`."
           },
           "queue_config": {
             "type": "object",

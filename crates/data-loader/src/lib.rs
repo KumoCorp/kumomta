@@ -1,10 +1,16 @@
+mod config_secret;
+pub use config_secret::ConfigSecret;
+
 #[cfg(feature = "impl")]
 use anyhow::{anyhow, Context};
 #[cfg(feature = "impl")]
 use config::{any_err, from_lua_value, get_or_create_sub_module};
+use kumo_redact::REDACTED;
 #[cfg(feature = "impl")]
 use mlua::Lua;
+use ref_cast::RefCast;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 #[cfg(feature = "impl")]
 use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 
@@ -18,7 +24,7 @@ pub enum KeySource {
     },
     Vault {
         vault_address: Option<String>,
-        vault_token: Option<String>,
+        vault_token: Option<ConfigSecret<String>>,
         vault_mount: String,
         vault_path: String,
         #[serde(default = "default_vault_key")]
@@ -28,6 +34,41 @@ pub enum KeySource {
         event_name: String,
         event_args: Vec<serde_json::Value>,
     },
+}
+
+/// A key source whose `Debug` identifies the source without printing its payload.
+/// Cache equality and hashing still use the entire source.
+#[derive(Clone, Deserialize, Hash, PartialEq, Eq, RefCast)]
+#[repr(transparent)]
+#[serde(transparent)]
+pub struct SensitiveKeySource(KeySource);
+
+impl fmt::Debug for SensitiveKeySource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.0 {
+            KeySource::File(_) | KeySource::Vault { .. } => self.0.fmt(f),
+            KeySource::Data { .. } => f.debug_struct("Data").field("key_data", &REDACTED).finish(),
+            KeySource::Event { event_name, .. } => f
+                .debug_struct("Event")
+                .field("event_name", event_name)
+                .field("event_args", &REDACTED)
+                .finish(),
+        }
+    }
+}
+
+impl KeySource {
+    /// Borrow the diagnostic-safe key without copying inline data on cache hits.
+    pub fn as_sensitive(&self) -> &SensitiveKeySource {
+        SensitiveKeySource::ref_cast(self)
+    }
+}
+
+#[cfg(feature = "impl")]
+impl SensitiveKeySource {
+    pub async fn get(&self) -> anyhow::Result<Vec<u8>> {
+        self.0.get().await
+    }
 }
 
 fn default_vault_key() -> String {
@@ -58,11 +99,9 @@ impl KeySource {
                     })?,
                 };
                 let token = match vault_token {
-                    Some(a) => a.to_string(),
-                    None => std::env::var("VAULT_TOKEN").map_err(|err| {
-                        anyhow!(
-                            "vault_token was not specified and $VAULT_TOKEN is not set/usable: {self:?} {err:#}"
-                        )
+                    Some(token) => token.expose()?.clone(),
+                    None => std::env::var("VAULT_TOKEN").map_err(|_| {
+                        anyhow!("vault_token was not specified and $VAULT_TOKEN is not set/usable")
                     })?,
                 };
 
@@ -143,6 +182,43 @@ mod test {
     fn allocate_port() -> u16 {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind 127.0.0.1:0 failed");
         listener.local_addr().unwrap().port()
+    }
+
+    #[test]
+    fn debug_redacts_vault_token() {
+        let source: KeySource = serde_json::from_value(serde_json::json!({
+            "vault_mount": "secret", "vault_path": "test/path", "vault_token": "fixture-token"
+        }))
+        .unwrap();
+        let diagnostic = format!("{source:?}");
+        assert!(diagnostic.contains("test/path"));
+        assert!(diagnostic.contains(r#"vault_token: Some("[REDACTED]")"#));
+        assert!(!diagnostic.contains("fixture-token"));
+        let source: KeySource = serde_json::from_value(serde_json::json!({
+            "vault_mount": "secret", "vault_path": "test/path"
+        }))
+        .unwrap();
+        assert!(format!("{source:?}").contains("vault_token: None"));
+    }
+
+    #[test]
+    fn sensitive_key_source_debug_and_identity() {
+        let inline = KeySource::Data { key_data: vec![42] };
+        let other = KeySource::Data { key_data: vec![43] };
+        assert_eq!(
+            format!("{:?}", inline.as_sensitive()),
+            r#"Data { key_data: "[REDACTED]" }"#
+        );
+        assert_ne!(inline.as_sensitive(), other.as_sensitive());
+
+        let event = KeySource::Event {
+            event_name: "load-signing-key".into(),
+            event_args: vec![serde_json::json!("private-argument")],
+        };
+        let location = format!("{:?}", event.as_sensitive());
+        assert!(location.contains("load-signing-key"));
+        assert!(location.contains(r#"event_args: "[REDACTED]""#));
+        assert!(!location.contains("private-argument"));
     }
 
     const KEY: &str = "woot";
@@ -280,7 +356,7 @@ mod test {
         pub fn make_source(&self, path: &str) -> KeySource {
             KeySource::Vault {
                 vault_address: Some(format!("http://127.0.0.1:{}", self.port)),
-                vault_token: Some(KEY.to_string()),
+                vault_token: Some(ConfigSecret::Value(KEY.to_string())),
                 vault_mount: "secret".to_string(),
                 vault_path: path.to_string(),
                 vault_key: "key".to_string(),
@@ -363,7 +439,7 @@ mod test {
 
         let source = KeySource::Vault {
             vault_address: Some(vault.address()),
-            vault_token: Some(KEY.to_string()),
+            vault_token: Some(ConfigSecret::Value(KEY.to_string())),
             vault_mount: "secret".to_string(),
             vault_path: "custom_key".to_string(),
             vault_key: "custom_field".to_string(),
@@ -379,7 +455,7 @@ mod test {
         // Test with the correct key name
         let source = KeySource::Vault {
             vault_address: Some(vault.address()),
-            vault_token: Some(KEY.to_string()),
+            vault_token: Some(ConfigSecret::Value(KEY.to_string())),
             vault_mount: "secret".to_string(),
             vault_path: "custom_key".to_string(),
             vault_key: "key".to_string(),

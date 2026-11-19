@@ -9,11 +9,14 @@ pub use traits::*;
 
 use hickory_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
 use hickory_proto::rr::rdata::TLSA;
+use kumo_redact::REDACTED;
 use openssl::pkey::PKey;
 use openssl::ssl::{DaneMatchType, DaneSelector, DaneUsage, SslOptions};
 use openssl::x509::X509;
+use rustls::pki_types::pem::{Error as PemError, PemObject};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls_pemfile::certs;
+use std::fmt;
 use std::io::BufReader;
 use std::sync::Arc;
 use thiserror::Error;
@@ -38,12 +41,26 @@ impl From<openssl::error::ErrorStack> for OpensslConnectorError {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct RustlsCacheKey {
     insecure: bool,
     certificate_from_pem: Option<Arc<Box<[u8]>>>,
     private_key_from_pem: Option<Arc<Box<[u8]>>>,
     rustls_cipher_suites: Vec<SupportedCipherSuite>,
+}
+
+impl fmt::Debug for RustlsCacheKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RustlsCacheKey")
+            .field("insecure", &self.insecure)
+            .field("certificate_from_pem", &self.certificate_from_pem)
+            .field(
+                "private_key_from_pem",
+                &self.private_key_from_pem.as_ref().map(|_| REDACTED),
+            )
+            .field("rustls_cipher_suites", &self.rustls_cipher_suites)
+            .finish()
+    }
 }
 
 // SupportedCipherSuite has a PartialEq impl but not an Eq impl.
@@ -125,6 +142,20 @@ pub struct TlsOptions {
     pub rustls_cipher_suites: Vec<SupportedCipherSuite>,
 }
 
+/// PEM errors can contain the malformed input line or label. Only TRACE may
+/// include the original error; returned errors can reach delivery records.
+pub fn private_key_pem_error(err: PemError) -> &'static str {
+    tracing::trace!(error = %err, "private key PEM parse failed");
+    match err {
+        PemError::IllegalSectionStart { .. } => "invalid PEM section start",
+        PemError::MissingSectionEnd { .. } => "missing PEM section end marker",
+        PemError::Base64Decode(_) => "invalid base64 in PEM section",
+        PemError::NoItemsFound => "no private key found in PEM",
+        PemError::SectionTooLarge => "PEM section too large",
+        _ => "invalid PEM",
+    }
+}
+
 impl TlsOptions {
     /// Produce a TlsConnector for this set of TlsOptions.
     /// We need to employ a cache around the verifier as loading
@@ -160,17 +191,15 @@ impl TlsOptions {
         };
 
         let rustls_certificate = self.load_tls_cert().await?;
-        let rustls_private_key = self.load_private_key().await?;
+        let rustls_private_key = self.load_private_key()?;
 
         let builder = ClientConfig::builder_with_provider(provider.clone())
             .with_protocol_versions(tokio_rustls::rustls::DEFAULT_VERSIONS)
             .expect("inconsistent cipher-suite/versions selected")
             .dangerous()
             .with_custom_certificate_verifier(verifier.clone());
-        let config = match (&rustls_certificate, &rustls_private_key) {
-            (Some(certs), Some(key)) => builder
-                .clone()
-                .with_client_auth_cert(certs.as_ref().clone(), key.as_ref().clone_key()),
+        let config = match (&rustls_certificate, rustls_private_key) {
+            (Some(certs), Some(key)) => builder.with_client_auth_cert(certs.as_ref().clone(), key),
             _ => Ok(builder.with_no_client_auth()),
         }?;
 
@@ -194,54 +223,26 @@ impl TlsOptions {
         }
     }
 
-    async fn load_private_key(&self) -> std::io::Result<Option<Arc<PrivateKeyDer<'static>>>> {
-        match &self.private_key_from_pem {
-            Some(pem) => {
-                let data = pem.as_ref().clone().into_vec();
-
-                // Try to parse as PKCS#8
-                let pkcs8_keys: Vec<PrivateKeyDer<'static>> = {
-                    let mut reader = BufReader::new(data.as_slice());
-                    rustls_pemfile::pkcs8_private_keys(&mut reader)
-                        .map(|r| r.map(PrivateKeyDer::Pkcs8))
-                        .collect::<Result<Vec<PrivateKeyDer<'static>>, std::io::Error>>()?
-                };
-
-                if !pkcs8_keys.is_empty() {
-                    return Ok(pkcs8_keys.into_iter().next().map(Arc::new));
-                }
-
-                // Reset reader and try as RSA PKCS#1
-                let rsa_keys: Vec<PrivateKeyDer<'static>> = {
-                    let mut reader = BufReader::new(data.as_slice());
-                    rustls_pemfile::rsa_private_keys(&mut reader)
-                        .map(|r| r.map(PrivateKeyDer::Pkcs1))
-                        .collect::<Result<Vec<PrivateKeyDer<'static>>, std::io::Error>>()?
-                };
-
-                if !rsa_keys.is_empty() {
-                    return Ok(rsa_keys.into_iter().next().map(Arc::new));
-                }
-
-                // Reset reader and try as EC Sec1
-                let ec_keys: Vec<PrivateKeyDer<'static>> = {
-                    let mut reader = BufReader::new(data.as_slice());
-                    rustls_pemfile::ec_private_keys(&mut reader)
-                        .map(|r| r.map(PrivateKeyDer::Sec1))
-                        .collect::<Result<Vec<PrivateKeyDer<'static>>, std::io::Error>>()?
-                };
-
-                if !ec_keys.is_empty() {
-                    return Ok(ec_keys.into_iter().next().map(Arc::new));
-                }
-
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "No private key found in PEM file",
-                ))
-            }
-            None => return Ok(None),
-        }
+    fn load_private_key(&self) -> anyhow::Result<Option<PrivateKeyDer<'static>>> {
+        let Some(pem) = &self.private_key_from_pem else {
+            return Ok(None);
+        };
+        // Validate the entire bundle, preferring the first key of the highest priority format.
+        let keys = PrivateKeyDer::pem_slice_iter(pem)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| {
+                anyhow::anyhow!("loading client private key: {}", private_key_pem_error(err))
+            })?;
+        let key = keys
+            .into_iter()
+            .min_by_key(|key| match key {
+                PrivateKeyDer::Pkcs8(_) => 0,
+                PrivateKeyDer::Pkcs1(_) => 1,
+                PrivateKeyDer::Sec1(_) => 2,
+                _ => 3,
+            })
+            .ok_or_else(|| anyhow::anyhow!("No private key found in PEM file"))?;
+        Ok(Some(key))
     }
 
     /// Build an OpenSSL connector configuration for use with DANE TLSA or
@@ -346,6 +347,49 @@ impl TlsOptions {
         }
 
         Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn connector_cache_key_debug_redacts_only_private_pem() {
+        let mut key = RustlsCacheKey {
+            insecure: false,
+            certificate_from_pem: Some(Arc::new(Box::from([1, 2]))),
+            private_key_from_pem: None,
+            rustls_cipher_suites: vec![],
+        };
+        assert!(format!("{key:?}").contains("private_key_from_pem: None"));
+        key.private_key_from_pem = Some(Arc::new(Box::from([3, 4])));
+        let debug = format!("{key:?}");
+        assert!(debug.contains("certificate_from_pem: Some([1, 2])"));
+        assert!(debug.contains(r#"private_key_from_pem: Some("[REDACTED]")"#));
+        assert!(!debug.contains("[3, 4]"));
+    }
+
+    #[test]
+    fn client_key_selection_checks_the_entire_bundle() {
+        fn options(pem: &str) -> TlsOptions {
+            TlsOptions {
+                private_key_from_pem: Some(Arc::new(Box::from(pem.as_bytes()))),
+                ..Default::default()
+            }
+        }
+        let bundle = "-----BEGIN RSA PRIVATE KEY-----\nAQ==\n-----END RSA PRIVATE KEY-----\n\
+                      -----BEGIN PRIVATE KEY-----\nAg==\n-----END PRIVATE KEY-----\n\
+                      -----BEGIN PRIVATE KEY-----\nAw==\n-----END PRIVATE KEY-----\n";
+        let key = options(bundle).load_private_key().unwrap().unwrap();
+        assert_eq!(key.secret_der(), &[2]);
+        let err = options(&format!("{bundle}-----BEGIN PRIVATE KEY-----fixture\n"))
+            .load_private_key()
+            .unwrap_err();
+        assert_eq!(
+            format!("{err:#}"),
+            "loading client private key: invalid PEM section start"
+        );
     }
 }
 

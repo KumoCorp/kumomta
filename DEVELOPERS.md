@@ -8,6 +8,10 @@ This will launch the server using the policy defined in [simple_policy.lua](simp
 KUMOD_LOG=kumod=trace cargo run -p kumod -- --policy simple_policy.lua
 ```
 
+### Credentials in diagnostics
+
+Keep secrets out of `Debug` on the type that knows their purpose. For example, `EgressPathConfig` uses `Option<ConfigSecret<KeySource>>` so `Debug` distinguishes a configured SMTP password or TLS private key from an unset one. Redact serialized inspection output separately and keep the original configuration for delivery. If diagnosis requires full inputs, use an explicit `TRACE` event and [document the target](docs/reference/kumo/set_diagnostic_log_filter.md); returned errors and delivery records must not depend on the log filter.
+
 ## Metrics
 
 If the http listener is enabled, the `/metrics` endpoint will return a set of metrics

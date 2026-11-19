@@ -1,5 +1,5 @@
 use cidr_map::CidrSet;
-use data_loader::KeySource;
+use data_loader::{ConfigSecret, KeySource};
 use dns_resolver::IpLookupStrategy;
 use mailexchanger::MailExchanger;
 #[cfg(feature = "lua")]
@@ -280,7 +280,7 @@ pub struct EgressPathConfig {
     pub tls_certificate: Option<KeySource>,
 
     #[serde(default)]
-    pub tls_private_key: Option<KeySource>,
+    pub tls_private_key: Option<ConfigSecret<KeySource>>,
 
     #[serde(default)]
     pub openssl_cipher_list: Option<String>,
@@ -322,7 +322,7 @@ pub struct EgressPathConfig {
     pub smtp_auth_plain_username: Option<String>,
 
     #[serde(default)]
-    pub smtp_auth_plain_password: Option<KeySource>,
+    pub smtp_auth_plain_password: Option<ConfigSecret<KeySource>>,
 
     #[serde(default)]
     pub allow_smtp_auth_plain_without_tls: bool,
@@ -554,7 +554,27 @@ impl Default for EgressPathConfig {
     }
 }
 
+/// Display-only path settings produced by [`EgressPathConfig::redacted_for_inspection`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InspectedEgressPathConfig(EgressPathConfig);
+
 impl EgressPathConfig {
+    #[must_use]
+    pub fn redacted_for_inspection(mut self) -> InspectedEgressPathConfig {
+        self.smtp_auth_plain_password = self
+            .smtp_auth_plain_password
+            .map(|_| ConfigSecret::Withheld);
+        self.tls_private_key = self.tls_private_key.map(|_| ConfigSecret::Withheld);
+        if let Some(KeySource::Vault {
+            vault_token: Some(token),
+            ..
+        }) = &mut self.tls_certificate
+        {
+            *token = ConfigSecret::Withheld;
+        }
+        InspectedEgressPathConfig(self)
+    }
+
     fn default_connection_limit() -> LimitSpec {
         LimitSpec::new(32)
     }
@@ -1005,6 +1025,64 @@ fn merge_optional(a: &mut Option<EffectiveCeiling>, b: &Option<EffectiveCeiling>
         (Some(av), Some(bv)) if bv.value.total_cmp(&av.value).is_lt() => *av = bv.clone(),
         (None, Some(bv)) => *a = Some(bv.clone()),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn debug_redacts_secrets_but_policy_serialization_preserves_them() {
+    let input = serde_json::json!({
+        "smtp_auth_plain_username": "relay-user",
+        "smtp_auth_plain_password": {"key_data": [1, 2, 3]},
+        "tls_certificate": "/public-cert.pem",
+        "tls_private_key": {"key_data": [4, 5, 6]},
+    });
+    let config: EgressPathConfig = serde_json::from_value(input.clone()).unwrap();
+    let debug = format!("{config:?}");
+    assert!(debug.contains(r#"smtp_auth_plain_password: Some("[REDACTED]")"#));
+    assert!(debug.contains(r#"tls_private_key: Some("[REDACTED]")"#));
+    assert!(debug.contains("relay-user") && debug.contains("/public-cert.pem"));
+    assert!(!debug.contains("[1, 2, 3]") && !debug.contains("[4, 5, 6]"));
+    let policy = serde_json::to_value(config).unwrap();
+    for key in ["smtp_auth_plain_password", "tls_private_key"] {
+        assert_eq!(policy[key], input[key]);
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn inspection_marks_only_configured_secrets() {
+    use serde_json::{json, to_value};
+
+    let mut input = json!({
+        "smtp_auth_plain_password": "[REDACTED]",
+        "tls_certificate": {"vault_mount":"cert", "vault_path":"public"},
+    });
+    for token in [None, Some("explicit-token")] {
+        input["tls_certificate"]["vault_token"] = json!(token);
+        let config: EgressPathConfig = serde_json::from_value(input.clone()).unwrap();
+        assert!(format!("{config:?}").contains("tls_private_key: None"));
+        // The marker is a legal filename in live policy, not a reserved credential.
+        assert!(
+            matches!(config.smtp_auth_plain_password.as_ref().unwrap().expose().unwrap(), KeySource::File(path) if path == "[REDACTED]")
+        );
+        assert_eq!(
+            to_value(&config).unwrap()["tls_certificate"]["vault_token"],
+            json!(token)
+        );
+        let view = config.redacted_for_inspection();
+        assert!(matches!(
+            view.0.smtp_auth_plain_password,
+            Some(ConfigSecret::Withheld)
+        ));
+        let view = to_value(view).unwrap();
+        assert_eq!(view["smtp_auth_plain_password"], "[REDACTED]");
+        assert!(view["tls_private_key"].is_null());
+        assert_eq!(view["tls_certificate"]["vault_path"], "public");
+        assert_eq!(
+            view["tls_certificate"]["vault_token"],
+            json!(token.map(|_| "[REDACTED]"))
+        );
     }
 }
 

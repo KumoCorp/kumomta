@@ -10,7 +10,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use bounce_classify::{BounceClass, PreDefinedBounceClass};
 use config::{load_config, CallbackSignature};
-use data_loader::KeySource;
+use data_loader::{KeySource, SensitiveKeySource};
 use dns_resolver::{
     has_colon_port, resolve_a_or_aaaa, DaneStatus, IpLookupStrategy, SecureCnameStatus,
 };
@@ -44,7 +44,7 @@ static BROKEN_TLS_BY_SITE: LruCacheWithTtl<String, ()>::new("smtp_dispatcher_bro
 
 lruttl::declare_cache! {
 /// Caches smtp client certificates by KeySource spec
-static CLIENT_CERT: LruCacheWithTtl<KeySource, Result<Option<Arc<Box<[u8]>>>, String>>::new("smtp_dispatcher_client_certificate", 1024);
+static CLIENT_CERT: LruCacheWithTtl<SensitiveKeySource, Result<Option<Arc<Box<[u8]>>>, String>>::new("smtp_dispatcher_client_certificate", 1024);
 }
 
 declare_metric! {
@@ -571,7 +571,7 @@ impl SmtpDispatcher {
                     None => None,
                 };
                 let private_key_from_pem = match &path_config.tls_private_key {
-                    Some(pem) => self.resolve_cached_client_cert(pem).await?,
+                    Some(pem) => self.resolve_cached_client_cert(pem.expose()?).await?,
                     None => None,
                 };
                 Some(TlsOptions {
@@ -750,7 +750,8 @@ impl SmtpDispatcher {
             let password = if let Some(pw) = &path_config.smtp_auth_plain_password {
                 Some(SecretString::from(
                     String::from_utf8(
-                        pw.get()
+                        pw.expose()?
+                            .get()
                             .await
                             .context("fetching smtp_auth_plain_password")?,
                     )
@@ -807,7 +808,7 @@ impl SmtpDispatcher {
         }
 
         if let Some(pem) = &path_config.tls_private_key {
-            private_key_from_pem = self.resolve_cached_client_cert(pem).await?
+            private_key_from_pem = self.resolve_cached_client_cert(pem.expose()?).await?
         }
 
         let openssl_options = path_config.openssl_options;
@@ -1084,6 +1085,7 @@ impl SmtpDispatcher {
         &mut self,
         source: &KeySource,
     ) -> anyhow::Result<Option<Arc<Box<[u8]>>>> {
+        let source = source.as_sensitive();
         CLIENT_CERT
             .get_or_try_insert(source, |_| tokio::time::Duration::from_secs(300), async {
                 let data = source

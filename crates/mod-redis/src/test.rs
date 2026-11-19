@@ -257,6 +257,61 @@ where
 mod test {
     use super::*;
 
+    fn config(node: impl serde::Serialize) -> RedisConnKey {
+        serde_json::from_value(serde_json::json!({"node": node})).unwrap()
+    }
+
+    #[test]
+    fn labels_keep_legacy_spelling_order_and_checksum() {
+        use std::hash::Hash;
+        let plain = "REDIS://Cache.Example:6379/0?protocol=resp2";
+        let auth = "redis://user:p%40ss%3Aword@a/2";
+        for (mut key, nodes) in [
+            (config(plain), plain.to_owned()),
+            (
+                config("rediss://:pw@[::1]:6380/1?protocol=resp3"),
+                "rediss://:[REDACTED]@[::1]:6380/1?protocol=resp3".to_owned(),
+            ),
+            (
+                config([plain, auth, plain]),
+                format!("{plain},redis://user:[REDACTED]@a/2,{plain}"),
+            ),
+        ] {
+            key.username = Some("pool-user".into());
+            key.password = Some("separate-password".into());
+            let mut crc = crc32fast::Hasher::new();
+            key.hash(&mut crc);
+            assert_eq!(
+                key.hash_label(),
+                format!("pool-user@{nodes}-{:08x}", crc.finalize())
+            );
+        }
+    }
+
+    #[test]
+    fn debug_distinguishes_configured_and_absent_passwords() {
+        let mut key = config("redis://alice:node-secret@cache.example:6379/2");
+        key.pool_size = Some(8);
+        assert!(format!("{key:?}").contains("password: None"));
+        key.password = Some("separate-secret".into());
+        let debug = format!("{:?}", key.open().unwrap());
+        assert!(debug.contains(r#"password: Some("[REDACTED]")"#));
+        assert!(debug.contains("redis://alice:[REDACTED]@cache.example:6379/2"));
+        assert!(debug.contains("pool_size: Some(8)"));
+        assert!(!debug.contains("node-secret") && !debug.contains("separate-secret"));
+    }
+
+    #[test]
+    fn constructor_error_keeps_cause_but_omits_passwords() {
+        let bad = "redis://u:url-password@cache.example/invalid-db";
+        for mut key in [config(bad), config(["redis://b", bad])] {
+            key.password = Some("separate-password".into());
+            let err = format!("{:#}", key.open().unwrap_err());
+            assert!(err.contains("cache.example") && err.contains("Invalid database number"));
+            assert!(!err.contains("url-password") && !err.contains("separate-password"));
+        }
+    }
+
     #[tokio::test]
     async fn test_basic_operation() -> anyhow::Result<()> {
         if !RedisServer::is_available() {

@@ -1,6 +1,8 @@
 use crate::kumod::{DaemonWithMaildirOptions, MailGenParams};
 use anyhow::Context;
-use kumo_api_types::{AbortReadyQConnV1Request, DispatcherPhase, InspectReadyQV1Request};
+use kumo_api_types::{
+    AbortReadyQConnV1Request, DispatcherPhase, InspectReadyQV1Request, InspectReadyQV1Response,
+};
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -66,13 +68,15 @@ async fn inspect_and_abort() -> anyhow::Result<()> {
 
     // Now request scheduled queue names explicitly: should contain
     // the scheduled queue that promoted the in-flight message.
-    let resp_with_sched = api
-        .admin_inspect_ready_q_v1(&InspectReadyQV1Request {
+    let resp_with_sched: InspectReadyQV1Response = super::fetch_inspection_and_assert_redaction(
+        &daemon.source,
+        "inspect-ready-q",
+        &InspectReadyQV1Request {
             queue_name: queue_name.clone(),
             include_scheduled_queues: true,
-        })
-        .await
-        .context("inspect with include_scheduled_queues")?;
+        },
+    )
+    .await?;
     let names = resp_with_sched
         .scheduled_queue_names
         .as_ref()

@@ -20,4 +20,4 @@ array-valued and map-valued fields, which is lost when the generic
 helper materializes from a Lua table.
 
 The output round-trips back into an `EgressPathConfig` via
-[kumo.serde.toml_parse](../kumo.serde/toml_parse.md).
+[kumo.serde.toml_parse](../kumo.serde/toml_parse.md). For operator output, pass the result of [kumo.inspect_egress_path_config](inspect_egress_path_config.md) to the formatter.

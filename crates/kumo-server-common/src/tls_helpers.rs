@@ -1,5 +1,6 @@
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use data_loader::KeySource;
+use kumo_tls_helper::private_key_pem_error;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::server::WebPkiClientVerifier;
@@ -29,8 +30,15 @@ pub async fn make_server_config(
 ) -> anyhow::Result<Arc<ServerConfig>> {
     let mut certificates = vec![];
     let private_key = match tls_private_key {
-        Some(key) => PrivateKeyDer::from_pem_slice(&key.get().await?)
-            .with_context(|| format!("loading private key from {key:?}"))?,
+        Some(key) => {
+            let key = key.as_sensitive();
+            PrivateKeyDer::from_pem_slice(&key.get().await?).map_err(|err| {
+                anyhow!(
+                    "loading private key from {key:?}: {}",
+                    private_key_pem_error(err)
+                )
+            })?
+        }
         None => {
             let key = rcgen::generate_simple_self_signed(vec![hostname.to_string()])?;
             certificates.push(CertificateDer::from_slice(key.cert.der()).into_owned());
@@ -57,4 +65,39 @@ pub async fn make_server_config(
     let config = config.with_single_cert(certificates, private_key)?;
 
     Ok(Arc::new(config))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn malformed_inline_key_omits_pem_bytes() {
+        let key = KeySource::Data {
+            key_data: b"-----BEGIN PRIVATE KEY-----fixture\n".to_vec(),
+        };
+        let err = make_server_config("localhost", &Some(key), &None, &None)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            format!("{err:#}"),
+            r#"loading private key from Data { key_data: "[REDACTED]" }: invalid PEM section start"#
+        );
+    }
+
+    #[tokio::test]
+    async fn unterminated_key_file_keeps_path_but_omits_pem_label() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("listener-key.pem");
+        std::fs::write(&path, b"-----BEGIN fixture-label-----\n")?;
+        let key = KeySource::File(path.to_str().unwrap().to_owned());
+        let err = make_server_config("localhost", &Some(key), &None, &None)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            format!("{err:#}"),
+            format!("loading private key from File({path:?}): missing PEM section end marker")
+        );
+        Ok(())
+    }
 }

@@ -10,7 +10,9 @@ impl = ["dep:vaultrs", "dep:config", "dep:mlua", "dep:tokio"]
 [dependencies]
 anyhow = {workspace=true}
 config = {path="../config", optional=true}
+kumo-redact = {path="../kumo-redact"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"], optional=true}
+ref-cast.workspace = true
 serde = {workspace=true}
 serde_bytes.workspace = true
 serde_json = {workspace=true}

@@ -1388,12 +1388,10 @@ impl ProviderEntry {
     fn finish_params(&self) -> anyhow::Result<MergedEntry> {
         let provider_name = &self.provider_name;
 
-        let params = EgressPathConfig::deserialize(self.params.clone()).with_context(|| {
-            format!(
-                "interpreting provider '{provider_name}' params {:#?} as EgressPathConfig",
-                self.params
-            )
-        })?;
+        let params = parse_egress_params(
+            &self.params,
+            format_args!("provider '{provider_name}' params"),
+        )?;
         let mut sources = OrderMap::new();
 
         for (source, params) in &self.sources {
@@ -1406,9 +1404,10 @@ impl ProviderEntry {
             params.remove("provider_source_selection_rate");
             sources.insert(
                 source.clone(),
-                EgressPathConfig::deserialize(params.clone()).with_context(|| {
-                    format!("interpreting provider '{provider_name}' source '{source}' {params:#} as EgressPathConfig")
-                })?,
+                parse_egress_params(
+                    &params,
+                    format_args!("provider '{provider_name}' source '{source}'"),
+                )?,
             );
         }
 
@@ -1462,6 +1461,17 @@ fn toml_table_merge_from(tbl: &mut toml::Table, source: &toml::Table) {
 }
 
 #[cfg(feature = "lua")]
+fn parse_egress_params(
+    params: &toml::Table,
+    scope: std::fmt::Arguments<'_>,
+) -> anyhow::Result<EgressPathConfig> {
+    serde_path_to_error::deserialize(params.clone()).with_context(|| {
+        tracing::trace!(%scope, ?params, "invalid shaping parameters");
+        format!("interpreting {scope} as EgressPathConfig")
+    })
+}
+
+#[cfg(feature = "lua")]
 impl PartialEntry {
     fn merge_from(&mut self, mut other: Self) {
         if other.replace_base {
@@ -1489,20 +1499,13 @@ impl PartialEntry {
     fn finish(self) -> anyhow::Result<MergedEntry> {
         let domain = self.domain_name.unwrap_or_default();
 
-        let params = EgressPathConfig::deserialize(self.params.clone()).with_context(|| {
-            format!(
-                "interpreting domain '{domain}' params {:#?} as EgressPathConfig",
-                self.params
-            )
-        })?;
+        let params = parse_egress_params(&self.params, format_args!("domain '{domain}' params"))?;
         let mut sources = OrderMap::new();
 
         for (source, params) in self.sources {
             sources.insert(
                 source.clone(),
-                EgressPathConfig::deserialize(params.clone()).with_context(|| {
-                    format!("interpreting domain '{domain}' source '{source}' {params:#} as EgressPathConfig")
-                })?,
+                parse_egress_params(&params, format_args!("domain '{domain}' source '{source}'"))?,
             );
         }
 
@@ -1636,6 +1639,17 @@ mod test {
     use std::io::Write;
     use tempfile::NamedTempFile;
     use uuid::Uuid;
+
+    #[test]
+    fn invalid_shaping_names_the_field_without_dumping_sibling_settings() {
+        let entry: PartialEntry = toml::from_str("[sources.outbound]\nsmtp_port = 'invalid'\nsmtp_auth_plain_password = 'sibling-canary'").unwrap();
+        let error = format!("{:#}", entry.finish().unwrap_err());
+        assert!(
+            error.contains("source 'outbound'") && error.contains("smtp_port"),
+            "{error}"
+        );
+        assert!(!error.contains("sibling-canary"));
+    }
 
     async fn make_shaping_configs(inputs: &[&str]) -> Shaping {
         let mut files = vec![];

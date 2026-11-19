@@ -595,14 +595,12 @@ function mod.option(target_type)
   return make_simple_ctor(ty)
 end
 
+-- Keep the reason and field path from config::from_lua_value; strip mlua's
+-- "deserialize error:" prefix and the optional Lua traceback.
 function mod.extract_deserialize_error(err)
   local err = tostring(err)
-  local re = kumo.regex.compile 'deserialize error: (.*), while processing'
-  local cap = re:captures(err)
-  if cap then
-    return cap[1]
-  end
-  return err
+  local reason = err:match 'deserialize error: (.+)'
+  return reason and (reason:match '^(.-)\nstack traceback:' or reason) or err
 end
 
 function mod:test()

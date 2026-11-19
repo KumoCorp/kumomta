@@ -55,7 +55,7 @@ fn bind_params(stmt: &mut Statement, params: &JsonValue) -> anyhow::Result<()> {
         JsonValue::Object(obj) => {
             for (name, value) in obj.iter() {
                 bind_param(stmt, format!(":{name}").as_str(), value)
-                    .with_context(|| format!("binding parameter :{name} with value {value:?}"))?;
+                    .with_context(|| format!("binding SQLite parameter :{name}"))?;
             }
             Ok(())
         }
@@ -64,13 +64,12 @@ fn bind_params(stmt: &mut Statement, params: &JsonValue) -> anyhow::Result<()> {
                 // Parameter indices are 1-based
                 let i = i + 1;
                 bind_param(stmt, i, value)
-                    .with_context(|| format!("binding parameter {i} with value {value:?}"))?;
+                    .with_context(|| format!("binding SQLite parameter {i}"))?;
             }
             Ok(())
         }
         JsonValue::Null => Ok(()),
-        p => bind_param(stmt, 1, p)
-            .with_context(|| format!("binding sole parameter with value {p:?}")),
+        p => bind_param(stmt, 1, p).context("binding sole SQLite parameter"),
     }
 }
 
@@ -111,8 +110,10 @@ impl Conn {
     fn execute(&self, sql: String, params: JsonValue) -> anyhow::Result<JsonValue> {
         let conn = self.get_conn()?;
         let mut stmt = conn.prepare(&sql)?;
+        // Keep the SQL as written so operators can identify the query. Omit all
+        // bound values: for example, an auth query may bind a password.
         bind_params(&mut stmt, &params)
-            .with_context(|| format!("bind parameters {params:?} in query `{sql}'"))?;
+            .with_context(|| format!("binding parameters in query `{sql}`"))?;
 
         let state = stmt.next()?;
         if state == State::Done && stmt.column_count() == 0 {
@@ -187,6 +188,24 @@ impl UserData for Conn {
             Ok(())
         });
     }
+}
+
+#[cfg(test)]
+#[test]
+fn bind_error_keeps_sql_but_omits_bound_values() {
+    let db = Connection::open_thread_safe(":memory:").unwrap();
+    let db = Conn(Arc::new(Mutex::new(Some(Arc::new(db)))));
+    let sql = "SELECT 'relay', ?";
+    let err = db
+        .execute(
+            sql.into(),
+            serde_json::json!(["valid-canary", "extra-canary"]),
+        )
+        .unwrap_err();
+    let diagnostic = format!("{err:#}");
+    assert!(diagnostic.contains(sql));
+    assert!(diagnostic.contains("binding SQLite parameter 2"));
+    assert!(!diagnostic.contains("canary"));
 }
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {

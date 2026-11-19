@@ -1028,7 +1028,7 @@ impl ReadyQueue {
             egress_pool: self.egress_pool.clone(),
             protocol,
             state,
-            path_config,
+            path_config: path_config.redacted_for_inspection(),
             constraints,
             scheduled_queue_names,
             dispatchers,
