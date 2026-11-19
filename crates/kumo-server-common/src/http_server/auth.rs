@@ -10,7 +10,9 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use config::{declare_event, load_config, SerdeWrappedValue};
+use kumo_redact::REDACTED;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 use tokio::time::{Duration, Instant};
 
@@ -35,7 +37,7 @@ static HTTP_AUTH_BEARER: Single("http_server_validate_auth_bearer",
 /// Represents some authenticated identity.
 /// Use this as an extractor parameter when you need to reference
 /// that identity in the handler.
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Clone, Hash, Eq, PartialEq)]
 enum AuthKind {
     TrustedIp(IpAddr),
     Basic {
@@ -45,6 +47,20 @@ enum AuthKind {
     Bearer {
         token: String,
     },
+}
+
+impl fmt::Debug for AuthKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TrustedIp(ip) => f.debug_tuple("TrustedIp").field(ip).finish(),
+            Self::Basic { user, password } => f
+                .debug_struct("Basic")
+                .field("user", user)
+                .field("password", &password.as_ref().map(|_| REDACTED))
+                .finish(),
+            Self::Bearer { .. } => f.debug_struct("Bearer").field("token", &REDACTED).finish(),
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -238,8 +254,11 @@ pub async fn auth_middleware(
                             .ok();
                             auth_kind.replace(kind);
                         }
-                        Err(err) => {
-                            tracing::error!("Error validating {kind:?}: {err:#}");
+                        Err(_) => {
+                            tracing::error!(
+                                auth_kind = ?attempted_identity.context,
+                                "HTTP credential validation failed"
+                            );
                             return (StatusCode::INTERNAL_SERVER_ERROR, "try again later")
                                 .into_response();
                         }
@@ -354,6 +373,72 @@ impl Resource for HttpEndpointResource {
     async fn next_resource_id(&mut self) -> Option<String> {
         self.iter.next()
     }
+}
+
+#[cfg(test)]
+#[test]
+fn auth_cache_key_debug_redacts_credentials() {
+    for (password, expected) in [
+        (None, "None"),
+        (Some("test-password"), r#"Some("[REDACTED]")"#),
+    ] {
+        let key = AuthKind::Basic {
+            user: "user".into(),
+            password: password.map(str::to_owned),
+        };
+        assert_eq!(
+            format!("{key:?}"),
+            format!(r#"Basic {{ user: "user", password: {expected} }}"#)
+        );
+    }
+    let key = AuthKind::Bearer {
+        token: "test-token".into(),
+    };
+    assert_eq!(format!("{key:?}"), r#"Bearer { token: "[REDACTED]" }"#);
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn validator_failure_logs_only_the_auth_method() -> anyhow::Result<()> {
+    use axum::body::Body;
+    use axum::handler::Handler;
+    use axum::middleware::from_fn_with_state;
+
+    let log = tempfile::NamedTempFile::new()?;
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::ERROR)
+        .with_writer(log.reopen()?)
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let state = AppState {
+        process_kind: "test".into(),
+        params: serde_json::from_str("{}")?,
+        local_addr: "127.0.0.1:8000".parse()?,
+    };
+    let handler =
+        (|| async { "unexpected success" }).layer(from_fn_with_state(state, auth_middleware));
+    let basic = data_encoding::BASE64.encode(b"user:password-canary");
+    for header in [format!("Basic {basic}"), "Bearer token-canary".into()] {
+        // Fresh and cached validator exceptions take the same middleware branch.
+        AUTH_CACHE
+            .insert(
+                AuthKind::from_header(&header).unwrap(),
+                Err("backend-canary".into()),
+                Instant::now() + Duration::from_secs(60),
+            )
+            .await
+            .unwrap_err();
+        let request = Request::builder()
+            .header("Authorization", header)
+            .body(Body::empty())?;
+        let response = handler.clone().call(request, ()).await;
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    let text = std::fs::read_to_string(log.path())?;
+    assert!(text.contains("HTTP credential validation failed"));
+    assert!(text.contains("HttpBasicAuth") && text.contains("BearerToken"));
+    assert!(!text.contains("canary") && !text.contains(&basic));
+    Ok(())
 }
 
 #[cfg(test)]

@@ -4145,6 +4145,7 @@ dependencies = [
  "kumo-jsonl",
  "kumo-machine-info",
  "kumo-prometheus",
+ "kumo-redact",
  "kumo-server-lifecycle",
  "kumo-server-memory",
  "kumo-server-runtime",
