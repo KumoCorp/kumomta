@@ -571,7 +571,7 @@ impl SmtpDispatcher {
                     None => None,
                 };
                 let private_key_from_pem = match &path_config.tls_private_key {
-                    Some(pem) => self.resolve_cached_client_cert(pem).await?,
+                    Some(pem) => self.resolve_cached_client_cert(pem.expose()?).await?,
                     None => None,
                 };
                 Some(TlsOptions {
@@ -750,7 +750,8 @@ impl SmtpDispatcher {
             let password = if let Some(pw) = &path_config.smtp_auth_plain_password {
                 Some(SecretString::from(
                     String::from_utf8(
-                        pw.get()
+                        pw.expose()?
+                            .get()
                             .await
                             .context("fetching smtp_auth_plain_password")?,
                     )
@@ -807,7 +808,7 @@ impl SmtpDispatcher {
         }
 
         if let Some(pem) = &path_config.tls_private_key {
-            private_key_from_pem = self.resolve_cached_client_cert(pem).await?
+            private_key_from_pem = self.resolve_cached_client_cert(pem.expose()?).await?
         }
 
         let openssl_options = path_config.openssl_options;

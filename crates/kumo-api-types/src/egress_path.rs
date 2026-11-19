@@ -1,5 +1,5 @@
 use cidr_map::CidrSet;
-use data_loader::KeySource;
+use data_loader::{ConfigSecret, KeySource};
 use dns_resolver::IpLookupStrategy;
 use mailexchanger::MailExchanger;
 #[cfg(feature = "lua")]
@@ -280,7 +280,7 @@ pub struct EgressPathConfig {
     pub tls_certificate: Option<KeySource>,
 
     #[serde(default)]
-    pub tls_private_key: Option<KeySource>,
+    pub tls_private_key: Option<ConfigSecret<KeySource>>,
 
     #[serde(default)]
     pub openssl_cipher_list: Option<String>,
@@ -322,7 +322,7 @@ pub struct EgressPathConfig {
     pub smtp_auth_plain_username: Option<String>,
 
     #[serde(default)]
-    pub smtp_auth_plain_password: Option<KeySource>,
+    pub smtp_auth_plain_password: Option<ConfigSecret<KeySource>>,
 
     #[serde(default)]
     pub allow_smtp_auth_plain_without_tls: bool,
@@ -1005,6 +1005,27 @@ fn merge_optional(a: &mut Option<EffectiveCeiling>, b: &Option<EffectiveCeiling>
         (Some(av), Some(bv)) if bv.value.total_cmp(&av.value).is_lt() => *av = bv.clone(),
         (None, Some(bv)) => *a = Some(bv.clone()),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn debug_redacts_secrets_but_policy_serialization_preserves_them() {
+    let input = serde_json::json!({
+        "smtp_auth_plain_username": "relay-user",
+        "smtp_auth_plain_password": {"key_data": [1, 2, 3]},
+        "tls_certificate": "/public-cert.pem",
+        "tls_private_key": {"key_data": [4, 5, 6]},
+    });
+    let config: EgressPathConfig = serde_json::from_value(input.clone()).unwrap();
+    let debug = format!("{config:?}");
+    assert!(debug.contains(r#"smtp_auth_plain_password: Some("[REDACTED]")"#));
+    assert!(debug.contains(r#"tls_private_key: Some("[REDACTED]")"#));
+    assert!(debug.contains("relay-user") && debug.contains("/public-cert.pem"));
+    assert!(!debug.contains("[1, 2, 3]") && !debug.contains("[4, 5, 6]"));
+    let policy = serde_json::to_value(config).unwrap();
+    for key in ["smtp_auth_plain_password", "tls_private_key"] {
+        assert_eq!(policy[key], input[key]);
     }
 }
 
