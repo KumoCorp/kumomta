@@ -1299,7 +1299,7 @@ impl<'a> ProxyProto<'a> {
                             auth_request.push(pass.len() as u8);
                             auth_request.extend_from_slice(&pass);
 
-                            tracing::debug!("Sending SOCKS5 auth request: {auth_request:#x?}");
+                            tracing::debug!("Sending SOCKS5 auth request for {user}");
                             stream
                                 .write_all(&auth_request)
                                 .await
