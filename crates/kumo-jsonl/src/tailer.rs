@@ -537,10 +537,26 @@ fn build_plan(
     Ok(result)
 }
 
-fn is_file_done(path: &Utf8PathBuf) -> bool {
-    path.metadata()
-        .map(|m| m.permissions().readonly())
-        .unwrap_or(false)
+/// Retention may have removed some segments since the directory scan.
+fn open_next_segment<'a>(
+    plan: &mut impl Iterator<Item = &'a Utf8PathBuf>,
+    max_line_size: usize,
+) -> anyhow::Result<Option<(&'a Utf8PathBuf, FileDecompressor)>> {
+    for path in plan {
+        let file = match std::fs::File::open(path) {
+            Ok(file) => file,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                warn!("Segment {path} disappeared before open; continuing.");
+                continue;
+            }
+            Err(err) => anyhow::bail!("opening {path} for read: {err}"),
+        };
+        return Ok(Some((
+            path,
+            FileDecompressor::from_file(file, max_line_size)?,
+        )));
+    }
+    Ok(None)
 }
 
 /// Number of lines that a consumer may scan and discard via its filter before
@@ -716,9 +732,14 @@ fn make_multi_stream(
                 }
             }
 
+            let mut paths = plan.iter();
+            let Some((mut current_path, reader)) = open_next_segment(&mut paths, max_line_size)? else {
+                continue;
+            };
+
             // Determine skip_lines from the earliest checkpoint
             if let Some(cp) = &global_checkpoint {
-                if plan.first().map(|p| p.as_str()) == Some(cp.file.as_str()) {
+                if current_path.as_str() == cp.file {
                     skip_lines = cp.line;
                 } else {
                     skip_lines = 0;
@@ -730,7 +751,7 @@ fn make_multi_stream(
             // Determine per-consumer skip lines
             for i in 0..num_consumers {
                 if let Some(cp) = &consumer_checkpoints[i] {
-                    if plan.first().map(|p| p.as_str()) == Some(cp.file.as_str()) {
+                    if current_path.as_str() == cp.file {
                         consumer_skip[i] = cp.line;
                     } else {
                         consumer_skip[i] = 0;
@@ -744,22 +765,11 @@ fn make_multi_stream(
                 cp.take();
             }
 
-            let mut plan_index = 0;
-            let mut decomp: Option<FileDecompressor> = None;
-            let mut current_path: Option<&Utf8PathBuf> = None;
-            let mut last_lines_consumed: usize = 0;
+            let mut decomp = Some(reader);
+            let mut checkpoint_position = (current_path, skip_lines);
             // Track the global line number for the current file so we
             // can apply per-consumer skip logic.
             let mut global_line_in_file: usize = skip_lines;
-
-            if let Some(path) = plan.get(plan_index) {
-                let path_std = path.as_std_path().to_owned();
-                decomp = Some(FileDecompressor::open_with_max_line_size(
-                    &path_std,
-                    max_line_size,
-                )?);
-                current_path = Some(path);
-            }
 
             // Per-consumer batches and deadlines persist across
             // fill/yield cycles.  A consumer's batch is "ready" when
@@ -793,7 +803,7 @@ fn make_multi_stream(
                     }
 
                     let d = decomp.as_mut().expect("checked above");
-                    let path = current_path.expect("set with decomp");
+                    let path = current_path;
 
                     // When set after processing the current decompressor
                     // call, advance to the next file in the plan.
@@ -874,9 +884,8 @@ fn make_multi_stream(
                             );
                             global_line_in_file += 1;
                         }
-                        Ok(NextLine::None) => {
-                            // EOF on current file
-                            if is_file_done(path) {
+                        Ok(NextLine::None) => match d.is_done() {
+                            Ok(true) => {
                                 if d.is_discarding_oversized_record() {
                                     // The final record was still being
                                     // discarded for exceeding max_line_size
@@ -905,7 +914,8 @@ fn make_multi_stream(
                                     );
                                 }
                                 advance_file = Some(false);
-                            } else {
+                            }
+                            Ok(false) => {
                                 // Flush before blocking to wait for the
                                 // open segment to grow.
                                 flush_filtered_progress(
@@ -947,7 +957,11 @@ fn make_multi_stream(
                                 }
                                 d.reset_eof();
                             }
-                        }
+                            Err(err) => {
+                                warn!("Error checking end of segment {path}: {err}. Skipping this file.");
+                                advance_file = Some(true);
+                            }
+                        },
                         Err(e) => {
                             // Any decompression error means this file is
                             // not consumable -- either it is foreign
@@ -964,11 +978,15 @@ fn make_multi_stream(
                         }
                     }
 
+                    // A read or parse error can end the plan with valid records still
+                    // buffered. A commit must not advance past the last successful read.
+                    if advance_file != Some(true) {
+                        checkpoint_position = (path, d.lines_consumed);
+                    }
                     if let Some(mark_bad) = advance_file {
                         if mark_bad {
                             bad_files.insert(path.clone());
                         } else {
-                            last_lines_consumed = d.lines_consumed;
                             last_processed = Some(path.clone());
                             flush_filtered_progress(
                                 &cp_paths,
@@ -986,18 +1004,12 @@ fn make_multi_stream(
                         for cs in consumer_skip.iter_mut() {
                             *cs = 0;
                         }
-                        plan_index += 1;
-                        if let Some(next_path) = plan.get(plan_index) {
-                            let path_std = next_path.as_std_path().to_owned();
-                            decomp = Some(FileDecompressor::open_with_max_line_size(
-                                &path_std,
-                                max_line_size,
-                            )?);
-                            current_path = Some(next_path);
+                        if let Some((next_path, reader)) = open_next_segment(&mut paths, max_line_size)? {
+                            decomp = Some(reader);
+                            current_path = next_path;
                             continue 'fill;
                         } else {
                             decomp = None;
-                            current_path = None;
                             break 'fill;
                         }
                     }
@@ -1025,14 +1037,8 @@ fn make_multi_stream(
 
                     // Set the commit callback
                     if let Some(ref cp_path) = cp_paths[i] {
-                        let (cp_file, cp_line) = if let Some(d) = &decomp {
-                            let path = current_path.expect("set with decomp");
-                            (path.clone(), d.lines_consumed)
-                        } else if let Some(last) = &last_processed {
-                            (last.clone(), last_lines_consumed)
-                        } else {
-                            unreachable!("non-empty batch without a source");
-                        };
+                        let cp_file = checkpoint_position.0.clone();
+                        let cp_line = checkpoint_position.1;
                         let cp_path = cp_path.clone();
                         let committed_i = committed_through.clone();
                         batch.set_commit_fn(Box::new(move || {

@@ -1,8 +1,8 @@
 use camino::Utf8PathBuf;
 use futures::StreamExt;
 use kumo_jsonl::{
-    ConsumerConfig, LogBatch, LogTailer, LogTailerConfig, LogWriter, LogWriterConfig,
-    MultiConsumerTailerConfig,
+    CheckpointData, ConsumerConfig, LogBatch, LogTailer, LogTailerConfig, LogWriter,
+    LogWriterConfig, MultiConsumerTailerConfig,
 };
 use serde_json::json;
 use std::time::Duration;
@@ -216,6 +216,115 @@ async fn test_multiple_files_in_order() {
             json!({"file": "c", "n": 1}),
         ]
     );
+}
+
+/// A writable segment at EOF can still grow, even when a later segment exists.
+/// Once the writer closes it, retention may unlink it before the tailer polls again.
+#[tokio::test]
+async fn test_follows_open_segment_through_close_and_unlink() {
+    let dir = TempDir::new().unwrap();
+    write_open_segment(dir.path(), &[r#"{"id":1}"#]);
+    let first = segment_path(dir.path());
+    write_segment(dir.path(), &[r#"{"id":3}"#]);
+
+    let tailer = LogTailerConfig::new(utf8_dir(&dir))
+        .max_batch_size(1)
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+    let batch = next_batch_with_timeout(&mut tailer).await;
+    k9::assert_equal!(batch.records(), &[json!({"id": 1})]);
+    assert!(futures::poll!(tailer.next()).is_pending());
+
+    let file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&first)
+        .unwrap();
+    zstd::stream::copy_encode(b"{\"id\":2}\n".as_slice(), file, 1).unwrap();
+    mark_readonly(first.as_std_path());
+    std::fs::remove_file(first).unwrap();
+
+    let batch = next_batch_with_timeout(&mut tailer).await;
+    k9::assert_equal!(batch.records(), &[json!({"id": 2})]);
+    let batch = next_batch_with_timeout(&mut tailer).await;
+    k9::assert_equal!(batch.records(), &[json!({"id": 3})]);
+}
+
+/// Retention can also remove an unopened segment from a directory scan.
+#[tokio::test]
+async fn test_skips_pruned_segment_in_file_plan() {
+    let dir = TempDir::new().unwrap();
+    write_segment(dir.path(), &[r#"{"id":1}"#]);
+    write_segment(dir.path(), &[r#"{"id":2}"#]);
+    let middle = segment_path(dir.path());
+    write_segment(dir.path(), &[r#"{"id":3}"#]);
+    let survivor = segment_path(dir.path());
+    let log_dir = utf8_dir(&dir);
+
+    let tailer = LogTailerConfig::new(log_dir.clone())
+        .max_batch_size(1)
+        .checkpoint_name("consumer")
+        .build()
+        .await
+        .unwrap();
+    tokio::pin!(tailer);
+    let mut batch = next_batch_with_timeout(&mut tailer).await;
+    k9::assert_equal!(batch.records(), &[json!({"id": 1})]);
+    batch.commit().unwrap();
+    std::fs::remove_file(middle).unwrap();
+
+    let mut batch = next_batch_with_timeout(&mut tailer).await;
+    k9::assert_equal!(batch.records(), &[json!({"id": 3})]);
+    batch.commit().unwrap();
+    let cp = CheckpointData::load(&log_dir.join(".consumer"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((cp.file.as_str(), cp.line), (survivor.as_str(), 1));
+}
+
+#[tokio::test]
+async fn test_checkpoint_valid_records_before_malformed_line_and_pruned_segment() {
+    let dir = TempDir::new().unwrap();
+    let log_dir = utf8_dir(&dir);
+    write_segment(
+        dir.path(),
+        &[r#"{"id":1}"#, r#"{"id":2}"#, r#"{"id":3}"#, "not JSON"],
+    );
+    let first = segment_path(dir.path());
+    write_segment(dir.path(), &[r#"{"id":4}"#]);
+    let pruned = segment_path(dir.path());
+    let config = || {
+        LogTailerConfig::new(log_dir.clone())
+            .max_batch_size(2)
+            .checkpoint_name("consumer")
+    };
+    {
+        let tailer = config().build().await.unwrap();
+        tokio::pin!(tailer);
+        let mut batch = next_batch_with_timeout(&mut tailer).await;
+        k9::assert_equal!(batch.records(), &[json!({"id": 1}), json!({"id": 2})]);
+        batch.commit().unwrap();
+        std::fs::remove_file(pruned).unwrap();
+
+        // Neither the malformed line nor the missing segment belongs to this batch.
+        let mut batch = next_batch_with_timeout(&mut tailer).await;
+        k9::assert_equal!(batch.records(), &[json!({"id": 3})]);
+        assert_eq!(read_checkpoint_line(&log_dir, "consumer"), Some(2));
+        batch.commit().unwrap();
+        let cp = CheckpointData::load(&log_dir.join(".consumer"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!((cp.file.as_str(), cp.line), (first.as_str(), 3));
+    }
+
+    write_segment(dir.path(), &[r#"{"id":5}"#]);
+    let tailer = config().build().await.unwrap();
+    tokio::pin!(tailer);
+    let batch = next_batch_with_timeout(&mut tailer).await;
+    k9::assert_equal!(batch.records(), &[json!({"id": 5})]);
 }
 
 /// Checkpoint resume spanning two separate log files.
