@@ -4,7 +4,7 @@ use crate::ready_queue::{ReadyQueueHandle, ReadyQueueManager, ReadyQueueName};
 use anyhow::Context;
 use config::epoch::ConfigEpoch;
 use config::{CallbackSignature, LuaConfig};
-use data_loader::KeySource;
+use data_loader::{ConfigSecret, KeySource};
 use dns_resolver::{resolve_socket_addr, IpLookupStrategy};
 use gcd::Gcd;
 use kumo_address::resolvable::ResolvableSocketAddr;
@@ -76,7 +76,7 @@ pub struct EgressSource {
     pub socks5_proxy_source_address: Option<IpAddr>,
 
     pub socks5_proxy_username: Option<String>,
-    pub socks5_proxy_password: Option<KeySource>,
+    pub socks5_proxy_password: Option<ConfigSecret<KeySource>>,
 
     /// {{since('2026.09.22-a276d4a8', inline=True)}} Auto-suspend this source when its
     /// local `source_address` appears to be unplumbed (bind returns
@@ -1113,6 +1113,33 @@ mod test {
     use super::*;
     use std::collections::HashMap;
 
+    #[tokio::test]
+    async fn proxy_debug_redacts_password_in_source_and_candidate() -> anyhow::Result<()> {
+        let source: EgressSource = serde_json::from_value(serde_json::json!({
+            "name": "fixture", "socks5_proxy_server": "127.0.0.1:1080",
+            "socks5_proxy_source_address": "127.0.0.1", "socks5_proxy_username": "proxy-user",
+            "socks5_proxy_password": {"key_data": [1, 2, 3]},
+        }))?;
+        let candidates = source
+            .resolve_proxy_protocols(
+                "127.0.0.1:25".parse()?,
+                Instant::now() + Duration::from_secs(5),
+            )
+            .await?;
+        let diagnostic = format!("{source:?}");
+        assert!(diagnostic.contains(r#"socks5_proxy_password: Some("[REDACTED]")"#));
+        let candidates = format!("{candidates:?}");
+        assert!(candidates.contains(r#"("proxy-user", "[REDACTED]")"#));
+        for debug in [diagnostic, candidates] {
+            assert!(debug.contains("proxy-user"));
+            assert!(!debug.contains("[1, 2, 3]"));
+        }
+        let mut unset = source;
+        unset.socks5_proxy_password = None;
+        assert!(format!("{unset:?}").contains("socks5_proxy_password: None"));
+        Ok(())
+    }
+
     fn test_pool() -> EgressPool {
         EgressPool {
             name: "pool".to_string(),
@@ -1196,7 +1223,7 @@ enum ProxyProto<'a> {
         server: SocketAddr,
         source: IpAddr,
         destination: SocketAddr,
-        username_and_password: Option<(&'a str, &'a KeySource)>,
+        username_and_password: Option<(&'a str, &'a ConfigSecret<KeySource>)>,
     },
 }
 
@@ -1278,6 +1305,7 @@ impl<'a> ProxyProto<'a> {
                         })?;
 
                         let pass = pass
+                            .expose()?
                             .get()
                             .await
                             .context("failed to retrieve socks5 password")?;
