@@ -58,9 +58,10 @@ async fn tls_client_certificate_rustls_success() -> anyhow::Result<()> {
     tls_client_certificate(env, ex).await
 }
 
-/// Adding fake private key to confirm rustls injection succeeds
+/// A malformed client key must defer delivery without putting its contents in the record.
 #[tokio::test]
 async fn tls_client_certificate_rustls_fail() -> anyhow::Result<()> {
+    const BAD_KEY: &str = "-----BEGIN PRIVATE KEY-----fixture-client-key";
     let (_ca_pem, _intermediate_pem, cert_pem, _key_pem) = generate_certs()?;
     let ex = DeliverySummary {
         source_counts: BTreeMap::from([
@@ -71,10 +72,24 @@ async fn tls_client_certificate_rustls_fail() -> anyhow::Result<()> {
     };
     let env = vec![
         ("KUMOD_ENABLE_TLS", "OpportunisticInsecure"),
+        ("KUMOD_LOG", "info,kumo_tls_helper=trace"),
         ("KUMOD_CLIENT_CERTIFICATE", &cert_pem),
-        ("KUMOD_CLIENT_PRIVATE_KEY", "FAKE"),
+        ("KUMOD_CLIENT_PRIVATE_KEY", BAD_KEY),
     ];
-    tls_client_certificate(env, ex).await
+    let daemon = deliver_and_check_summary(env, &ex).await?;
+    let logs = daemon.source.collect_logs().await?;
+    let record = logs
+        .iter()
+        .find(|r| r.kind == RecordType::TransientFailure)
+        .unwrap();
+    let reason = &record.response.content;
+    assert!(
+        reason.contains("loading client private key: invalid PEM section start"),
+        "{reason}"
+    );
+    assert!(!reason.contains("fixture-client-key"));
+    assert!(!reason.contains(&format!("{:?}", BAD_KEY.as_bytes())));
+    Ok(())
 }
 
 const COMMON_NAME: &str = "Testing Common Name";
@@ -227,13 +242,10 @@ async fn tls_client_certificate_rustls_openssl_fail() -> anyhow::Result<()> {
     tls_client_certificate(env, ex).await
 }
 
-async fn tls_client_certificate(
+async fn deliver_and_check_summary(
     env: Vec<(&str, &str)>,
-    expected: DeliverySummary,
-) -> anyhow::Result<()> {
-    let expect_peer = env
-        .iter()
-        .any(|(name, _)| *name == "KUMOD_CLIENT_REQUIRED_CA");
+    expected: &DeliverySummary,
+) -> anyhow::Result<DaemonWithMaildir> {
     let mut daemon = DaemonWithMaildir::start_with_env(env).await?;
     let mut client = daemon.smtp_client().await?;
 
@@ -251,8 +263,18 @@ async fn tls_client_certificate(
     println!("Stopped!");
 
     let delivery_summary = daemon.dump_logs().await?;
-    assert_equal!(delivery_summary, expected);
+    assert_equal!(&delivery_summary, expected);
+    Ok(daemon)
+}
 
+async fn tls_client_certificate(
+    env: Vec<(&str, &str)>,
+    expected: DeliverySummary,
+) -> anyhow::Result<()> {
+    let expect_peer = env
+        .iter()
+        .any(|(name, _)| *name == "KUMOD_CLIENT_REQUIRED_CA");
+    let daemon = deliver_and_check_summary(env, &expected).await?;
     if expected.sink_counts.contains_key(&RecordType::Delivery) {
         let sink_logs = daemon.sink.collect_logs().await?;
         let reception = sink_logs

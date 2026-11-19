@@ -6,6 +6,8 @@ Specify the path to the TLS private key file that corresponds to the `tls_certif
 
 If unspecified, no client side certificate would be presented.
 
+`kumo_tls_helper=trace` logs the underlying private-key PEM parser error, which can include bytes from a malformed key.
+
 ```lua
 kumo.on(
   'get_egress_path_config',

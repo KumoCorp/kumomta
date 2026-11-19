@@ -32,6 +32,7 @@ kumo-redact = {path="../kumo-redact"}
 kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
 kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
+kumo-tls-helper = {path="../kumo-tls-helper"}
 libc = {workspace=true}
 linkme.workspace = true
 lruttl = {path="../lruttl"}
