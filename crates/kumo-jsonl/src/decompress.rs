@@ -120,10 +120,12 @@ impl FileDecompressor {
         path: &std::path::Path,
         max_out_buffer: usize,
     ) -> anyhow::Result<Self> {
-        let file = BufReader::new(
-            std::fs::File::open(path)
-                .map_err(|e| anyhow::anyhow!("opening {} for read: {e}", path.display()))?,
-        );
+        let file = std::fs::File::open(path)
+            .map_err(|e| anyhow::anyhow!("opening {} for read: {e}", path.display()))?;
+        Self::from_file(file, max_out_buffer)
+    }
+
+    pub(crate) fn from_file(file: std::fs::File, max_out_buffer: usize) -> anyhow::Result<Self> {
         let mut context = DCtx::create();
         context
             .init()
@@ -139,7 +141,7 @@ impl FileDecompressor {
         let max_out_buffer = max_out_buffer.max(1);
         let base_out_buffer = DCtx::out_size().min(max_out_buffer);
         Ok(Self {
-            file,
+            file: BufReader::new(file),
             context,
             out_buffer: vec![0u8; base_out_buffer],
             base_out_buffer,
@@ -153,6 +155,14 @@ impl FileDecompressor {
             saw_eof: false,
             decompressed_offset: 0,
         })
+    }
+
+    pub(crate) fn is_done(&mut self) -> std::io::Result<bool> {
+        // Retention can unlink a closed segment while we still hold it open.
+        // Check the writer's readonly marker on that inode, then recheck EOF:
+        // the writer may have flushed its last bytes since we first saw EOF.
+        Ok(self.file.get_ref().metadata()?.permissions().readonly()
+            && self.file.fill_buf()?.is_empty())
     }
 
     /// Returns the next line from this file.
@@ -427,6 +437,29 @@ mod test {
             NextLine::Line(line) => line,
             other => panic!("expected a line, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn final_flush_between_eof_and_readonly_check() {
+        let seg = write_segment(&["first".into()]);
+        let mut reader = FileDecompressor::open(seg.path()).unwrap();
+        assert_eq!(expect_line(&mut reader).text, "first");
+        assert!(matches!(reader.next_line(0).unwrap(), NextLine::None));
+
+        let file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(seg.path())
+            .unwrap();
+        zstd::stream::copy_encode(b"last\n".as_slice(), &file, 1).unwrap();
+        let mut perms = file.metadata().unwrap().permissions();
+        perms.set_readonly(true);
+        file.set_permissions(perms).unwrap();
+
+        assert!(!reader.is_done().unwrap());
+        reader.reset_eof();
+        assert_eq!(expect_line(&mut reader).text, "last");
+        assert!(matches!(reader.next_line(0).unwrap(), NextLine::None));
+        assert!(reader.is_done().unwrap());
     }
 
     #[test]
