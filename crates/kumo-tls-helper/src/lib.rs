@@ -9,11 +9,13 @@ pub use traits::*;
 
 use hickory_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
 use hickory_proto::rr::rdata::TLSA;
+use kumo_redact::REDACTED;
 use openssl::pkey::PKey;
 use openssl::ssl::{DaneMatchType, DaneSelector, DaneUsage, SslOptions};
 use openssl::x509::X509;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls_pemfile::certs;
+use std::fmt;
 use std::io::BufReader;
 use std::sync::Arc;
 use thiserror::Error;
@@ -38,12 +40,26 @@ impl From<openssl::error::ErrorStack> for OpensslConnectorError {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct RustlsCacheKey {
     insecure: bool,
     certificate_from_pem: Option<Arc<Box<[u8]>>>,
     private_key_from_pem: Option<Arc<Box<[u8]>>>,
     rustls_cipher_suites: Vec<SupportedCipherSuite>,
+}
+
+impl fmt::Debug for RustlsCacheKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RustlsCacheKey")
+            .field("insecure", &self.insecure)
+            .field("certificate_from_pem", &self.certificate_from_pem)
+            .field(
+                "private_key_from_pem",
+                &self.private_key_from_pem.as_ref().map(|_| REDACTED),
+            )
+            .field("rustls_cipher_suites", &self.rustls_cipher_suites)
+            .finish()
+    }
 }
 
 // SupportedCipherSuite has a PartialEq impl but not an Eq impl.
@@ -346,6 +362,27 @@ impl TlsOptions {
         }
 
         Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn connector_cache_key_debug_redacts_only_private_pem() {
+        let mut key = RustlsCacheKey {
+            insecure: false,
+            certificate_from_pem: Some(Arc::new(Box::from([1, 2]))),
+            private_key_from_pem: None,
+            rustls_cipher_suites: vec![],
+        };
+        assert!(format!("{key:?}").contains("private_key_from_pem: None"));
+        key.private_key_from_pem = Some(Arc::new(Box::from([3, 4])));
+        let debug = format!("{key:?}");
+        assert!(debug.contains("certificate_from_pem: Some([1, 2])"));
+        assert!(debug.contains(r#"private_key_from_pem: Some("[REDACTED]")"#));
+        assert!(!debug.contains("[3, 4]"));
     }
 }
 
