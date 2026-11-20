@@ -13,6 +13,16 @@ authentication attempt.
 KumoMTA will only allow `AUTH PLAIN` once STARTTLS has been successfully
 enabled for the session.
 
+{{since('dev', indent=True)}}
+    This event is also used to validate `"AUTH LOGIN"` attempts, when the
+    listener has opted in to that mechanism via
+    [enable_auth_login](../kumo/start_esmtp_listener/enable_auth_login.md).
+    `LOGIN` has no authorization identity, so *authz* is passed the same value
+    as *authc*.  Handlers that only compare *authc* against *password*, as
+    every example below does, need no changes to accept `LOGIN`.  If you need
+    to tell the two mechanisms apart, the `auth_mechanism` connection metadata
+    value holds either `"PLAIN"` or `"LOGIN"`.
+
 At the time of writing KumoMTA doesn't provide a general authentication
 solution, but through the use of this callback, you have some flexibility.
 

@@ -1,6 +1,6 @@
 #![allow(clippy::result_large_err)]
 use crate::client_types::*;
-use crate::parser::{Command, Domain, EsmtpParameter, ForwardPath, ReversePath};
+use crate::parser::{Command, Domain, EsmtpParameter, ForwardPath, ReversePath, REDACTED};
 use crate::{AsyncReadAndWrite, BoxedAsyncReadAndWrite};
 use bstr::ByteSlice;
 use hickory_proto::rr::rdata::TLSA;
@@ -783,6 +783,70 @@ impl SmtpClient {
         }
 
         Ok(())
+    }
+
+    /// Authenticate using the LOGIN mechanism: unspecified, but de-facto a
+    /// `Username:` then `Password:` pair of base64 challenges.  We answer the
+    /// first challenge rather than sending an initial-response, which not
+    /// every server that offers LOGIN accepts.
+    pub async fn auth_login(
+        &mut self,
+        username: &str,
+        password: Option<&str>,
+    ) -> Result<(), ClientError> {
+        let password = password.unwrap_or("");
+
+        let response = self
+            .send_command(&Command::Auth {
+                sasl_mech: "LOGIN".to_string(),
+                initial_response: None,
+            })
+            .await?;
+        if response.code != 334 {
+            return Err(ClientError::Rejected(response));
+        }
+
+        let response = self.write_sasl_line(username).await?;
+        if response.code != 334 {
+            return Err(ClientError::Rejected(response));
+        }
+
+        let response = self.write_sasl_line(password).await?;
+        if response.code != 235 {
+            return Err(ClientError::Rejected(response));
+        }
+
+        Ok(())
+    }
+
+    /// base64 encode and write one line of a SASL exchange, then read the
+    /// reply, tracing a redacted stand-in in place of the credential
+    async fn write_sasl_line(&mut self, value: &str) -> Result<Response, ClientError> {
+        let line = format!("{}\r\n", data_encoding::BASE64.encode(value.as_bytes()));
+
+        tracing::trace!("send->{}: {REDACTED}", self.hostname);
+        if self.socket.is_some() {
+            if let Some(tracer) = &self.tracer {
+                WriteTracer::trace(tracer, &format!("{REDACTED}\r\n"));
+            }
+        }
+
+        let timeout_duration = self.timeouts.auth_timeout;
+        self.write_all_with_timeout(
+            timeout_duration.min(Duration::from_secs(60)),
+            line.as_bytes(),
+            || ClientError::TimeOutRequest {
+                duration: timeout_duration,
+                commands: vec![],
+            },
+            |error| ClientError::WriteError {
+                error,
+                commands: vec![],
+            },
+        )
+        .await?;
+
+        self.read_response(None, timeout_duration).await
     }
 
     /// Send the STARTTLS command and, if the server accepts it, perform the TLS

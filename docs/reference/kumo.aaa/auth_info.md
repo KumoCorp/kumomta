@@ -13,8 +13,8 @@ There are two main ways that you might interact with them in KumoMTA:
 The following fields may be present in an AuthInfo object:
 
  * `identities` - an array style table listing each authenticated identity.  An identity is itself an object of the form `{identity = 'username', context = 'GenericAuth'}` where the context describes where the credential came from.  Context can be one of the following values:
-    * `SmtpAuthPlainAuthorization` - the identity came from the SMTP AUTH PLAIN `authz` field, the authorization identity.
-    * `SmtpAuthPlainAuthentication` - the identity came from the SMTP AUTH PLAIN `authc` field, the authenticated identity.
+    * `SmtpAuthPlainAuthorization` - the identity came from the SMTP AUTH PLAIN `authz` field, the authorization identity.  An `AUTH LOGIN` session uses this context as well; LOGIN has no separate authorization identity, so it holds the authenticated identity.
+    * `SmtpAuthPlainAuthentication` - the identity came from the SMTP AUTH PLAIN `authc` field, the authenticated identity.  An `AUTH LOGIN` session uses this context as well, for the username.
     * `HttpBasicAuth` - the identity came from an HTTP Basic auth header
     * `BearerToken` - the identity came from an HTTP Bearer token
     * `ProxyAuthRfc1929` - the identity came from a SOCKS 5 RFC 1929 authentication packet

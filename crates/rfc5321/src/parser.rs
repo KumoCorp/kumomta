@@ -2431,6 +2431,29 @@ Ok(
     }
 
     #[test]
+    fn test_auth_login_mechanism_only() {
+        k9::assert_equal!(
+            unwrapper(Command::parse("AUTH LOGIN")),
+            MaybePartialCommand::Full(Command::Auth {
+                sasl_mech: "LOGIN".into(),
+                initial_response: None,
+            })
+        );
+    }
+
+    #[test]
+    fn test_auth_login_with_initial_response() {
+        // Some clients pass the username as the initial-response
+        k9::assert_equal!(
+            unwrapper(Command::parse("AUTH LOGIN ZGFuaWVs")),
+            MaybePartialCommand::Full(Command::Auth {
+                sasl_mech: "LOGIN".into(),
+                initial_response: Some("ZGFuaWVs".into()),
+            })
+        );
+    }
+
+    #[test]
     fn test_auth_hyphenated_mechanism() {
         k9::assert_equal!(
             unwrapper(Command::parse("AUTH CRAM-MD5")),

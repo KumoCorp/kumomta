@@ -1,5 +1,5 @@
 ---
-description: "Set up SMTP AUTH for injection with smtp_server_auth_plain — AUTH PLAIN only, TLS required, and why trusted hosts skip authentication."
+description: "Set up SMTP AUTH for injection with smtp_server_auth_plain — PLAIN by default, LOGIN on request, TLS required, and why trusted hosts skip authentication."
 ---
 
 # How Do I Set Up SMTP AUTH for Injection?
@@ -25,9 +25,12 @@ end)
 
 Three things to watch for:
 
-## AUTH PLAIN only
+## AUTH PLAIN by default, AUTH LOGIN on request
 
-KumoMTA implements AUTH PLAIN. `AUTH LOGIN` is deprecated and is not supported, and there is no Lua hook to add it. If a legacy client can only do `AUTH LOGIN`, front KumoMTA with another MTA (such as Postfix) that accepts `AUTH LOGIN` and relays onward.
+KumoMTA offers `AUTH PLAIN`. For legacy clients that can only do `AUTH LOGIN`, set [enable_auth_login](../reference/kumo/start_esmtp_listener/enable_auth_login.md) on the listener to offer that mechanism as well. The same `smtp_server_auth_plain` event validates both, so the handler above needs no changes; `LOGIN` has no authorization identity, so it is called with *authz* set to the same value as *authc*.
+
+{{since('dev', indent=True)}}
+    `AUTH LOGIN` support is new as of this release. Prior to it, fronting KumoMTA with another MTA that accepts `AUTH LOGIN` was the only option.
 
 ## TLS is required for AUTH
 
