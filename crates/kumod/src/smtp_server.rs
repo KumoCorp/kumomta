@@ -159,6 +159,40 @@ enum CommandDisposition {
     Terminate,
 }
 
+/// The result of one step of a SASL exchange
+enum AuthStep<T> {
+    Value(T),
+    Done(CommandDisposition),
+}
+
+/// The SASL mechanisms that the ESMTP server implements
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AuthMech {
+    Plain,
+    Login,
+}
+
+impl AuthMech {
+    /// Mechanism names are case insensitive (RFC 4422)
+    fn from_name(name: &str) -> Option<Self> {
+        if name.eq_ignore_ascii_case("PLAIN") {
+            Some(Self::Plain)
+        } else if name.eq_ignore_ascii_case("LOGIN") {
+            Some(Self::Login)
+        } else {
+            None
+        }
+    }
+
+    /// The canonical name, however the client spelled it
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Plain => "PLAIN",
+            Self::Login => "LOGIN",
+        }
+    }
+}
+
 /// Indicates how we should handle an incoming report
 /// message, such as an OOB or Feedback report
 #[derive(Serialize, Clone, Copy, Debug, Default)]
@@ -418,6 +452,7 @@ pub struct ConcreteEsmtpListenerParams {
     pub deferred_spool: bool,
     pub deferred_queue: bool,
     pub allow_xclient: bool,
+    pub enable_auth_login: bool,
     pub require_proxy_protocol: bool,
 
     pub trace_headers: TraceHeaders,
@@ -532,6 +567,9 @@ impl ConcreteEsmtpListenerParams {
         if let Some(allow_xclient) = base.allow_xclient {
             self.allow_xclient = allow_xclient;
         }
+        if let Some(enable_auth_login) = base.enable_auth_login {
+            self.enable_auth_login = enable_auth_login;
+        }
         if let Some(require_proxy_protocol) = base.require_proxy_protocol {
             self.require_proxy_protocol = require_proxy_protocol;
         }
@@ -603,6 +641,7 @@ impl Default for ConcreteEsmtpListenerParams {
             invalid_line_endings: ConformanceDisposition::default(),
             line_length_hard_limit: MAX_LINE_LEN,
             allow_xclient: false,
+            enable_auth_login: false,
             require_proxy_protocol: false,
         }
     }
@@ -685,6 +724,9 @@ pub struct GenericEsmtpListenerParams {
 
     #[serde(default)]
     allow_xclient: Option<bool>,
+
+    #[serde(default)]
+    enable_auth_login: Option<bool>,
 
     #[serde(default)]
     require_proxy_protocol: Option<bool>,
@@ -1914,6 +1956,8 @@ impl SmtpServerSession {
                         vec!["PIPELINING", "ENHANCEDSTATUSCODES", "8BITMIME", "SMTPUTF8"];
                     if self.tls_active.is_none() {
                         extensions.push("STARTTLS");
+                    } else if self.params.enable_auth_login {
+                        extensions.push("AUTH PLAIN LOGIN");
                     } else {
                         extensions.push("AUTH PLAIN");
                     }
@@ -2646,6 +2690,214 @@ impl SmtpServerSession {
         Ok(())
     }
 
+    /// Read a single continuation line of a SASL exchange
+    async fn read_auth_line(&mut self, line: &str) -> anyhow::Result<AuthStep<String>> {
+        let raw = match self.read_line(Some(16384)).await? {
+            ReadLine::Disconnected => return Ok(AuthStep::Done(CommandDisposition::Terminate)),
+            ReadLine::Line(raw) => raw,
+            ReadLine::InvalidUtf8 => {
+                self.write_response(
+                    501,
+                    "5.5.2 Invalid UTF-8 in authentication exchange",
+                    Some(line.to_string()),
+                    RejectDisconnect::If421,
+                )
+                .await?;
+                return Ok(AuthStep::Done(CommandDisposition::Continue));
+            }
+            ReadLine::TimedOut => {
+                self.write_response(
+                    421,
+                    format!("4.3.2 {} idle too long", self.params.hostname),
+                    Some(line.to_string()),
+                    RejectDisconnect::If421,
+                )
+                .await?;
+                return Ok(AuthStep::Done(CommandDisposition::Terminate));
+            }
+            ReadLine::ShuttingDown => {
+                self.write_response(
+                    421,
+                    format!("4.3.2 {} shutting down", self.params.hostname),
+                    Some(line.to_string()),
+                    RejectDisconnect::If421,
+                )
+                .await?;
+                return Ok(AuthStep::Done(CommandDisposition::Terminate));
+            }
+            ReadLine::TooLong => {
+                self.write_response(
+                    500,
+                    "5.5.6 authentication exchange line too long",
+                    Some(line.to_string()),
+                    RejectDisconnect::If421,
+                )
+                .await?;
+                return Ok(AuthStep::Done(CommandDisposition::Continue));
+            }
+        };
+
+        if raw == "*" {
+            self.write_response(
+                501,
+                "5.5.0 AUTH cancelled by client",
+                Some(line.to_string()),
+                RejectDisconnect::If421,
+            )
+            .await?;
+            return Ok(AuthStep::Done(CommandDisposition::Continue));
+        }
+
+        Ok(AuthStep::Value(raw))
+    }
+
+    /// Collect the credential from an `AUTH PLAIN` exchange, a single base64
+    /// response holding `[authzid] NUL authcid NUL passwd` (RFC 4616)
+    async fn collect_plain_credentials(
+        &mut self,
+        initial_response: Option<String>,
+        line: &str,
+        response: &str,
+    ) -> anyhow::Result<AuthStep<(String, String, String)>> {
+        let raw_response = match initial_response {
+            Some(raw) => raw,
+            None => {
+                self.write_response(334, " ", None, RejectDisconnect::If421)
+                    .await?;
+                match self.read_auth_line(line).await? {
+                    AuthStep::Value(raw) => raw,
+                    AuthStep::Done(disposition) => return Ok(AuthStep::Done(disposition)),
+                }
+            }
+        };
+
+        let Ok(payload) = BASE64.decode(raw_response.as_bytes()) else {
+            self.write_response(
+                501,
+                "5.5.2 Invalid base64 response",
+                Some(response.to_string()),
+                RejectDisconnect::If421,
+            )
+            .await?;
+            return Ok(AuthStep::Done(CommandDisposition::Continue));
+        };
+
+        let fields: Vec<_> = payload.split(|&b| b == 0).collect();
+        let (authz, authc, pass) = match fields.len() {
+            3 => (
+                std::str::from_utf8(&fields[0]),
+                std::str::from_utf8(&fields[1]),
+                std::str::from_utf8(&fields[2]),
+            ),
+            _ => {
+                self.write_response(
+                    501,
+                    "5.5.2 Invalid decoded PLAIN response",
+                    Some(response.to_string()),
+                    RejectDisconnect::If421,
+                )
+                .await?;
+                return Ok(AuthStep::Done(CommandDisposition::Continue));
+            }
+        };
+
+        let (authz, authc, pass) = match (authz, authc, pass) {
+            (Ok(a), Ok(b), Ok(c)) => (a, b, c),
+            _ => {
+                self.write_response(
+                    501,
+                    "5.5.2 Invalid UTF8 in decoded PLAIN response",
+                    Some(response.to_string()),
+                    RejectDisconnect::If421,
+                )
+                .await?;
+                return Ok(AuthStep::Done(CommandDisposition::Continue));
+            }
+        };
+
+        // If no authorization id was set, assume the same as
+        // the authenticated id
+        let authz = if authz.is_empty() { authc } else { authz };
+
+        Ok(AuthStep::Value((
+            authz.to_string(),
+            authc.to_string(),
+            pass.to_string(),
+        )))
+    }
+
+    /// Collect the credential from an `AUTH LOGIN` exchange: unspecified, but
+    /// de-facto a `Username:` then `Password:` pair of base64 challenges
+    async fn collect_login_credentials(
+        &mut self,
+        initial_response: Option<String>,
+        line: &str,
+        response: &str,
+    ) -> anyhow::Result<AuthStep<(String, String)>> {
+        let raw_user = match initial_response {
+            Some(raw) => raw,
+            None => {
+                // base64("Username:")
+                self.write_response(334, "VXNlcm5hbWU6", None, RejectDisconnect::If421)
+                    .await?;
+                match self.read_auth_line(line).await? {
+                    AuthStep::Value(raw) => raw,
+                    AuthStep::Done(disposition) => return Ok(AuthStep::Done(disposition)),
+                }
+            }
+        };
+        let user = match self.decode_login_field(&raw_user, response).await? {
+            AuthStep::Value(user) => user,
+            AuthStep::Done(disposition) => return Ok(AuthStep::Done(disposition)),
+        };
+
+        // base64("Password:")
+        self.write_response(334, "UGFzc3dvcmQ6", None, RejectDisconnect::If421)
+            .await?;
+        let raw_pass = match self.read_auth_line(line).await? {
+            AuthStep::Value(raw) => raw,
+            AuthStep::Done(disposition) => return Ok(AuthStep::Done(disposition)),
+        };
+        let pass = match self.decode_login_field(&raw_pass, response).await? {
+            AuthStep::Value(pass) => pass,
+            AuthStep::Done(disposition) => return Ok(AuthStep::Done(disposition)),
+        };
+
+        Ok(AuthStep::Value((user, pass)))
+    }
+
+    /// Decode one base64 field of an `AUTH LOGIN` exchange, logging neither form
+    async fn decode_login_field(
+        &mut self,
+        raw: &str,
+        response: &str,
+    ) -> anyhow::Result<AuthStep<String>> {
+        let Ok(payload) = BASE64.decode(raw.as_bytes()) else {
+            self.write_response(
+                501,
+                "5.5.2 Invalid base64 response",
+                Some(response.to_string()),
+                RejectDisconnect::If421,
+            )
+            .await?;
+            return Ok(AuthStep::Done(CommandDisposition::Continue));
+        };
+
+        match String::from_utf8(payload) {
+            Ok(decoded) => Ok(AuthStep::Value(decoded)),
+            Err(_) => {
+                self.write_response(
+                    501,
+                    "5.5.2 Invalid UTF8 in decoded LOGIN response",
+                    Some(response.to_string()),
+                    RejectDisconnect::If421,
+                )
+                .await?;
+                Ok(AuthStep::Done(CommandDisposition::Continue))
+            }
+        }
+    }
+
     async fn process_auth(
         &mut self,
         sasl_mech: String,
@@ -2680,7 +2932,11 @@ impl SmtpServerSession {
             .await?;
             return Ok(CommandDisposition::Continue);
         }
-        if sasl_mech != "PLAIN" {
+        let mech = AuthMech::from_name(&sasl_mech).filter(|mech| match mech {
+            AuthMech::Plain => true,
+            AuthMech::Login => self.params.enable_auth_login,
+        });
+        let Some(mech) = mech else {
             self.write_response(
                 504,
                 format!("5.5.4 AUTH {sasl_mech} not supported"),
@@ -2689,7 +2945,7 @@ impl SmtpServerSession {
             )
             .await?;
             return Ok(CommandDisposition::Continue);
-        }
+        };
         if self.tls_active.is_none() {
             self.write_response(
                 524,
@@ -2701,122 +2957,30 @@ impl SmtpServerSession {
             return Ok(CommandDisposition::Continue);
         }
 
-        let raw_response = if let Some(r) = initial_response {
-            r
-        } else {
-            self.write_response(334, " ", None, RejectDisconnect::If421)
-                .await?;
-            // The client's credential arrives on this continuation line;
-            // redacted_response, computed above, already masks it.
-            match self.read_line(Some(16384)).await? {
-                ReadLine::Disconnected => return Ok(CommandDisposition::Terminate),
-                ReadLine::Line(raw) => raw,
-                ReadLine::InvalidUtf8 => {
-                    self.write_response(
-                        501,
-                        "5.5.2 Invalid UTF-8 in authentication exchange",
-                        Some(line),
-                        RejectDisconnect::If421,
-                    )
-                    .await?;
-                    return Ok(CommandDisposition::Continue);
-                }
-                ReadLine::TimedOut => {
-                    self.write_response(
-                        421,
-                        format!("4.3.2 {} idle too long", self.params.hostname),
-                        Some(line),
-                        RejectDisconnect::If421,
-                    )
-                    .await?;
-                    return Ok(CommandDisposition::Terminate);
-                }
-                ReadLine::ShuttingDown => {
-                    self.write_response(
-                        421,
-                        format!("4.3.2 {} shutting down", self.params.hostname),
-                        Some(line),
-                        RejectDisconnect::If421,
-                    )
-                    .await?;
-                    return Ok(CommandDisposition::Terminate);
-                }
-                ReadLine::TooLong => {
-                    self.write_response(
-                        500,
-                        "5.5.6 authentication exchange line too long",
-                        Some(line),
-                        RejectDisconnect::If421,
-                    )
-                    .await?;
-                    return Ok(CommandDisposition::Continue);
-                }
-            }
-        };
-
-        if raw_response == "*" {
-            self.write_response(
-                501,
-                "5.5.0 AUTH cancelled by client",
-                Some(line),
-                RejectDisconnect::If421,
-            )
-            .await?;
-            return Ok(CommandDisposition::Continue);
-        }
-
-        // Keep decoding raw_response for the credential fields below, but log
-        // only the redacted `response` from here on.
+        // From here on, log the redacted stand-in, not what the client sends
         let response = redacted_response;
-        let Ok(payload) = BASE64.decode(raw_response.as_bytes()) else {
-            self.write_response(
-                501,
-                "5.5.2 Invalid base64 response",
-                Some(response),
-                RejectDisconnect::If421,
-            )
-            .await?;
-            return Ok(CommandDisposition::Continue);
-        };
 
-        // RFC 4616 says that the message is:
-        // [authzid] NUL authcid NUL passwd
-        let fields: Vec<_> = payload.split(|&b| b == 0).collect();
-        let (authz, authc, pass) = match fields.len() {
-            3 => (
-                std::str::from_utf8(&fields[0]),
-                std::str::from_utf8(&fields[1]),
-                std::str::from_utf8(&fields[2]),
-            ),
-            _ => {
-                self.write_response(
-                    501,
-                    "5.5.2 Invalid decoded PLAIN response",
-                    Some(response),
-                    RejectDisconnect::If421,
-                )
-                .await?;
-                return Ok(CommandDisposition::Continue);
-            }
+        let (authz, authc, pass) = match mech {
+            AuthMech::Plain => match self
+                .collect_plain_credentials(initial_response, &line, &response)
+                .await?
+            {
+                AuthStep::Value(credentials) => credentials,
+                AuthStep::Done(disposition) => return Ok(disposition),
+            },
+            AuthMech::Login => match self
+                .collect_login_credentials(initial_response, &line, &response)
+                .await?
+            {
+                // LOGIN has no authorization identity; authc stands as both
+                AuthStep::Value((authc, pass)) => (authc.clone(), authc, pass),
+                AuthStep::Done(disposition) => return Ok(disposition),
+            },
         };
+        let (authz, authc, pass) = (authz.as_str(), authc.as_str(), pass.as_str());
 
-        let (authz, authc, pass) = match (authz, authc, pass) {
-            (Ok(a), Ok(b), Ok(c)) => (a, b, c),
-            _ => {
-                self.write_response(
-                    501,
-                    "5.5.2 Invalid UTF8 in decoded PLAIN response",
-                    Some(response),
-                    RejectDisconnect::If421,
-                )
-                .await?;
-                return Ok(CommandDisposition::Continue);
-            }
-        };
-
-        // If no authorization id was set, assume the same as
-        // the authenticated id
-        let authz = if authz.is_empty() { authc } else { authz };
+        // So policy can tell the mechanisms apart
+        self.meta.set_meta("auth_mechanism", mech.as_str());
 
         let wrapped = match self
             .call_callback_sig(

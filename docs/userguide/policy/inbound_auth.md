@@ -77,6 +77,27 @@ kumo.on('smtp_server_auth_plain', function(authz, authc, password)
 end)
 ```
 
+## Accepting AUTH LOGIN
+
+{{since('dev')}}
+
+KumoMTA offers `AUTH PLAIN` by default. Some older clients can only
+authenticate with `AUTH LOGIN`, which you can offer in addition by setting
+[enable_auth_login](../../reference/kumo/start_esmtp_listener/enable_auth_login.md)
+on the listener:
+
+```lua
+kumo.start_esmtp_listener {
+  listen = '0.0.0.0:587',
+  enable_auth_login = true,
+}
+```
+
+Both mechanisms are validated by the same `smtp_server_auth_plain` event, so
+the examples above cover `LOGIN` without any change. `LOGIN` has no
+authorization identity, so the event is called with *authz* set to the same
+value as *authc*.
+
 ## Enhancing Tenant Security Through SMTP Authentication
 
 When using SMTP authentication a certain amount of trust is put in the injecting client, and there are ways this can be abused.

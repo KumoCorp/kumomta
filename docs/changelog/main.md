@@ -92,6 +92,17 @@
    [proxy_connections_denied_total](../reference/metrics/proxy-server/proxy_connections_denied_total.md)
    metric.
 
+ * The ESMTP listener can now offer `AUTH LOGIN` in addition to `AUTH PLAIN`,
+   for clients that cannot speak `PLAIN`. It is opt-in via the new
+   [enable_auth_login](../reference/kumo/start_esmtp_listener/enable_auth_login.md)
+   parameter of
+   [kumo.start_esmtp_listener](../reference/kumo/start_esmtp_listener/index.md),
+   and, like `AUTH PLAIN`, is only offered on a TLS protected session. Both
+   mechanisms are validated by the
+   [smtp_server_auth_plain](../reference/events/smtp_server_auth_plain.md)
+   event, so no policy change is required to accept `LOGIN`. The mechanism the
+   client used is recorded in the `auth_mechanism` connection metadata value.
+
  * You may now monitor the status of your log consumers via kumod metrics. For
    [configure_local_logs](../reference/kumo/configure_local_logs/index.md) and
    [kumo.jsonl.new_writer](../reference/kumo.jsonl/new_writer.md), the status of
