@@ -193,7 +193,7 @@ Reference Manual for more information.
 | --- | --- |
 | `protocol` | Session timing, SMTP verbs, reply codes and message byte counts |
 | `operational` | Endpoints, diagnostics, policy errors and verbatim SMTP replies. Kumo's own replies can name senders and recipients, including on a successful `MAIL FROM` or `RCPT TO`. |
-| `envelope` | Structured envelope command arguments, sender and recipient fields, authentication identities, queue and message identifiers |
+| `envelope` | Structured envelope command arguments, sender and recipient fields, authentication identities (including the inbound TLS client certificate subject), queue and message identifiers |
 | `content` | Message data, including headers, body and attachments |
 | `secrets` | Raw protocol reads, SMTP AUTH payloads, unstructured metadata and callback results |
 

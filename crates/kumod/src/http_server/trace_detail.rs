@@ -147,7 +147,7 @@ pub fn inbound_meta_detail(key: &str) -> TraceDetail {
         | "reception_protocol" | "hostname" | "ehlo_domain" | "tls_cipher" | "tls_implicit" => {
             Operational
         }
-        "authn_id" | "authz_id" => Envelope,
+        "authn_id" | "authz_id" | "tls_peer_subject_name" => Envelope,
         _ => Secrets,
     }
 }
