@@ -463,6 +463,29 @@ pub struct MessageInformation {
     pub scheduling: Option<serde_json::Value>,
 }
 
+/// Cumulative detail permitted in an SMTP trace subscription.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Deserialize,
+    strum::Display,
+    strum::EnumString,
+)]
+#[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
+pub enum TraceDetail {
+    Protocol,
+    Operational,
+    Envelope,
+    Content,
+    Secrets,
+}
+
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct TraceSmtpV1Request {
     #[serde(default)]

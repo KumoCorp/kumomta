@@ -9,7 +9,6 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::IsTerminal;
 use tokio::sync::mpsc::unbounded_channel;
-use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 /// Trace outgoing sessions made by the SMTP service.
@@ -44,6 +43,11 @@ use tokio_tungstenite::tungstenite::Message;
 /// efficient filter you can specify.
 #[derive(Debug, Parser)]
 pub struct TraceSmtpClientCommand {
+    /// Maximum detail to receive: protocol, operational, envelope, content, or secrets.
+    /// Defaults to the HTTP listener's max_smtp_trace_detail.
+    #[arg(long)]
+    pub trace_detail: Option<kumo_api_types::TraceDetail>,
+
     /// Add a source (in CIDR format) to the list of source addresses
     /// that we want to filter by. If any are specified, then only
     /// connections made from a matching address will be traced.
@@ -212,10 +216,12 @@ impl TraceSmtpClientCommand {
             Some(set)
         };
 
-        let mut endpoint = endpoint.join("/api/admin/trace-smtp-client/v1")?;
-        endpoint.set_scheme("ws").expect("ws to be valid scheme");
-
-        let (mut socket, _response) = connect_async(endpoint.to_string()).await?;
+        let mut socket = crate::trace_connection::connect(
+            endpoint,
+            "/api/admin/trace-smtp-client/v1",
+            self.trace_detail,
+        )
+        .await?;
 
         socket
             .send(Message::Text(

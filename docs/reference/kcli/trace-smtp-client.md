@@ -27,6 +27,8 @@ The main session property that is known at initiation is the ready queue name, s
 ## Options
 
 
+* `--trace-detail <TRACE_DETAIL>` — Maximum detail to receive: protocol, operational, envelope, content, or secrets. Defaults to the HTTP listener's max_smtp_trace_detail
+
 * `--source <SOURCE>` — Add a source (in CIDR format) to the list of source addresses that we want to filter by. If any are specified, then only connections made from a matching address will be traced. If no sources are specified, any/all outgoing SMTP connections will be traced.
 
      Can be used multiple times to add multiple candidate addresses.

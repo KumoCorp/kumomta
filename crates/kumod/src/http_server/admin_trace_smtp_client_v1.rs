@@ -1,6 +1,8 @@
+use super::trace_detail::{self, Subscription};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use chrono::{DateTime, Utc};
+use kumo_api_types::TraceDetail::{self, *};
 use kumo_api_types::{TraceSmtpClientV1Event, TraceSmtpClientV1Payload, TraceSmtpClientV1Request};
 use parking_lot::Mutex;
 use rfc5321::DeferredTracer;
@@ -102,7 +104,9 @@ fn port_payload(event: rfc5321::SmtpClientTraceEvent) -> SmtpClientTraceEventPay
     match event {
         TE::Closed => SmtpClientTraceEventPayload::Closed,
         TE::Read(data) => SmtpClientTraceEventPayload::Read(data),
-        TE::Write(data) => SmtpClientTraceEventPayload::Write(data),
+        TE::Command(cmd) => SmtpClientTraceEventPayload::Command(cmd),
+        TE::Data(bytes) => SmtpClientTraceEventPayload::Data(bytes),
+        TE::Reply(line) => SmtpClientTraceEventPayload::Reply(line),
         TE::Diagnostic { level, message } => {
             SmtpClientTraceEventPayload::Diagnostic { level, message }
         }
@@ -141,12 +145,14 @@ pub struct SmtpClientTraceEvent {
 }
 
 impl SmtpClientTraceEvent {
-    fn to_v1(self, terse: bool) -> TraceSmtpClientV1Event {
-        TraceSmtpClientV1Event {
+    fn to_v1(mut self, detail: TraceDetail, terse: bool) -> Option<TraceSmtpClientV1Event> {
+        let payload = self.payload.to_v1(detail, terse)?;
+        trace_detail::project_meta(&mut self.conn_meta, detail);
+        Some(TraceSmtpClientV1Event {
             conn_meta: self.conn_meta,
-            payload: self.payload.to_v1(terse),
+            payload,
             when: self.when,
-        }
+        })
     }
 }
 
@@ -156,7 +162,9 @@ pub enum SmtpClientTraceEventPayload {
     Connected,
     Closed,
     Read(Vec<u8>),
-    Write(String),
+    Command(rfc5321::Command),
+    Data(Vec<u8>),
+    Reply(String),
     Diagnostic {
         level: tracing::Level,
         message: String,
@@ -165,16 +173,26 @@ pub enum SmtpClientTraceEventPayload {
 }
 
 impl SmtpClientTraceEventPayload {
-    fn to_v1(self, terse: bool) -> TraceSmtpClientV1Payload {
-        match self {
+    fn to_v1(self, detail: TraceDetail, terse: bool) -> Option<TraceSmtpClientV1Payload> {
+        Some(match self {
             Self::BeginSession => TraceSmtpClientV1Payload::BeginSession,
             Self::Connected => TraceSmtpClientV1Payload::Connected,
             Self::MessageObtained => TraceSmtpClientV1Payload::MessageObtained,
             Self::Closed => TraceSmtpClientV1Payload::Closed,
+            Self::Read(_) if detail < Secrets => return None,
+            Self::Reply(_) if detail == Secrets => return None,
             Self::Read(data) => {
-                TraceSmtpClientV1Payload::Read(String::from_utf8_lossy(&data).to_string())
+                TraceSmtpClientV1Payload::Read(String::from_utf8_lossy(&data).into_owned())
             }
-            Self::Write(s) => {
+            Self::Reply(line) => TraceSmtpClientV1Payload::Read(trace_detail::reply(line, detail)),
+            Self::Command(cmd) => {
+                TraceSmtpClientV1Payload::Write(trace_detail::command(&cmd, detail))
+            }
+            Self::Data(bytes) if detail < Content => {
+                TraceSmtpClientV1Payload::Write(format!("[{} bytes]", bytes.len()))
+            }
+            Self::Data(bytes) => {
+                let s = String::from_utf8_lossy(&bytes).into_owned();
                 if terse {
                     fn split_first_line(s: &str) -> Option<String> {
                         let mut iter = s.lines();
@@ -183,19 +201,20 @@ impl SmtpClientTraceEventPayload {
                         Some(snippet.to_string())
                     }
                     if let Some(snippet) = split_first_line(&s) {
-                        return TraceSmtpClientV1Payload::AbbreviatedWrite {
+                        return Some(TraceSmtpClientV1Payload::AbbreviatedWrite {
                             snippet,
-                            len: s.len(),
-                        };
+                            len: bytes.len(),
+                        });
                     }
                 }
                 TraceSmtpClientV1Payload::Write(s)
             }
+            Self::Diagnostic { .. } if detail < Operational => return None,
             Self::Diagnostic { level, message } => TraceSmtpClientV1Payload::Diagnostic {
                 level: level.to_string(),
-                message: message.to_string(),
+                message,
             },
-        }
+        })
     }
 }
 
@@ -204,6 +223,20 @@ fn ip_from_addr(addr: &str) -> Option<IpAddr> {
         Ok(addr) => Some(addr.ip()),
         Err(_) => addr.parse::<IpAddr>().ok(),
     }
+}
+
+fn property_filters(request: &TraceSmtpClientV1Request) -> [(&'static str, &[String]); 9] {
+    [
+        ("campaign", &request.campaign),
+        ("domain", &request.domain),
+        ("egress_pool", &request.egress_pool),
+        ("egress_source", &request.egress_source),
+        ("ready_queue_name", &request.ready_queue),
+        ("recipient", &request.rcpt_to),
+        ("routing_domain", &request.routing_domain),
+        ("sender", &request.mail_from),
+        ("tenant", &request.tenant),
+    ]
 }
 
 fn mx_matches(meta: &serde_json::Value, request: &TraceSmtpClientV1Request) -> bool {
@@ -246,17 +279,7 @@ fn matches_request(meta: &serde_json::Value, request: &TraceSmtpClientV1Request)
         }
     }
 
-    for (key, candidates) in [
-        ("campaign", &request.campaign),
-        ("domain", &request.domain),
-        ("egress_pool", &request.egress_pool),
-        ("egress_source", &request.egress_source),
-        ("ready_queue_name", &request.ready_queue),
-        ("recipient", &request.rcpt_to),
-        ("routing_domain", &request.routing_domain),
-        ("sender", &request.mail_from),
-        ("tenant", &request.tenant),
-    ] {
+    for (key, candidates) in property_filters(request) {
         if candidates.is_empty() {
             continue;
         }
@@ -285,6 +308,7 @@ fn matches_request(meta: &serde_json::Value, request: &TraceSmtpClientV1Request)
 async fn process_websocket_inner(
     mut socket: WebSocket,
     mut rx: Receiver<SmtpClientTraceEvent>,
+    subscription: Subscription,
 ) -> anyhow::Result<()> {
     let mut has_lagged = false;
 
@@ -296,6 +320,23 @@ async fn process_websocket_inner(
         Message::Text(json) => serde_json::from_str(&json)?,
         message => anyhow::bail!("unexpected {message:?}"),
     };
+    let filters = property_filters(&request);
+    let connection_level = if request.source_addr.is_some()
+        || request.mx_addr.is_some()
+        || !request.mx_host.is_empty()
+    {
+        Operational
+    } else {
+        Protocol
+    };
+    let required = filters
+        .iter()
+        .filter(|(_, values)| !values.is_empty())
+        .map(|(key, _)| trace_detail::meta_detail(key))
+        .fold(connection_level, TraceDetail::max);
+    if !subscription.allow_filter(required, &mut socket).await? {
+        return Ok(());
+    }
 
     loop {
         let event = match rx.recv().await {
@@ -329,13 +370,20 @@ async fn process_websocket_inner(
             continue;
         }
 
-        let json = serde_json::to_string(&event.to_v1(request.terse))?;
+        let Some(event) = event.to_v1(subscription.detail, request.terse) else {
+            continue;
+        };
+        let json = serde_json::to_string(&event)?;
         socket.send(Message::Text(json.into())).await?;
     }
 }
 
-async fn process_websocket(socket: WebSocket, rx: Receiver<SmtpClientTraceEvent>) {
-    if let Err(err) = process_websocket_inner(socket, rx).await {
+async fn process_websocket(
+    socket: WebSocket,
+    rx: Receiver<SmtpClientTraceEvent>,
+    subscription: Subscription,
+) {
+    if let Err(err) = process_websocket_inner(socket, rx, subscription).await {
         tracing::error!("error in websocket: {err:#}");
     }
 }
@@ -343,7 +391,7 @@ async fn process_websocket(socket: WebSocket, rx: Receiver<SmtpClientTraceEvent>
 /// This is a websocket endpoint that provides outbound SMTP tracing.
 /// It cannot be described via auto-generated docs extracted from the JSON Schema.
 #[utoipa::path(get, tags = ["debugging", "kcli:trace-smtp-client"], path = "/api/admin/trace-smtp-client/v1")]
-pub async fn trace(ws: WebSocketUpgrade) -> impl IntoResponse {
+pub async fn trace(subscription: Subscription, ws: WebSocketUpgrade) -> impl IntoResponse {
     // Subscribe before completing the upgrade handshake. The handshake
     // response is what unblocks the connecting client, so subscribing here
     // guarantees this session is counted as a receiver before the client can
@@ -351,7 +399,10 @@ pub async fn trace(ws: WebSocketUpgrade) -> impl IntoResponse {
     // produced in that window would be dropped by the receiver-count check in
     // SmtpClientTraceManager::submit.
     let rx = MGR.tx.subscribe();
-    ws.on_upgrade(move |socket| process_websocket(socket, rx))
+    (
+        [("kumo-trace-detail", subscription.detail.to_string())],
+        ws.on_upgrade(move |socket| process_websocket(socket, rx, subscription)),
+    )
 }
 
 #[cfg(test)]

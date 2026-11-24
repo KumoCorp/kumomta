@@ -18,6 +18,7 @@ pub mod inject_v1;
 pub mod inspect_ready_q_v1;
 pub mod queue_name_multi_index;
 pub mod resolve_egress_path_v1;
+mod trace_detail;
 
 pub fn make_router() -> RouterAndDocs {
     router_with_docs!(

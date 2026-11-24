@@ -21,6 +21,8 @@ Take care to use an appropriate `--source` when using this with a live busy serv
 ## Options
 
 
+* `--trace-detail <TRACE_DETAIL>` — Maximum detail to receive: protocol, operational, envelope, content, or secrets. Defaults to the HTTP listener's max_smtp_trace_detail
+
 * `--source <SOURCE>` — Add a source (in CIDR format) to the list of source addresses that we want to filter by. If any are specified, then only connections made from a matching address will be traced. If no sources are specified, any/all incoming SMTP connections will be traced.
 
      Can be used multiple times to add multiple candidate addresses.

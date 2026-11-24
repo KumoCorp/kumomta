@@ -8,7 +8,6 @@ use reqwest::Url;
 use std::collections::HashMap;
 use std::io::IsTerminal;
 use tokio::sync::mpsc::unbounded_channel;
-use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 /// Trace incoming connections made to the SMTP service.
@@ -21,6 +20,11 @@ use tokio_tungstenite::tungstenite::Message;
 /// a live busy server, as you will be overwhelmed by the traffic.
 #[derive(Debug, Parser)]
 pub struct TraceSmtpServerCommand {
+    /// Maximum detail to receive: protocol, operational, envelope, content, or secrets.
+    /// Defaults to the HTTP listener's max_smtp_trace_detail.
+    #[arg(long)]
+    pub trace_detail: Option<kumo_api_types::TraceDetail>,
+
     /// Add a source (in CIDR format) to the list of source addresses
     /// that we want to filter by. If any are specified, then only
     /// connections made from a matching address will be traced.
@@ -66,10 +70,12 @@ impl TraceSmtpServerCommand {
             Some(set)
         };
 
-        let mut endpoint = endpoint.join("/api/admin/trace-smtp-server/v1")?;
-        endpoint.set_scheme("ws").expect("ws to be valid scheme");
-
-        let (mut socket, _response) = connect_async(endpoint.to_string()).await?;
+        let mut socket = crate::trace_connection::connect(
+            endpoint,
+            "/api/admin/trace-smtp-server/v1",
+            self.trace_detail,
+        )
+        .await?;
 
         socket
             .send(Message::Text(
@@ -91,6 +97,11 @@ impl TraceSmtpServerCommand {
         fn conn_key(meta: &serde_json::Value) -> anyhow::Result<String> {
             if meta.is_null() {
                 return Ok(String::new());
+            }
+            if meta.get("received_from").is_none() {
+                if let Some(id) = meta["id"].as_str() {
+                    return Ok(id.to_owned());
+                }
             }
             let from = meta
                 .get("received_from")

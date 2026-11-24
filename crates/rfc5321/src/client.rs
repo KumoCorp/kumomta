@@ -156,7 +156,9 @@ pub struct EsmtpCapability {
 pub enum SmtpClientTraceEvent {
     Closed,
     Read(Vec<u8>),
-    Write(String),
+    Command(Command),
+    Data(Vec<u8>),
+    Reply(String),
     Diagnostic {
         level: tracing::Level,
         message: String,
@@ -172,44 +174,9 @@ pub trait SmtpClientTracer: std::fmt::Debug {
     fn lazy_trace(&self, deferred: &dyn DeferredTracer);
 }
 
-// helper to avoid making a second copy of every write buffer
-struct WriteTracer<'a> {
-    data: &'a str,
-}
-impl DeferredTracer for WriteTracer<'_> {
+impl<F: Fn() -> SmtpClientTraceEvent> DeferredTracer for F {
     fn trace(&self) -> SmtpClientTraceEvent {
-        SmtpClientTraceEvent::Write(self.data.to_string())
-    }
-}
-impl<'a> WriteTracer<'a> {
-    fn trace(tracer: &Arc<dyn SmtpClientTracer + Send + Sync>, data: &'a str) {
-        tracer.lazy_trace(&Self { data });
-    }
-}
-
-struct BinWriteTracer<'a> {
-    data: &'a [u8],
-}
-impl DeferredTracer for BinWriteTracer<'_> {
-    fn trace(&self) -> SmtpClientTraceEvent {
-        let data = String::from_utf8_lossy(self.data).to_string();
-        SmtpClientTraceEvent::Write(data)
-    }
-}
-impl<'a> BinWriteTracer<'a> {
-    fn trace(tracer: &Arc<dyn SmtpClientTracer + Send + Sync>, data: &'a [u8]) {
-        tracer.lazy_trace(&Self { data });
-    }
-}
-
-// A little bit of gymnastics to avoid making a second
-// copy of every read buffer
-struct ReadTracer<'a> {
-    data: &'a [u8],
-}
-impl DeferredTracer for ReadTracer<'_> {
-    fn trace(&self) -> SmtpClientTraceEvent {
-        SmtpClientTraceEvent::Read(self.data.to_vec())
+        self()
     }
 }
 
@@ -331,7 +298,11 @@ impl SmtpClient {
 
                     let line = String::from_utf8(self.read_buffer[0..i].to_vec());
                     self.read_buffer.drain(0..i + 2);
-                    return Ok(line?);
+                    let line = line?;
+                    if let Some(tracer) = &self.tracer {
+                        tracer.lazy_trace(&|| SmtpClientTraceEvent::Reply(line.clone()));
+                    }
+                    return Ok(line);
                 }
             }
             if self.read_buffer.len() > MAX_LINE_LEN {
@@ -402,9 +373,7 @@ impl SmtpClient {
                 });
             }
             if let Some(tracer) = &self.tracer {
-                tracer.lazy_trace(&ReadTracer {
-                    data: &data[0..size],
-                });
+                tracer.lazy_trace(&|| SmtpClientTraceEvent::Read(data[..size].to_vec()));
             }
             self.read_buffer.extend_from_slice(&data[0..size]);
         }
@@ -551,12 +520,9 @@ impl SmtpClient {
             .map(|cmd| cmd.client_timeout_request(&self.timeouts))
             .sum();
 
-        let mut lines: Vec<String> = vec![];
         let mut all: Vec<u8> = vec![];
         for cmd in commands {
-            let line = cmd.encode();
-            all.extend_from_slice(&line);
-            lines.push(line.to_string());
+            all.extend_from_slice(&cmd.encode());
         }
         tracing::trace!(
             "send->{}: (PIPELINE) {}",
@@ -567,8 +533,8 @@ impl SmtpClient {
             if let Some(tracer) = &self.tracer {
                 // Send the lines individually to the tracer, so that we
                 // don't break --terse mode
-                for line in &lines {
-                    WriteTracer::trace(tracer, line);
+                for cmd in commands {
+                    tracer.lazy_trace(&|| SmtpClientTraceEvent::Command(cmd.clone()));
                 }
             }
         }
@@ -592,7 +558,7 @@ impl SmtpClient {
         tracing::trace!("send->{}: {line}", self.hostname);
         if self.socket.is_some() {
             if let Some(tracer) = &self.tracer {
-                WriteTracer::trace(tracer, &line.to_string());
+                tracer.lazy_trace(&|| SmtpClientTraceEvent::Command(command.clone()));
             }
         }
 
@@ -615,7 +581,7 @@ impl SmtpClient {
     async fn write_data_with_timeout(&mut self, data: &[u8]) -> Result<(), ClientError> {
         if self.socket.is_some() {
             if let Some(tracer) = &self.tracer {
-                BinWriteTracer::trace(tracer, data);
+                tracer.lazy_trace(&|| SmtpClientTraceEvent::Data(data.to_vec()));
             }
         }
         let timeout_duration = Command::Data.client_timeout_request(&self.timeouts);

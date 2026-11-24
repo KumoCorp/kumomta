@@ -24,6 +24,7 @@ mod suspend_ready_q;
 mod suspend_ready_q_cancel;
 mod suspend_ready_q_list;
 mod top;
+mod trace_connection;
 mod trace_smtp_client;
 mod trace_smtp_server;
 mod xfer;

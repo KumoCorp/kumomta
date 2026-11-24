@@ -67,6 +67,9 @@ pub struct HttpListenerParams {
     #[serde(default)]
     pub request_body_limit: Option<usize>,
 
+    #[serde(default = "HttpListenerParams::default_max_smtp_trace_detail")]
+    pub max_smtp_trace_detail: TraceDetail,
+
     #[serde(default)]
     pub tls_certificate: Option<KeySource>,
     #[serde(default)]
@@ -281,6 +284,10 @@ impl AppState {
 impl HttpListenerParams {
     fn default_listen() -> String {
         "127.0.0.1:8000".to_string()
+    }
+
+    fn default_max_smtp_trace_detail() -> TraceDetail {
+        TraceDetail::Secrets
     }
 
     fn default_hostname() -> String {

@@ -185,6 +185,20 @@ See the [Set Diagnostic Log
 Filter](../../reference/kumo/set_diagnostic_log_filter.md) page of the
 Reference Manual for more information.
 
+## Choosing SMTP trace detail
+
+`trace-smtp-server` and `trace-smtp-client` default to the HTTP listener's [max_smtp_trace_detail](../../reference/kumo/start_http_listener/max_smtp_trace_detail.md). Use `--trace-detail operational`, for example, to request less. Requests above the listener's maximum are rejected. `--terse` abbreviates output within the selected level; it does not redact it.
+
+| Level | Included in addition to the preceding level |
+| --- | --- |
+| `protocol` | Session timing, SMTP verbs, reply codes and message byte counts |
+| `operational` | Endpoints, diagnostics, policy errors and SMTP reply text, including addresses named by the peer |
+| `envelope` | Envelope command arguments, sender and recipients, authentication identities, queue and message identifiers |
+| `content` | Message data, including headers, body and attachments |
+| `secrets` | Raw protocol reads, SMTP AUTH payloads, unstructured metadata and callback results |
+
+Session filters can match fields within the listener's maximum even when the requested output level is lower. A trace at `operational` or above does not scan reply or policy-error text for secrets; `content` does not scan message bodies either.
+
 ## Monitoring Inbound SMTP handshaking
 
 When debugging, it is often helpful to monitor the full SMTP handshaking process in real time.  The kcli client enables that for inbound connections with the `trace-smtp-server` function:

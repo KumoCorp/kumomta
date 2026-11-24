@@ -1388,6 +1388,7 @@ impl SmtpServerSession {
                 std::mem::swap(&mut tail, &mut self.read_buffer);
                 self.read_buffer.drain(0..3);
 
+                self.trace_input(|| SmtpServerTraceEventPayload::Data(tail.clone()));
                 let data = unstuff(tail);
 
                 let split_bare_line_endings = matches!(
@@ -1829,7 +1830,14 @@ impl SmtpServerSession {
                 }
             };
 
-            match Command::parse(&line) {
+            let parsed = Command::parse(&line);
+            self.trace_input(|| {
+                SmtpServerTraceEventPayload::Command(match &parsed {
+                    Ok(MaybePartialCommand::Full(cmd)) => Some(cmd.clone()),
+                    _ => None,
+                })
+            });
+            match parsed {
                 Err(err) => {
                     self.write_response(
                         501,
@@ -2646,6 +2654,14 @@ impl SmtpServerSession {
         Ok(())
     }
 
+    fn trace_input(&self, payload: impl FnOnce() -> SmtpServerTraceEventPayload) {
+        SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+            conn_meta: self.meta.clone_inner(),
+            payload: payload(),
+            when: Utc::now(),
+        });
+    }
+
     async fn process_auth(
         &mut self,
         sasl_mech: String,
@@ -2710,7 +2726,10 @@ impl SmtpServerSession {
             // redacted_response, computed above, already masks it.
             match self.read_line(Some(16384)).await? {
                 ReadLine::Disconnected => return Ok(CommandDisposition::Terminate),
-                ReadLine::Line(raw) => raw,
+                ReadLine::Line(raw) => {
+                    self.trace_input(|| SmtpServerTraceEventPayload::AuthContinuation);
+                    raw
+                }
                 ReadLine::InvalidUtf8 => {
                     self.write_response(
                         501,
