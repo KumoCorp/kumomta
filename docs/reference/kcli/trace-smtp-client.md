@@ -27,15 +27,15 @@ The main session property that is known at initiation is the ready queue name, s
 ## Options
 
 
-* `--source <SOURCE>` — Add a source (in CIDR format) to the list of source addresses that we want to filter by. If any are specified, then only connections made from a matching address will be traced. If no sources are specified, any/all incoming SMTP connections will be traced.
+* `--source <SOURCE>` — Add a source (in CIDR format) to the list of source addresses that we want to filter by. If any are specified, then only connections made from a matching address will be traced. If no sources are specified, any/all outgoing SMTP connections will be traced.
 
      Can be used multiple times to add multiple candidate addresses.
 
      Eg: --source 10.0.0.1 --source 192.168.1.0/24
 
-* `--mx-addr <MX_ADDR>` — Add an address (in CIDR format) to the list of MX host addresses that we want to filter by. If any are specified, then only connections made from a matching address will be traced. If no addresses are specified, any/all incoming SMTP connections will be traced.
+* `--mx-addr <MX_ADDR>` — Add an address (in CIDR format) to the list of MX host addresses that we want to filter by. If any are specified, then only connections made to a matching address will be traced. If no addresses are specified, any/all outgoing SMTP connections will be traced.
 
-     A given session may communicate with multiple MX addresses over its lifetime. The full list of MX addresses is not known at session initiation, and is filled in after they have been resolved.
+     A given session may communicate with multiple MX addresses over its lifetime. This filter uses the MX address of the most recent successful TCP connection.
 
      Can be used multiple times to add multiple candidate addresses.
 
@@ -81,7 +81,7 @@ The main session property that is known at initiation is the ready queue name, s
 
      A given connection in a session may transit messages with a variety of different envelopes.
 
-* `--rcpt-to <RCPT_TO>` — The envelope recipient to match. If omitted, any will match.
+* `--rcpt-to <RCPT_TO>` — Match messages with at least one of the specified envelope recipients.
 
      This is a per-message property, and is unavailable for matching until after a session has established a successful connection to a host and is ready to deliver a message. Until a message is present, this filter is ignored.
 

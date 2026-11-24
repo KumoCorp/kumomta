@@ -45,7 +45,7 @@ pub struct TraceSmtpClientCommand {
     /// Add a source (in CIDR format) to the list of source addresses
     /// that we want to filter by. If any are specified, then only
     /// connections made from a matching address will be traced.
-    /// If no sources are specified, any/all incoming SMTP connections
+    /// If no sources are specified, any/all outgoing SMTP connections
     /// will be traced.
     ///
     /// Can be used multiple times to add multiple candidate addresses.
@@ -56,14 +56,13 @@ pub struct TraceSmtpClientCommand {
 
     /// Add an address (in CIDR format) to the list of MX host addresses
     /// that we want to filter by. If any are specified, then only
-    /// connections made from a matching address will be traced.
-    /// If no addresses are specified, any/all incoming SMTP connections
+    /// connections made to a matching address will be traced.
+    /// If no addresses are specified, any/all outgoing SMTP connections
     /// will be traced.
     ///
     /// A given session may communicate with multiple MX addresses over
-    /// its lifetime. The full list of MX addresses is not known at
-    /// session initiation, and is filled in after they have been
-    /// resolved.
+    /// its lifetime. This filter uses the MX address of the most recent
+    /// successful TCP connection.
     ///
     /// Can be used multiple times to add multiple candidate addresses.
     ///
@@ -156,7 +155,7 @@ pub struct TraceSmtpClientCommand {
     #[arg(long)]
     pub mail_from: Vec<String>,
 
-    /// The envelope recipient to match. If omitted, any will match.
+    /// Match messages with at least one of the specified envelope recipients.
     ///
     /// This is a per-message property, and is unavailable
     /// for matching until after a session has established a successful

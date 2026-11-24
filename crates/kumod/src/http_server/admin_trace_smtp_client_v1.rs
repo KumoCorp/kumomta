@@ -209,8 +209,8 @@ fn addr_from_meta(meta: &serde_json::Value, key: &str) -> Option<IpAddr> {
     }
 }
 
-fn property_filters(request: &TraceSmtpClientV1Request) -> [(&'static str, &[String]); 10] {
-    [
+fn is_excluded(meta: &serde_json::Value, request: &TraceSmtpClientV1Request) -> bool {
+    for (key, candidates) in [
         ("campaign", &request.campaign),
         ("domain", &request.domain),
         ("egress_pool", &request.egress_pool),
@@ -221,19 +221,22 @@ fn property_filters(request: &TraceSmtpClientV1Request) -> [(&'static str, &[Str
         ("routing_domain", &request.routing_domain),
         ("sender", &request.mail_from),
         ("tenant", &request.tenant),
-    ]
-}
-
-fn is_excluded(meta: &serde_json::Value, entries: &[(&str, &[String])]) -> bool {
-    for (key, candidates) in entries {
+    ] {
         if candidates.is_empty() {
             continue;
         }
 
-        if let Some(value) = meta.get(key).and_then(|v| v.as_str()) {
-            if !candidates.iter().any(|entry| entry == value) {
-                return true;
-            }
+        let matches = |value: &str| candidates.iter().any(|entry| entry == value);
+        let matched = match meta.get(key) {
+            Some(serde_json::Value::String(value)) => matches(value),
+            Some(serde_json::Value::Array(values)) => values
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .any(matches),
+            _ => continue,
+        };
+        if !matched {
+            return true;
         }
     }
     false
@@ -254,7 +257,6 @@ async fn process_websocket_inner(
         message => anyhow::bail!("unexpected {message:?}"),
     };
 
-    let filters = property_filters(&request);
     loop {
         let event = match rx.recv().await {
             Ok(event) => event,
@@ -298,7 +300,7 @@ async fn process_websocket_inner(
             }
         }
 
-        if is_excluded(&event.conn_meta, &filters) {
+        if is_excluded(&event.conn_meta, &request) {
             continue;
         }
 
@@ -330,16 +332,30 @@ pub async fn trace(ws: WebSocketUpgrade) -> impl IntoResponse {
 #[cfg(test)]
 mod test {
     use super::*;
+    use serde_json::json;
 
     #[test]
-    fn ready_queue_filter_matches_session_metadata() {
+    fn ready_queue_filters_setup_events_before_recipients_are_known() {
         let request = TraceSmtpClientV1Request {
             ready_queue: vec!["wanted".into()],
+            rcpt_to: vec!["first@example.test".into()],
             ..Default::default()
         };
-        let filters = property_filters(&request);
-        let excluded = |name| is_excluded(&serde_json::json!({"ready_queue_name": name}), &filters);
+        let excluded = |name| is_excluded(&json!({"ready_queue_name": name}), &request);
         assert!(!excluded("wanted"));
         assert!(excluded("other"));
+    }
+
+    #[test]
+    fn rcpt_to_matches_any_message_recipient() {
+        let request = TraceSmtpClientV1Request {
+            rcpt_to: vec!["first@example.test".into(), "second@example.test".into()],
+            ..Default::default()
+        };
+        let excluded =
+            |recipients: &[&str]| is_excluded(&json!({"recipient": recipients}), &request);
+        assert!(!excluded(&["other@example.test", "second@example.test"]));
+        assert!(excluded(&["other@example.test"]));
+        assert!(excluded(&[]));
     }
 }
