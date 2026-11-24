@@ -209,6 +209,21 @@ fn addr_from_meta(meta: &serde_json::Value, key: &str) -> Option<IpAddr> {
     }
 }
 
+fn property_filters(request: &TraceSmtpClientV1Request) -> [(&'static str, &[String]); 10] {
+    [
+        ("campaign", &request.campaign),
+        ("domain", &request.domain),
+        ("egress_pool", &request.egress_pool),
+        ("egress_source", &request.egress_source),
+        ("mx_host", &request.mx_host),
+        ("ready_queue_name", &request.ready_queue),
+        ("recipient", &request.rcpt_to),
+        ("routing_domain", &request.routing_domain),
+        ("sender", &request.mail_from),
+        ("tenant", &request.tenant),
+    ]
+}
+
 fn is_excluded(meta: &serde_json::Value, entries: &[(&str, &[String])]) -> bool {
     for (key, candidates) in entries {
         if candidates.is_empty() {
@@ -239,6 +254,7 @@ async fn process_websocket_inner(
         message => anyhow::bail!("unexpected {message:?}"),
     };
 
+    let filters = property_filters(&request);
     loop {
         let event = match rx.recv().await {
             Ok(event) => event,
@@ -282,21 +298,7 @@ async fn process_websocket_inner(
             }
         }
 
-        if is_excluded(
-            &event.conn_meta,
-            &[
-                ("campaign", &request.campaign),
-                ("domain", &request.domain),
-                ("egress_pool", &request.egress_pool),
-                ("egress_source", &request.egress_source),
-                ("mx_host", &request.mx_host),
-                ("ready_queue", &request.ready_queue),
-                ("recipient", &request.rcpt_to),
-                ("routing_domain", &request.routing_domain),
-                ("sender", &request.mail_from),
-                ("tenant", &request.tenant),
-            ],
-        ) {
+        if is_excluded(&event.conn_meta, &filters) {
             continue;
         }
 
@@ -323,4 +325,21 @@ pub async fn trace(ws: WebSocketUpgrade) -> impl IntoResponse {
     // SmtpClientTraceManager::submit.
     let rx = MGR.tx.subscribe();
     ws.on_upgrade(move |socket| process_websocket(socket, rx))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn ready_queue_filter_matches_session_metadata() {
+        let request = TraceSmtpClientV1Request {
+            ready_queue: vec!["wanted".into()],
+            ..Default::default()
+        };
+        let filters = property_filters(&request);
+        let excluded = |name| is_excluded(&serde_json::json!({"ready_queue_name": name}), &filters);
+        assert!(!excluded("wanted"));
+        assert!(excluded("other"));
+    }
 }
