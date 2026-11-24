@@ -694,3 +694,9 @@ async fn set_diagnostic_log_filter_v1(
     set_diagnostic_log_filter(&request.filter)?;
     Ok(())
 }
+
+#[test]
+fn http_listener_defaults_to_envelope_trace_detail() {
+    let listener: HttpListenerParams = serde_json::from_str("{}").unwrap();
+    assert_eq!(listener.max_smtp_trace_detail, TraceDetail::Envelope);
+}

@@ -345,6 +345,30 @@ mod test {
     use super::*;
 
     #[test]
+    fn protocol_alias_tracks_session_not_endpoint_addresses() {
+        let ids = RandomState::new();
+        let alias = |session_id, from: &str, via: &str| {
+            let event = SmtpServerTraceEvent {
+                session_id,
+                conn_meta: serde_json::json!({"received_from": from, "received_via": via}),
+                payload: SmtpServerTraceEventPayload::Connected,
+                when: Utc::now(),
+            };
+            event.to_v1(Protocol, false, &ids).unwrap().conn_meta["id"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        let session = Uuid::new_v4();
+        let original = alias(session, "192.0.2.1:1234", "192.0.2.2:25");
+        assert_eq!(original, alias(session, "192.0.2.42:9999", "192.0.2.4:587"));
+        assert_ne!(
+            original,
+            alias(Uuid::new_v4(), "192.0.2.1:1234", "192.0.2.2:25")
+        );
+    }
+
+    #[test]
     fn framed_body_copy_requires_a_content_subscriber() {
         let mgr = SmtpServerTraceManager::new();
         let _others =
