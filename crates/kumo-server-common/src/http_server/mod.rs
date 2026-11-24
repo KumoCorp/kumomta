@@ -287,7 +287,7 @@ impl HttpListenerParams {
     }
 
     fn default_max_smtp_trace_detail() -> TraceDetail {
-        TraceDetail::Secrets
+        TraceDetail::Envelope
     }
 
     fn default_hostname() -> String {

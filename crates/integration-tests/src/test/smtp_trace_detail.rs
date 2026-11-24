@@ -12,6 +12,7 @@ use tokio_tungstenite::{
 #[tokio::test]
 async fn smtp_trace_detail_on_the_wire() -> anyhow::Result<()> {
     let mut daemon = DaemonWithMaildir::start_with_env(vec![
+        ("KUMOD_TEST_MAX_SMTP_TRACE_DETAIL", "secrets"),
         ("KUMOD_SMTP_AUTH_USERNAME", "daniel"),
         ("KUMOD_SMTP_AUTH_PASSWORD", "tiger"),
     ])
@@ -82,6 +83,24 @@ async fn smtp_trace_detail_on_the_wire() -> anyhow::Result<()> {
         has("127.0.0.1", level != "protocol");
     }
     daemon.stop_both().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn smtp_trace_detail_defaults_to_envelope() -> anyhow::Result<()> {
+    let mut daemon = KumoDaemon::spawn_maildir().await?;
+    for direction in ["server", "client"] {
+        let url = format!(
+            "ws://{}/api/admin/trace-smtp-{direction}/v1",
+            daemon.listener("http")
+        );
+        let (_, response) = connect_async(&url).await?;
+        assert_eq!(response.headers()["kumo-trace-detail"], "envelope");
+        assert!(
+            matches!(connect_async(format!("{url}?detail=content")).await, Err(Error::Http(r)) if r.status().as_u16() == 403)
+        );
+    }
+    daemon.stop().await?;
     Ok(())
 }
 
@@ -179,7 +198,11 @@ async fn smtp_trace_detail_protocol_id_survives_xclient() -> anyhow::Result<()> 
 #[tokio::test]
 async fn smtp_trace_detail_join_during_auth_continuation() -> anyhow::Result<()> {
     use rfc5321::{Command, TlsOptions};
-    let mut daemon = KumoDaemon::spawn_maildir().await?;
+    let mut daemon = KumoDaemon::spawn_maildir_env(vec![(
+        "KUMOD_TEST_MAX_SMTP_TRACE_DETAIL".into(),
+        "content".into(),
+    )])
+    .await?;
     let mut smtp = daemon.smtp_client("localhost").await?;
     smtp.starttls(TlsOptions {
         insecure: true,

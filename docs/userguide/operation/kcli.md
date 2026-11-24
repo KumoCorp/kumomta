@@ -187,7 +187,7 @@ Reference Manual for more information.
 
 ## Choosing SMTP trace detail
 
-`trace-smtp-server` and `trace-smtp-client` default to the HTTP listener's [max_smtp_trace_detail](../../reference/kumo/start_http_listener/max_smtp_trace_detail.md). Use `--trace-detail operational`, for example, to request less. Requests above the listener's maximum are rejected. `--terse` abbreviates output within the selected level; it does not redact it.
+`trace-smtp-server` and `trace-smtp-client` use the HTTP listener's [max_smtp_trace_detail](../../reference/kumo/start_http_listener/max_smtp_trace_detail.md) when no level is requested. The listener defaults to `envelope`. Use `--trace-detail operational`, for example, to request less. Requests above the listener's maximum are rejected. `--terse` abbreviates output within the selected level; it does not redact it.
 
 | Level | Included in addition to the preceding level |
 | --- | --- |

@@ -27,7 +27,14 @@ The main session property that is known at initiation is the ready queue name, s
 ## Options
 
 
-* `--trace-detail <TRACE_DETAIL>` — Maximum detail to receive: protocol, operational, envelope, content, or secrets. Defaults to the HTTP listener's max_smtp_trace_detail
+* `--trace-detail <TRACE_DETAIL>` — Trace detail to request. Defaults to the listener's maximum (envelope unless configured otherwise).
+
+     Each level includes the preceding levels:
+       protocol     SMTP verbs, reply codes, timings and byte counts
+       operational  Endpoints, diagnostics, policy errors and verbatim SMTP replies
+       envelope     Envelope sender and recipients, auth identities, queue and message IDs
+       content      Message headers, body and attachments
+       secrets      Raw protocol traffic, including SMTP AUTH payloads
 
 * `--source <SOURCE>` — Add a source (in CIDR format) to the list of source addresses that we want to filter by. If any are specified, then only connections made from a matching address will be traced. If no sources are specified, any/all outgoing SMTP connections will be traced.
 

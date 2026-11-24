@@ -20,9 +20,8 @@ use tokio_tungstenite::tungstenite::Message;
 /// a live busy server, as you will be overwhelmed by the traffic.
 #[derive(Debug, Parser)]
 pub struct TraceSmtpServerCommand {
-    /// Maximum detail to receive: protocol, operational, envelope, content, or secrets.
-    /// Defaults to the HTTP listener's max_smtp_trace_detail.
-    #[arg(long)]
+    /// Trace detail to request; defaults to the listener's maximum.
+    #[arg(long, long_help = crate::trace_connection::DETAIL_HELP)]
     pub trace_detail: Option<kumo_api_types::TraceDetail>,
 
     /// Add a source (in CIDR format) to the list of source addresses

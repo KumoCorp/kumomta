@@ -3,6 +3,15 @@ use reqwest::Url;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
+pub const DETAIL_HELP: &str = "Trace detail to request. Defaults to the listener's maximum (envelope unless configured otherwise).
+
+Each level includes the preceding levels:
+  protocol     SMTP verbs, reply codes, timings and byte counts
+  operational  Endpoints, diagnostics, policy errors and verbatim SMTP replies
+  envelope     Envelope sender and recipients, auth identities, queue and message IDs
+  content      Message headers, body and attachments
+  secrets      Raw protocol traffic, including SMTP AUTH payloads";
+
 pub async fn connect(
     endpoint: &Url,
     path: &str,
