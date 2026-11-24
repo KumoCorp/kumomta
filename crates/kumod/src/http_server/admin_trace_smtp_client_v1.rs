@@ -147,7 +147,11 @@ pub struct SmtpClientTraceEvent {
 impl SmtpClientTraceEvent {
     fn to_v1(mut self, detail: TraceDetail, terse: bool) -> Option<TraceSmtpClientV1Event> {
         let payload = self.payload.to_v1(detail, terse)?;
-        trace_detail::project_meta(&mut self.conn_meta, detail);
+        trace_detail::project_meta(
+            &mut self.conn_meta,
+            detail,
+            trace_detail::outbound_meta_detail,
+        );
         Some(TraceSmtpClientV1Event {
             conn_meta: self.conn_meta,
             payload,
@@ -165,6 +169,7 @@ pub enum SmtpClientTraceEventPayload {
     Command(rfc5321::Command),
     Data(Vec<u8>),
     Reply(String),
+    AuthChallengeError(String),
     Diagnostic {
         level: tracing::Level,
         message: String,
@@ -173,6 +178,19 @@ pub enum SmtpClientTraceEventPayload {
 }
 
 impl SmtpClientTraceEventPayload {
+    pub fn connection_error(err: &anyhow::Error) -> Self {
+        let message = format!("{err:#}");
+        if matches!(err.downcast_ref::<rfc5321::ClientError>(), Some(rfc5321::ClientError::Rejected(resp)) if resp.code == 334)
+        {
+            Self::AuthChallengeError(message)
+        } else {
+            Self::Diagnostic {
+                level: Level::ERROR,
+                message,
+            }
+        }
+    }
+
     fn to_v1(self, detail: TraceDetail, terse: bool) -> Option<TraceSmtpClientV1Payload> {
         Some(match self {
             Self::BeginSession => TraceSmtpClientV1Payload::BeginSession,
@@ -209,7 +227,17 @@ impl SmtpClientTraceEventPayload {
                 }
                 TraceSmtpClientV1Payload::Write(s)
             }
-            Self::Diagnostic { .. } if detail < Operational => return None,
+            Self::AuthChallengeError(_) | Self::Diagnostic { .. } if detail < Operational => {
+                return None
+            }
+            Self::AuthChallengeError(message) => TraceSmtpClientV1Payload::Diagnostic {
+                level: Level::ERROR.to_string(),
+                message: if detail == Secrets {
+                    message
+                } else {
+                    "Unexpected SMTP 334 authentication challenge".into()
+                },
+            },
             Self::Diagnostic { level, message } => TraceSmtpClientV1Payload::Diagnostic {
                 level: level.to_string(),
                 message,
@@ -332,7 +360,7 @@ async fn process_websocket_inner(
     let required = filters
         .iter()
         .filter(|(_, values)| !values.is_empty())
-        .map(|(key, _)| trace_detail::meta_detail(key))
+        .map(|(key, _)| trace_detail::outbound_meta_detail(key))
         .fold(connection_level, TraceDetail::max);
     if !subscription.allow_filter(required, &mut socket).await? {
         return Ok(());
@@ -370,10 +398,14 @@ async fn process_websocket_inner(
             continue;
         }
 
+        let is_data = matches!(event.payload, SmtpClientTraceEventPayload::Data(_));
         let Some(event) = event.to_v1(subscription.detail, request.terse) else {
             continue;
         };
-        let json = serde_json::to_string(&event)?;
+        let mut json = serde_json::to_string(&event)?;
+        if is_data && json.len() > trace_detail::MAX_FRAME_SIZE {
+            json = trace_detail::omitted_data(event.when, event.conn_meta)?;
+        }
         socket.send(Message::Text(json.into())).await?;
     }
 }
@@ -466,6 +498,35 @@ mod test {
         assert!(!matches_request(&meta, &request));
         meta["mx_address"] = json!("192.0.2.1");
         assert!(matches_request(&meta, &request));
+    }
+
+    #[test]
+    fn auth_challenge_is_withheld_in_both_trace_events() {
+        let rejection = |code| {
+            anyhow::Error::new(rfc5321::ClientError::Rejected(
+                rfc5321::Response::with_code_and_message(code, "synthetic-marker"),
+            ))
+            .context("authenticating to relay")
+        };
+        for level in [Operational, Envelope, Content, Secrets] {
+            let reply = trace_detail::reply("334 synthetic-marker".into(), level);
+            let error = SmtpClientTraceEventPayload::connection_error(&rejection(334));
+            let Some(TraceSmtpClientV1Payload::Diagnostic { message, .. }) =
+                error.to_v1(level, false)
+            else {
+                panic!("missing authentication diagnostic")
+            };
+            assert!(message.contains("334"));
+            assert_eq!(message.contains("synthetic-marker"), level == Secrets);
+            assert_eq!(reply.contains("synthetic-marker"), level == Secrets);
+        }
+        let ordinary = rejection(535);
+        let Some(TraceSmtpClientV1Payload::Diagnostic { message, .. }) =
+            SmtpClientTraceEventPayload::connection_error(&ordinary).to_v1(Operational, false)
+        else {
+            panic!("missing rejection diagnostic")
+        };
+        assert_eq!(message, format!("{ordinary:#}"));
     }
 
     #[test]

@@ -1467,7 +1467,7 @@ impl SmtpServerSession {
                             SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                                 session_id: self.session_id,
                                 conn_meta: self.meta.clone_inner(),
-                                payload: SmtpServerTraceEventPayload::Read(data[0..size].to_vec()),
+                                payload: SmtpServerTraceEventPayload::DataRead(data[0..size].to_vec()),
                                 when: Utc::now(),
                             });
                             self.read_buffer.extend_from_slice(&data[0..size]);

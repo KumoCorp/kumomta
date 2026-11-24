@@ -37,10 +37,14 @@ impl SmtpServerTraceEvent {
         ids: &RandomState,
     ) -> Option<TraceSmtpV1Event> {
         let payload = self.payload.to_v1(detail, terse)?;
+        trace_detail::project_meta(
+            &mut self.conn_meta,
+            detail,
+            trace_detail::inbound_meta_detail,
+        );
         if detail == Protocol {
             self.conn_meta["id"] = format!("{:x}", ids.hash_one(self.session_id)).into();
         }
-        trace_detail::project_meta(&mut self.conn_meta, detail);
         Some(TraceSmtpV1Event {
             conn_meta: self.conn_meta,
             payload,
@@ -54,6 +58,7 @@ pub enum SmtpServerTraceEventPayload {
     Connected,
     Closed,
     Read(Vec<u8>),
+    DataRead(Vec<u8>),
     Command(Option<rfc5321::Command>),
     AuthContinuation,
     Data {
@@ -96,7 +101,7 @@ impl SmtpServerTraceEventPayload {
         Some(match self {
             Self::Connected => TraceSmtpV1Payload::Connected,
             Self::Closed => TraceSmtpV1Payload::Closed,
-            Self::Read(_) if detail < Secrets => return None,
+            Self::Read(_) | Self::DataRead(_) if detail < Secrets => return None,
             Self::Command(_) | Self::AuthContinuation | Self::Data { .. } if detail == Secrets => {
                 return None
             }
@@ -110,7 +115,7 @@ impl SmtpServerTraceEventPayload {
                 ..
             } if detail == Content => read_payload(&bytes, terse),
             Self::Data { len, .. } => TraceSmtpV1Payload::Read(format!("[{len} bytes]")),
-            Self::Read(bytes) => read_payload(&bytes, terse),
+            Self::Read(bytes) | Self::DataRead(bytes) => read_payload(&bytes, terse),
             Self::Write(s) => TraceSmtpV1Payload::Write(trace_detail::reply(s, detail)),
             Self::Callback { .. } | Self::Diagnostic { .. } if detail < Operational => return None,
             Self::Diagnostic { level, message } => TraceSmtpV1Payload::Diagnostic {
@@ -269,8 +274,12 @@ async fn process_websocket_inner(
                     }
                 }
 
+                let is_data = matches!(event.payload, SmtpServerTraceEventPayload::Data { .. } | SmtpServerTraceEventPayload::DataRead(_));
                 let Some(event) = event.to_v1(subscription.detail, request.terse, &ids) else { continue };
-                let json = serde_json::to_string(&event)?;
+                let mut json = serde_json::to_string(&event)?;
+                if is_data && json.len() > trace_detail::MAX_FRAME_SIZE {
+                    json = trace_detail::omitted_data(event.when, event.conn_meta)?;
+                }
                 socket.send(Message::Text(json.into())).await?;
             }
 

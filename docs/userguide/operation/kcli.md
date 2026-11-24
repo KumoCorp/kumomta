@@ -192,10 +192,12 @@ Reference Manual for more information.
 | Level | Included in addition to the preceding level |
 | --- | --- |
 | `protocol` | Session timing, SMTP verbs, reply codes and message byte counts |
-| `operational` | Endpoints, diagnostics, policy errors and SMTP reply text, including addresses named by the peer |
-| `envelope` | Envelope command arguments, sender and recipients, authentication identities, queue and message identifiers |
+| `operational` | Endpoints, diagnostics, policy errors and verbatim SMTP replies. Kumo's own replies can name senders and recipients, including on a successful `MAIL FROM` or `RCPT TO`. |
+| `envelope` | Structured envelope command arguments, sender and recipient fields, authentication identities, queue and message identifiers |
 | `content` | Message data, including headers, body and attachments |
 | `secrets` | Raw protocol reads, SMTP AUTH payloads, unstructured metadata and callback results |
+
+If a DATA event exceeds 16 MiB of serialized JSON after applying the selected detail and `--terse`, the trace replaces that event with a warning and continues. This affects only trace output, not SMTP delivery.
 
 Session filters can match fields within the listener's maximum even when the requested output level is lower. A trace at `operational` or above does not scan reply or policy-error text for secrets; `content` does not scan message bodies either.
 

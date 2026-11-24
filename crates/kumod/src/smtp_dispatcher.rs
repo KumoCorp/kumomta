@@ -1301,9 +1301,9 @@ impl QueueDispatcher for SmtpDispatcher {
     ) -> anyhow::Result<AttemptConnectionDisposition> {
         self.attempt_connection_impl(dispatcher)
             .await
-            .map_err(|err| {
-                self.tracer.diagnostic(Level::ERROR, || format!("{err:#}"));
-                err
+            .inspect_err(|err| {
+                self.tracer
+                    .submit(|| SmtpClientTraceEventPayload::connection_error(err));
             })
     }
 

@@ -279,7 +279,7 @@ impl TraceSmtpClientCommand {
         let mut wanted_key = None;
 
         let (tx, mut rx) = unbounded_channel();
-        tokio::spawn(async move {
+        let reader = tokio::spawn(async move {
             while let Some(event) = socket.next().await {
                 let msg = event?;
                 tx.send(msg)?;
@@ -436,6 +436,6 @@ impl TraceSmtpClientCommand {
                 }
             }
         }
-        Ok(())
+        reader.await?
     }
 }

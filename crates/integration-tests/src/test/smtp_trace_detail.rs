@@ -87,6 +87,101 @@ async fn smtp_trace_detail_on_the_wire() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn smtp_trace_detail_oversized_data_does_not_end_the_trace() -> anyhow::Result<()> {
+    let mut daemon = DaemonWithMaildir::start_with_env(vec![
+        ("KUMOD_TEST_MAX_SMTP_TRACE_DETAIL", "content"),
+        ("KUMOD_LOG", "info"),
+    ])
+    .await?;
+    let mut traces = vec![];
+    for (direction, endpoint, reply, preview) in [
+        ("client", &daemon.source, "Read", "AbbreviatedWrite"),
+        ("server", &daemon.sink, "Write", "AbbreviatedRead"),
+    ] {
+        let url = format!(
+            "ws://{}/api/admin/trace-smtp-{direction}/v1",
+            endpoint.listener("http")
+        );
+        for terse in [false, true] {
+            let (mut ws, _) = connect_async(&url).await?;
+            ws.send(Message::text(
+                serde_json::json!({"terse": terse}).to_string(),
+            ))
+            .await?;
+            traces.push((ws, terse, reply, preview));
+        }
+    }
+    // Quotes double in JSON: the SMTP message fits in 16 MiB, but its full trace event does not.
+    let line = "\"".repeat(900) + "\r\n";
+    let message = "Subject: large trace\r\n\r\n".to_owned() + &line.repeat(9400);
+    let mut client = daemon.smtp_client().await?;
+    let response = MailGenParams {
+        full_content: Some(&message),
+        ..Default::default()
+    }
+    .send(&mut client)
+    .await?;
+    assert_eq!(response.code, 250);
+    for (mut ws, terse, reply, preview) in traces {
+        timeout(Duration::from_secs(30), async {
+            let mut omitted = false;
+            let mut saw_preview = false;
+            let mut in_data = false;
+            loop {
+                let frame = ws
+                    .next()
+                    .await
+                    .context("trace closed before final reply")??
+                    .into_text()?;
+                let event: Value = serde_json::from_str(&frame)?;
+                let payload = &event["payload"];
+                omitted |= payload["Diagnostic"]["message"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("SMTP DATA omitted"));
+                saw_preview |= payload[preview]["len"]
+                    .as_u64()
+                    .is_some_and(|n| n >= message.len() as u64);
+                let line = payload[reply].as_str().unwrap_or("");
+                if in_data && line.starts_with("250") {
+                    assert_eq!(omitted, !terse);
+                    assert_eq!(saw_preview, terse);
+                    return anyhow::Ok(());
+                }
+                in_data |= line.starts_with("354");
+            }
+        })
+        .await??;
+    }
+    daemon.stop_both().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn smtp_trace_detail_kcli_reports_read_errors() -> anyhow::Result<()> {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let endpoint = format!("http://{}", listener.local_addr()?);
+    for command in ["trace-smtp-client", "trace-smtp-server"] {
+        let cli = tokio::process::Command::new(crate::kumod::target_bin("kcli")?)
+            .args(["--endpoint", &endpoint, command])
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()?;
+        timeout(Duration::from_secs(5), async {
+            let (tcp, _) = listener.accept().await?;
+            let mut ws = tokio_tungstenite::accept_async(tcp).await?;
+            assert!(ws.next().await.context("missing subscription")??.is_text());
+            drop(ws); // TCP EOF without a WebSocket closing handshake is a read error.
+            let output = cli.wait_with_output().await?;
+            assert!(!output.status.success());
+            assert!(String::from_utf8_lossy(&output.stderr).contains("closing handshake"));
+            anyhow::Ok(())
+        })
+        .await??;
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn smtp_trace_detail_defaults_to_envelope() -> anyhow::Result<()> {
     let mut daemon = KumoDaemon::spawn_maildir().await?;
     for direction in ["server", "client"] {
