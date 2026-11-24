@@ -1,6 +1,6 @@
 use crate::delivery_metrics::MetricsWrappedConnection;
 use crate::http_server::admin_trace_smtp_client_v1::{
-    SmtpClientTraceEventPayload, SmtpClientTracerImpl,
+    connection_error_message, SmtpClientTraceEventPayload, SmtpClientTracerImpl,
 };
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::{IncrementAttempts, InsertReason, QueueManager, QueueState};
@@ -1303,7 +1303,7 @@ impl QueueDispatcher for SmtpDispatcher {
             .await
             .inspect_err(|err| {
                 self.tracer
-                    .submit(|| SmtpClientTraceEventPayload::connection_error(err));
+                    .diagnostic(Level::ERROR, || connection_error_message(err));
             })
     }
 

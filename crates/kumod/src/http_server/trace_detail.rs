@@ -61,37 +61,31 @@ impl FromRequestParts<AppState> for Subscription {
 
 pub fn command(cmd: &Command, level: TraceDetail) -> String {
     use Command::*;
-    let verb = match cmd {
-        Ehlo(_) => "EHLO",
-        Helo(_) => "HELO",
-        Lhlo(_) => "LHLO",
+    let (verb, full_at) = match cmd {
+        Ehlo(_) => ("EHLO", Operational),
+        Helo(_) => ("HELO", Operational),
+        Lhlo(_) => ("LHLO", Operational),
         MailFrom {
             address: ReversePath::NullSender,
             ..
-        } if level < Envelope => "MAIL FROM:<>",
-        MailFrom { .. } => "MAIL FROM",
-        RcptTo { .. } => "RCPT TO",
+        } => ("MAIL FROM:<>", Envelope),
+        MailFrom { .. } => ("MAIL FROM", Envelope),
+        RcptTo { .. } => ("RCPT TO", Envelope),
         Auth { .. } if level < Secrets => return cmd.encode_for_logging().to_string(),
-        Auth { .. } => "AUTH",
-        XClient(_) => "XCLIENT",
-        Unknown(_) => "[unrecognized command]",
-        Help(_) => "HELP",
-        Vrfy(_) => "VRFY",
-        Expn(_) => "EXPN",
-        Noop(_) => "NOOP",
-        Data => "DATA",
-        DataDot => ".",
-        Rset => "RSET",
-        Quit => "QUIT",
-        StartTls => "STARTTLS",
+        Auth { .. } => ("AUTH", Secrets),
+        XClient(_) => ("XCLIENT", Secrets),
+        Unknown(_) => ("[unrecognized command]", Secrets),
+        Help(_) => ("HELP", Secrets),
+        Vrfy(_) => ("VRFY", Envelope),
+        Expn(_) => ("EXPN", Envelope),
+        Noop(_) => ("NOOP", Secrets),
+        Data => ("DATA", Secrets),
+        DataDot => (".", Secrets),
+        Rset => ("RSET", Secrets),
+        Quit => ("QUIT", Secrets),
+        StartTls => ("STARTTLS", Secrets),
     };
-    let required = match cmd {
-        Ehlo(_) | Helo(_) | Lhlo(_) => Operational,
-        MailFrom { .. } | RcptTo { .. } | Vrfy(_) | Expn(_) => Envelope,
-        // Unstructured arguments and unknown commands have no lower-tier representation.
-        _ => Secrets,
-    };
-    if level >= required {
+    if level >= full_at {
         cmd.encode().to_string()
     } else {
         verb.to_owned()

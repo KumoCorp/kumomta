@@ -169,7 +169,6 @@ pub enum SmtpClientTraceEventPayload {
     Command(rfc5321::Command),
     Data(Vec<u8>),
     Reply(String),
-    AuthChallengeError(String),
     Diagnostic {
         level: tracing::Level,
         message: String,
@@ -177,20 +176,16 @@ pub enum SmtpClientTraceEventPayload {
     MessageObtained,
 }
 
-impl SmtpClientTraceEventPayload {
-    pub fn connection_error(err: &anyhow::Error) -> Self {
-        let message = format!("{err:#}");
-        if matches!(err.downcast_ref::<rfc5321::ClientError>(), Some(rfc5321::ClientError::Rejected(resp)) if resp.code == 334)
-        {
-            Self::AuthChallengeError(message)
-        } else {
-            Self::Diagnostic {
-                level: Level::ERROR,
-                message,
-            }
+pub(crate) fn connection_error_message(err: &anyhow::Error) -> String {
+    match err.downcast_ref::<rfc5321::ClientError>() {
+        Some(rfc5321::ClientError::Rejected(resp)) if resp.code == 334 => {
+            "Unexpected SMTP 334 authentication challenge".into()
         }
+        _ => format!("{err:#}"),
     }
+}
 
+impl SmtpClientTraceEventPayload {
     fn to_v1(self, detail: TraceDetail, terse: bool) -> Option<TraceSmtpClientV1Payload> {
         Some(match self {
             Self::BeginSession => TraceSmtpClientV1Payload::BeginSession,
@@ -227,17 +222,7 @@ impl SmtpClientTraceEventPayload {
                 }
                 TraceSmtpClientV1Payload::Write(s)
             }
-            Self::AuthChallengeError(_) | Self::Diagnostic { .. } if detail < Operational => {
-                return None
-            }
-            Self::AuthChallengeError(message) => TraceSmtpClientV1Payload::Diagnostic {
-                level: Level::ERROR.to_string(),
-                message: if detail == Secrets {
-                    message
-                } else {
-                    "Unexpected SMTP 334 authentication challenge".into()
-                },
-            },
+            Self::Diagnostic { .. } if detail < Operational => return None,
             Self::Diagnostic { level, message } => TraceSmtpClientV1Payload::Diagnostic {
                 level: level.to_string(),
                 message,
@@ -501,32 +486,27 @@ mod test {
     }
 
     #[test]
-    fn auth_challenge_is_withheld_in_both_trace_events() {
+    fn auth_challenge_is_only_visible_in_the_raw_reply() {
         let rejection = |code| {
             anyhow::Error::new(rfc5321::ClientError::Rejected(
                 rfc5321::Response::with_code_and_message(code, "synthetic-marker"),
             ))
             .context("authenticating to relay")
         };
-        for level in [Operational, Envelope, Content, Secrets] {
-            let reply = trace_detail::reply("334 synthetic-marker".into(), level);
-            let error = SmtpClientTraceEventPayload::connection_error(&rejection(334));
-            let Some(TraceSmtpClientV1Payload::Diagnostic { message, .. }) =
-                error.to_v1(level, false)
-            else {
-                panic!("missing authentication diagnostic")
-            };
-            assert!(message.contains("334"));
-            assert_eq!(message.contains("synthetic-marker"), level == Secrets);
-            assert_eq!(reply.contains("synthetic-marker"), level == Secrets);
+        assert_eq!(
+            connection_error_message(&rejection(334)),
+            "Unexpected SMTP 334 authentication challenge"
+        );
+        let line = "334 synthetic-marker";
+        for level in [Protocol, Operational, Envelope, Content] {
+            assert_eq!(trace_detail::reply(line.into(), level), "334");
         }
+        assert_eq!(
+            SmtpClientTraceEventPayload::Read(line.as_bytes().to_vec()).to_v1(Secrets, false),
+            Some(TraceSmtpClientV1Payload::Read(line.into()))
+        );
         let ordinary = rejection(535);
-        let Some(TraceSmtpClientV1Payload::Diagnostic { message, .. }) =
-            SmtpClientTraceEventPayload::connection_error(&ordinary).to_v1(Operational, false)
-        else {
-            panic!("missing rejection diagnostic")
-        };
-        assert_eq!(message, format!("{ordinary:#}"));
+        assert_eq!(connection_error_message(&ordinary), format!("{ordinary:#}"));
     }
 
     #[test]
