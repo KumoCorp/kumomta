@@ -132,6 +132,51 @@ async fn smtp_trace_detail_listener_caps_the_default_and_explicit_request() -> a
 }
 
 #[tokio::test]
+async fn smtp_trace_detail_protocol_id_survives_xclient() -> anyhow::Result<()> {
+    use rfc5321::{Command, XClientParameter};
+    let mut daemon = DaemonWithMaildir::start().await?;
+    let url = format!(
+        "ws://{}/api/admin/trace-smtp-server/v1?detail=protocol",
+        daemon.source.listener("http")
+    );
+    let (mut ws, _) = connect_async(url).await?;
+    ws.send(Message::text("{}")).await?;
+    let mut smtp = daemon.smtp_client().await?;
+    let switched = smtp
+        .send_command(&Command::XClient(vec![XClientParameter {
+            name: "ADDR".into(),
+            value: "192.0.2.42".into(),
+        }]))
+        .await?;
+    assert_eq!(switched.code, 220);
+    assert_eq!(smtp.send_command(&Command::Quit).await?.code, 221);
+    timeout(Duration::from_secs(5), async {
+        let mut session = None;
+        loop {
+            let frame = ws
+                .next()
+                .await
+                .context("missing Closed event")??
+                .into_text()?;
+            let event: Value = serde_json::from_str(&frame)?;
+            let id = event["conn_meta"]["id"]
+                .as_str()
+                .context("missing protocol trace id")?;
+            if event["payload"] == "Connected" {
+                session = Some(id.to_owned());
+            }
+            assert_eq!(session.as_deref(), Some(id));
+            if event["payload"] == "Closed" {
+                return anyhow::Ok(());
+            }
+        }
+    })
+    .await??;
+    daemon.stop_both().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn smtp_trace_detail_join_during_auth_continuation() -> anyhow::Result<()> {
     use rfc5321::{Command, TlsOptions};
     let mut daemon = KumoDaemon::spawn_maildir().await?;

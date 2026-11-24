@@ -8,18 +8,22 @@ use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Payload, TraceSmtpV1Request};
 use spool::SpoolId;
 use std::hash::{BuildHasher, RandomState};
 use std::net::IpAddr;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::broadcast::{channel, Receiver, Sender};
+use uuid::Uuid;
 
 static MGR: LazyLock<SmtpServerTraceManager> = LazyLock::new(|| SmtpServerTraceManager::new());
 
 pub struct SmtpServerTraceManager {
     tx: Sender<SmtpServerTraceEvent>,
+    // Each content subscription holds one clone for the life of its WebSocket.
+    content_interest: Arc<()>,
 }
 
 #[derive(Clone)]
 pub struct SmtpServerTraceEvent {
+    pub session_id: Uuid,
     pub conn_meta: serde_json::Value,
     pub payload: SmtpServerTraceEventPayload,
     pub when: DateTime<Utc>,
@@ -34,12 +38,7 @@ impl SmtpServerTraceEvent {
     ) -> Option<TraceSmtpV1Event> {
         let payload = self.payload.to_v1(detail, terse)?;
         if detail == Protocol {
-            // Correlate events without sending the endpoint addresses that identify the connection.
-            let key = (
-                self.conn_meta["received_from"].as_str(),
-                self.conn_meta["received_via"].as_str(),
-            );
-            self.conn_meta["id"] = format!("{:x}", ids.hash_one(key)).into();
+            self.conn_meta["id"] = format!("{:x}", ids.hash_one(self.session_id)).into();
         }
         trace_detail::project_meta(&mut self.conn_meta, detail);
         Some(TraceSmtpV1Event {
@@ -57,7 +56,10 @@ pub enum SmtpServerTraceEventPayload {
     Read(Vec<u8>),
     Command(Option<rfc5321::Command>),
     AuthContinuation,
-    Data(Vec<u8>),
+    Data {
+        len: usize,
+        content: Option<Arc<[u8]>>,
+    },
     Write(String),
     Diagnostic {
         level: tracing::Level,
@@ -83,12 +85,19 @@ pub enum SmtpServerTraceEventPayload {
 }
 
 impl SmtpServerTraceEventPayload {
+    pub fn data(bytes: &[u8]) -> Self {
+        Self::Data {
+            len: bytes.len(),
+            content: MGR.capture_content(bytes),
+        }
+    }
+
     fn to_v1(self, detail: TraceDetail, terse: bool) -> Option<TraceSmtpV1Payload> {
         Some(match self {
             Self::Connected => TraceSmtpV1Payload::Connected,
             Self::Closed => TraceSmtpV1Payload::Closed,
             Self::Read(_) if detail < Secrets => return None,
-            Self::Command(_) | Self::AuthContinuation | Self::Data(_) if detail == Secrets => {
+            Self::Command(_) | Self::AuthContinuation | Self::Data { .. } if detail == Secrets => {
                 return None
             }
             Self::Command(cmd) => TraceSmtpV1Payload::Read(
@@ -96,28 +105,12 @@ impl SmtpServerTraceEventPayload {
                     .unwrap_or_else(|| "[malformed command]".into()),
             ),
             Self::AuthContinuation => TraceSmtpV1Payload::Read("[AUTH continuation]".into()),
-            Self::Data(bytes) if detail < Content => {
-                TraceSmtpV1Payload::Read(format!("[{} bytes]", bytes.len()))
-            }
-            Self::Data(data) | Self::Read(data) => {
-                if terse {
-                    fn split_first_line(slice: &[u8]) -> Option<String> {
-                        let mut iter = slice.trim_ascii_end().split(|&b| b == b'\r');
-                        let snippet = iter.next()?;
-                        iter.next()?;
-                        Some(String::from_utf8_lossy(snippet).to_string())
-                    }
-
-                    if let Some(snippet) = split_first_line(&data) {
-                        return Some(TraceSmtpV1Payload::AbbreviatedRead {
-                            snippet,
-                            len: data.len(),
-                        });
-                    }
-                }
-
-                TraceSmtpV1Payload::Read(String::from_utf8_lossy(&data).to_string())
-            }
+            Self::Data {
+                content: Some(bytes),
+                ..
+            } if detail == Content => read_payload(&bytes, terse),
+            Self::Data { len, .. } => TraceSmtpV1Payload::Read(format!("[{len} bytes]")),
+            Self::Read(bytes) => read_payload(&bytes, terse),
             Self::Write(s) => TraceSmtpV1Payload::Write(trace_detail::reply(s, detail)),
             Self::Callback { .. } | Self::Diagnostic { .. } if detail < Operational => return None,
             Self::Diagnostic { level, message } => TraceSmtpV1Payload::Diagnostic {
@@ -165,10 +158,34 @@ impl SmtpServerTraceEventPayload {
     }
 }
 
+fn read_payload(data: &[u8], terse: bool) -> TraceSmtpV1Payload {
+    if terse {
+        if let Some(end) = data.trim_ascii_end().iter().position(|&b| b == b'\r') {
+            return TraceSmtpV1Payload::AbbreviatedRead {
+                snippet: String::from_utf8_lossy(&data[..end]).into_owned(),
+                len: data.len(),
+            };
+        }
+    }
+    TraceSmtpV1Payload::Read(String::from_utf8_lossy(data).into_owned())
+}
+
 impl SmtpServerTraceManager {
     pub fn new() -> Self {
         let (tx, _rx) = channel(128 * 1024);
-        Self { tx }
+        Self {
+            tx,
+            content_interest: Arc::new(()),
+        }
+    }
+
+    fn subscribe(&self, detail: TraceDetail) -> (Receiver<SmtpServerTraceEvent>, Option<Arc<()>>) {
+        let interest = (detail == Content).then(|| self.content_interest.clone());
+        (self.tx.subscribe(), interest)
+    }
+
+    fn capture_content(&self, bytes: &[u8]) -> Option<Arc<[u8]>> {
+        (Arc::strong_count(&self.content_interest) > 1).then(|| Arc::from(bytes))
     }
 
     /// Submit a trace event to any connected trace subscribers.
@@ -304,9 +321,34 @@ pub async fn trace(subscription: Subscription, ws: WebSocketUpgrade) -> impl Int
     // return and start generating traceable activity; otherwise events
     // produced in that window would be dropped by the receiver-count check in
     // SmtpServerTraceManager::submit.
-    let rx = MGR.tx.subscribe();
+    let (rx, content_interest) = MGR.subscribe(subscription.detail);
     (
         [("kumo-trace-detail", subscription.detail.to_string())],
-        ws.on_upgrade(move |socket| process_websocket(socket, rx, subscription)),
+        ws.on_upgrade(move |socket| async move {
+            let _interest = content_interest;
+            process_websocket(socket, rx, subscription).await
+        }),
     )
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn framed_body_copy_requires_a_content_subscriber() {
+        let mgr = SmtpServerTraceManager::new();
+        let _others =
+            [Protocol, Operational, Envelope, Secrets].map(|detail| mgr.subscribe(detail));
+        assert!(mgr.capture_content(b"body").is_none());
+        let first = mgr.subscribe(Content);
+        let second = mgr.subscribe(Content);
+        drop(first);
+        assert_eq!(
+            mgr.capture_content(b"body").as_deref(),
+            Some(b"body".as_slice())
+        );
+        drop(second);
+        assert!(mgr.capture_content(b"body").is_none());
+    }
 }
