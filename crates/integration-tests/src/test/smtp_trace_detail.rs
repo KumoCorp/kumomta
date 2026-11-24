@@ -217,6 +217,38 @@ async fn smtp_trace_detail_listener_caps_the_default_and_explicit_request() -> a
 }
 
 #[tokio::test]
+async fn smtp_trace_detail_metadata_is_scoped_to_the_http_listener() -> anyhow::Result<()> {
+    let mut daemon = KumoDaemon::spawn_with_policy("smtp-trace-meta.lua").await?;
+    let [default, configured] = daemon.listeners["http"][..] else {
+        anyhow::bail!("expected two HTTP listeners");
+    };
+    let mut traces = vec![];
+    for (addr, level, route, customer) in [
+        (default, "envelope", None, None),
+        (configured, "operational", Some("bulk"), None),
+        (configured, "envelope", Some("bulk"), Some("example")),
+    ] {
+        let url = format!("ws://{addr}/api/admin/trace-smtp-server/v1?detail={level}");
+        traces.push((subscribe(&url, level, false).await?, route, customer));
+    }
+    daemon.smtp_client("localhost").await?;
+    for (mut ws, route, customer) in traces {
+        let frame = timeout(Duration::from_secs(5), ws.next())
+            .await?
+            .context("trace closed before Connected")??;
+        let event: Value = serde_json::from_str(&frame.into_text()?)?;
+        assert_eq!(event["payload"], "Connected");
+        let meta = &event["conn_meta"];
+        assert_eq!(meta.get("x_route"), route.map(Value::from).as_ref());
+        assert_eq!(meta.get("x_customer"), customer.map(Value::from).as_ref());
+        assert!(meta.get("x_auth_context").is_none());
+        assert!(meta.get("legacy_key").is_none());
+    }
+    daemon.stop().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn smtp_trace_detail_join_during_auth_continuation() -> anyhow::Result<()> {
     use rfc5321::{Command, TlsOptions};
     let mut daemon = KumoDaemon::spawn_maildir_env(vec![(

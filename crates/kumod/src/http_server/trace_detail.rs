@@ -4,21 +4,21 @@ use axum::http::{request::Parts, StatusCode};
 use chrono::{DateTime, Utc};
 use kumo_api_types::TraceDetail::{self, *};
 use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Payload};
-use kumo_server_common::http_server::{AppError, AppState};
+use kumo_server_common::http_server::{AppError, AppState, TraceMetaKeyLevels};
 use rfc5321::{Command, ReversePath};
 use serde::Deserialize;
 use serde_json::Value;
 
-#[derive(Clone, Copy)]
 pub struct Subscription {
     pub detail: TraceDetail,
+    pub inbound_meta: TraceMetaKeyLevels,
     ceiling: TraceDetail,
 }
 
 impl Subscription {
     // A filter on a field above the listener's ceiling could disclose it by matching.
     pub async fn allow_filter(
-        self,
+        &self,
         required: TraceDetail,
         ws: &mut WebSocket,
     ) -> anyhow::Result<bool> {
@@ -44,7 +44,8 @@ impl FromRequestParts<AppState> for Subscription {
         }
         let Query(options) = Query::<Options>::try_from_uri(&parts.uri)
             .map_err(|err| AppError::new(StatusCode::BAD_REQUEST, err.to_string()))?;
-        let ceiling = state.params().max_smtp_trace_detail;
+        let params = state.params();
+        let ceiling = params.max_smtp_trace_detail;
         let level = options.detail.unwrap_or(ceiling);
         if level > ceiling {
             return Err(AppError::new(
@@ -54,6 +55,7 @@ impl FromRequestParts<AppState> for Subscription {
         }
         Ok(Self {
             detail: level,
+            inbound_meta: params.smtp_trace_meta_detail.inbound_connection.clone(),
             ceiling,
         })
     }
@@ -131,7 +133,11 @@ pub fn omitted_data(when: DateTime<Utc>, conn_meta: Value) -> serde_json::Result
     serde_json::to_string(&event)
 }
 
-pub fn project_meta(meta: &mut Value, detail: TraceDetail, field_level: fn(&str) -> TraceDetail) {
+pub fn project_meta(
+    meta: &mut Value,
+    detail: TraceDetail,
+    field_level: impl Fn(&str) -> TraceDetail,
+) {
     if detail == Secrets {
         return;
     }
@@ -140,7 +146,7 @@ pub fn project_meta(meta: &mut Value, detail: TraceDetail, field_level: fn(&str)
     }
 }
 
-pub fn inbound_meta_detail(key: &str) -> TraceDetail {
+pub fn inbound_meta_detail(key: &str, levels: &TraceMetaKeyLevels) -> TraceDetail {
     match key {
         "tls_protocol_version" => Protocol,
         "received_from" | "received_via" | "orig_received_from" | "orig_received_via"
@@ -148,6 +154,12 @@ pub fn inbound_meta_detail(key: &str) -> TraceDetail {
             Operational
         }
         "authn_id" | "authz_id" | "tls_peer_subject_name" => Envelope,
+        _ if key.starts_with("x_") => levels
+            .keys
+            .get(key)
+            .copied()
+            .or(levels.default_for_x_keys)
+            .unwrap_or(Secrets),
         _ => Secrets,
     }
 }
@@ -172,7 +184,10 @@ mod test {
         let outbound = serde_json::json!({"mx_plan": ["example.test"]});
         let mut inbound = outbound.clone();
         let mut projected = outbound.clone();
-        project_meta(&mut inbound, Operational, inbound_meta_detail);
+        let levels = TraceMetaKeyLevels::default();
+        project_meta(&mut inbound, Operational, |k| {
+            inbound_meta_detail(k, &levels)
+        });
         project_meta(&mut projected, Operational, outbound_meta_detail);
         assert_eq!(inbound, serde_json::json!({}));
         assert_eq!(projected, outbound);

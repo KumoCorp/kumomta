@@ -27,7 +27,10 @@ If the troubleshooting steps do not help you resolve your issue, please make sur
 
 1. An example of the Swaks call that reproduces the issue. See the [Swaks documentation](http://www.jetmore.org/john/code/swaks/latest/doc/ref.txt) for instructions on how to use Swaks. This allows us to reproduce the issue and removes external factors from the issue at hand.
 
-1. A trace of the communications in question gathered using the `kcli trace-smtp-server` command.
+1. An SMTP trace: run `kcli trace-smtp-server --trace-detail envelope` for inbound mail or `kcli trace-smtp-client --trace-detail envelope` for outbound mail. Review the trace before sharing it. If the listener permits [higher trace levels](../operation/kcli.md#choosing-smtp-trace-detail):
+
+    - For DKIM signing issues, send a test message and use `--trace-detail content` on the outbound trace to inspect the `DKIM-Signature` header and the body KumoMTA sent.
+    - For SMTP AUTH issues, start with the server's reply at `envelope`. If you need the raw AUTH exchange, use `--trace-detail secrets` on a test instance with disposable credentials. The trace can expose reusable passwords.
 
 1. Relevant log lines from the KumoMTA logs.
 

@@ -61,7 +61,8 @@ strings or numbers, but may also be an array or object value.
 To avoid collisions with current and future predefined keys, prefix your own
 meta keys with `x_`. See the
 [set_meta naming convention](message/set_meta.md#naming-convention-for-user-defined-keys)
-for the rationale.
+for the rationale. To choose when these keys appear in inbound SMTP traces, see
+[smtp_trace_meta_detail](kumo/start_http_listener/smtp_trace_meta_detail.md).
 
 ### `conn_meta:auth_info()`
 

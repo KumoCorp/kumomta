@@ -12,8 +12,10 @@ use cidr_map::CidrSet;
 use data_loader::KeySource;
 use kumo_server_memory::{get_usage_and_limit, tracking_stats, JemallocStats};
 use kumo_server_runtime::spawn;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use tower_http::compression::CompressionLayer;
 use tower_http::decompression::RequestDecompressionLayer;
 use tower_http::trace::TraceLayer;
@@ -47,6 +49,32 @@ impl utoipa::Modify for OptionalAuth {
     }
 }
 
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct SmtpTraceMetaDetail {
+    pub inbound_connection: TraceMetaKeyLevels,
+}
+
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct TraceMetaKeyLevels {
+    pub default_for_x_keys: Option<TraceDetail>,
+    #[serde(deserialize_with = "deserialize_x_keys")]
+    pub keys: Arc<HashMap<String, TraceDetail>>,
+}
+
+fn deserialize_x_keys<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Arc<HashMap<String, TraceDetail>>, D::Error> {
+    let keys = HashMap::<String, TraceDetail>::deserialize(deserializer)?;
+    if let Some(key) = keys.keys().find(|k| !k.starts_with("x_")) {
+        return Err(serde::de::Error::custom(format!(
+            "SMTP trace metadata key {key:?} must start with x_"
+        )));
+    }
+    Ok(Arc::new(keys))
+}
+
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct HttpListenerParams {
@@ -69,6 +97,9 @@ pub struct HttpListenerParams {
 
     #[serde(default = "HttpListenerParams::default_max_smtp_trace_detail")]
     pub max_smtp_trace_detail: TraceDetail,
+
+    #[serde(default)]
+    pub smtp_trace_meta_detail: SmtpTraceMetaDetail,
 
     #[serde(default)]
     pub tls_certificate: Option<KeySource>,
@@ -699,4 +730,13 @@ async fn set_diagnostic_log_filter_v1(
 fn http_listener_defaults_to_envelope_trace_detail() {
     let listener: HttpListenerParams = serde_json::from_str("{}").unwrap();
     assert_eq!(listener.max_smtp_trace_detail, TraceDetail::Envelope);
+}
+
+#[test]
+fn http_listener_rejects_trace_overrides_outside_the_x_namespace() {
+    let err = serde_json::from_value::<HttpListenerParams>(serde_json::json!({
+        "smtp_trace_meta_detail": { "inbound_connection": { "keys": { "authn_id": "protocol" } } }
+    }))
+    .unwrap_err();
+    assert!(err.to_string().contains("must start with x_"), "{err}");
 }

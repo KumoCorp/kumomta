@@ -5,6 +5,7 @@ use axum::response::IntoResponse;
 use chrono::{DateTime, Utc};
 use kumo_api_types::TraceDetail::{self, *};
 use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Payload, TraceSmtpV1Request};
+use kumo_server_common::http_server::TraceMetaKeyLevels;
 use spool::SpoolId;
 use std::hash::{BuildHasher, RandomState};
 use std::net::IpAddr;
@@ -35,13 +36,12 @@ impl SmtpServerTraceEvent {
         detail: TraceDetail,
         terse: bool,
         ids: &RandomState,
+        levels: &TraceMetaKeyLevels,
     ) -> Option<TraceSmtpV1Event> {
         let payload = self.payload.to_v1(detail, terse)?;
-        trace_detail::project_meta(
-            &mut self.conn_meta,
-            detail,
-            trace_detail::inbound_meta_detail,
-        );
+        trace_detail::project_meta(&mut self.conn_meta, detail, |k| {
+            trace_detail::inbound_meta_detail(k, levels)
+        });
         if detail == Protocol {
             self.conn_meta["id"] = format!("{:x}", ids.hash_one(self.session_id)).into();
         }
@@ -275,7 +275,7 @@ async fn process_websocket_inner(
                 }
 
                 let is_data = matches!(event.payload, SmtpServerTraceEventPayload::Data { .. } | SmtpServerTraceEventPayload::DataRead(_));
-                let Some(event) = event.to_v1(subscription.detail, request.terse, &ids) else { continue };
+                let Some(event) = event.to_v1(subscription.detail, request.terse, &ids, &subscription.inbound_meta) else { continue };
                 let mut json = serde_json::to_string(&event)?;
                 if is_data && json.len() > trace_detail::MAX_FRAME_SIZE {
                     json = trace_detail::omitted_data(event.when, event.conn_meta)?;
@@ -354,7 +354,10 @@ mod test {
                 payload: SmtpServerTraceEventPayload::Connected,
                 when: Utc::now(),
             };
-            event.to_v1(Protocol, false, &ids).unwrap().conn_meta["id"]
+            event
+                .to_v1(Protocol, false, &ids, &Default::default())
+                .unwrap()
+                .conn_meta["id"]
                 .as_str()
                 .unwrap()
                 .to_owned()
