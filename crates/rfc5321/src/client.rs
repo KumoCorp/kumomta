@@ -295,6 +295,10 @@ impl SmtpClient {
         self.enable_pipelining = enable;
     }
 
+    fn can_pipeline(&self) -> bool {
+        self.enable_pipelining && self.capabilities.contains_key("PIPELINING")
+    }
+
     pub fn set_tracer(&mut self, tracer: Arc<dyn SmtpClientTracer + Send + Sync>) {
         self.tracer.replace(tracer);
     }
@@ -652,8 +656,7 @@ impl SmtpClient {
     ) -> Vec<Result<Response, ClientError>> {
         let mut results: Vec<Result<Response, ClientError>> = vec![];
 
-        let pipeline = self.enable_pipelining && self.capabilities.contains_key("PIPELINING");
-        if pipeline {
+        if self.can_pipeline() {
             if let Err(err) = self.write_pipeline_request(&commands).await {
                 let err: ClientError = err;
                 results.push(Err(err.clone()));
@@ -1071,7 +1074,10 @@ impl SmtpClient {
                 parameters: vec![],
             });
         }
-        commands.push(Command::Data);
+        // Without PIPELINING, wait for the envelope replies before sending DATA.
+        if self.can_pipeline() {
+            commands.push(Command::Data);
+        }
 
         // Assume that something might break below: if it does, we want
         // to ensure that we RSET the connection on the next go around.
@@ -1109,12 +1115,8 @@ impl SmtpClient {
             return Err(ClientError::RejectedBatch(rcpt_responses));
         }
 
-        let data_resp = responses.remove(0)?;
-        if is_err && data_resp.code != 354 {
-            return Err(ClientError::Rejected(data_resp));
-        }
-
-        if data_resp.code == 354
+        let pipelined_data_resp = responses.pop().transpose()?;
+        if pipelined_data_resp.as_ref().is_some_and(|r| r.code == 354)
             && (mail_resp.code != 250 || rcpt_responses.iter().all(|resp| resp.code != 250))
         {
             // RFC 2920 3.1:
@@ -1148,6 +1150,11 @@ impl SmtpClient {
             }
             return Err(ClientError::RejectedBatch(rcpt_responses));
         }
+
+        let data_resp = match pipelined_data_resp {
+            Some(resp) => resp,
+            None => self.send_command(&Command::Data).await?,
+        };
         if data_resp.code != 354 {
             return Err(ClientError::Rejected(data_resp));
         }
@@ -1324,6 +1331,67 @@ mod test {
         panic!("{resp:#?}");
     }
     */
+
+    async fn send_to_test_peer(
+        recipients: &[&str],
+        replies: &[u8],
+    ) -> (Result<BatchSendSuccess, ClientError>, String) {
+        let (stream, mut peer) = tokio::net::UnixStream::pair().unwrap();
+        peer.write_all(replies).await.unwrap();
+        // An unexpected command sees EOF rather than waiting for a reply.
+        peer.shutdown().await.unwrap();
+        let mut client =
+            SmtpClient::with_stream(stream, "mx.example", SmtpClientTimeouts::default());
+        client.set_enable_pipelining(true);
+        client.ehlo("client.example").await.unwrap();
+        let result = client
+            .send_mail_multi_recip(
+                ReversePath::try_from("sender@example.com").unwrap(),
+                recipients
+                    .iter()
+                    .map(|r| ForwardPath::try_from(*r).unwrap())
+                    .collect(),
+                b"body\r\n",
+            )
+            .await;
+        drop(client);
+        let mut sent = String::new();
+        peer.read_to_string(&mut sent).await.unwrap();
+        (result, sent)
+    }
+
+    #[tokio::test]
+    async fn non_pipelined_rcpt_rejection_skips_data() {
+        let (result, sent) = send_to_test_peer(
+            &["missing@example.com"],
+            b"250 mx.example\r\n250 OK\r\n550 Mailbox unavailable\r\n354 Send data\r\n",
+        )
+        .await;
+        assert_eq!(sent.lines().last(), Some("RCPT TO:<missing@example.com>"));
+        assert!(matches!(result, Err(ClientError::Rejected(r)) if r.code == 550));
+    }
+
+    #[tokio::test]
+    async fn non_pipelined_partial_rcpt_rejection_sends_data() {
+        let (result, sent) = send_to_test_peer(
+            &["missing@example.com", "ok@example.com"],
+            b"250 mx.example\r\n250 OK\r\n550 Mailbox unavailable\r\n250 OK\r\n354 Send data\r\n250 Queued\r\n",
+        )
+        .await;
+        result.unwrap();
+        assert!(sent.ends_with("DATA\r\nbody\r\n.\r\n"));
+    }
+
+    #[tokio::test]
+    async fn pipelined_rcpt_rejection_terminates_accepted_data() {
+        let (result, sent) = send_to_test_peer(
+            &["missing@example.com"],
+            b"250-mx.example\r\n250 PIPELINING\r\n250 OK\r\n550 Mailbox unavailable\r\n354 Send data\r\n250 OK\r\n",
+        )
+        .await;
+        assert!(matches!(result, Err(ClientError::Rejected(r)) if r.code == 550));
+        assert!(sent.ends_with("DATA\r\n.\r\n"));
+    }
 
     #[test]
     fn response_line_parsing() {
