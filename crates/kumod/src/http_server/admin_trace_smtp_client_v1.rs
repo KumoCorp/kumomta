@@ -199,10 +199,7 @@ impl SmtpClientTraceEventPayload {
     }
 }
 
-fn addr_from_meta(meta: &serde_json::Value, key: &str) -> Option<IpAddr> {
-    let addr = meta.get(key)?;
-    let addr = addr.as_str()?;
-
+fn ip_from_addr(addr: &str) -> Option<IpAddr> {
     match addr.parse::<SocketAddr>() {
         Ok(addr) => Some(addr.ip()),
         Err(_) => addr.parse::<IpAddr>().ok(),
@@ -213,19 +210,17 @@ fn mx_matches(meta: &serde_json::Value, request: &TraceSmtpClientV1Request) -> b
     if request.mx_host.is_empty() && request.mx_addr.is_none() {
         return true;
     }
-    let matches = |peer: &serde_json::Value, host_key: &str, addr_key: &str| {
+    let matches_peer = |host: Option<&str>, addr: Option<&str>| {
         let host_matches = request.mx_host.is_empty()
-            || request
-                .mx_host
-                .iter()
-                .any(|host| peer[host_key] == host.as_str());
+            || host.is_some_and(|host| request.mx_host.iter().any(|name| name == host));
         host_matches
             && request.mx_addr.as_ref().is_none_or(|cidrs| {
-                addr_from_meta(peer, addr_key).is_some_and(|ip| cidrs.contains(ip))
+                addr.and_then(ip_from_addr)
+                    .is_some_and(|ip| cidrs.contains(ip))
             })
     };
-    if meta.get("mx_address").is_some() {
-        return matches(meta, "mx_host", "mx_address");
+    if let Some(addr) = meta.get("mx_address") {
+        return matches_peer(meta["mx_host"].as_str(), addr.as_str());
     }
 
     // Before the first connection, at least one planned MX must satisfy both filters.
@@ -233,12 +228,24 @@ fn mx_matches(meta: &serde_json::Value, request: &TraceSmtpClientV1Request) -> b
     if plan == "NullMx" {
         return false;
     }
-    plan["Addresses"]
-        .as_array()
-        .is_none_or(|addresses| addresses.iter().any(|peer| matches(peer, "name", "addr")))
+    plan["Addresses"].as_array().is_none_or(|addresses| {
+        addresses
+            .iter()
+            .any(|peer| matches_peer(peer["name"].as_str(), peer["addr"].as_str()))
+    })
 }
 
-fn is_excluded(meta: &serde_json::Value, request: &TraceSmtpClientV1Request) -> bool {
+fn matches_request(meta: &serde_json::Value, request: &TraceSmtpClientV1Request) -> bool {
+    if let Some(cidrs) = &request.source_addr {
+        if meta["source_address"]
+            .as_str()
+            .and_then(ip_from_addr)
+            .is_some_and(|ip| !cidrs.contains(ip))
+        {
+            return false;
+        }
+    }
+
     for (key, candidates) in [
         ("campaign", &request.campaign),
         ("domain", &request.domain),
@@ -269,10 +276,10 @@ fn is_excluded(meta: &serde_json::Value, request: &TraceSmtpClientV1Request) -> 
             _ => continue,
         };
         if !matched {
-            return true;
+            return false;
         }
     }
-    !mx_matches(meta, request)
+    mx_matches(meta, request)
 }
 
 async fn process_websocket_inner(
@@ -318,15 +325,7 @@ async fn process_websocket_inner(
             }
         };
 
-        if let Some(cidrset) = &request.source_addr {
-            if let Some(src) = addr_from_meta(&event.conn_meta, "source_address") {
-                if !cidrset.contains(src) {
-                    continue;
-                }
-            }
-        }
-
-        if is_excluded(&event.conn_meta, &request) {
+        if !matches_request(&event.conn_meta, &request) {
             continue;
         }
 
@@ -361,6 +360,18 @@ mod test {
     use serde_json::json;
 
     #[test]
+    fn source_filter_allows_setup_and_matches_the_connected_source() {
+        let request = TraceSmtpClientV1Request {
+            source_addr: Some(vec!["192.0.2.0/24"].try_into().unwrap()),
+            ..Default::default()
+        };
+        let matches = |meta| matches_request(&meta, &request);
+        assert!(matches(json!({})));
+        assert!(matches(json!({"source_address": "192.0.2.4:54321"})));
+        assert!(!matches(json!({"source_address": "198.51.100.1:54321"})));
+    }
+
+    #[test]
     fn mx_filters_match_one_candidate_before_connecting() {
         let plan = json!({"mx_plan": {"Addresses": [
             {"name": "first.example", "addr": "192.0.2.1"},
@@ -374,15 +385,15 @@ mod test {
             mx_addr: Some(vec![cidr].try_into().unwrap()),
             ..Default::default()
         };
-        assert!(is_excluded(&plan, &by_host("other.example")));
-        assert!(is_excluded(&plan, &by_addr("198.51.100.0/24")));
+        assert!(!matches_request(&plan, &by_host("other.example")));
+        assert!(!matches_request(&plan, &by_addr("198.51.100.0/24")));
         let mut request = by_addr("2001:db8::/32");
         request.mx_host = vec!["first.example".into()];
-        assert!(is_excluded(&plan, &request)); // Host and IP match different candidates.
+        assert!(!matches_request(&plan, &request)); // Host and IP match different candidates.
         request.mx_host = vec!["second.example".into()];
-        assert!(!is_excluded(&plan, &request));
-        assert!(is_excluded(&json!({"mx_plan": "NullMx"}), &request));
-        assert!(is_excluded(
+        assert!(matches_request(&plan, &request));
+        assert!(!matches_request(&json!({"mx_plan": "NullMx"}), &request));
+        assert!(!matches_request(
             &json!({"mx_plan": {"Addresses": []}}),
             &request
         ));
@@ -398,12 +409,12 @@ mod test {
             {"name": "mx.example", "addr": "192.0.2.1"},
             {"name": "mx.example", "addr": "198.51.100.2"}
         ]}});
-        assert!(!is_excluded(&meta, &request));
+        assert!(matches_request(&meta, &request));
         meta["mx_host"] = json!("mx.example");
         meta["mx_address"] = json!("198.51.100.2");
-        assert!(is_excluded(&meta, &request));
+        assert!(!matches_request(&meta, &request));
         meta["mx_address"] = json!("192.0.2.1");
-        assert!(!is_excluded(&meta, &request));
+        assert!(matches_request(&meta, &request));
     }
 
     #[test]
@@ -413,9 +424,9 @@ mod test {
             rcpt_to: vec!["first@example.test".into()],
             ..Default::default()
         };
-        let excluded = |name| is_excluded(&json!({"ready_queue_name": name}), &request);
-        assert!(!excluded("wanted"));
-        assert!(excluded("other"));
+        let matches = |name| matches_request(&json!({"ready_queue_name": name}), &request);
+        assert!(matches("wanted"));
+        assert!(!matches("other"));
     }
 
     #[test]
@@ -426,11 +437,11 @@ mod test {
             routing_domain: vec!["relay.example".into()],
             ..Default::default()
         };
-        assert!(!is_excluded(&json!({}), &request));
+        assert!(matches_request(&json!({}), &request));
         let message = json!({
             "message_id": "id", "campaign": "campaign", "tenant": "tenant", "routing_domain": "relay.example"
         });
-        assert!(!is_excluded(&message, &request));
+        assert!(matches_request(&message, &request));
         for field in ["campaign", "tenant", "routing_domain"] {
             let mut missing = message.clone();
             if field == "routing_domain" {
@@ -438,7 +449,7 @@ mod test {
             } else {
                 missing.as_object_mut().unwrap().remove(field);
             }
-            assert!(is_excluded(&missing, &request), "missing {field}");
+            assert!(!matches_request(&missing, &request), "missing {field}");
         }
     }
 
@@ -448,10 +459,10 @@ mod test {
             rcpt_to: vec!["first@example.test".into(), "second@example.test".into()],
             ..Default::default()
         };
-        let excluded =
-            |recipients: &[&str]| is_excluded(&json!({"recipient": recipients}), &request);
-        assert!(!excluded(&["other@example.test", "second@example.test"]));
-        assert!(excluded(&["other@example.test"]));
-        assert!(excluded(&[]));
+        let matches =
+            |recipients: &[&str]| matches_request(&json!({"recipient": recipients}), &request);
+        assert!(matches(&["other@example.test", "second@example.test"]));
+        assert!(!matches(&["other@example.test"]));
+        assert!(!matches(&[]));
     }
 }
