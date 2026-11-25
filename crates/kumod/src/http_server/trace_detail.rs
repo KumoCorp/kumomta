@@ -1,6 +1,7 @@
 use axum::extract::ws::{close_code, CloseFrame, Message, WebSocket};
 use axum::extract::{FromRequestParts, Query};
-use axum::http::{request::Parts, StatusCode};
+use axum::http::request::Parts;
+use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use kumo_api_types::TraceDetail::{self, *};
 use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Payload};

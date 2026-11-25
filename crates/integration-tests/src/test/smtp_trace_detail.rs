@@ -4,11 +4,8 @@ use futures::{SinkExt, StreamExt};
 use serde_json::Value;
 use std::time::Duration;
 use tokio::time::timeout;
-use tokio_tungstenite::{
-    connect_async,
-    tungstenite::{Error, Message},
-    MaybeTlsStream, WebSocketStream,
-};
+use tokio_tungstenite::tungstenite::{Error, Message};
+use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
 type TraceSocket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
