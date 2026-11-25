@@ -35,7 +35,7 @@ The main session property that is known at initiation is the ready queue name, s
 
 * `--mx-addr <MX_ADDR>` — Add an address (in CIDR format) to the list of MX host addresses that we want to filter by. If any are specified, then only connections made to a matching address will be traced. If no addresses are specified, any/all outgoing SMTP connections will be traced.
 
-     A given session may communicate with multiple MX addresses over its lifetime. This filter uses the MX address of the most recent successful TCP connection.
+     Before the first connection, at least one address in the MX plan must match. After connecting, the filter uses the most recently connected MX.
 
      Can be used multiple times to add multiple candidate addresses.
 
@@ -43,7 +43,7 @@ The main session property that is known at initiation is the ready queue name, s
 
 * `--mx-host <MX_HOST>` — The MX hostname to match. If omitted, any MX hostname will match!
 
-     A given session may communicate with multiple MX addresses over its lifetime. The full list of MX addresses is not known at session initiation, and is filled in after they have been resolved.
+     Before the first connection, match a hostname in the MX plan. If --mx-addr is also specified, the same candidate must match both filters. After connecting, match the most recently connected MX.
 
 * `--domain <DOMAIN>` — The domain name to match. If omitted, any domains will match!
 

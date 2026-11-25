@@ -209,13 +209,41 @@ fn addr_from_meta(meta: &serde_json::Value, key: &str) -> Option<IpAddr> {
     }
 }
 
+fn mx_matches(meta: &serde_json::Value, request: &TraceSmtpClientV1Request) -> bool {
+    if request.mx_host.is_empty() && request.mx_addr.is_none() {
+        return true;
+    }
+    let matches = |peer: &serde_json::Value, host_key: &str, addr_key: &str| {
+        let host_matches = request.mx_host.is_empty()
+            || request
+                .mx_host
+                .iter()
+                .any(|host| peer[host_key] == host.as_str());
+        host_matches
+            && request.mx_addr.as_ref().is_none_or(|cidrs| {
+                addr_from_meta(peer, addr_key).is_some_and(|ip| cidrs.contains(ip))
+            })
+    };
+    if meta.get("mx_address").is_some() {
+        return matches(meta, "mx_host", "mx_address");
+    }
+
+    // Before the first connection, at least one planned MX must satisfy both filters.
+    let plan = &meta["mx_plan"];
+    if plan == "NullMx" {
+        return false;
+    }
+    plan["Addresses"]
+        .as_array()
+        .is_none_or(|addresses| addresses.iter().any(|peer| matches(peer, "name", "addr")))
+}
+
 fn is_excluded(meta: &serde_json::Value, request: &TraceSmtpClientV1Request) -> bool {
     for (key, candidates) in [
         ("campaign", &request.campaign),
         ("domain", &request.domain),
         ("egress_pool", &request.egress_pool),
         ("egress_source", &request.egress_source),
-        ("mx_host", &request.mx_host),
         ("ready_queue_name", &request.ready_queue),
         ("recipient", &request.rcpt_to),
         ("routing_domain", &request.routing_domain),
@@ -244,7 +272,7 @@ fn is_excluded(meta: &serde_json::Value, request: &TraceSmtpClientV1Request) -> 
             return true;
         }
     }
-    false
+    !mx_matches(meta, request)
 }
 
 async fn process_websocket_inner(
@@ -297,13 +325,6 @@ async fn process_websocket_inner(
                 }
             }
         }
-        if let Some(cidrset) = &request.mx_addr {
-            if let Some(src) = addr_from_meta(&event.conn_meta, "mx_address") {
-                if !cidrset.contains(src) {
-                    continue;
-                }
-            }
-        }
 
         if is_excluded(&event.conn_meta, &request) {
             continue;
@@ -338,6 +359,52 @@ pub async fn trace(ws: WebSocketUpgrade) -> impl IntoResponse {
 mod test {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn mx_filters_match_one_candidate_before_connecting() {
+        let plan = json!({"mx_plan": {"Addresses": [
+            {"name": "first.example", "addr": "192.0.2.1"},
+            {"name": "second.example", "addr": "[2001:db8::1]:25"}
+        ]}});
+        let by_host = |name: &str| TraceSmtpClientV1Request {
+            mx_host: vec![name.into()],
+            ..Default::default()
+        };
+        let by_addr = |cidr: &str| TraceSmtpClientV1Request {
+            mx_addr: Some(vec![cidr].try_into().unwrap()),
+            ..Default::default()
+        };
+        assert!(is_excluded(&plan, &by_host("other.example")));
+        assert!(is_excluded(&plan, &by_addr("198.51.100.0/24")));
+        let mut request = by_addr("2001:db8::/32");
+        request.mx_host = vec!["first.example".into()];
+        assert!(is_excluded(&plan, &request)); // Host and IP match different candidates.
+        request.mx_host = vec!["second.example".into()];
+        assert!(!is_excluded(&plan, &request));
+        assert!(is_excluded(&json!({"mx_plan": "NullMx"}), &request));
+        assert!(is_excluded(
+            &json!({"mx_plan": {"Addresses": []}}),
+            &request
+        ));
+    }
+
+    #[test]
+    fn connected_mx_takes_precedence_over_the_plan() {
+        let request = TraceSmtpClientV1Request {
+            mx_addr: Some(vec!["192.0.2.0/24"].try_into().unwrap()),
+            ..Default::default()
+        };
+        let mut meta = json!({"mx_plan": {"Addresses": [
+            {"name": "mx.example", "addr": "192.0.2.1"},
+            {"name": "mx.example", "addr": "198.51.100.2"}
+        ]}});
+        assert!(!is_excluded(&meta, &request));
+        meta["mx_host"] = json!("mx.example");
+        meta["mx_address"] = json!("198.51.100.2");
+        assert!(is_excluded(&meta, &request));
+        meta["mx_address"] = json!("192.0.2.1");
+        assert!(!is_excluded(&meta, &request));
+    }
 
     #[test]
     fn ready_queue_filters_setup_events_before_recipients_are_known() {
