@@ -208,7 +208,7 @@ impl TraceSmtpClientCommand {
             None
         } else {
             let set = CidrSet::try_from(self.mx_addr.clone())
-                .map_err(|err| anyhow::anyhow!("invalid --mx-host value(s): {err:#}"))?;
+                .map_err(|err| anyhow::anyhow!("invalid --mx-addr value(s): {err:#}"))?;
             Some(set)
         };
 
