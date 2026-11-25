@@ -56,18 +56,18 @@ pub struct TraceSmtpClientCommand {
     #[arg(long)]
     pub source: Vec<String>,
 
-    /// Add an address (in CIDR format) to the list of MX host addresses
-    /// that we want to filter by. If any are specified, then only
-    /// connections made to a matching address will be traced.
-    /// If no addresses are specified, any/all outgoing SMTP connections
-    /// will be traced.
+    /// Filter outbound SMTP trace events by destination IP address or CIDR range.
+    /// Omit this option to allow any destination IP, or repeat it to match multiple ranges.
     ///
-    /// Before the first connection, at least one address in the MX plan must
-    /// match. After connecting, the filter uses the most recently connected MX.
+    /// Before the first TCP connection succeeds, Kumo checks the list of MX addresses
+    /// it may try. If any address matches, Kumo shows setup events for that delivery
+    /// worker, including attempts to connect to other addresses in the list. After a
+    /// connection succeeds, Kumo filters events by that peer's IP until the worker
+    /// successfully connects to another peer.
     ///
-    /// Can be used multiple times to add multiple candidate addresses.
-    ///
-    /// Eg: --mx-addr 10.0.0.1 --mx-addr 192.168.1.0/24
+    /// For example, with `--mx-addr 192.0.2.10/32`, you may see
+    /// `Attempting connection to 192.0.2.20:25` if both addresses are candidates.
+    /// If the connection to 192.0.2.20 succeeds, its SMTP conversation is not shown.
     #[arg(long)]
     pub mx_addr: Vec<String>,
 
