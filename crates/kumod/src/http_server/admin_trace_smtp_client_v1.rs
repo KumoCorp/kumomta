@@ -233,6 +233,11 @@ fn is_excluded(meta: &serde_json::Value, request: &TraceSmtpClientV1Request) -> 
                 .iter()
                 .filter_map(serde_json::Value::as_str)
                 .any(matches),
+            // Before the first message these fields are unknown. Once a message is
+            // selected, an unset field cannot match a requested value.
+            _ if matches!(key, "campaign" | "tenant" | "routing_domain") => {
+                meta.get("message_id").is_none()
+            }
             _ => continue,
         };
         if !matched {
@@ -344,6 +349,30 @@ mod test {
         let excluded = |name| is_excluded(&json!({"ready_queue_name": name}), &request);
         assert!(!excluded("wanted"));
         assert!(excluded("other"));
+    }
+
+    #[test]
+    fn optional_message_fields_must_match_once_a_message_is_selected() {
+        let request = TraceSmtpClientV1Request {
+            campaign: vec!["campaign".into()],
+            tenant: vec!["tenant".into()],
+            routing_domain: vec!["relay.example".into()],
+            ..Default::default()
+        };
+        assert!(!is_excluded(&json!({}), &request));
+        let message = json!({
+            "message_id": "id", "campaign": "campaign", "tenant": "tenant", "routing_domain": "relay.example"
+        });
+        assert!(!is_excluded(&message, &request));
+        for field in ["campaign", "tenant", "routing_domain"] {
+            let mut missing = message.clone();
+            if field == "routing_domain" {
+                missing[field] = serde_json::Value::Null;
+            } else {
+                missing.as_object_mut().unwrap().remove(field);
+            }
+            assert!(is_excluded(&missing, &request), "missing {field}");
+        }
     }
 
     #[test]

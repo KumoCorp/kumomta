@@ -15,7 +15,7 @@ Sessions are logged in real time.
 
 Take care on a busy server with live traffic as this tracing mechanism will by-default match all traffic, but there is limited capacity/resources for tracing.  Outside of initial small scale testing, you will need to carefully consider filtering constraints in order to observe only the intended sessions, otherwise the tracing subsystem will be forced to drop a subset of trace events.
 
-Filtering works by specifying an allow-list for specific properties of a trace session. If an allow-list for a given property is set, and the session has the corresponding property set, then the session is traced only if is value is contained in your set of allowed values.
+Filtering works by specifying an allow-list for specific properties of a trace session. If an allow-list for a given property is set, and the session has the corresponding property set, then the session is traced only if its value is contained in your set of allowed values. Once a message is selected, it must have a matching campaign, tenant, or routing domain for each of those filters you specified.
 
 Most session properties are filled out AFTER the session has been initiated, and a given session may attempt to establish a series of connections based on how the MX records are resolved, so you should anticipate seeing a number of session initiations that won't (yet) match your trace parameters.
 

@@ -28,7 +28,9 @@ use tokio_tungstenite::tungstenite::Message;
 /// Filtering works by specifying an allow-list for specific properties
 /// of a trace session. If an allow-list for a given property is set,
 /// and the session has the corresponding property set, then the session
-/// is traced only if is value is contained in your set of allowed values.
+/// is traced only if its value is contained in your set of allowed values.
+/// Once a message is selected, it must have a matching campaign, tenant,
+/// or routing domain for each of those filters you specified.
 ///
 /// Most session properties are filled out AFTER the session has been
 /// initiated, and a given session may attempt to establish a series
