@@ -1446,7 +1446,6 @@ impl QueueDispatcher for SmtpDispatcher {
         let mut result_per_rcpt = vec![];
         let mut rewrite_eligible = false;
         let mut break_connection = false;
-        let mut overall_response = None;
 
         match send_result {
             Err(ClientError::RejectedBatch(responses)) => {
@@ -1528,7 +1527,6 @@ impl QueueDispatcher for SmtpDispatcher {
                         result_per_rcpt.push(resp.clone());
                     }
                 }
-                overall_response.replace(status.response);
             }
         }
 
@@ -1586,6 +1584,7 @@ impl QueueDispatcher for SmtpDispatcher {
         let mut by_class = HashMap::new();
 
         let mut transport_error = false;
+        let mut requeue_response = None;
 
         for (batch_idx, (recipient, response)) in recipients_this_batch
             .iter()
@@ -1619,9 +1618,7 @@ impl QueueDispatcher for SmtpDispatcher {
 
             if record_type == RecordType::TransientFailure {
                 revised_recipient_list.push(EnvelopeAddress::from(recipient.clone()));
-            }
-            if record_type != RecordType::Delivery && overall_response.is_none() {
-                overall_response.replace(response.clone());
+                requeue_response.get_or_insert_with(|| response.clone());
             }
             match record_type {
                 RecordType::TransientFailure => {
@@ -1738,7 +1735,7 @@ impl QueueDispatcher for SmtpDispatcher {
                     msg,
                     IncrementAttempts::Yes,
                     None,
-                    overall_response.take().unwrap_or_else(|| Response {
+                    requeue_response.unwrap_or_else(|| Response {
                         code: 400,
                         enhanced_code: None,
                         command: None,
