@@ -199,9 +199,9 @@ impl Response {
     }
 
     pub fn is_too_many_recipients(&self) -> IsTooManyRecipients {
-        // RFC 5321 4.5.3.1.10: RFC 821 incorrectly ... "too many recipients" ..
-        // as having reply code 552 ... the correct reply ... is 452.
-        // Clients should treat 552 ... as a temporary (for RCPT TO)
+        // RFC 5321 §4.5.3.1.10 documents a legacy use of 552 instead of 452
+        // for too many recipients. A RCPT TO reply of 552 without an enhanced
+        // status code is not enough on its own to identify that condition.
         if !self
             .command
             .as_deref()
