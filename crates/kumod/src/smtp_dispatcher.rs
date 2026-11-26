@@ -1595,7 +1595,8 @@ impl QueueDispatcher for SmtpDispatcher {
             let first_recipient = batch_idx == 0;
             let (record_type, too_many) = classify_record(response, first_recipient).await;
 
-            // Starting a new transaction won't help its first recipient.
+            // Don't immediately retry the first recipient on the same connection:
+            // it would still be first in the next transaction.
             let too_many = if first_recipient {
                 IsTooManyRecipients::No
             } else {
@@ -1780,8 +1781,9 @@ async fn classify_record(
         }
     };
 
-    // A bare RCPT 552 can mean a legacy batch limit, but the first recipient
-    // cannot have filled the transaction. Honor its 5xx unless the limit is explicit.
+    // Older servers use 552 when the transaction's recipient buffer is full.
+    // On the first RCPT TO the buffer is empty, so bounce an ambiguous 552.
+    // A TooManyRecipients classification still warrants deferral.
     let record_type = if too_many == IsTooManyRecipients::Yes
         || (too_many == IsTooManyRecipients::Maybe && !first_recipient)
         || response.code == 503
