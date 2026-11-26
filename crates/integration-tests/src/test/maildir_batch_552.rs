@@ -78,7 +78,11 @@ async fn first_recipient_552_does_not_affect_the_next_recipient() -> anyhow::Res
     check_first_refusal(&["next@example.com"]).await
 }
 
-async fn check_requeue_response(recipients: &[&str]) -> anyhow::Result<()> {
+async fn check_requeue_response(
+    recipients: &[&str],
+    deferred: &[&str],
+    expected_response: &str,
+) -> anyhow::Result<()> {
     let mut daemon = send_batch(recipients, "source-report-requeue.lua").await?;
     // One bounce for full@example.com and one from the requeue_message test policy.
     assert!(
@@ -92,26 +96,50 @@ async fn check_requeue_response(recipients: &[&str]) -> anyhow::Result<()> {
         .iter()
         .find(|r| r.kind == Bounce && r.response.code == 550)
         .expect("missing bounce from requeue_message");
-    assert_eq!(policy_bounce.recipient, ["450-retry@example.com"]);
+    assert_eq!(policy_bounce.recipient, deferred);
     assert_eq!(
         policy_bounce.response.content,
-        "requeue_message saw: 450 you said 450-retry"
+        format!("requeue_message saw: {expected_response}")
     );
     Ok(())
 }
 
 #[tokio::test]
 async fn requeue_response_excludes_bounced_recipient() -> anyhow::Result<()> {
-    check_requeue_response(&["full@example.com", "450-retry@example.com"]).await
+    check_requeue_response(
+        &["full@example.com", "450-retry@example.com"],
+        &["450-retry@example.com"],
+        "450 you said 450-retry",
+    )
+    .await
 }
 
 #[tokio::test]
 async fn requeue_response_excludes_successful_data_reply() -> anyhow::Result<()> {
-    check_requeue_response(&[
-        "full@example.com",
-        "450-retry@example.com",
-        "accepted@example.com",
-    ])
+    check_requeue_response(
+        &[
+            "full@example.com",
+            "450-retry@example.com",
+            "accepted@example.com",
+        ],
+        &["450-retry@example.com"],
+        "450 you said 450-retry",
+    )
+    .await
+}
+
+#[tokio::test]
+async fn requeue_response_uses_first_of_two_deferred_recipients() -> anyhow::Result<()> {
+    check_requeue_response(
+        &[
+            "full@example.com",
+            "tempfail@example.com",
+            "accepted@example.com",
+            "450-retry@example.com",
+        ],
+        &["tempfail@example.com", "450-retry@example.com"],
+        "400 tempfail requested",
+    )
     .await
 }
 
