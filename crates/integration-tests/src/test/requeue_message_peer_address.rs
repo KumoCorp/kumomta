@@ -59,3 +59,45 @@ async fn requeue_event_peer_address() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn requeue_event_peer_address_is_nil_on_tls_policy_veto() -> anyhow::Result<()> {
+    let mut daemon = DaemonWithMaildirOptions::new()
+        .policy_file("source-dane.lua")
+        .env("KUMOD_TEST_REQUEUE_PEER_ADDRESS", "tls_policy_veto")
+        .env("KUMOD_DANE_SECURE", "true")
+        .env("KUMOD_DANE_SKIP_GLOBAL", "true")
+        .env("KUMOD_RETRY_INTERVAL", "1s")
+        .start()
+        .await?;
+
+    let mut client = daemon.smtp_client().await?;
+    let response = MailGenParams {
+        recip: Some("recip@dane.example"),
+        ..Default::default()
+    }
+    .send(&mut client)
+    .await?;
+    assert_eq!(response.code, 250);
+    assert!(
+        daemon
+            .wait_for_source_summary(
+                |summary| summary.get(&TransientFailure).copied().unwrap_or_default() >= 2,
+                Duration::from_secs(30),
+            )
+            .await,
+        "expected the TLS policy veto to defer the message"
+    );
+    daemon.stop_both().await?;
+
+    let logs = daemon.source.collect_logs().await?;
+    let record = logs
+        .iter()
+        .find(|record| record.meta.contains_key("test_requeue_peer_address"))
+        .context("missing callback metadata after TLS policy veto")?;
+    assert_eq!(
+        record.meta["test_requeue_peer_address"].as_str(),
+        Some("none")
+    );
+    Ok(())
+}

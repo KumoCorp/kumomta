@@ -84,9 +84,10 @@ introduced, is shown below:
    * `peer_address` is an optional table describing the peer involved in the delivery
      attempt that led to this requeue. It has the same `name` and `addr` fields as the
      disposition log's `peer_address`; `name` is the selected MX hostname or configured
-     endpoint. It is provided for SMTP transaction requeues and is `nil` for other
-     requeues, including DNS errors, connection setup failures, and local scheduling
-     decisions. It does not summarize hosts tried during connection setup.
+     endpoint. It is provided for SMTP transaction requeues and is `nil` if no
+     SMTP transaction was attempted, including TLS policy vetoes, DNS errors,
+     connection setup failures, and local scheduling decisions. It does not
+     summarize hosts tried during connection setup.
 
 Multiple instances of the `requeue_message` event can be registered,
 and they will be called in the order in which they were registered,
