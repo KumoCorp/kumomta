@@ -1726,6 +1726,8 @@ impl QueueDispatcher for SmtpDispatcher {
                 break_connection = true;
             }
 
+            let peer_address = self.client_address.clone();
+
             if break_connection && try_next_host_on_transport_error {
                 let have_more_connection_candidates = self.update_state_for_reconnect(dispatcher);
                 if have_more_connection_candidates {
@@ -1748,7 +1750,7 @@ impl QueueDispatcher for SmtpDispatcher {
 
             spawn(
                 "requeue message",
-                QueueManager::requeue_message(
+                QueueManager::requeue_message_with_peer_address(
                     msg,
                     IncrementAttempts::Yes,
                     None,
@@ -1763,6 +1765,7 @@ impl QueueDispatcher for SmtpDispatcher {
                     } else {
                         InsertReason::TooManyRecipients.into()
                     },
+                    peer_address,
                 ),
             )?;
 
