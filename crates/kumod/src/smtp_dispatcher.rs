@@ -1432,7 +1432,9 @@ impl QueueDispatcher for SmtpDispatcher {
             recipients_this_batch.len()
         ));
 
-        let send_result = match self.tls_policy_veto(dispatcher, &msg).await? {
+        let veto = self.tls_policy_veto(dispatcher, &msg).await?;
+        let policy_veto = veto.is_some();
+        let send_result = match veto {
             Some(response) => Err(ClientError::Rejected(response)),
             None => {
                 self.client
@@ -1726,6 +1728,12 @@ impl QueueDispatcher for SmtpDispatcher {
                 break_connection = true;
             }
 
+            let peer_address = if policy_veto {
+                None
+            } else {
+                self.client_address.clone()
+            };
+
             if break_connection && try_next_host_on_transport_error {
                 let have_more_connection_candidates = self.update_state_for_reconnect(dispatcher);
                 if have_more_connection_candidates {
@@ -1748,7 +1756,7 @@ impl QueueDispatcher for SmtpDispatcher {
 
             spawn(
                 "requeue message",
-                QueueManager::requeue_message(
+                QueueManager::requeue_message_with_peer_address(
                     msg,
                     IncrementAttempts::Yes,
                     None,
@@ -1763,6 +1771,7 @@ impl QueueDispatcher for SmtpDispatcher {
                     } else {
                         InsertReason::TooManyRecipients.into()
                     },
+                    peer_address,
                 ),
             )?;
 

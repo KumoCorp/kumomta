@@ -12,6 +12,19 @@ local kumo = require 'kumo'
 
 local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 local SINK_PORT = tonumber(os.getenv 'KUMOD_SMTP_SINK_PORT')
+local REQUEUE_PEER_ADDRESS = os.getenv 'KUMOD_TEST_REQUEUE_PEER_ADDRESS'
+
+if REQUEUE_PEER_ADDRESS then
+  kumo.on(
+    'requeue_message',
+    function(msg, _response, _insert_context, _increment_attempts, _delay, peer_address)
+      msg:set_meta(
+        'test_requeue_peer_address',
+        peer_address and kumo.serde.json_encode(peer_address) or 'none'
+      )
+    end
+  )
+end
 
 local function configure_resolver()
   -- When set, the MX host is a CNAME into a separate, unsigned zone (its A
@@ -98,6 +111,7 @@ kumo.on('init', function()
   kumo.configure_local_logs {
     log_dir = TEST_DIR .. '/logs',
     max_segment_duration = '1s',
+    meta = { 'test_requeue_peer_address' },
   }
 
   kumo.define_spool {
@@ -118,6 +132,7 @@ kumo.on('get_queue_config', function(domain, _tenant, _campaign)
   -- remote_port) is honored.
   local params = {
     egress_pool = 'dane',
+    retry_interval = os.getenv 'KUMOD_RETRY_INTERVAL',
   }
   if domain == 'mxlist.example' then
     -- Route via a locally-configured mx_list host instead of DNS MX. DANE

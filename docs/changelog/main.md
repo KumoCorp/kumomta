@@ -199,6 +199,11 @@
    resolving the configuration for a new scheduled queue from roughly 240us
    to roughly 10us.
 
+ * The [requeue_message](../reference/events/requeue_message.md) event now
+   receives an optional sixth `peer_address` argument identifying the SMTP
+   peer whose response led to the requeue. It is `nil` when no SMTP
+   transaction took place.
+
 ## Fixes
 
  * The [AAA accounting log](../reference/kumo.aaa/configure_acct_log.md)

@@ -16,6 +16,25 @@ local MAX_RECIPIENTS_PER_BATCH = (os.getenv 'KUMOD_MAX_RECIPIENTS_PER_BATCH')
   or 100
 local USE_SPLIT_TXN = os.getenv 'KUMOD_USE_SPLIT_TXN'
 local INVALID_LINE_ENDINGS = os.getenv 'KUMOD_INVALID_LINE_ENDINGS'
+local REQUEUE_PEER_ADDRESS = os.getenv 'KUMOD_TEST_REQUEUE_PEER_ADDRESS'
+
+if REQUEUE_PEER_ADDRESS == 'legacy' then
+  kumo.on('requeue_message', function(msg, response, insert_context, increment_attempts, delay)
+    assert(type(response) == 'string' and type(insert_context) == 'table')
+    assert(type(increment_attempts) == 'boolean' and delay == nil)
+    msg:set_meta('test_requeue_peer_address', 'legacy')
+  end)
+elseif REQUEUE_PEER_ADDRESS then
+  kumo.on(
+    'requeue_message',
+    function(msg, _response, _insert_context, _increment_attempts, _delay, peer_address)
+      msg:set_meta(
+        'test_requeue_peer_address',
+        peer_address and kumo.serde.json_encode(peer_address) or 'none'
+      )
+    end
+  )
+end
 
 kumo.on('init', function()
   kumo.configure_accounting_db_path(TEST_DIR .. '/accounting.db')
@@ -56,7 +75,7 @@ kumo.on('init', function()
     log_dir = TEST_DIR .. '/logs',
     max_segment_duration = '1s',
     headers = { 'X-*', 'Y-*', 'Subject' },
-    meta = { 'xfer*' },
+    meta = { 'xfer*', 'test_requeue_peer_address' },
   }
 
   if WEBHOOK_PORT then

@@ -10,6 +10,7 @@ use crate::smtp_server::RejectError;
 use crate::spool::SpoolManager;
 use ::config::{declare_event, load_config};
 use config::SerdeWrappedValue;
+use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::declare_metric;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShuttingDownError};
 use message::Message;
@@ -39,6 +40,7 @@ pub static REQUEUE_MESSAGE_SIG: Multiple(
     insert_context: SerdeWrappedValue<InsertContext>,
     increment_attempts: bool,
     delay: Option<TimeDelta>,
+    peer_address: Option<SerdeWrappedValue<ResolvedAddress>>,
 ) -> ();
 }
 
@@ -189,13 +191,34 @@ impl QueueManager {
     /// after first calling out to the requeue_message event handler, which
     /// gives the user the opportunity to rebind or do other things to the
     /// message before we put it back into the queues.
-    #[instrument(skip(msg))]
     pub async fn requeue_message(
+        msg: Message,
+        increment_attempts: IncrementAttempts,
+        delay: Option<chrono::Duration>,
+        response: Response,
+        context: InsertContext,
+    ) -> anyhow::Result<()> {
+        Self::requeue_message_with_peer_address(
+            msg,
+            increment_attempts,
+            delay,
+            response,
+            context,
+            None,
+        )
+        .await
+    }
+
+    /// Re-insert a message after an SMTP transaction, including the peer
+    /// involved in that delivery attempt.
+    #[instrument(name = "QueueManager::requeue_message", skip(msg, peer_address))]
+    pub async fn requeue_message_with_peer_address(
         msg: Message,
         mut increment_attempts: IncrementAttempts,
         mut delay: Option<chrono::Duration>,
         response: Response,
         context: InsertContext,
+        peer_address: Option<ResolvedAddress>,
     ) -> anyhow::Result<()> {
         if !msg.is_meta_loaded() {
             msg.load_meta().await?;
@@ -213,6 +236,7 @@ impl QueueManager {
                             SerdeWrappedValue(context.clone()),
                             increment_attempts == IncrementAttempts::Yes,
                             delay.map(Into::into),
+                            peer_address.map(SerdeWrappedValue),
                         ),
                     )
                     .await;

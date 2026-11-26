@@ -54,6 +54,7 @@ mod rebind;
 mod rebind_event_defined;
 mod rebind_event_missing;
 mod rebind_port;
+mod requeue_message_peer_address;
 mod resolve_egress_path;
 mod retry_schedule;
 mod rewrite_server_response;
