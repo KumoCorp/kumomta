@@ -34,11 +34,15 @@ meaning of each parameter, along with the version in which it was
 introduced, is shown below:
 
    * `message` - is the [Message](../message/index.md) object which is being re-queued.
-   * `smtp_response` is a one-line rendition of the SMTP response that resulted
-     in the message being requeued. There are a couple of internal triggers for
-     a requeue that are not directly caused by an SMTP response. Those
-     responses have `KumoMTA internal:` prefixed the to textual portion of the
-     response.
+   * `smtp_response` is a one-line response explaining why the message was
+     requeued. For internally triggered requeues, the response text starts with
+     `KumoMTA internal:`.
+
+     {{since('dev', inline=True)}} For an SMTP batch, Kumo uses the response for
+     the first recipient in transaction order that it classified for retry. Other
+     recipients on the requeued envelope may have received different replies or
+     may not have been attempted in that transaction. If only unattempted
+     recipients remain, Kumo supplies an internal retry reason.
    * `insert_context` {{since('2026.03.04-bb93ecb1', inline=True)}} is an array holding the
      reason(s) why the message is being inserted into the queue manager.  There
      will typically be 1 reason, but it is possible to have multiple reasons to

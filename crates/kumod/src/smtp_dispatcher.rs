@@ -1446,7 +1446,6 @@ impl QueueDispatcher for SmtpDispatcher {
         let mut result_per_rcpt = vec![];
         let mut rewrite_eligible = false;
         let mut break_connection = false;
-        let mut overall_response = None;
 
         match send_result {
             Err(ClientError::RejectedBatch(responses)) => {
@@ -1528,7 +1527,6 @@ impl QueueDispatcher for SmtpDispatcher {
                         result_per_rcpt.push(resp.clone());
                     }
                 }
-                overall_response.replace(status.response);
             }
         }
 
@@ -1581,27 +1579,24 @@ impl QueueDispatcher for SmtpDispatcher {
             }
         }
 
-        struct ByStatusEntry {
-            record_type: RecordType,
-            recipients: Vec<ForwardPath>,
-        }
-
-        // Group by distinct response for logging purposes
-        let mut by_status = HashMap::<(Response, IsTooManyRecipients), ByStatusEntry>::new();
+        // Identical replies can have different dispositions based on recipient position.
+        let mut by_status = HashMap::<_, Vec<ForwardPath>>::new();
         let mut by_class = HashMap::new();
 
         let mut transport_error = false;
+        let mut requeue_response = None;
 
         for (batch_idx, (recipient, response)) in recipients_this_batch
             .iter()
             .zip(result_per_rcpt.iter())
             .enumerate()
         {
-            let (record_type, too_many) = classify_record(&response).await;
+            let first_recipient = batch_idx == 0;
+            let (record_type, too_many) = classify_record(response, first_recipient).await;
 
-            // Determine effective too-many recip state: if the batch is size 1,
-            // or this is the first recipient, it cannot be too-many
-            let too_many = if batch_idx == 0 || recipients_this_batch.len() == 1 {
+            // Don't immediately retry the first recipient on the same connection:
+            // it would still be first in the next transaction.
+            let too_many = if first_recipient {
                 IsTooManyRecipients::No
             } else {
                 too_many
@@ -1623,9 +1618,7 @@ impl QueueDispatcher for SmtpDispatcher {
 
             if record_type == RecordType::TransientFailure {
                 revised_recipient_list.push(EnvelopeAddress::from(recipient.clone()));
-            }
-            if record_type != RecordType::Delivery && overall_response.is_none() {
-                overall_response.replace(response.clone());
+                requeue_response.get_or_insert_with(|| response.clone());
             }
             match record_type {
                 RecordType::TransientFailure => {
@@ -1650,12 +1643,8 @@ impl QueueDispatcher for SmtpDispatcher {
             }
 
             by_status
-                .entry((response.clone(), too_many))
-                .or_insert_with(|| ByStatusEntry {
-                    record_type,
-                    recipients: vec![],
-                })
-                .recipients
+                .entry((response.clone(), too_many, record_type))
+                .or_default()
                 .push(recipient.clone());
             *by_class.entry(record_type).or_insert(0) += 1;
         }
@@ -1665,8 +1654,8 @@ impl QueueDispatcher for SmtpDispatcher {
         let mut logged_transient = false;
 
         // Log the various outcomes
-        for ((response, too_many), entry) in by_status {
-            if entry.record_type == RecordType::TransientFailure {
+        for ((response, too_many, record_type), recipients) in by_status {
+            if record_type == RecordType::TransientFailure {
                 if too_many == IsTooManyRecipients::Yes
                 //    && by_class[&RecordType::TransientFailure] == 1
                 //    && by_class.len() > 1
@@ -1682,15 +1671,9 @@ impl QueueDispatcher for SmtpDispatcher {
 
             self.log_disposition(
                 dispatcher,
-                entry.record_type,
+                record_type,
                 msg.clone(),
-                Some(
-                    entry
-                        .recipients
-                        .into_iter()
-                        .map(|fp| fp.to_string())
-                        .collect(),
-                ),
+                Some(recipients.into_iter().map(|fp| fp.to_string()).collect()),
                 response,
             )
             .await;
@@ -1752,7 +1735,7 @@ impl QueueDispatcher for SmtpDispatcher {
                     msg,
                     IncrementAttempts::Yes,
                     None,
-                    overall_response.take().unwrap_or_else(|| Response {
+                    requeue_response.unwrap_or_else(|| Response {
                         code: 400,
                         enhanced_code: None,
                         command: None,
@@ -1777,7 +1760,10 @@ impl QueueDispatcher for SmtpDispatcher {
     }
 }
 
-async fn classify_record(response: &Response) -> (RecordType, IsTooManyRecipients) {
+async fn classify_record(
+    response: &Response,
+    first_recipient: bool,
+) -> (RecordType, IsTooManyRecipients) {
     let too_many = match response.is_too_many_recipients() {
         as_is @ (IsTooManyRecipients::Yes | IsTooManyRecipients::No) => as_is,
         IsTooManyRecipients::Maybe => {
@@ -1792,10 +1778,12 @@ async fn classify_record(response: &Response) -> (RecordType, IsTooManyRecipient
         }
     };
 
-    let record_type = if matches!(
-        too_many,
-        IsTooManyRecipients::Yes | IsTooManyRecipients::Maybe
-    ) || response.code == 503
+    // Older servers use 552 when the transaction's recipient buffer is full.
+    // On the first RCPT TO the buffer is empty, so bounce an ambiguous 552.
+    // A TooManyRecipients classification still warrants deferral.
+    let record_type = if too_many == IsTooManyRecipients::Yes
+        || (too_many == IsTooManyRecipients::Maybe && !first_recipient)
+        || response.code == 503
         || (response.code >= 300 && response.code < 500)
     {
         // 503 is a "permanent" failure response but it indicates
