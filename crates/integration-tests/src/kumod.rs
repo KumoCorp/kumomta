@@ -533,7 +533,7 @@ impl DaemonWithMaildir {
 #[derive(Debug)]
 pub struct KumoDaemon {
     pub dir: TempDir,
-    pub listeners: BTreeMap<String, SocketAddr>,
+    pub listeners: BTreeMap<String, Vec<SocketAddr>>,
     child: Child,
 }
 
@@ -669,7 +669,7 @@ impl KumoDaemon {
 
         // Wait until the server initializes, collect the information
         // about the various listeners that it starts
-        let mut listeners = BTreeMap::new();
+        let mut listeners = BTreeMap::<_, Vec<_>>::new();
         loop {
             let mut line = String::new();
             stderr.read_line(&mut line).await?;
@@ -690,7 +690,7 @@ impl KumoDaemon {
                 let proto = fields[0];
                 let addr = fields[3];
                 let addr: SocketAddr = addr.parse()?;
-                listeners.insert(proto.to_string(), addr);
+                listeners.entry(proto.to_string()).or_default().push(addr);
             }
         }
 
@@ -871,7 +871,7 @@ impl KumoDaemon {
     }
 
     pub fn listener(&self, service: &str) -> SocketAddr {
-        match self.listeners.get(service) {
+        match self.listeners.get(service).and_then(|addrs| addrs.last()) {
             Some(addr) => *addr,
             None => panic!("listener service {service} is not defined. Did it fail to start?"),
         }

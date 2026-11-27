@@ -3933,6 +3933,7 @@ dependencies = [
  "serde_with",
  "sha2",
  "spool",
+ "strum 0.27.2",
  "tempfile",
  "throttle",
  "tokio",

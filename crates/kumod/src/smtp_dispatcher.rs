@@ -1,6 +1,6 @@
 use crate::delivery_metrics::MetricsWrappedConnection;
 use crate::http_server::admin_trace_smtp_client_v1::{
-    SmtpClientTraceEventPayload, SmtpClientTracerImpl,
+    connection_error_message, SmtpClientTraceEventPayload, SmtpClientTracerImpl,
 };
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::{IncrementAttempts, InsertReason, QueueManager, QueueState};
@@ -1067,11 +1067,10 @@ impl SmtpDispatcher {
                             && path_config.opportunistic_tls_reconnect_on_failed_handshake
                         {
                             self.addresses.push(address.clone());
-                            anyhow::bail!(
-                                "{helo_verb} after STARTLS failed {err:#}, \
-                                will re-connect in the clear because \
-                                opportunistic_tls_reconnect_on_failed_handshake=true"
-                            );
+                            return Err(err.context(
+                                "will re-connect in the clear because \
+                                 opportunistic_tls_reconnect_on_failed_handshake=true",
+                            ));
                         }
                         return Err(err);
                     }
@@ -1301,9 +1300,9 @@ impl QueueDispatcher for SmtpDispatcher {
     ) -> anyhow::Result<AttemptConnectionDisposition> {
         self.attempt_connection_impl(dispatcher)
             .await
-            .map_err(|err| {
-                self.tracer.diagnostic(Level::ERROR, || format!("{err:#}"));
-                err
+            .inspect_err(|err| {
+                self.tracer
+                    .diagnostic(Level::ERROR, || connection_error_message(err));
             })
     }
 

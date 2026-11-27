@@ -21,6 +21,15 @@ Take care to use an appropriate `--source` when using this with a live busy serv
 ## Options
 
 
+* `--trace-detail <TRACE_DETAIL>` — Trace detail to request. Defaults to the listener's maximum (envelope unless configured otherwise).
+
+     Each level includes the preceding levels:
+       protocol     SMTP verbs, reply codes, timings and byte counts
+       operational  Endpoints, diagnostics, policy errors and verbatim SMTP replies
+       envelope     Envelope sender and recipients, auth identities, queue and message IDs
+       content      Message headers, body and attachments
+       secrets      Raw protocol traffic, including SMTP AUTH payloads
+
 * `--source <SOURCE>` — Add a source (in CIDR format) to the list of source addresses that we want to filter by. If any are specified, then only connections made from a matching address will be traced. If no sources are specified, any/all incoming SMTP connections will be traced.
 
      Can be used multiple times to add multiple candidate addresses.

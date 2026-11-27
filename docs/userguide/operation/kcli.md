@@ -185,6 +185,35 @@ See the [Set Diagnostic Log
 Filter](../../reference/kumo/set_diagnostic_log_filter.md) page of the
 Reference Manual for more information.
 
+## Choosing SMTP trace detail
+
+`trace-smtp-server` and `trace-smtp-client` use the HTTP listener's [max_smtp_trace_detail](../../reference/kumo/start_http_listener/max_smtp_trace_detail.md) when no level is requested. The listener defaults to `envelope`. Use `--trace-detail operational`, for example, to request less. `kcli` prints the effective level on stderr and trace events on stdout. `--terse` abbreviates output within the selected level; it does not redact it.
+
+| Level | Included in addition to the preceding level |
+| --- | --- |
+| `protocol` | Session timing, SMTP verbs, reply codes and message byte counts. Inbound traces identify each connection with an alias local to the trace subscription. |
+| `operational` | Endpoints, diagnostics, callback names and outcomes, policy errors and verbatim SMTP replies (except `334` challenge text). |
+| `envelope` | Structured envelope command arguments, sender and recipient fields, authentication identities (including the inbound TLS client certificate subject), queue and message identifiers |
+| `content` | Message data, including headers, body and attachments |
+| `secrets` | Raw protocol reads, SMTP AUTH payloads, unstructured metadata and callback results |
+
+The listener's [smtp_trace_meta_detail](../../reference/kumo/start_http_listener/smtp_trace_meta_detail.md) can assign lower levels to inbound `x_` connection metadata. These keys require `secrets` by default.
+
+If a DATA event exceeds 16 MiB of serialized JSON after applying the selected detail and `--terse`, the trace replaces that event with a warning and continues. This affects only trace output, not SMTP delivery.
+
+`envelope` adds structured fields. At `operational`, a successful SMTP reply can already name a recipient or message ID, an AUTH failure can name the relay account, and a callback name can include a domain. Kumo does not scan diagnostic, reply or policy-error text for secrets; `content` does not scan message bodies either.
+
+Filters use the listener's maximum, even when the output level is lower. For example, an `operational` listener accepts `--mx-host` with `--trace-detail protocol`: the filter selects the connection, but the trace does not show the MX hostname.
+
+| Minimum listener level | Filters |
+| --- | --- |
+| `operational` | `--source` in either direction; outbound `--mx-host`, `--mx-addr`, `--egress-pool`, `--egress-source` |
+| `envelope` | Outbound `--ready-queue`, `--mail-from`, `--rcpt-to`, `--domain`, `--routing-domain`, `--tenant`, `--campaign` |
+
+For WebSocket clients, the optional `detail` query parameter selects the output level. A request above the maximum gets HTTP `403` before upgrade. A successful upgrade returns the effective level in the `kumo-trace-detail` header. Filters are sent after upgrade: a filter above the maximum closes the WebSocket with code `1008` and a reason naming the required level.
+
+Stock `kcli` does not support `wss` for these two commands, so it cannot trace directly through an HTTPS endpoint. Use a protected local HTTP listener, for example over an SSH tunnel; do not expose an unencrypted trace listener to an untrusted network.
+
 ## Monitoring Inbound SMTP handshaking
 
 When debugging, it is often helpful to monitor the full SMTP handshaking process in real time.  The kcli client enables that for inbound connections with the `trace-smtp-server` function:

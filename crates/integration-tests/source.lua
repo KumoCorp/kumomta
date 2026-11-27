@@ -50,6 +50,7 @@ kumo.on('init', function()
 
   kumo.start_http_listener {
     listen = '127.0.0.1:0',
+    max_smtp_trace_detail = os.getenv 'KUMOD_TEST_MAX_SMTP_TRACE_DETAIL',
   }
 
   kumo.configure_local_logs {

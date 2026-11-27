@@ -1059,11 +1059,7 @@ impl SmtpServerSession {
 
         connection_gauge().inc();
 
-        SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-            conn_meta: server.meta.clone_inner(),
-            payload: SmtpServerTraceEventPayload::Connected,
-            when: Utc::now(),
-        });
+        server.trace_event(|| SmtpServerTraceEventPayload::Connected);
 
         if let Err(err) = server.process().await {
             if err.downcast_ref::<WriteError>().is_none() {
@@ -1097,11 +1093,7 @@ impl SmtpServerSession {
         }
         connection_gauge().dec();
 
-        SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-            conn_meta: server.meta.clone_inner(),
-            payload: SmtpServerTraceEventPayload::Closed,
-            when: Utc::now(),
-        });
+        server.trace_event(|| SmtpServerTraceEventPayload::Closed);
 
         Ok(())
     }
@@ -1139,26 +1131,18 @@ impl SmtpServerSession {
         let value = match value {
             Ok(v) => {
                 config.put();
-                SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                    conn_meta: self.meta.clone_inner(),
-                    payload: SmtpServerTraceEventPayload::Callback {
-                        name: format!("get_listener_domain domain={domain_name}"),
-                        result: serde_json::to_value(&v).ok(),
-                        error: None,
-                    },
-                    when: Utc::now(),
+                self.trace_event(|| SmtpServerTraceEventPayload::Callback {
+                    name: format!("get_listener_domain domain={domain_name}"),
+                    result: serde_json::to_value(&v).ok(),
+                    error: None,
                 });
                 v
             }
             Err(err) => {
-                SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                    conn_meta: self.meta.clone_inner(),
-                    payload: SmtpServerTraceEventPayload::Callback {
-                        name: format!("get_listener_domain domain={domain_name}"),
-                        result: None,
-                        error: Some(format!("{err:#}")),
-                    },
-                    when: Utc::now(),
+                self.trace_event(|| SmtpServerTraceEventPayload::Callback {
+                    name: format!("get_listener_domain domain={domain_name}"),
+                    result: None,
+                    error: Some(format!("{err:#}")),
                 });
                 return Err(err);
             }
@@ -1311,6 +1295,7 @@ impl SmtpServerSession {
 
                 SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                     conn_meta: self.meta.clone_inner(),
+                    session_id: self.session_id,
                     payload: SmtpServerTraceEventPayload::Write(text.clone()),
                     when: Utc::now(),
                 });
@@ -1373,13 +1358,9 @@ impl SmtpServerSession {
 
                 if too_big {
                     self.read_buffer.drain(0..i + 5);
-                    SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                        conn_meta: self.meta.clone_inner(),
-                        payload: SmtpServerTraceEventPayload::Diagnostic {
-                            level: Level::ERROR,
-                            message: "Data too big".to_string(),
-                        },
-                        when: Utc::now(),
+                    self.trace_event(|| SmtpServerTraceEventPayload::Diagnostic {
+                        level: Level::ERROR,
+                        message: "Data too big".to_string(),
                     });
                     return Ok(ReadData::TooBig);
                 }
@@ -1388,6 +1369,7 @@ impl SmtpServerSession {
                 std::mem::swap(&mut tail, &mut self.read_buffer);
                 self.read_buffer.drain(0..3);
 
+                self.trace_event(|| SmtpServerTraceEventPayload::data(&tail));
                 let data = unstuff(tail);
 
                 let split_bare_line_endings = matches!(
@@ -1399,13 +1381,9 @@ impl SmtpServerSession {
                     self.params.line_length_hard_limit,
                     split_bare_line_endings,
                 ) {
-                    SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                        conn_meta: self.meta.clone_inner(),
-                        payload: SmtpServerTraceEventPayload::Diagnostic {
-                            level: Level::ERROR,
-                            message: "Line too long".to_string(),
-                        },
-                        when: Utc::now(),
+                    self.trace_event(|| SmtpServerTraceEventPayload::Diagnostic {
+                        level: Level::ERROR,
+                        message: "Line too long".to_string(),
                     });
                     return Ok(ReadData::TooLong);
                 }
@@ -1432,33 +1410,21 @@ impl SmtpServerSession {
                     match size {
                         Err(err) => {
                             tracing::trace!("error reading: {err:#}");
-                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                                conn_meta: self.meta.clone_inner(),
-                                payload: SmtpServerTraceEventPayload::Diagnostic {
-                                    level: Level::ERROR,
-                                    message: format!("error reading: {err:#}"),
-                                },
-                                when: Utc::now(),
+                            self.trace_event(|| SmtpServerTraceEventPayload::Diagnostic {
+                                level: Level::ERROR,
+                                message: format!("error reading: {err:#}"),
                             });
                             return Ok(ReadData::Disconnected);
                         }
                         Ok(size) if size == 0 => {
-                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                                conn_meta: self.meta.clone_inner(),
-                                payload: SmtpServerTraceEventPayload::Diagnostic {
-                                    level: Level::ERROR,
-                                    message: "Peer Disconnected".to_string(),
-                                },
-                                when: Utc::now(),
+                            self.trace_event(|| SmtpServerTraceEventPayload::Diagnostic {
+                                level: Level::ERROR,
+                                message: "Peer Disconnected".to_string(),
                             });
                             return Ok(ReadData::Disconnected);
                         }
                         Ok(size) => {
-                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                                conn_meta: self.meta.clone_inner(),
-                                payload: SmtpServerTraceEventPayload::Read(data[0..size].to_vec()),
-                                when: Utc::now(),
-                            });
+                            self.trace_event(|| SmtpServerTraceEventPayload::DataRead(data[0..size].to_vec()));
                             self.read_buffer.extend_from_slice(&data[0..size]);
                         }
                     }
@@ -1483,13 +1449,9 @@ impl SmtpServerSession {
             if let Some(i) = CRLF.find(&self.read_buffer) {
                 if i > self.params.line_length_hard_limit || too_long {
                     self.read_buffer.drain(0..i + 2);
-                    SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                        conn_meta: self.meta.clone_inner(),
-                        payload: SmtpServerTraceEventPayload::Diagnostic {
-                            level: Level::ERROR,
-                            message: "Line too long".to_string(),
-                        },
-                        when: Utc::now(),
+                    self.trace_event(|| SmtpServerTraceEventPayload::Diagnostic {
+                        level: Level::ERROR,
+                        message: "Line too long".to_string(),
                     });
                     return Ok(ReadLine::TooLong);
                 }
@@ -1523,33 +1485,21 @@ impl SmtpServerSession {
                     match size {
                         Err(err) => {
                             tracing::trace!("error reading: {err:#}");
-                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                                conn_meta: self.meta.clone_inner(),
-                                payload: SmtpServerTraceEventPayload::Diagnostic {
-                                    level: Level::ERROR,
-                                    message: format!("error reading: {err:#}"),
-                                },
-                                when: Utc::now(),
+                            self.trace_event(|| SmtpServerTraceEventPayload::Diagnostic {
+                                level: Level::ERROR,
+                                message: format!("error reading: {err:#}"),
                             });
                             return Ok(ReadLine::Disconnected);
                         }
                         Ok(size) if size == 0 => {
-                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                                conn_meta: self.meta.clone_inner(),
-                                payload: SmtpServerTraceEventPayload::Diagnostic {
-                                    level: Level::ERROR,
-                                    message: "Peer Disconnected".to_string(),
-                                },
-                                when: Utc::now(),
+                            self.trace_event(|| SmtpServerTraceEventPayload::Diagnostic {
+                                level: Level::ERROR,
+                                message: "Peer Disconnected".to_string(),
                             });
                             return Ok(ReadLine::Disconnected);
                         }
                         Ok(size) => {
-                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                                conn_meta: self.meta.clone_inner(),
-                                payload: SmtpServerTraceEventPayload::Read(data[0..size].to_vec()),
-                                when: Utc::now(),
-                            });
+                            self.trace_event(|| SmtpServerTraceEventPayload::Read(data[0..size].to_vec()));
                             self.read_buffer.extend_from_slice(&data[0..size]);
                         }
                     }
@@ -1574,27 +1524,19 @@ impl SmtpServerSession {
         match config.async_call_callback(sig, args).await {
             Ok(r) => {
                 config.put();
-                SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                    conn_meta: self.meta.clone_inner(),
-                    payload: SmtpServerTraceEventPayload::Callback {
-                        name: name.to_string(),
-                        result: serde_json::to_value(&r).ok(),
-                        error: None,
-                    },
-                    when: Utc::now(),
+                self.trace_event(|| SmtpServerTraceEventPayload::Callback {
+                    name: name.to_string(),
+                    result: serde_json::to_value(&r).ok(),
+                    error: None,
                 });
 
                 Ok(Ok(r))
             }
             Err(err) => {
-                SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                    conn_meta: self.meta.clone_inner(),
-                    payload: SmtpServerTraceEventPayload::Callback {
-                        name: name.to_string(),
-                        result: None,
-                        error: Some(format!("{err:#}")),
-                    },
-                    when: Utc::now(),
+                self.trace_event(|| SmtpServerTraceEventPayload::Callback {
+                    name: name.to_string(),
+                    result: None,
+                    error: Some(format!("{err:#}")),
                 });
                 if let Some(rej) = RejectError::from_anyhow(&err) {
                     Ok(Err(rej))
@@ -1829,7 +1771,14 @@ impl SmtpServerSession {
                 }
             };
 
-            match Command::parse(&line) {
+            let parsed = Command::parse(&line);
+            self.trace_event(|| {
+                SmtpServerTraceEventPayload::Command(match &parsed {
+                    Ok(MaybePartialCommand::Full(cmd)) => Some(cmd.clone()),
+                    _ => None,
+                })
+            });
+            match parsed {
                 Err(err) => {
                     self.write_response(
                         501,
@@ -2319,33 +2268,21 @@ impl SmtpServerSession {
                     match size {
                         Err(err) => {
                             tracing::trace!("error reading: {err:#}");
-                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                                conn_meta: self.meta.clone_inner(),
-                                payload: SmtpServerTraceEventPayload::Diagnostic {
-                                    level: Level::ERROR,
-                                    message: format!("error reading: {err:#}"),
-                                },
-                                when: Utc::now(),
+                            self.trace_event(|| SmtpServerTraceEventPayload::Diagnostic {
+                                level: Level::ERROR,
+                                message: format!("error reading: {err:#}"),
                             });
                             anyhow::bail!("error reading proxy protocol header: {err:#}");
                         }
                         Ok(size) if size == 0 => {
-                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                                conn_meta: self.meta.clone_inner(),
-                                payload: SmtpServerTraceEventPayload::Diagnostic {
-                                    level: Level::ERROR,
-                                    message: "Peer Disconnected".to_string(),
-                                },
-                                when: Utc::now(),
+                            self.trace_event(|| SmtpServerTraceEventPayload::Diagnostic {
+                                level: Level::ERROR,
+                                message: "Peer Disconnected".to_string(),
                             });
                             anyhow::bail!("peer disconnected while reading proxy protocol header");
                         }
                         Ok(size) => {
-                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                                conn_meta: self.meta.clone_inner(),
-                                payload: SmtpServerTraceEventPayload::Read(data[0..size].to_vec()),
-                                when: Utc::now(),
-                            });
+                            self.trace_event(|| SmtpServerTraceEventPayload::Read(data[0..size].to_vec()));
                             self.read_buffer.extend_from_slice(&data[0..size]);
                         }
                     }
@@ -2420,16 +2357,12 @@ impl SmtpServerSession {
             self.meta
                 .set_meta("received_from", self.peer_address.to_string());
 
-            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                conn_meta: self.meta.clone_inner(),
-                payload: SmtpServerTraceEventPayload::Diagnostic {
-                    level: Level::INFO,
-                    message: format!(
-                        "Proxy protocol changed received_from from {old_peer:?} -> {:?}",
-                        self.peer_address
-                    ),
-                },
-                when: Utc::now(),
+            self.trace_event(|| SmtpServerTraceEventPayload::Diagnostic {
+                level: Level::INFO,
+                message: format!(
+                    "Proxy protocol changed received_from from {old_peer:?} -> {:?}",
+                    self.peer_address
+                ),
             });
         }
         if let Some(dest_addr) = dest_addr {
@@ -2441,16 +2374,12 @@ impl SmtpServerSession {
             self.meta
                 .set_meta("received_via", self.my_address.to_string());
 
-            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                conn_meta: self.meta.clone_inner(),
-                payload: SmtpServerTraceEventPayload::Diagnostic {
-                    level: Level::INFO,
-                    message: format!(
-                        "Proxy protocol changed received_via from {old_via:?} -> {:?}",
-                        self.my_address
-                    ),
-                },
-                when: Utc::now(),
+            self.trace_event(|| SmtpServerTraceEventPayload::Diagnostic {
+                level: Level::INFO,
+                message: format!(
+                    "Proxy protocol changed received_via from {old_via:?} -> {:?}",
+                    self.my_address
+                ),
             });
         }
 
@@ -2560,16 +2489,12 @@ impl SmtpServerSession {
             self.meta
                 .set_meta("received_from", self.peer_address.to_string());
 
-            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                conn_meta: self.meta.clone_inner(),
-                payload: SmtpServerTraceEventPayload::Diagnostic {
-                    level: Level::INFO,
-                    message: format!(
-                        "XCLIENT changed received_from from {old_peer:?} -> {:?}",
-                        self.peer_address
-                    ),
-                },
-                when: Utc::now(),
+            self.trace_event(|| SmtpServerTraceEventPayload::Diagnostic {
+                level: Level::INFO,
+                message: format!(
+                    "XCLIENT changed received_from from {old_peer:?} -> {:?}",
+                    self.peer_address
+                ),
             });
         }
 
@@ -2585,16 +2510,12 @@ impl SmtpServerSession {
             self.meta
                 .set_meta("received_via", self.my_address.to_string());
 
-            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                conn_meta: self.meta.clone_inner(),
-                payload: SmtpServerTraceEventPayload::Diagnostic {
-                    level: Level::INFO,
-                    message: format!(
-                        "XCLIENT changed received_via from {old_via:?} -> {:?}",
-                        self.my_address
-                    ),
-                },
-                when: Utc::now(),
+            self.trace_event(|| SmtpServerTraceEventPayload::Diagnostic {
+                level: Level::INFO,
+                message: format!(
+                    "XCLIENT changed received_via from {old_via:?} -> {:?}",
+                    self.my_address
+                ),
             });
         }
 
@@ -2644,6 +2565,15 @@ impl SmtpServerSession {
         }
 
         Ok(())
+    }
+
+    fn trace_event(&self, payload: impl FnOnce() -> SmtpServerTraceEventPayload) {
+        SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+            conn_meta: self.meta.clone_inner(),
+            session_id: self.session_id,
+            payload: payload(),
+            when: Utc::now(),
+        });
     }
 
     async fn process_auth(
@@ -2710,7 +2640,10 @@ impl SmtpServerSession {
             // redacted_response, computed above, already masks it.
             match self.read_line(Some(16384)).await? {
                 ReadLine::Disconnected => return Ok(CommandDisposition::Terminate),
-                ReadLine::Line(raw) => raw,
+                ReadLine::Line(raw) => {
+                    self.trace_event(|| SmtpServerTraceEventPayload::AuthContinuation);
+                    raw
+                }
                 ReadLine::InvalidUtf8 => {
                     self.write_response(
                         501,
@@ -2965,23 +2898,15 @@ impl SmtpServerSession {
                     return Ok(());
                 }
                 ConformanceDisposition::Allow => {
-                    SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                        conn_meta: self.meta.clone_inner(),
-                        payload: SmtpServerTraceEventPayload::Diagnostic {
-                            level: Level::INFO,
-                            message: "Allowing invalid line endings in DATA".to_string(),
-                        },
-                        when: Utc::now(),
+                    self.trace_event(|| SmtpServerTraceEventPayload::Diagnostic {
+                        level: Level::INFO,
+                        message: "Allowing invalid line endings in DATA".to_string(),
                     });
                 }
                 ConformanceDisposition::Fix => {
-                    SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                        conn_meta: self.meta.clone_inner(),
-                        payload: SmtpServerTraceEventPayload::Diagnostic {
-                            level: Level::INFO,
-                            message: "Fixed line endings in DATA".to_string(),
-                        },
-                        when: Utc::now(),
+                    self.trace_event(|| SmtpServerTraceEventPayload::Diagnostic {
+                        level: Level::INFO,
+                        message: "Fixed line endings in DATA".to_string(),
                     });
 
                     data = mailparsing::normalize_crlf(&data);
@@ -3305,21 +3230,17 @@ impl SmtpServerSession {
                 .await
                 .unwrap_or(serde_json::Value::Null);
 
-            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                conn_meta: self.meta.clone_inner(),
-                payload: SmtpServerTraceEventPayload::MessageDisposition {
-                    relay: relay_disposition.relay,
-                    log_arf: relay_disposition.log_arf,
-                    log_oob: relay_disposition.log_oob,
-                    will_enqueue: relay_this_one,
-                    was_arf_or_oob,
-                    queue: queue_name.clone(),
-                    meta: meta_obj,
-                    sender,
-                    recipient,
-                    id: *message.id(),
-                },
-                when: Utc::now(),
+            self.trace_event(|| SmtpServerTraceEventPayload::MessageDisposition {
+                relay: relay_disposition.relay,
+                log_arf: relay_disposition.log_arf,
+                log_oob: relay_disposition.log_oob,
+                will_enqueue: relay_this_one,
+                was_arf_or_oob,
+                queue: queue_name.clone(),
+                meta: meta_obj,
+                sender,
+                recipient,
+                id: *message.id(),
             });
 
             if relay_this_one && queue_name != "null" && !self.params.deferred_spool {
@@ -3450,13 +3371,9 @@ impl SmtpServerSession {
                 failed.push(format!("{id}: {err:#}"));
 
                 // And a diagnostic for the tracer, if any.
-                SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                    conn_meta: self.meta.clone_inner(),
-                    payload: SmtpServerTraceEventPayload::Diagnostic {
-                        level: Level::ERROR,
-                        message: format!("QueueManager::insert failed for {}: {err:#}", msg.id()),
-                    },
-                    when: Utc::now(),
+                self.trace_event(|| SmtpServerTraceEventPayload::Diagnostic {
+                    level: Level::ERROR,
+                    message: format!("QueueManager::insert failed for {}: {err:#}", msg.id()),
                 });
 
                 if err.root_cause().is::<tokio::time::error::Elapsed>() {

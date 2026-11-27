@@ -8,7 +8,6 @@ use reqwest::Url;
 use std::collections::HashMap;
 use std::io::IsTerminal;
 use tokio::sync::mpsc::unbounded_channel;
-use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 /// Trace incoming connections made to the SMTP service.
@@ -21,6 +20,10 @@ use tokio_tungstenite::tungstenite::Message;
 /// a live busy server, as you will be overwhelmed by the traffic.
 #[derive(Debug, Parser)]
 pub struct TraceSmtpServerCommand {
+    /// Trace detail to request; defaults to the listener's maximum.
+    #[arg(long, long_help = crate::trace_connection::DETAIL_HELP)]
+    pub trace_detail: Option<kumo_api_types::TraceDetail>,
+
     /// Add a source (in CIDR format) to the list of source addresses
     /// that we want to filter by. If any are specified, then only
     /// connections made from a matching address will be traced.
@@ -66,10 +69,12 @@ impl TraceSmtpServerCommand {
             Some(set)
         };
 
-        let mut endpoint = endpoint.join("/api/admin/trace-smtp-server/v1")?;
-        endpoint.set_scheme("ws").expect("ws to be valid scheme");
-
-        let (mut socket, _response) = connect_async(endpoint.to_string()).await?;
+        let mut socket = crate::trace_connection::connect(
+            endpoint,
+            "/api/admin/trace-smtp-server/v1",
+            self.trace_detail,
+        )
+        .await?;
 
         socket
             .send(Message::Text(
@@ -91,6 +96,11 @@ impl TraceSmtpServerCommand {
         fn conn_key(meta: &serde_json::Value) -> anyhow::Result<String> {
             if meta.is_null() {
                 return Ok(String::new());
+            }
+            if meta.get("received_from").is_none() {
+                if let Some(id) = meta["id"].as_str() {
+                    return Ok(id.to_owned());
+                }
             }
             let from = meta
                 .get("received_from")
@@ -119,7 +129,7 @@ impl TraceSmtpServerCommand {
         let mut wanted_key = None;
 
         let (tx, mut rx) = unbounded_channel();
-        tokio::spawn(async move {
+        let reader = tokio::spawn(async move {
             while let Some(event) = socket.next().await {
                 let msg = event?;
                 tx.send(msg)?;
@@ -262,6 +272,7 @@ impl TraceSmtpServerCommand {
                                  was_arf_or_oob={was_arf_or_oob:?} will_enqueue={will_enqueue:?}"
                             );
                             match meta {
+                                serde_json::Value::Null => {}
                                 serde_json::Value::Object(obj) => {
                                     for (meta_key, value) in obj {
                                         println!(
@@ -328,11 +339,9 @@ impl TraceSmtpServerCommand {
                         }
                     }
                 }
-                _ => {
-                    anyhow::bail!("Unexpected {msg:?} response");
-                }
+                msg => return Err(crate::trace_connection::unexpected_message(msg)),
             }
         }
-        Ok(())
+        reader.await?
     }
 }

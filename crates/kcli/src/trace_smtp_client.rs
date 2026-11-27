@@ -9,7 +9,6 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::IsTerminal;
 use tokio::sync::mpsc::unbounded_channel;
-use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 /// Trace outgoing sessions made by the SMTP service.
@@ -28,7 +27,9 @@ use tokio_tungstenite::tungstenite::Message;
 /// Filtering works by specifying an allow-list for specific properties
 /// of a trace session. If an allow-list for a given property is set,
 /// and the session has the corresponding property set, then the session
-/// is traced only if is value is contained in your set of allowed values.
+/// is traced only if its value is contained in your set of allowed values.
+/// Once a message is selected, it must have a matching campaign, tenant,
+/// or routing domain for each of those filters you specified.
 ///
 /// Most session properties are filled out AFTER the session has been
 /// initiated, and a given session may attempt to establish a series
@@ -42,10 +43,14 @@ use tokio_tungstenite::tungstenite::Message;
 /// efficient filter you can specify.
 #[derive(Debug, Parser)]
 pub struct TraceSmtpClientCommand {
+    /// Trace detail to request; defaults to the listener's maximum.
+    #[arg(long, long_help = crate::trace_connection::DETAIL_HELP)]
+    pub trace_detail: Option<kumo_api_types::TraceDetail>,
+
     /// Add a source (in CIDR format) to the list of source addresses
     /// that we want to filter by. If any are specified, then only
     /// connections made from a matching address will be traced.
-    /// If no sources are specified, any/all incoming SMTP connections
+    /// If no sources are specified, any/all outgoing SMTP connections
     /// will be traced.
     ///
     /// Can be used multiple times to add multiple candidate addresses.
@@ -54,30 +59,27 @@ pub struct TraceSmtpClientCommand {
     #[arg(long)]
     pub source: Vec<String>,
 
-    /// Add an address (in CIDR format) to the list of MX host addresses
-    /// that we want to filter by. If any are specified, then only
-    /// connections made from a matching address will be traced.
-    /// If no addresses are specified, any/all incoming SMTP connections
-    /// will be traced.
+    /// Filter outbound SMTP trace events by destination IP address or CIDR range.
+    /// Omit this option to allow any destination IP, or repeat it to match multiple ranges.
     ///
-    /// A given session may communicate with multiple MX addresses over
-    /// its lifetime. The full list of MX addresses is not known at
-    /// session initiation, and is filled in after they have been
-    /// resolved.
+    /// Before the first TCP connection succeeds, Kumo checks the list of MX addresses
+    /// it may try. If any address matches, Kumo shows setup events for that delivery
+    /// worker, including attempts to connect to other addresses in the list. After a
+    /// connection succeeds, Kumo filters events by that peer's IP until the worker
+    /// successfully connects to another peer.
     ///
-    /// Can be used multiple times to add multiple candidate addresses.
-    ///
-    /// Eg: --mx-addr 10.0.0.1 --mx-addr 192.168.1.0/24
+    /// For example, with `--mx-addr 192.0.2.10/32`, you may see
+    /// `Attempting connection to 192.0.2.20:25` if both addresses are candidates.
+    /// If the connection to 192.0.2.20 succeeds, its SMTP conversation is not shown.
     #[arg(long)]
     pub mx_addr: Vec<String>,
 
     /// The MX hostname to match.
     /// If omitted, any MX hostname will match!
     ///
-    /// A given session may communicate with multiple MX addresses over
-    /// its lifetime. The full list of MX addresses is not known at
-    /// session initiation, and is filled in after they have been
-    /// resolved.
+    /// Before the first connection, match a hostname in the MX plan. If
+    /// --mx-addr is also specified, the same candidate must match both filters.
+    /// After connecting, match the most recently connected MX.
     #[arg(long)]
     pub mx_host: Vec<String>,
 
@@ -156,7 +158,7 @@ pub struct TraceSmtpClientCommand {
     #[arg(long)]
     pub mail_from: Vec<String>,
 
-    /// The envelope recipient to match. If omitted, any will match.
+    /// Match messages with at least one of the specified envelope recipients.
     ///
     /// This is a per-message property, and is unavailable
     /// for matching until after a session has established a successful
@@ -209,14 +211,16 @@ impl TraceSmtpClientCommand {
             None
         } else {
             let set = CidrSet::try_from(self.mx_addr.clone())
-                .map_err(|err| anyhow::anyhow!("invalid --mx-host value(s): {err:#}"))?;
+                .map_err(|err| anyhow::anyhow!("invalid --mx-addr value(s): {err:#}"))?;
             Some(set)
         };
 
-        let mut endpoint = endpoint.join("/api/admin/trace-smtp-client/v1")?;
-        endpoint.set_scheme("ws").expect("ws to be valid scheme");
-
-        let (mut socket, _response) = connect_async(endpoint.to_string()).await?;
+        let mut socket = crate::trace_connection::connect(
+            endpoint,
+            "/api/admin/trace-smtp-client/v1",
+            self.trace_detail,
+        )
+        .await?;
 
         socket
             .send(Message::Text(
@@ -275,7 +279,7 @@ impl TraceSmtpClientCommand {
         let mut wanted_key = None;
 
         let (tx, mut rx) = unbounded_channel();
-        tokio::spawn(async move {
+        let reader = tokio::spawn(async move {
             while let Some(event) = socket.next().await {
                 let msg = event?;
                 tx.send(msg)?;
@@ -427,11 +431,9 @@ impl TraceSmtpClientCommand {
                         }
                     }
                 }
-                _ => {
-                    anyhow::bail!("Unexpected {msg:?} response");
-                }
+                msg => return Err(crate::trace_connection::unexpected_message(msg)),
             }
         }
-        Ok(())
+        reader.await?
     }
 }

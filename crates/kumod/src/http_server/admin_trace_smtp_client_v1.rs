@@ -1,6 +1,9 @@
+use super::trace_detail::{self, Subscription};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
+use bstr::ByteVec;
 use chrono::{DateTime, Utc};
+use kumo_api_types::TraceDetail::{self, *};
 use kumo_api_types::{TraceSmtpClientV1Event, TraceSmtpClientV1Payload, TraceSmtpClientV1Request};
 use parking_lot::Mutex;
 use rfc5321::DeferredTracer;
@@ -97,39 +100,27 @@ impl SmtpClientTracerImpl {
     }
 }
 
-fn port_payload(event: rfc5321::SmtpClientTraceEvent) -> SmtpClientTraceEventPayload {
-    use rfc5321::SmtpClientTraceEvent as TE;
-    match event {
-        TE::Closed => SmtpClientTraceEventPayload::Closed,
-        TE::Read(data) => SmtpClientTraceEventPayload::Read(data),
-        TE::Write(data) => SmtpClientTraceEventPayload::Write(data),
-        TE::Diagnostic { level, message } => {
-            SmtpClientTraceEventPayload::Diagnostic { level, message }
+impl From<rfc5321::SmtpClientTraceEvent> for SmtpClientTraceEventPayload {
+    fn from(event: rfc5321::SmtpClientTraceEvent) -> Self {
+        use rfc5321::SmtpClientTraceEvent as Event;
+        match event {
+            Event::Closed => Self::Closed,
+            Event::Read(data) => Self::Read(data),
+            Event::Command(cmd) => Self::Command(cmd),
+            Event::Data(bytes) => Self::Data(bytes),
+            Event::Reply(line) => Self::Reply(line),
+            Event::Diagnostic { level, message } => Self::Diagnostic { level, message },
         }
     }
 }
 
 impl rfc5321::SmtpClientTracer for SmtpClientTracerImpl {
     fn trace_event(&self, event: rfc5321::SmtpClientTraceEvent) {
-        SmtpClientTraceManager::submit(|| {
-            let payload = port_payload(event);
-            SmtpClientTraceEvent {
-                conn_meta: self.meta.lock().clone(),
-                payload,
-                when: Utc::now(),
-            }
-        });
+        self.submit(|| event.into());
     }
 
     fn lazy_trace(&self, deferred: &dyn DeferredTracer) {
-        SmtpClientTraceManager::submit(|| {
-            let payload = port_payload(deferred.trace());
-            SmtpClientTraceEvent {
-                conn_meta: self.meta.lock().clone(),
-                payload,
-                when: Utc::now(),
-            }
-        });
+        self.submit(|| deferred.trace().into());
     }
 }
 
@@ -141,12 +132,18 @@ pub struct SmtpClientTraceEvent {
 }
 
 impl SmtpClientTraceEvent {
-    fn to_v1(self, terse: bool) -> TraceSmtpClientV1Event {
-        TraceSmtpClientV1Event {
+    fn into_v1(mut self, detail: TraceDetail, terse: bool) -> Option<TraceSmtpClientV1Event> {
+        let payload = self.payload.into_v1(detail, terse)?;
+        trace_detail::project_meta(
+            &mut self.conn_meta,
+            detail,
+            trace_detail::outbound_meta_detail,
+        );
+        Some(TraceSmtpClientV1Event {
             conn_meta: self.conn_meta,
-            payload: self.payload.to_v1(terse),
+            payload,
             when: self.when,
-        }
+        })
     }
 }
 
@@ -156,7 +153,9 @@ pub enum SmtpClientTraceEventPayload {
     Connected,
     Closed,
     Read(Vec<u8>),
-    Write(String),
+    Command(rfc5321::Command),
+    Data(Vec<u8>),
+    Reply(String),
     Diagnostic {
         level: tracing::Level,
         message: String,
@@ -164,17 +163,36 @@ pub enum SmtpClientTraceEventPayload {
     MessageObtained,
 }
 
+pub(crate) fn connection_error_message(err: &anyhow::Error) -> String {
+    match err.downcast_ref::<rfc5321::ClientError>() {
+        Some(rfc5321::ClientError::Rejected(resp)) if resp.code == 334 => {
+            "Unexpected SMTP 334 authentication challenge".into()
+        }
+        Some(rfc5321::ClientError::MalformedResponseLine(_)) => "Malformed SMTP reply".into(),
+        _ => format!("{err:#}"),
+    }
+}
+
 impl SmtpClientTraceEventPayload {
-    fn to_v1(self, terse: bool) -> TraceSmtpClientV1Payload {
-        match self {
+    fn into_v1(self, detail: TraceDetail, terse: bool) -> Option<TraceSmtpClientV1Payload> {
+        Some(match self {
             Self::BeginSession => TraceSmtpClientV1Payload::BeginSession,
             Self::Connected => TraceSmtpClientV1Payload::Connected,
             Self::MessageObtained => TraceSmtpClientV1Payload::MessageObtained,
             Self::Closed => TraceSmtpClientV1Payload::Closed,
-            Self::Read(data) => {
-                TraceSmtpClientV1Payload::Read(String::from_utf8_lossy(&data).to_string())
+            Self::Read(_) if detail < Secrets => return None,
+            Self::Reply(_) if detail == Secrets => return None,
+            Self::Read(data) => TraceSmtpClientV1Payload::Read(data.into_string_lossy()),
+            Self::Reply(line) => TraceSmtpClientV1Payload::Read(trace_detail::reply(line, detail)),
+            Self::Command(cmd) => {
+                TraceSmtpClientV1Payload::Write(trace_detail::command(&cmd, detail))
             }
-            Self::Write(s) => {
+            Self::Data(bytes) if detail < Content => {
+                TraceSmtpClientV1Payload::Write(format!("[{} bytes]", bytes.len()))
+            }
+            Self::Data(bytes) => {
+                let len = bytes.len();
+                let s = bytes.into_string_lossy();
                 if terse {
                     fn split_first_line(s: &str) -> Option<String> {
                         let mut iter = s.lines();
@@ -183,50 +201,111 @@ impl SmtpClientTraceEventPayload {
                         Some(snippet.to_string())
                     }
                     if let Some(snippet) = split_first_line(&s) {
-                        return TraceSmtpClientV1Payload::AbbreviatedWrite {
-                            snippet,
-                            len: s.len(),
-                        };
+                        return Some(TraceSmtpClientV1Payload::AbbreviatedWrite { snippet, len });
                     }
                 }
                 TraceSmtpClientV1Payload::Write(s)
             }
+            Self::Diagnostic { .. } if detail < Operational => return None,
             Self::Diagnostic { level, message } => TraceSmtpClientV1Payload::Diagnostic {
                 level: level.to_string(),
-                message: message.to_string(),
+                message,
             },
-        }
+        })
     }
 }
 
-fn addr_from_meta(meta: &serde_json::Value, key: &str) -> Option<IpAddr> {
-    let addr = meta.get(key)?;
-    let addr = addr.as_str()?;
-
+fn ip_from_addr(addr: &str) -> Option<IpAddr> {
     match addr.parse::<SocketAddr>() {
         Ok(addr) => Some(addr.ip()),
         Err(_) => addr.parse::<IpAddr>().ok(),
     }
 }
 
-fn is_excluded(meta: &serde_json::Value, entries: &[(&str, &[String])]) -> bool {
-    for (key, candidates) in entries {
+fn property_filters(request: &TraceSmtpClientV1Request) -> [(&'static str, &[String]); 9] {
+    [
+        ("campaign", &request.campaign),
+        ("domain", &request.domain),
+        ("egress_pool", &request.egress_pool),
+        ("egress_source", &request.egress_source),
+        ("ready_queue_name", &request.ready_queue),
+        ("recipient", &request.rcpt_to),
+        ("routing_domain", &request.routing_domain),
+        ("sender", &request.mail_from),
+        ("tenant", &request.tenant),
+    ]
+}
+
+fn mx_matches(meta: &serde_json::Value, request: &TraceSmtpClientV1Request) -> bool {
+    if request.mx_host.is_empty() && request.mx_addr.is_none() {
+        return true;
+    }
+    let matches_peer = |host: Option<&str>, addr: Option<&str>| {
+        let host_matches = request.mx_host.is_empty()
+            || host.is_some_and(|host| request.mx_host.iter().any(|name| name == host));
+        host_matches
+            && request.mx_addr.as_ref().is_none_or(|cidrs| {
+                addr.and_then(ip_from_addr)
+                    .is_some_and(|ip| cidrs.contains(ip))
+            })
+    };
+    if let Some(addr) = meta.get("mx_address") {
+        return matches_peer(meta["mx_host"].as_str(), addr.as_str());
+    }
+
+    // Before the first connection, at least one planned MX must satisfy both filters.
+    let plan = &meta["mx_plan"];
+    if plan == "NullMx" {
+        return false;
+    }
+    plan["Addresses"].as_array().is_none_or(|addresses| {
+        addresses
+            .iter()
+            .any(|peer| matches_peer(peer["name"].as_str(), peer["addr"].as_str()))
+    })
+}
+
+fn matches_request(meta: &serde_json::Value, request: &TraceSmtpClientV1Request) -> bool {
+    if let Some(cidrs) = &request.source_addr {
+        if meta["source_address"]
+            .as_str()
+            .and_then(ip_from_addr)
+            .is_some_and(|ip| !cidrs.contains(ip))
+        {
+            return false;
+        }
+    }
+
+    for (key, candidates) in property_filters(request) {
         if candidates.is_empty() {
             continue;
         }
 
-        if let Some(value) = meta.get(key).and_then(|v| v.as_str()) {
-            if !candidates.iter().any(|entry| entry == value) {
-                return true;
+        let matches = |value: &str| candidates.iter().any(|entry| entry == value);
+        let matched = match meta.get(key) {
+            Some(serde_json::Value::String(value)) => matches(value),
+            Some(serde_json::Value::Array(values)) => values
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .any(matches),
+            // Before the first message these fields are unknown. Once a message is
+            // selected, an unset field cannot match a requested value.
+            _ if matches!(key, "campaign" | "tenant" | "routing_domain") => {
+                meta.get("message_id").is_none()
             }
+            _ => continue,
+        };
+        if !matched {
+            return false;
         }
     }
-    false
+    mx_matches(meta, request)
 }
 
 async fn process_websocket_inner(
     mut socket: WebSocket,
     mut rx: Receiver<SmtpClientTraceEvent>,
+    subscription: Subscription,
 ) -> anyhow::Result<()> {
     let mut has_lagged = false;
 
@@ -238,6 +317,23 @@ async fn process_websocket_inner(
         Message::Text(json) => serde_json::from_str(&json)?,
         message => anyhow::bail!("unexpected {message:?}"),
     };
+    let filters = property_filters(&request);
+    let connection_level = if request.source_addr.is_some()
+        || request.mx_addr.is_some()
+        || !request.mx_host.is_empty()
+    {
+        Operational
+    } else {
+        Protocol
+    };
+    let required = filters
+        .iter()
+        .filter(|(_, values)| !values.is_empty())
+        .map(|(key, _)| trace_detail::outbound_meta_detail(key))
+        .fold(connection_level, TraceDetail::max);
+    if !subscription.allow_filter(required, &mut socket).await? {
+        return Ok(());
+    }
 
     loop {
         let event = match rx.recv().await {
@@ -267,46 +363,28 @@ async fn process_websocket_inner(
             }
         };
 
-        if let Some(cidrset) = &request.source_addr {
-            if let Some(src) = addr_from_meta(&event.conn_meta, "source_address") {
-                if !cidrset.contains(src) {
-                    continue;
-                }
-            }
-        }
-        if let Some(cidrset) = &request.mx_addr {
-            if let Some(src) = addr_from_meta(&event.conn_meta, "mx_address") {
-                if !cidrset.contains(src) {
-                    continue;
-                }
-            }
-        }
-
-        if is_excluded(
-            &event.conn_meta,
-            &[
-                ("campaign", &request.campaign),
-                ("domain", &request.domain),
-                ("egress_pool", &request.egress_pool),
-                ("egress_source", &request.egress_source),
-                ("mx_host", &request.mx_host),
-                ("ready_queue", &request.ready_queue),
-                ("recipient", &request.rcpt_to),
-                ("routing_domain", &request.routing_domain),
-                ("sender", &request.mail_from),
-                ("tenant", &request.tenant),
-            ],
-        ) {
+        if !matches_request(&event.conn_meta, &request) {
             continue;
         }
 
-        let json = serde_json::to_string(&event.to_v1(request.terse))?;
+        let is_data = matches!(event.payload, SmtpClientTraceEventPayload::Data(_));
+        let Some(event) = event.into_v1(subscription.detail, request.terse) else {
+            continue;
+        };
+        let mut json = serde_json::to_string(&event)?;
+        if is_data && json.len() > trace_detail::MAX_FRAME_SIZE {
+            json = trace_detail::omitted_data(event.when, event.conn_meta)?;
+        }
         socket.send(Message::Text(json.into())).await?;
     }
 }
 
-async fn process_websocket(socket: WebSocket, rx: Receiver<SmtpClientTraceEvent>) {
-    if let Err(err) = process_websocket_inner(socket, rx).await {
+async fn process_websocket(
+    socket: WebSocket,
+    rx: Receiver<SmtpClientTraceEvent>,
+    subscription: Subscription,
+) {
+    if let Err(err) = process_websocket_inner(socket, rx, subscription).await {
         tracing::error!("error in websocket: {err:#}");
     }
 }
@@ -314,7 +392,7 @@ async fn process_websocket(socket: WebSocket, rx: Receiver<SmtpClientTraceEvent>
 /// This is a websocket endpoint that provides outbound SMTP tracing.
 /// It cannot be described via auto-generated docs extracted from the JSON Schema.
 #[utoipa::path(get, tags = ["debugging", "kcli:trace-smtp-client"], path = "/api/admin/trace-smtp-client/v1")]
-pub async fn trace(ws: WebSocketUpgrade) -> impl IntoResponse {
+pub async fn trace(subscription: Subscription, ws: WebSocketUpgrade) -> impl IntoResponse {
     // Subscribe before completing the upgrade handshake. The handshake
     // response is what unblocks the connecting client, so subscribing here
     // guarantees this session is counted as a receiver before the client can
@@ -322,5 +400,196 @@ pub async fn trace(ws: WebSocketUpgrade) -> impl IntoResponse {
     // produced in that window would be dropped by the receiver-count check in
     // SmtpClientTraceManager::submit.
     let rx = MGR.tx.subscribe();
-    ws.on_upgrade(move |socket| process_websocket(socket, rx))
+    (
+        [("kumo-trace-detail", subscription.detail.to_string())],
+        ws.on_upgrade(move |socket| process_websocket(socket, rx, subscription)),
+    )
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn source_filter_allows_setup_and_matches_the_connected_source() {
+        let request = TraceSmtpClientV1Request {
+            source_addr: Some(vec!["192.0.2.0/24"].try_into().unwrap()),
+            ..Default::default()
+        };
+        let matches = |meta| matches_request(&meta, &request);
+        assert!(matches(json!({})));
+        assert!(matches(json!({"source_address": "192.0.2.4:54321"})));
+        assert!(!matches(json!({"source_address": "198.51.100.1:54321"})));
+    }
+
+    #[test]
+    fn mx_filters_match_one_candidate_before_connecting() {
+        let plan = json!({"mx_plan": {"Addresses": [
+            {"name": "first.example", "addr": "192.0.2.1"},
+            {"name": "second.example", "addr": "[2001:db8::1]:25"}
+        ]}});
+        let by_host = |name: &str| TraceSmtpClientV1Request {
+            mx_host: vec![name.into()],
+            ..Default::default()
+        };
+        let by_addr = |cidr: &str| TraceSmtpClientV1Request {
+            mx_addr: Some(vec![cidr].try_into().unwrap()),
+            ..Default::default()
+        };
+        assert!(!matches_request(&plan, &by_host("other.example")));
+        assert!(!matches_request(&plan, &by_addr("198.51.100.0/24")));
+        let mut request = by_addr("2001:db8::/32");
+        request.mx_host = vec!["first.example".into()];
+        assert!(!matches_request(&plan, &request)); // Host and IP match different candidates.
+        request.mx_host = vec!["second.example".into()];
+        assert!(matches_request(&plan, &request));
+        assert!(!matches_request(&json!({"mx_plan": "NullMx"}), &request));
+        assert!(!matches_request(
+            &json!({"mx_plan": {"Addresses": []}}),
+            &request
+        ));
+    }
+
+    #[test]
+    fn connected_mx_takes_precedence_over_the_plan() {
+        let request = TraceSmtpClientV1Request {
+            mx_addr: Some(vec!["192.0.2.0/24"].try_into().unwrap()),
+            ..Default::default()
+        };
+        let mut meta = json!({"mx_plan": {"Addresses": [
+            {"name": "mx.example", "addr": "192.0.2.1"},
+            {"name": "mx.example", "addr": "198.51.100.2"}
+        ]}});
+        assert!(matches_request(&meta, &request));
+        meta["mx_host"] = json!("mx.example");
+        meta["mx_address"] = json!("198.51.100.2");
+        assert!(!matches_request(&meta, &request));
+        meta["mx_address"] = json!("192.0.2.1");
+        assert!(matches_request(&meta, &request));
+    }
+
+    #[test]
+    fn terse_data_reports_wire_length_after_lossy_decoding() {
+        let data = b"A\xff\r\nB\r\n";
+        assert_eq!(
+            SmtpClientTraceEventPayload::Data(data.to_vec()).into_v1(Content, true),
+            Some(TraceSmtpClientV1Payload::AbbreviatedWrite {
+                snippet: "A\u{fffd}".into(),
+                len: data.len(),
+            })
+        );
+    }
+
+    #[test]
+    fn auth_challenge_is_only_visible_in_the_raw_reply() {
+        let rejection = |code| {
+            anyhow::Error::new(rfc5321::ClientError::Rejected(
+                rfc5321::Response::with_code_and_message(code, "synthetic-marker"),
+            ))
+            .context("authenticating to relay")
+        };
+        assert_eq!(
+            connection_error_message(&rejection(334)),
+            "Unexpected SMTP 334 authentication challenge"
+        );
+        let line = "334 synthetic-marker";
+        for level in [Protocol, Operational, Envelope, Content] {
+            assert_eq!(trace_detail::reply(line.into(), level), "334");
+        }
+        let ordinary = rejection(535);
+        assert_eq!(connection_error_message(&ordinary), format!("{ordinary:#}"));
+    }
+
+    #[tokio::test]
+    async fn malformed_reply_text_stays_in_raw_reads() -> anyhow::Result<()> {
+        use std::sync::Arc;
+        use std::time::Duration;
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::UnixStream;
+        use TraceSmtpClientV1Payload::Read;
+
+        let (socket, mut peer) = UnixStream::pair()?;
+        let meta = json!({"id": "malformed-reply-test"});
+        let mut client = rfc5321::SmtpClient::with_stream(socket, "localhost", Default::default());
+        client.set_tracer(Arc::new(SmtpClientTracerImpl::new(meta.clone())));
+        let mut events = MGR.tx.subscribe();
+        let wire = "250-First line\r\n334 inconsistent code\r\nnot a reply\r\n";
+        peer.write_all(wire.as_bytes()).await?;
+        // The first read fails when the reply code changes mid-response; the second starts with
+        // an invalid line. Neither error should echo that line in an operational trace.
+        for _ in 0..2 {
+            let err = client
+                .read_response(None, Duration::from_secs(1))
+                .await
+                .unwrap_err();
+            let err = anyhow::Error::new(err).context("retrying connection");
+            assert_eq!(connection_error_message(&err), "Malformed SMTP reply");
+        }
+        let mut operational = vec![];
+        let mut raw = String::new();
+        while let Ok(event) = events.try_recv() {
+            if event.conn_meta != meta {
+                continue;
+            }
+            if let Some(Read(chunk)) = event.payload.clone().into_v1(Secrets, false) {
+                raw.push_str(&chunk);
+            }
+            if let Some(payload) = event.payload.into_v1(Operational, false) {
+                operational.push(payload);
+            }
+        }
+        assert_eq!(operational, [Read("250-First line".into())]);
+        assert_eq!(raw, wire);
+        Ok(())
+    }
+
+    #[test]
+    fn ready_queue_filters_setup_events_before_recipients_are_known() {
+        let request = TraceSmtpClientV1Request {
+            ready_queue: vec!["wanted".into()],
+            rcpt_to: vec!["first@example.test".into()],
+            ..Default::default()
+        };
+        let matches = |name| matches_request(&json!({"ready_queue_name": name}), &request);
+        assert!(matches("wanted"));
+        assert!(!matches("other"));
+    }
+
+    #[test]
+    fn optional_message_fields_must_match_once_a_message_is_selected() {
+        let request = TraceSmtpClientV1Request {
+            campaign: vec!["campaign".into()],
+            tenant: vec!["tenant".into()],
+            routing_domain: vec!["relay.example".into()],
+            ..Default::default()
+        };
+        assert!(matches_request(&json!({}), &request));
+        let message = json!({
+            "message_id": "id", "campaign": "campaign", "tenant": "tenant", "routing_domain": "relay.example"
+        });
+        assert!(matches_request(&message, &request));
+        for field in ["campaign", "tenant", "routing_domain"] {
+            let mut missing = message.clone();
+            if field == "routing_domain" {
+                missing[field] = serde_json::Value::Null;
+            } else {
+                missing.as_object_mut().unwrap().remove(field);
+            }
+            assert!(!matches_request(&missing, &request), "missing {field}");
+        }
+    }
+
+    #[test]
+    fn rcpt_to_matches_any_message_recipient() {
+        let request = TraceSmtpClientV1Request {
+            rcpt_to: vec!["first@example.test".into(), "second@example.test".into()],
+            ..Default::default()
+        };
+        let matches =
+            |recipients: &[&str]| matches_request(&json!({"recipient": recipients}), &request);
+        assert!(matches(&["other@example.test", "second@example.test"]));
+        assert!(!matches(&["other@example.test"]));
+        assert!(!matches(&[]));
+    }
 }

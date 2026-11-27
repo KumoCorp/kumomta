@@ -21,7 +21,7 @@ When troubleshooting, it helps to eliminate external factors, including the inje
 
 ## Tracing Server Communications
 
-When having issues with injecting messages, use the `kcli trace-smtp-server` command to receive an output of all communications between KumoMTA and the incoming client.
+To troubleshoot message injection, use `kcli trace-smtp-server` to follow the SMTP exchange between KumoMTA and the submitting client. [Choose a trace detail level](kcli.md#choosing-smtp-trace-detail) that shows the part of the exchange you need.
 
 ``` console
 [2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587]   0ns === Connected 2023-11-24 15:54:55.532224578 UTC
