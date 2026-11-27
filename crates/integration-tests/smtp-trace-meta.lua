@@ -11,7 +11,7 @@ kumo.on('init', function()
       x_route = 'bulk',
       x_customer = 'example',
       x_auth_context = 'private',
-      legacy_key = 'unclassified',
+      mx_plan = 'inbound policy value',
     },
   }
   kumo.start_http_listener { listen = '127.0.0.1:0' }

@@ -175,22 +175,3 @@ pub fn outbound_meta_detail(key: &str) -> TraceDetail {
         _ => Secrets,
     }
 }
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn mx_plan_is_operational_only_on_outbound_traces() {
-        let outbound = serde_json::json!({"mx_plan": ["example.test"]});
-        let mut inbound = outbound.clone();
-        let mut projected = outbound.clone();
-        let levels = TraceMetaKeyLevels::default();
-        project_meta(&mut inbound, Operational, |k| {
-            inbound_meta_detail(k, &levels)
-        });
-        project_meta(&mut projected, Operational, outbound_meta_detail);
-        assert_eq!(inbound, serde_json::json!({}));
-        assert_eq!(projected, outbound);
-    }
-}

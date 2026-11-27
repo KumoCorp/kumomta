@@ -31,14 +31,14 @@ pub struct SmtpServerTraceEvent {
 }
 
 impl SmtpServerTraceEvent {
-    fn to_v1(
+    fn into_v1(
         mut self,
         detail: TraceDetail,
         terse: bool,
         ids: &RandomState,
         levels: &TraceMetaKeyLevels,
     ) -> Option<TraceSmtpV1Event> {
-        let payload = self.payload.to_v1(detail, terse)?;
+        let payload = self.payload.into_v1(detail, terse)?;
         trace_detail::project_meta(&mut self.conn_meta, detail, |k| {
             trace_detail::inbound_meta_detail(k, levels)
         });
@@ -97,7 +97,7 @@ impl SmtpServerTraceEventPayload {
         }
     }
 
-    fn to_v1(self, detail: TraceDetail, terse: bool) -> Option<TraceSmtpV1Payload> {
+    fn into_v1(self, detail: TraceDetail, terse: bool) -> Option<TraceSmtpV1Payload> {
         Some(match self {
             Self::Connected => TraceSmtpV1Payload::Connected,
             Self::Closed => TraceSmtpV1Payload::Closed,
@@ -120,7 +120,7 @@ impl SmtpServerTraceEventPayload {
             Self::Callback { .. } | Self::Diagnostic { .. } if detail < Operational => return None,
             Self::Diagnostic { level, message } => TraceSmtpV1Payload::Diagnostic {
                 level: level.to_string(),
-                message: message.to_string(),
+                message,
             },
             Self::Callback {
                 name,
@@ -279,7 +279,7 @@ async fn process_websocket_inner(
                 }
 
                 let is_data = matches!(event.payload, SmtpServerTraceEventPayload::Data { .. } | SmtpServerTraceEventPayload::DataRead(_));
-                let Some(event) = event.to_v1(subscription.detail, request.terse, &ids, &subscription.inbound_meta) else { continue };
+                let Some(event) = event.into_v1(subscription.detail, request.terse, &ids, &subscription.inbound_meta) else { continue };
                 let mut json = serde_json::to_string(&event)?;
                 if is_data && json.len() > trace_detail::MAX_FRAME_SIZE {
                     json = trace_detail::omitted_data(event.when, event.conn_meta)?;
@@ -359,7 +359,7 @@ mod test {
                 when: Utc::now(),
             };
             event
-                .to_v1(Protocol, false, &ids, &Default::default())
+                .into_v1(Protocol, false, &ids, &Default::default())
                 .unwrap()
                 .conn_meta["id"]
                 .as_str()

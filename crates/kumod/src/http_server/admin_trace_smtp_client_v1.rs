@@ -1,6 +1,7 @@
 use super::trace_detail::{self, Subscription};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
+use bstr::ByteVec;
 use chrono::{DateTime, Utc};
 use kumo_api_types::TraceDetail::{self, *};
 use kumo_api_types::{TraceSmtpClientV1Event, TraceSmtpClientV1Payload, TraceSmtpClientV1Request};
@@ -99,41 +100,27 @@ impl SmtpClientTracerImpl {
     }
 }
 
-fn port_payload(event: rfc5321::SmtpClientTraceEvent) -> SmtpClientTraceEventPayload {
-    use rfc5321::SmtpClientTraceEvent as TE;
-    match event {
-        TE::Closed => SmtpClientTraceEventPayload::Closed,
-        TE::Read(data) => SmtpClientTraceEventPayload::Read(data),
-        TE::Command(cmd) => SmtpClientTraceEventPayload::Command(cmd),
-        TE::Data(bytes) => SmtpClientTraceEventPayload::Data(bytes),
-        TE::Reply(line) => SmtpClientTraceEventPayload::Reply(line),
-        TE::Diagnostic { level, message } => {
-            SmtpClientTraceEventPayload::Diagnostic { level, message }
+impl From<rfc5321::SmtpClientTraceEvent> for SmtpClientTraceEventPayload {
+    fn from(event: rfc5321::SmtpClientTraceEvent) -> Self {
+        use rfc5321::SmtpClientTraceEvent as Event;
+        match event {
+            Event::Closed => Self::Closed,
+            Event::Read(data) => Self::Read(data),
+            Event::Command(cmd) => Self::Command(cmd),
+            Event::Data(bytes) => Self::Data(bytes),
+            Event::Reply(line) => Self::Reply(line),
+            Event::Diagnostic { level, message } => Self::Diagnostic { level, message },
         }
     }
 }
 
 impl rfc5321::SmtpClientTracer for SmtpClientTracerImpl {
     fn trace_event(&self, event: rfc5321::SmtpClientTraceEvent) {
-        SmtpClientTraceManager::submit(|| {
-            let payload = port_payload(event);
-            SmtpClientTraceEvent {
-                conn_meta: self.meta.lock().clone(),
-                payload,
-                when: Utc::now(),
-            }
-        });
+        self.submit(|| event.into());
     }
 
     fn lazy_trace(&self, deferred: &dyn DeferredTracer) {
-        SmtpClientTraceManager::submit(|| {
-            let payload = port_payload(deferred.trace());
-            SmtpClientTraceEvent {
-                conn_meta: self.meta.lock().clone(),
-                payload,
-                when: Utc::now(),
-            }
-        });
+        self.submit(|| deferred.trace().into());
     }
 }
 
@@ -145,8 +132,8 @@ pub struct SmtpClientTraceEvent {
 }
 
 impl SmtpClientTraceEvent {
-    fn to_v1(mut self, detail: TraceDetail, terse: bool) -> Option<TraceSmtpClientV1Event> {
-        let payload = self.payload.to_v1(detail, terse)?;
+    fn into_v1(mut self, detail: TraceDetail, terse: bool) -> Option<TraceSmtpClientV1Event> {
+        let payload = self.payload.into_v1(detail, terse)?;
         trace_detail::project_meta(
             &mut self.conn_meta,
             detail,
@@ -187,7 +174,7 @@ pub(crate) fn connection_error_message(err: &anyhow::Error) -> String {
 }
 
 impl SmtpClientTraceEventPayload {
-    fn to_v1(self, detail: TraceDetail, terse: bool) -> Option<TraceSmtpClientV1Payload> {
+    fn into_v1(self, detail: TraceDetail, terse: bool) -> Option<TraceSmtpClientV1Payload> {
         Some(match self {
             Self::BeginSession => TraceSmtpClientV1Payload::BeginSession,
             Self::Connected => TraceSmtpClientV1Payload::Connected,
@@ -195,9 +182,7 @@ impl SmtpClientTraceEventPayload {
             Self::Closed => TraceSmtpClientV1Payload::Closed,
             Self::Read(_) if detail < Secrets => return None,
             Self::Reply(_) if detail == Secrets => return None,
-            Self::Read(data) => {
-                TraceSmtpClientV1Payload::Read(String::from_utf8_lossy(&data).into_owned())
-            }
+            Self::Read(data) => TraceSmtpClientV1Payload::Read(data.into_string_lossy()),
             Self::Reply(line) => TraceSmtpClientV1Payload::Read(trace_detail::reply(line, detail)),
             Self::Command(cmd) => {
                 TraceSmtpClientV1Payload::Write(trace_detail::command(&cmd, detail))
@@ -206,7 +191,8 @@ impl SmtpClientTraceEventPayload {
                 TraceSmtpClientV1Payload::Write(format!("[{} bytes]", bytes.len()))
             }
             Self::Data(bytes) => {
-                let s = String::from_utf8_lossy(&bytes).into_owned();
+                let len = bytes.len();
+                let s = bytes.into_string_lossy();
                 if terse {
                     fn split_first_line(s: &str) -> Option<String> {
                         let mut iter = s.lines();
@@ -215,10 +201,7 @@ impl SmtpClientTraceEventPayload {
                         Some(snippet.to_string())
                     }
                     if let Some(snippet) = split_first_line(&s) {
-                        return Some(TraceSmtpClientV1Payload::AbbreviatedWrite {
-                            snippet,
-                            len: bytes.len(),
-                        });
+                        return Some(TraceSmtpClientV1Payload::AbbreviatedWrite { snippet, len });
                     }
                 }
                 TraceSmtpClientV1Payload::Write(s)
@@ -385,7 +368,7 @@ async fn process_websocket_inner(
         }
 
         let is_data = matches!(event.payload, SmtpClientTraceEventPayload::Data(_));
-        let Some(event) = event.to_v1(subscription.detail, request.terse) else {
+        let Some(event) = event.into_v1(subscription.detail, request.terse) else {
             continue;
         };
         let mut json = serde_json::to_string(&event)?;
@@ -487,6 +470,18 @@ mod test {
     }
 
     #[test]
+    fn terse_data_reports_wire_length_after_lossy_decoding() {
+        let data = b"A\xff\r\nB\r\n";
+        assert_eq!(
+            SmtpClientTraceEventPayload::Data(data.to_vec()).into_v1(Content, true),
+            Some(TraceSmtpClientV1Payload::AbbreviatedWrite {
+                snippet: "A\u{fffd}".into(),
+                len: data.len(),
+            })
+        );
+    }
+
+    #[test]
     fn auth_challenge_is_only_visible_in_the_raw_reply() {
         let rejection = |code| {
             anyhow::Error::new(rfc5321::ClientError::Rejected(
@@ -502,10 +497,6 @@ mod test {
         for level in [Protocol, Operational, Envelope, Content] {
             assert_eq!(trace_detail::reply(line.into(), level), "334");
         }
-        assert_eq!(
-            SmtpClientTraceEventPayload::Read(line.as_bytes().to_vec()).to_v1(Secrets, false),
-            Some(TraceSmtpClientV1Payload::Read(line.into()))
-        );
         let ordinary = rejection(535);
         assert_eq!(connection_error_message(&ordinary), format!("{ordinary:#}"));
     }
@@ -516,43 +507,39 @@ mod test {
         use std::time::Duration;
         use tokio::io::AsyncWriteExt;
         use tokio::net::UnixStream;
-        use TraceSmtpClientV1Payload::{Diagnostic, Read};
+        use TraceSmtpClientV1Payload::Read;
 
         let (socket, mut peer) = UnixStream::pair()?;
         let meta = json!({"id": "malformed-reply-test"});
-        let tracer = Arc::new(SmtpClientTracerImpl::new(meta.clone()));
         let mut client = rfc5321::SmtpClient::with_stream(socket, "localhost", Default::default());
-        client.set_tracer(tracer.clone());
+        client.set_tracer(Arc::new(SmtpClientTracerImpl::new(meta.clone())));
         let mut events = MGR.tx.subscribe();
         let wire = "250-First line\r\n334 inconsistent code\r\nnot a reply\r\n";
         peer.write_all(wire.as_bytes()).await?;
-        // Both a mismatched continuation and an unparseable first line carry raw text.
+        // The first read fails when the reply code changes mid-response; the second starts with
+        // an invalid line. Neither error should echo that line in an operational trace.
         for _ in 0..2 {
             let err = client
                 .read_response(None, Duration::from_secs(1))
                 .await
                 .unwrap_err();
             let err = anyhow::Error::new(err).context("retrying connection");
-            tracer.diagnostic(Level::ERROR, || connection_error_message(&err));
+            assert_eq!(connection_error_message(&err), "Malformed SMTP reply");
         }
-        let mut replies = vec![];
-        let mut diagnostics = vec![];
+        let mut operational = vec![];
         let mut raw = String::new();
         while let Ok(event) = events.try_recv() {
             if event.conn_meta != meta {
                 continue;
             }
-            if let Some(Read(chunk)) = event.payload.clone().to_v1(Secrets, false) {
+            if let Some(Read(chunk)) = event.payload.clone().into_v1(Secrets, false) {
                 raw.push_str(&chunk);
             }
-            match event.payload.to_v1(Operational, false) {
-                Some(Read(line)) => replies.push(line),
-                Some(Diagnostic { message, .. }) => diagnostics.push(message),
-                _ => {}
+            if let Some(payload) = event.payload.into_v1(Operational, false) {
+                operational.push(payload);
             }
         }
-        assert_eq!(replies, ["250-First line"]);
-        assert_eq!(diagnostics, ["Malformed SMTP reply"; 2]);
+        assert_eq!(operational, [Read("250-First line".into())]);
         assert_eq!(raw, wire);
         Ok(())
     }

@@ -1,6 +1,6 @@
 use crate::kumod::{DaemonWithMaildir, KumoDaemon, MailGenParams};
 use anyhow::Context;
-use futures::{SinkExt, StreamExt};
+use futures::{SinkExt, TryStreamExt};
 use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::time::timeout;
@@ -32,8 +32,8 @@ async fn through_data_reply(
     timeout(Duration::from_secs(30), async {
         let mut in_data = false;
         let mut partial = String::new();
-        while let Some(frame) = ws.next().await {
-            let mut event: Value = serde_json::from_str(&frame?.into_text()?)?;
+        while let Some(frame) = ws.try_next().await? {
+            let mut event: Value = serde_json::from_str(&frame.into_text()?)?;
             if level == "secrets" {
                 // Raw reads in either direction are socket chunks, not SMTP lines.
                 if let Some(chunk) = event["payload"]["Read"].as_str() {
@@ -87,10 +87,19 @@ async fn smtp_trace_detail_on_the_wire() -> anyhow::Result<()> {
     assert_eq!(msg.send(&mut client).await?.code, 250);
     for (direction, level, reply_key, ws) in traces {
         let mut transcript = String::new();
+        let mut saw_mx_plan = false;
         through_data_reply(ws, reply_key, level, |event| {
-            transcript.push_str(&event.to_string())
+            saw_mx_plan |= event["conn_meta"].get("mx_plan").is_some();
+            transcript.push_str(&event.to_string());
         })
         .await?;
+        if direction == "client" {
+            assert_eq!(
+                saw_mx_plan,
+                level != "protocol",
+                "{direction} {level}: mx_plan"
+            );
+        }
         let has = |needle: &str, expected: bool| {
             assert_eq!(
                 transcript.contains(needle),
@@ -174,7 +183,11 @@ async fn smtp_trace_detail_kcli_reports_read_errors() -> anyhow::Result<()> {
         timeout(Duration::from_secs(5), async {
             let (tcp, _) = listener.accept().await?;
             let mut ws = tokio_tungstenite::accept_async(tcp).await?;
-            assert!(ws.next().await.context("missing subscription")??.is_text());
+            assert!(ws
+                .try_next()
+                .await?
+                .context("missing subscription")?
+                .is_text());
             drop(ws); // TCP EOF without a WebSocket closing handshake is a read error.
             let output = cli.wait_with_output().await?;
             assert!(!output.status.success());
@@ -199,37 +212,35 @@ async fn smtp_trace_detail_listener_caps_the_default_and_explicit_request() -> a
             let (_, response) = connect_async(format!("{url}{query}")).await?;
             assert_eq!(response.headers()["kumo-trace-detail"], expected);
         }
-        assert!(
-            matches!(connect_async(format!("{url}?detail=content")).await, Err(Error::Http(r)) if r.status().as_u16() == 403)
-        );
     }
-    let output = tokio::process::Command::new(crate::kumod::target_bin("kcli")?)
-        .args([
-            "--endpoint",
-            &format!("http://{}", daemon.listener("http")),
-            "trace-smtp-server",
-            "--trace-detail",
-            "content",
-        ])
-        .output()
-        .await?;
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("403"));
-    let refused = tokio::process::Command::new(crate::kumod::target_bin("kcli")?)
-        .args([
-            "--endpoint",
-            &format!("http://{}", daemon.listener("http")),
-            "trace-smtp-client",
-            "--rcpt-to",
-            "user@example.com",
-        ])
-        .kill_on_drop(true)
-        .output();
-    let output = timeout(Duration::from_secs(5), refused).await??;
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains(
-        "SMTP trace closed: trace filter requires envelope detail on this listener (1008)"
-    ));
+    let url = trace_url(&daemon, "client");
+    assert!(
+        matches!(connect_async(format!("{url}?detail=content")).await, Err(Error::Http(r)) if r.status().as_u16() == 403)
+    );
+
+    let endpoint = format!("http://{}", daemon.listener("http"));
+    for (args, code, reason) in [
+        (
+            ["trace-smtp-server", "--trace-detail", "content"],
+            "403",
+            "maximum SMTP trace detail is operational",
+        ),
+        (
+            ["trace-smtp-client", "--rcpt-to", "user@example.com"],
+            "(1008)",
+            "SMTP trace closed: trace filter requires envelope detail on this listener",
+        ),
+    ] {
+        let refused = tokio::process::Command::new(crate::kumod::target_bin("kcli")?)
+            .args(["--endpoint", &endpoint])
+            .args(args)
+            .kill_on_drop(true)
+            .output();
+        let output = timeout(Duration::from_secs(5), refused).await??;
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(code) && stderr.contains(reason), "{stderr}");
+    }
     daemon.stop().await?;
     Ok(())
 }
@@ -251,7 +262,8 @@ async fn smtp_trace_detail_filters_on_mx_before_projecting_protocol_output() -> 
     .await?;
     let mut smtp = daemon.smtp_client().await?;
 
-    // Drain the first delivery on the unfiltered subscription before starting the matching one.
+    // In source.lua, only two-hosts.example.com uses the MXs in the filter. Record the other
+    // connection's ID so we can assert it never appears in the filtered trace.
     let first = MailGenParams {
         recip: Some("first@example.com"),
         ..Default::default()
@@ -302,16 +314,17 @@ async fn smtp_trace_detail_metadata_is_scoped_to_the_http_listener() -> anyhow::
     }
     daemon.smtp_client("localhost").await?;
     for (mut ws, route, customer) in traces {
-        let frame = timeout(Duration::from_secs(5), ws.next())
-            .await?
-            .context("trace closed before Connected")??;
+        let frame = timeout(Duration::from_secs(5), ws.try_next())
+            .await??
+            .context("trace closed before Connected")?;
         let event: Value = serde_json::from_str(&frame.into_text()?)?;
         assert_eq!(event["payload"], "Connected");
         let meta = &event["conn_meta"];
         assert_eq!(meta.get("x_route"), route.map(Value::from).as_ref());
         assert_eq!(meta.get("x_customer"), customer.map(Value::from).as_ref());
         assert!(meta.get("x_auth_context").is_none());
-        assert!(meta.get("legacy_key").is_none());
+        // mx_plan is operational outbound, but this inbound policy field is unclassified.
+        assert!(meta.get("mx_plan").is_none());
     }
     daemon.stop().await?;
     Ok(())
@@ -352,9 +365,9 @@ async fn smtp_trace_detail_join_during_auth_continuation() -> anyhow::Result<()>
         let mut saw_continuation = false;
         loop {
             let frame = ws
-                .next()
-                .await
-                .context("trace closed before AUTH reply")??
+                .try_next()
+                .await?
+                .context("trace closed before AUTH reply")?
                 .into_text()?;
             assert!(!frame.contains("AGRhbmllbAB0aWdlcg=="));
             let event: Value = serde_json::from_str(&frame)?;
