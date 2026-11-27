@@ -21,6 +21,7 @@ pub mod log;
 pub mod log_backlog;
 pub mod nodeid;
 pub mod panic;
+mod policy_metrics;
 pub mod start;
 pub mod tls_helpers;
 
@@ -44,6 +45,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         mod_smtp_response_normalize::register,
         kumo_jsonl::lua::register,
         mod_counter_series::register,
+        policy_metrics::register,
         mod_string::register,
         mod_time::register,
         mod_dns_resolver::register,

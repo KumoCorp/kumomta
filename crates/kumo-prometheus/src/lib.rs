@@ -51,7 +51,7 @@ impl<K: Clone + MetricLabel + Send + Sync, V: AtomicCounterEntry> StreamingColle
         buffer.push_str(&prefix);
         buffer.push_str(self.name);
         buffer.push(' ');
-        buffer.push_str(&self.help);
+        labels::push_text_string(&mut buffer, &self.help, false);
         buffer.push_str("\n# TYPE ");
         buffer.push_str(&prefix);
         buffer.push_str(self.name);
@@ -105,9 +105,9 @@ impl<K: Clone + MetricLabel + Send + Sync, V: AtomicCounterEntry> StreamingColle
         target.push_str(self.name);
         target.push_str("\":{");
         if !self.help.is_empty() {
-            target.push_str("\"help\":\"");
-            target.push_str(&self.help);
-            target.push_str("\",");
+            target.push_str("\"help\":");
+            labels::push_json_string(&mut target, &self.help);
+            target.push(',');
         }
         target.push_str("\"type\":\"");
         target.push_str(self.metric_type.label());
@@ -764,6 +764,66 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn streaming_text_escapes_help_and_labels() {
+        label_key! { pub struct Route { pub route: String, } }
+        let key = Route {
+            route: "a\"b\nc\\d".into(),
+        };
+        let family = CounterRegistryInner {
+            map: RwLock::new(HashMap::from([(key, AtomicCounter::new())])),
+            name: "decisions",
+            help: "a\"b\nc\\d".into(),
+            metric_type: MetricType::Counter,
+        };
+        let text = futures::executor::block_on(family.stream_text(&None).collect::<String>());
+        assert_eq!(
+            text,
+            r#"# HELP decisions a"b\nc\\d
+# TYPE decisions counter
+decisions{route="a\"b\nc\\d"} 0
+"#
+        );
+    }
+
+    #[test]
+    fn streaming_json_preserves_help_and_label_values() {
+        label_key! { pub struct Rule { pub rule: String, } }
+        label_key! { pub struct RuleResult { pub rule: String, pub result: String, } }
+
+        let text = "quote\" newline\n slash\\";
+        fn render<K: MetricLabel + Clone + Send + Sync + Hash + Eq>(
+            key: K,
+            help: &str,
+        ) -> serde_json::Value {
+            let family = CounterRegistryInner {
+                map: RwLock::new(HashMap::from([(key, AtomicCounter::new())])),
+                name: "decisions",
+                help: help.to_owned(),
+                metric_type: MetricType::Counter,
+            };
+            let chunk = futures::executor::block_on(family.stream_json().collect::<String>());
+            // Each streaming family is appended after the default registry's metrics.
+            serde_json::from_str(&format!(r#"{{"existing":null{chunk}}}"#)).unwrap()
+        }
+
+        let rule = "café\tgate";
+        let single = render(Rule { rule: rule.into() }, text);
+        assert_eq!(single["decisions"]["help"], text);
+        assert_eq!(single["decisions"]["value"]["rule"][rule], 0);
+        let multi = render(
+            RuleResult {
+                rule: "gate".into(),
+                result: text.into(),
+            },
+            text,
+        );
+        assert_eq!(
+            multi["decisions"]["value"][0],
+            serde_json::json!({"rule":"gate", "result":text, "@":0})
+        );
+    }
 
     #[test]
     fn split_help_single_line() {

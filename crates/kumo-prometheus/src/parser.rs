@@ -63,6 +63,32 @@ impl AsRef<str> for InternString {
     }
 }
 
+// The opening quote has already been consumed. Stop at the first unescaped quote.
+fn parse_label_value(mut input: &str) -> Option<(InternString, &str)> {
+    let mut value = String::new();
+    loop {
+        let i = memchr::memchr2(b'"', b'\\', input.as_bytes())?;
+        let (literal, tail) = input.split_at(i);
+        value.push_str(literal);
+        if let Some(rest) = tail.strip_prefix('"') {
+            return Some((InternString(Arc::new(value)), rest));
+        }
+        match tail.as_bytes().get(1)? {
+            b'"' => value.push('"'),
+            b'\\' => value.push('\\'),
+            b'n' => value.push('\n'),
+            _ => {
+                // Older streaming collectors emitted literal backslashes. Keep unknown
+                // escapes intact rather than failing an otherwise readable scrape.
+                value.push('\\');
+                input = &tail[1..];
+                continue;
+            }
+        }
+        input = &tail[2..];
+    }
+}
+
 pub struct Parser {
     strings: HashSet<InternString>,
     buffer: Vec<u8>,
@@ -182,7 +208,7 @@ impl Parser {
                         anyhow::bail!("invalid labels in {line}");
                     };
 
-                    let Some((label_value, rest)) = rest.split_once("\"") else {
+                    let Some((label_value, rest)) = parse_label_value(rest) else {
                         anyhow::bail!("invalid labels in {line}");
                     };
 
@@ -198,7 +224,7 @@ impl Parser {
                         // runtime of just parsing the data with this interned is
                         // ~1.8 seconds. Without it interning label_value it goes
                         // down to 0.35s
-                        InternString::new(label_value),
+                        label_value,
                     );
                 }
 
@@ -536,6 +562,31 @@ tokio_total_overflow_count 0
                 value: 0.0
             })]
         );
+    }
+
+    #[test]
+    fn parse_escaped_label_values() {
+        let sample = r#"# TYPE decisions counter
+decisions{rule="say \"héllo\", then\nstop",path="literal\\n\\",empty=""} 1
+decisions{rule="next"} 2
+"#;
+        let metrics = Parser::new().parse(sample).unwrap();
+        assert!(metrics[0].label_is("rule", "say \"héllo\", then\nstop"));
+        assert!(metrics[0].label_is("path", "literal\\n\\"));
+        assert!(metrics[0].label_is("empty", ""));
+        assert!(metrics[1].label_is("rule", "next"));
+    }
+
+    #[test]
+    fn unknown_escape_in_legacy_label_is_preserved() {
+        let sample = "# TYPE decisions counter\ndecisions{rule=\"a\\q\"} 1\n";
+        assert!(Parser::new().parse(sample).unwrap()[0].label_is("rule", r"a\q"));
+    }
+
+    #[test]
+    fn escaped_quote_does_not_terminate_label() {
+        let sample = "# TYPE decisions counter\ndecisions{rule=\"unterminated\\\"} 1\n";
+        assert!(Parser::new().parse(sample).is_err());
     }
 
     #[test]
