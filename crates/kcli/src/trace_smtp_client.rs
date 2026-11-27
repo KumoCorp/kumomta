@@ -431,9 +431,7 @@ impl TraceSmtpClientCommand {
                         }
                     }
                 }
-                _ => {
-                    anyhow::bail!("Unexpected {msg:?} response");
-                }
+                msg => return Err(crate::trace_connection::unexpected_message(msg)),
             }
         }
         reader.await?

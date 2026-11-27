@@ -181,6 +181,7 @@ pub(crate) fn connection_error_message(err: &anyhow::Error) -> String {
         Some(rfc5321::ClientError::Rejected(resp)) if resp.code == 334 => {
             "Unexpected SMTP 334 authentication challenge".into()
         }
+        Some(rfc5321::ClientError::MalformedResponseLine(_)) => "Malformed SMTP reply".into(),
         _ => format!("{err:#}"),
     }
 }
@@ -507,6 +508,53 @@ mod test {
         );
         let ordinary = rejection(535);
         assert_eq!(connection_error_message(&ordinary), format!("{ordinary:#}"));
+    }
+
+    #[tokio::test]
+    async fn malformed_reply_text_stays_in_raw_reads() -> anyhow::Result<()> {
+        use std::sync::Arc;
+        use std::time::Duration;
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::UnixStream;
+        use TraceSmtpClientV1Payload::{Diagnostic, Read};
+
+        let (socket, mut peer) = UnixStream::pair()?;
+        let meta = json!({"id": "malformed-reply-test"});
+        let tracer = Arc::new(SmtpClientTracerImpl::new(meta.clone()));
+        let mut client = rfc5321::SmtpClient::with_stream(socket, "localhost", Default::default());
+        client.set_tracer(tracer.clone());
+        let mut events = MGR.tx.subscribe();
+        let wire = "250-First line\r\n334 inconsistent code\r\nnot a reply\r\n";
+        peer.write_all(wire.as_bytes()).await?;
+        // Both a mismatched continuation and an unparseable first line carry raw text.
+        for _ in 0..2 {
+            let err = client
+                .read_response(None, Duration::from_secs(1))
+                .await
+                .unwrap_err();
+            let err = anyhow::Error::new(err).context("retrying connection");
+            tracer.diagnostic(Level::ERROR, || connection_error_message(&err));
+        }
+        let mut replies = vec![];
+        let mut diagnostics = vec![];
+        let mut raw = String::new();
+        while let Ok(event) = events.try_recv() {
+            if event.conn_meta != meta {
+                continue;
+            }
+            if let Some(Read(chunk)) = event.payload.clone().to_v1(Secrets, false) {
+                raw.push_str(&chunk);
+            }
+            match event.payload.to_v1(Operational, false) {
+                Some(Read(line)) => replies.push(line),
+                Some(Diagnostic { message, .. }) => diagnostics.push(message),
+                _ => {}
+            }
+        }
+        assert_eq!(replies, ["250-First line"]);
+        assert_eq!(diagnostics, ["Malformed SMTP reply"; 2]);
+        assert_eq!(raw, wire);
+        Ok(())
     }
 
     #[test]

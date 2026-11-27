@@ -1067,11 +1067,10 @@ impl SmtpDispatcher {
                             && path_config.opportunistic_tls_reconnect_on_failed_handshake
                         {
                             self.addresses.push(address.clone());
-                            anyhow::bail!(
-                                "{helo_verb} after STARTLS failed {err:#}, \
-                                will re-connect in the clear because \
-                                opportunistic_tls_reconnect_on_failed_handshake=true"
-                            );
+                            return Err(err.context(
+                                "will re-connect in the clear because \
+                                 opportunistic_tls_reconnect_on_failed_handshake=true",
+                            ));
                         }
                         return Err(err);
                     }

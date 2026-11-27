@@ -165,7 +165,11 @@ impl SmtpServerTraceEventPayload {
 
 fn read_payload(data: &[u8], terse: bool) -> TraceSmtpV1Payload {
     if terse {
-        if let Some(end) = data.trim_ascii_end().iter().position(|&b| b == b'\r') {
+        if let Some(end) = data
+            .trim_ascii_end()
+            .iter()
+            .position(|b| matches!(b, b'\r' | b'\n'))
+        {
             return TraceSmtpV1Payload::AbbreviatedRead {
                 snippet: String::from_utf8_lossy(&data[..end]).into_owned(),
                 len: data.len(),
@@ -368,6 +372,18 @@ mod test {
         assert_ne!(
             original,
             alias(Uuid::new_v4(), "192.0.2.1:1234", "192.0.2.2:25")
+        );
+    }
+
+    #[test]
+    fn terse_data_previews_the_first_line_with_bare_lf() {
+        let data = b"Subject: preview\n\nbody\r\n";
+        assert_eq!(
+            read_payload(data, true),
+            TraceSmtpV1Payload::AbbreviatedRead {
+                snippet: "Subject: preview".into(),
+                len: data.len(),
+            }
         );
     }
 

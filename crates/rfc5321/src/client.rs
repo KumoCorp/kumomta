@@ -298,11 +298,7 @@ impl SmtpClient {
 
                     let line = String::from_utf8(self.read_buffer[0..i].to_vec());
                     self.read_buffer.drain(0..i + 2);
-                    let line = line?;
-                    if let Some(tracer) = &self.tracer {
-                        tracer.lazy_trace(&|| SmtpClientTraceEvent::Reply(line.clone()));
-                    }
-                    return Ok(line);
+                    return line.map_err(ClientError::from);
                 }
             }
             if self.read_buffer.len() > MAX_LINE_LEN {
@@ -444,7 +440,14 @@ impl SmtpClient {
         let mut parsed = parse_response_line(&line)?;
         let mut response_builder = ResponseBuilder::new(&parsed);
 
-        while !parsed.is_final {
+        loop {
+            // Raw reads are traced separately. Only accepted lines are SMTP replies.
+            if let Some(tracer) = &self.tracer {
+                tracer.lazy_trace(&|| SmtpClientTraceEvent::Reply(line.clone()));
+            }
+            if parsed.is_final {
+                break;
+            }
             let per_line =
                 Duration::from_secs(60).min(deadline.saturating_duration_since(Instant::now()));
             line = self.read_line(per_line, command).await?;

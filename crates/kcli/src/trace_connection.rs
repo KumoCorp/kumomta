@@ -1,6 +1,7 @@
 use kumo_api_types::TraceDetail;
 use reqwest::Url;
 use tokio::net::TcpStream;
+use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
 pub const DETAIL_HELP: &str = "Trace detail to request. Defaults to the listener's maximum (envelope unless configured otherwise).
@@ -11,6 +12,17 @@ Each level includes the preceding levels:
   envelope     Envelope sender and recipients, auth identities, queue and message IDs
   content      Message headers, body and attachments
   secrets      Raw protocol traffic, including SMTP AUTH payloads";
+
+pub fn unexpected_message(msg: Message) -> anyhow::Error {
+    match msg {
+        Message::Close(Some(frame)) => anyhow::anyhow!(
+            "SMTP trace closed: {} ({})",
+            frame.reason.escape_debug(),
+            frame.code
+        ),
+        _ => anyhow::anyhow!("Unexpected {msg:?} response"),
+    }
+}
 
 pub async fn connect(
     endpoint: &Url,

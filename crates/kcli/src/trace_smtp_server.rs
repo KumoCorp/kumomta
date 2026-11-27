@@ -272,6 +272,7 @@ impl TraceSmtpServerCommand {
                                  was_arf_or_oob={was_arf_or_oob:?} will_enqueue={will_enqueue:?}"
                             );
                             match meta {
+                                serde_json::Value::Null => {}
                                 serde_json::Value::Object(obj) => {
                                     for (meta_key, value) in obj {
                                         println!(
@@ -338,9 +339,7 @@ impl TraceSmtpServerCommand {
                         }
                     }
                 }
-                _ => {
-                    anyhow::bail!("Unexpected {msg:?} response");
-                }
+                msg => return Err(crate::trace_connection::unexpected_message(msg)),
             }
         }
         reader.await?

@@ -1,7 +1,7 @@
 use crate::kumod::{DaemonWithMaildir, KumoDaemon, MailGenParams};
 use anyhow::Context;
 use futures::{SinkExt, StreamExt};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::{Error, Message};
@@ -16,29 +16,37 @@ fn trace_url(daemon: &KumoDaemon, direction: &str) -> String {
     )
 }
 
-async fn subscribe(url: &str, expected_level: &str, terse: bool) -> anyhow::Result<TraceSocket> {
+async fn subscribe(url: &str, expected_level: &str, request: Value) -> anyhow::Result<TraceSocket> {
     let (mut ws, response) = connect_async(url).await?;
     assert_eq!(response.headers()["kumo-trace-detail"], expected_level);
-    ws.send(Message::text(
-        serde_json::json!({"terse": terse}).to_string(),
-    ))
-    .await?;
+    ws.send(Message::text(request.to_string())).await?;
     Ok(ws)
 }
 
 async fn through_data_reply(
     mut ws: TraceSocket,
     reply_key: &str,
-    mut observe: impl FnMut(&str, &Value),
+    level: &str,
+    mut observe: impl FnMut(&Value),
 ) -> anyhow::Result<()> {
     timeout(Duration::from_secs(30), async {
         let mut in_data = false;
+        let mut partial = String::new();
         while let Some(frame) = ws.next().await {
-            let frame = frame?.into_text()?;
-            let event: Value = serde_json::from_str(&frame)?;
-            let payload = &event["payload"];
-            observe(&frame, payload);
-            for line in payload[reply_key].as_str().unwrap_or("").lines() {
+            let mut event: Value = serde_json::from_str(&frame?.into_text()?)?;
+            if level == "secrets" {
+                // Raw reads in either direction are socket chunks, not SMTP lines.
+                if let Some(chunk) = event["payload"]["Read"].as_str() {
+                    partial.push_str(chunk);
+                    let Some(end) = partial.rfind('\n') else {
+                        continue;
+                    };
+                    let tail = partial.split_off(end + 1);
+                    event["payload"]["Read"] = std::mem::replace(&mut partial, tail).into();
+                }
+            }
+            observe(&event);
+            for line in event["payload"][reply_key].as_str().unwrap_or("").lines() {
                 if in_data && line.starts_with("250") {
                     return Ok(());
                 }
@@ -66,7 +74,7 @@ async fn smtp_trace_detail_on_the_wire() -> anyhow::Result<()> {
     ] {
         let url = trace_url(endpoint, direction);
         for level in ["protocol", "operational", "envelope", "content", "secrets"] {
-            let ws = subscribe(&format!("{url}?detail={level}"), level, false).await?;
+            let ws = subscribe(&format!("{url}?detail={level}"), level, json!({})).await?;
             traces.push((direction, level, reply_key, ws));
         }
     }
@@ -79,7 +87,10 @@ async fn smtp_trace_detail_on_the_wire() -> anyhow::Result<()> {
     assert_eq!(msg.send(&mut client).await?.code, 250);
     for (direction, level, reply_key, ws) in traces {
         let mut transcript = String::new();
-        through_data_reply(ws, reply_key, |frame, _| transcript.push_str(frame)).await?;
+        through_data_reply(ws, reply_key, level, |event| {
+            transcript.push_str(&event.to_string())
+        })
+        .await?;
         let has = |needle: &str, expected: bool| {
             assert_eq!(
                 transcript.contains(needle),
@@ -115,7 +126,7 @@ async fn smtp_trace_detail_oversized_data_does_not_end_the_trace() -> anyhow::Re
     ] {
         let url = trace_url(endpoint, direction);
         for terse in [false, true] {
-            let ws = subscribe(&url, "content", terse).await?;
+            let ws = subscribe(&url, "content", json!({"terse": terse})).await?;
             traces.push((ws, terse, reply, preview));
         }
     }
@@ -133,7 +144,8 @@ async fn smtp_trace_detail_oversized_data_does_not_end_the_trace() -> anyhow::Re
     for (ws, terse, reply, preview) in traces {
         let mut omitted = false;
         let mut saw_preview = false;
-        through_data_reply(ws, reply, |_, payload| {
+        through_data_reply(ws, reply, "content", |event| {
+            let payload = &event["payload"];
             omitted |= payload["Diagnostic"]["message"]
                 .as_str()
                 .is_some_and(|s| s.contains("SMTP DATA omitted"));
@@ -203,13 +215,73 @@ async fn smtp_trace_detail_listener_caps_the_default_and_explicit_request() -> a
         .await?;
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("403"));
-    let (mut ws, _) = connect_async(trace_url(&daemon, "client")).await?;
-    ws.send(Message::text(r#"{"rcpt_to":["user@example.com"]}"#))
-        .await?;
-    assert!(
-        matches!(timeout(Duration::from_secs(5), ws.next()).await?, Some(Ok(Message::Close(Some(f)))) if u16::from(f.code) == 1008)
-    );
+    let refused = tokio::process::Command::new(crate::kumod::target_bin("kcli")?)
+        .args([
+            "--endpoint",
+            &format!("http://{}", daemon.listener("http")),
+            "trace-smtp-client",
+            "--rcpt-to",
+            "user@example.com",
+        ])
+        .kill_on_drop(true)
+        .output();
+    let output = timeout(Duration::from_secs(5), refused).await??;
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains(
+        "SMTP trace closed: trace filter requires envelope detail on this listener (1008)"
+    ));
     daemon.stop().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn smtp_trace_detail_filters_on_mx_before_projecting_protocol_output() -> anyhow::Result<()> {
+    let mut daemon = DaemonWithMaildir::start_with_env(vec![(
+        "KUMOD_TEST_MAX_SMTP_TRACE_DETAIL",
+        "operational",
+    )])
+    .await?;
+    let url = format!("{}?detail=protocol", trace_url(&daemon.source, "client"));
+    let control = subscribe(&url, "protocol", json!({})).await?;
+    let filtered = subscribe(
+        &url,
+        "protocol",
+        json!({"mx_host": ["localhost-1", "localhost-2"]}),
+    )
+    .await?;
+    let mut smtp = daemon.smtp_client().await?;
+
+    // Drain the first delivery on the unfiltered subscription before starting the matching one.
+    let first = MailGenParams {
+        recip: Some("first@example.com"),
+        ..Default::default()
+    };
+    assert_eq!(first.send(&mut smtp).await?.code, 250);
+    let mut first_id = None;
+    through_data_reply(control, "Read", "protocol", |event| {
+        if event["payload"] == "Connected" {
+            first_id = Some(event["conn_meta"]["id"].as_str().unwrap().to_owned());
+        }
+    })
+    .await?;
+    let first_id = first_id.context("missing first connection")?;
+    let second = MailGenParams {
+        recip: Some("second@two-hosts.example.com"),
+        ..Default::default()
+    };
+    assert_eq!(second.send(&mut smtp).await?.code, 250);
+    let mut connected = false;
+    through_data_reply(filtered, "Read", "protocol", |event| {
+        let meta = &event["conn_meta"];
+        assert_ne!(meta["id"].as_str().unwrap(), first_id);
+        for field in ["mx_host", "mx_address", "mx_plan"] {
+            assert!(meta.get(field).is_none(), "{field} in protocol output");
+        }
+        connected |= event["payload"] == "Connected";
+    })
+    .await?;
+    assert!(connected);
+    daemon.stop_both().await?;
     Ok(())
 }
 
@@ -226,7 +298,7 @@ async fn smtp_trace_detail_metadata_is_scoped_to_the_http_listener() -> anyhow::
         (configured, "envelope", Some("bulk"), Some("example")),
     ] {
         let url = format!("ws://{addr}/api/admin/trace-smtp-server/v1?detail={level}");
-        traces.push((subscribe(&url, level, false).await?, route, customer));
+        traces.push((subscribe(&url, level, json!({})).await?, route, customer));
     }
     daemon.smtp_client("localhost").await?;
     for (mut ws, route, customer) in traces {
@@ -269,7 +341,7 @@ async fn smtp_trace_detail_join_during_auth_continuation() -> anyhow::Result<()>
     assert_eq!(challenge.code, 334);
     // This subscriber never saw AUTH. The parser, not the consumer, must identify the next line.
     let url = format!("{}?detail=content", trace_url(&daemon, "server"));
-    let mut ws = subscribe(&url, "content", false).await?;
+    let mut ws = subscribe(&url, "content", json!({})).await?;
     assert_eq!(
         smtp.send_command(&Command::Unknown("AGRhbmllbAB0aWdlcg==".into()))
             .await?
