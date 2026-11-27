@@ -51,7 +51,7 @@ impl<K: Clone + MetricLabel + Send + Sync, V: AtomicCounterEntry> StreamingColle
         buffer.push_str(&prefix);
         buffer.push_str(self.name);
         buffer.push(' ');
-        buffer.push_str(&self.help);
+        labels::push_text_string(&mut buffer, &self.help, false);
         buffer.push_str("\n# TYPE ");
         buffer.push_str(&prefix);
         buffer.push_str(self.name);
@@ -764,6 +764,28 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn streaming_text_escapes_help_and_labels() {
+        label_key! { pub struct Route { pub route: String, } }
+        let key = Route {
+            route: "a\"b\nc\\d".into(),
+        };
+        let family = CounterRegistryInner {
+            map: RwLock::new(HashMap::from([(key, AtomicCounter::new())])),
+            name: "decisions",
+            help: "a\"b\nc\\d".into(),
+            metric_type: MetricType::Counter,
+        };
+        let text = futures::executor::block_on(family.stream_text(&None).collect::<String>());
+        assert_eq!(
+            text,
+            r#"# HELP decisions a"b\nc\\d
+# TYPE decisions counter
+decisions{route="a\"b\nc\\d"} 0
+"#
+        );
+    }
 
     #[test]
     fn streaming_json_preserves_help_and_label_values() {

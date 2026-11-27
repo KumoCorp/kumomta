@@ -19,6 +19,25 @@ pub fn push_json_string(target: &mut String, value: &str) {
     }
 }
 
+// Prometheus text escapes backslashes and newlines in HELP and label values,
+// but quotes only in label values. Copy ordinary UTF-8 spans directly to the output.
+#[doc(hidden)]
+pub fn push_text_string(target: &mut String, value: &str, escape_quotes: bool) {
+    let mut start = 0;
+    for i in memchr::memchr3_iter(b'\\', b'\n', b'"', value.as_bytes()) {
+        let escaped = match value.as_bytes()[i] {
+            b'\\' => r"\\",
+            b'\n' => r"\n",
+            b'"' if escape_quotes => r#"\""#,
+            _ => continue,
+        };
+        target.push_str(&value[start..i]);
+        target.push_str(escaped);
+        start = i + 1;
+    }
+    target.push_str(&value[start..]);
+}
+
 /// `macro_rules!` implementation of `count_tts`.
 /// Source: <https://github.com/camsteffen/count-tts>
 #[macro_export]
@@ -175,7 +194,7 @@ macro_rules! label_key {
                         }
                         target.push_str(key);
                         target.push_str("=\"");
-                        target.push_str(value);
+                        $crate::labels::push_text_string(target, value, true);
                         target.push_str("\"");
                     }
                     target.push_str("} ");
