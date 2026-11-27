@@ -534,6 +534,10 @@ TOC = [
                 "reference/kumo.nats",
             ),
             Gen(
+                "module: kumo.metrics",
+                "reference/kumo.metrics",
+            ),
+            Gen(
                 "module: kumo.mimepart",
                 "reference/kumo.mimepart",
             ),

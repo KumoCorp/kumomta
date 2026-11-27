@@ -46,6 +46,7 @@ mod mx_site_names;
 mod nats;
 mod no_ports_in_rcpt_domain;
 mod perm_fail;
+mod policy_counter;
 mod proxy_basic;
 mod proxy_protocol;
 mod queue_ndr;
