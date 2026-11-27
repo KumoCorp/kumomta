@@ -137,9 +137,9 @@ fn metrics_to_partial_json(metrics: &[MetricFamily], target: &mut String) {
         target.push_str(name);
         target.push_str("\":{");
         if !help.is_empty() {
-            target.push_str("\"help\":\"");
-            target.push_str(help);
-            target.push_str("\",");
+            target.push_str("\"help\":");
+            crate::labels::push_json_string(target, help);
+            target.push(',');
         }
 
         let metric_type = mf.get_field_type();
@@ -217,9 +217,8 @@ fn metrics_to_partial_json(metrics: &[MetricFamily], target: &mut String) {
             }
 
             if label.len() == 1 {
-                target.push('"');
-                target.push_str(label[0].value());
-                target.push_str("\":");
+                crate::labels::push_json_string(target, label[0].value());
+                target.push(':');
                 emit_value(metric_type, metric, target);
                 continue;
             }
@@ -228,9 +227,9 @@ fn metrics_to_partial_json(metrics: &[MetricFamily], target: &mut String) {
             for pair in label {
                 target.push('"');
                 target.push_str(pair.name());
-                target.push_str("\":\"");
-                target.push_str(pair.value());
-                target.push_str("\",");
+                target.push_str("\":");
+                crate::labels::push_json_string(target, pair.value());
+                target.push(',');
             }
             target.push_str("\"@\":");
             emit_value(metric_type, metric, target);
@@ -377,7 +376,7 @@ mod test {
         metric2.set_counter(Counter::new());
         let mut label2 = LabelPair::new();
         label2.set_name("label_name".into());
-        label2.set_value("2nd".into());
+        label2.set_value("2nd\\value".into());
         metric2.set_label(vec![label2].into());
 
         family.set_metric(vec![metric, metric2].into());
@@ -397,7 +396,7 @@ mod test {
                     "value": {
                         "label_name": {
                             "label_value": 0,
-                            "2nd": 0
+                            "2nd\\value": 0
                         }
                     }
                 }
@@ -418,7 +417,7 @@ mod test {
         label1.set_value("first_label_value".into());
         let mut label2 = LabelPair::new();
         label2.set_name("2nd_label_name".into());
-        label2.set_value("2nd_label_value".into());
+        label2.set_value("quoted\"\nvalue".into());
         metric.set_label(vec![label1, label2].into());
         family.set_metric(vec![metric].into());
 
@@ -436,7 +435,7 @@ mod test {
                     "type": "counter",
                     "value": [{
                         "first_label_name": "first_label_value",
-                        "2nd_label_name": "2nd_label_value",
+                        "2nd_label_name": "quoted\"\nvalue",
                         "@": 0
                         }
                     ]
@@ -449,7 +448,7 @@ mod test {
     fn test_json_encode_counter_with_help() {
         let mut family = MetricFamily::new();
         family.set_name("family_name".into());
-        family.set_help("me".into());
+        family.set_help("a \"quoted\" description".into());
         family.set_field_type(MetricType::COUNTER);
 
         let mut metric = Metric::new();
@@ -468,7 +467,7 @@ mod test {
             serde_json::json!({
                 "family_name": {
                     "type": "counter",
-                    "help": "me",
+                    "help": "a \"quoted\" description",
                     "value": 0
                 }
             })

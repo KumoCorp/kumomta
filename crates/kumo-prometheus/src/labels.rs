@@ -4,6 +4,21 @@ pub trait MetricLabel {
     fn emit_json_value(&self, target: &mut String, value: &str);
 }
 
+// Also called by label_key! in downstream crates.
+#[doc(hidden)]
+pub fn push_json_string(target: &mut String, value: &str) {
+    // Write ordinary strings directly to avoid a temporary allocation per label value.
+    // JSON requires escaping only quotes, backslashes, and control bytes below 0x20.
+    let needs_escaping = value.bytes().any(|b| matches!(b, 0..=0x1f | b'"' | b'\\'));
+    if needs_escaping {
+        target.push_str(&serde_json::to_string(value).unwrap());
+    } else {
+        target.push('"');
+        target.push_str(value);
+        target.push('"');
+    }
+}
+
 /// `macro_rules!` implementation of `count_tts`.
 /// Source: <https://github.com/camsteffen/count-tts>
 #[macro_export]
@@ -172,18 +187,17 @@ macro_rules! label_key {
                     let pairs = key.label_pairs();
 
                     if pairs.len() == 1 {
-                        target.push('"');
-                        target.push_str(pairs[0].1);
-                        target.push_str("\":");
+                        $crate::labels::push_json_string(target, pairs[0].1);
+                        target.push(':');
                         target.push_str(value);
                     } else {
                         target.push_str("{");
                         for (key, value) in pairs.iter() {
                             target.push_str("\"");
                             target.push_str(key);
-                            target.push_str("\":\"");
-                            target.push_str(value);
-                            target.push_str("\",");
+                            target.push_str("\":");
+                            $crate::labels::push_json_string(target, value);
+                            target.push(',');
                         }
 
                         target.push_str("\"@\":");

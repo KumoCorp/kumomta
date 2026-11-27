@@ -105,9 +105,9 @@ impl<K: Clone + MetricLabel + Send + Sync, V: AtomicCounterEntry> StreamingColle
         target.push_str(self.name);
         target.push_str("\":{");
         if !self.help.is_empty() {
-            target.push_str("\"help\":\"");
-            target.push_str(&self.help);
-            target.push_str("\",");
+            target.push_str("\"help\":");
+            labels::push_json_string(&mut target, &self.help);
+            target.push(',');
         }
         target.push_str("\"type\":\"");
         target.push_str(self.metric_type.label());
@@ -764,6 +764,44 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn streaming_json_preserves_help_and_label_values() {
+        label_key! { pub struct Rule { pub rule: String, } }
+        label_key! { pub struct RuleResult { pub rule: String, pub result: String, } }
+
+        let text = "quote\" newline\n slash\\";
+        fn render<K: MetricLabel + Clone + Send + Sync + Hash + Eq>(
+            key: K,
+            help: &str,
+        ) -> serde_json::Value {
+            let family = CounterRegistryInner {
+                map: RwLock::new(HashMap::from([(key, AtomicCounter::new())])),
+                name: "decisions",
+                help: help.to_owned(),
+                metric_type: MetricType::Counter,
+            };
+            let chunk = futures::executor::block_on(family.stream_json().collect::<String>());
+            // Each streaming family is appended after the default registry's metrics.
+            serde_json::from_str(&format!(r#"{{"existing":null{chunk}}}"#)).unwrap()
+        }
+
+        let rule = "café\tgate";
+        let single = render(Rule { rule: rule.into() }, text);
+        assert_eq!(single["decisions"]["help"], text);
+        assert_eq!(single["decisions"]["value"]["rule"][rule], 0);
+        let multi = render(
+            RuleResult {
+                rule: "gate".into(),
+                result: text.into(),
+            },
+            text,
+        );
+        assert_eq!(
+            multi["decisions"]["value"][0],
+            serde_json::json!({"rule":"gate", "result":text, "@":0})
+        );
+    }
 
     #[test]
     fn split_help_single_line() {
