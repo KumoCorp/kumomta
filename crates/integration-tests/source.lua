@@ -373,6 +373,7 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
     tls_prefer_openssl = ((os.getenv 'KUMOD_PREFER_OPENSSL') and true)
       or false,
     max_recipients_per_batch = tonumber(MAX_RECIPIENTS_PER_BATCH),
+    data_dot_timeout = os.getenv 'KUMOD_DATA_DOT_TIMEOUT',
 
     -- Skip IPv6 addresses that come back for eg: localhost.
     -- For the most part the integration tests don't care about this,

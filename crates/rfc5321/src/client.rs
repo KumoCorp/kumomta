@@ -1137,7 +1137,7 @@ impl SmtpClient {
                     if let Some(tracer) = &self.tracer {
                         tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
                             level: Level::ERROR,
-                            message: format!("Error finishing empty DATA: {err:#}"),
+                            message: "Error finishing empty DATA; closing connection".to_string(),
                         });
                         tracer.trace_event(SmtpClientTraceEvent::Closed);
                     }
@@ -1505,7 +1505,7 @@ mod test {
         replies: &[u8],
     ) -> (ClientError, String) {
         let (stream, mut peer) = tokio::net::UnixStream::pair().unwrap();
-        peer.write_all(b"250-mx.example\r\n250 PIPELINING\r\n250 sender ok\r\n")
+        peer.write_all(b"250-mx.example\r\n250 PIPELINING\r\n")
             .await
             .unwrap();
         peer.write_all(replies).await.unwrap();
@@ -1538,7 +1538,7 @@ mod test {
     async fn empty_data_disconnect_preserves_recipient_refusal() {
         let (err, sent) = send_with_pipelined_replies(
             &["full@example.com"],
-            b"552 mailbox is full\r\n354 send data\r\n",
+            b"250 sender ok\r\n552 mailbox is full\r\n354 send data\r\n",
         )
         .await;
         let ClientError::Rejected(reply) = err else {
@@ -1557,7 +1557,7 @@ mod test {
     async fn malformed_empty_data_reply_preserves_each_refusal_and_closes_connection() {
         let (err, _) = send_with_pipelined_replies(
             &["busy@example.com", "missing@example.com"],
-            b"450 busy\r\n550 no such user\r\n354 send data\r\nbad reply\r\n",
+            b"250 sender ok\r\n450 busy\r\n550 no such user\r\n354 send data\r\nbad reply\r\n",
         )
         .await;
         let ClientError::RejectedBatch(replies) = err else {
@@ -1570,10 +1570,27 @@ mod test {
     }
 
     #[tokio::test]
+    async fn empty_data_disconnect_after_refused_mail_from_remains_a_transport_error() {
+        let (err, sent) = send_with_pipelined_replies(
+            &["user@example.com"],
+            b"550 sender refused\r\n503 need MAIL first\r\n354 send data\r\n",
+        )
+        .await;
+        assert!(matches!(
+            err,
+            ClientError::ReadError {
+                command: Some(Command::DataDot),
+                ..
+            }
+        ));
+        assert!(sent.ends_with("DATA\r\n.\r\n"));
+    }
+
+    #[tokio::test]
     async fn disconnect_after_real_data_remains_a_transport_error() {
         let (err, sent) = send_with_pipelined_replies(
             &["full@example.com", "ok@example.com"],
-            b"552 mailbox is full\r\n250 recipient ok\r\n354 send data\r\n",
+            b"250 sender ok\r\n552 mailbox is full\r\n250 recipient ok\r\n354 send data\r\n",
         )
         .await;
         assert!(matches!(
