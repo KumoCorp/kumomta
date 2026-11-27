@@ -1,7 +1,10 @@
-use crate::kumod::{DaemonWithMaildir, MailGenParams};
+use crate::kumod::{DaemonWithMaildir, KumoArgs, KumoDaemon, MailGenParams};
 use kumo_log_types::RecordType::{Delivery, TransientFailure};
 use kumo_log_types::ResolvedAddress;
 use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::TcpListener;
+use tokio::time::timeout;
 
 #[tokio::test]
 async fn disconnect_in_data() -> anyhow::Result<()> {
@@ -58,6 +61,78 @@ DeliverySummary {
 "
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn empty_data_timeout_requeues_without_trying_next_mx() -> anyhow::Result<()> {
+    // Both MX candidates for two-hosts.example.com point at this listener.
+    let mx = TcpListener::bind("127.0.0.1:0").await?;
+    let mut source = KumoDaemon::spawn(KumoArgs {
+        policy_file: "source.lua".into(),
+        env: vec![
+            (
+                "KUMOD_SMTP_SINK_PORT".into(),
+                mx.local_addr()?.port().to_string(),
+            ),
+            ("KUMOD_TRY_NEXT_HOST_ON_TRANSPORT_ERROR".into(), "1".into()),
+            ("KUMOD_DATA_DOT_TIMEOUT".into(), "200ms".into()),
+        ],
+    })
+    .await?;
+    let mut client = source.smtp_client("localhost").await?;
+    let reply = MailGenParams {
+        recip: Some("busy@two-hosts.example.com"),
+        ..Default::default()
+    }
+    .send(&mut client)
+    .await?;
+    assert_eq!(reply.code, 250);
+    drop(client);
+
+    let budget = Duration::from_secs(10);
+    timeout(budget, async {
+        let (socket, _) = mx.accept().await?;
+        let mut peer = BufReader::new(socket);
+        let mut request = String::new();
+        peer.get_mut().write_all(b"220 mx.example\r\n").await?;
+        peer.read_line(&mut request).await?;
+        assert!(request.starts_with("EHLO "));
+        peer.get_mut()
+            .write_all(b"250-mx.example\r\n250 PIPELINING\r\n")
+            .await?;
+        while !request.ends_with("DATA\r\n") {
+            anyhow::ensure!(peer.read_line(&mut request).await? > 0, "EOF before DATA");
+        }
+        peer.get_mut()
+            .write_all(b"250 ok\r\n450 busy\r\n354 send data\r\n")
+            .await?;
+        // Leave the connection open. Read through EOF so we know the client timed out.
+        let mut data = String::new();
+        peer.read_to_string(&mut data).await?;
+        assert_eq!(data, ".\r\n");
+        anyhow::Ok(())
+    })
+    .await??;
+
+    let requeued = source.wait_for_metric(
+        budget,
+        |m| m.name().as_str() == "scheduled_count" && m.label_is("queue", "two-hosts.example.com"),
+        |values| values == [1.0],
+    );
+    tokio::select! {
+        biased;
+        _ = mx.accept() => anyhow::bail!("retried on the next MX after an explicit RCPT deferral"),
+        result = requeued => result?,
+    }
+    source.stop().await?;
+    let logs = source.collect_logs().await?;
+    let tf = logs
+        .iter()
+        .find(|r| r.kind == TransientFailure)
+        .expect("missing deferral");
+    assert_eq!(tf.response.code, 450);
+    assert_eq!(tf.response.content, "busy");
     Ok(())
 }
 

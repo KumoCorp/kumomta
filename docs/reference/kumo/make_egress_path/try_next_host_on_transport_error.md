@@ -15,5 +15,11 @@ If there are no further available connections, or `try_next_host_on_transport_er
 set to `false`, then the message will be re-queued to the scheduld queue for
 later delivery.
 
+If `MAIL FROM` succeeded, every recipient was refused, and the server still
+replied `354` to `DATA`, the client sends only the final dot. A timeout or
+disconnect at that dot does not itself trigger a retry on the next host.
+The recipient replies determine the outcome: for example, an ordinary `450`
+at `RCPT TO` is retried on the scheduled queue even with this option enabled.
+
 In earlier versions of KumoMTA this option did not exist and the system behaves
 as if it was set to `false`.

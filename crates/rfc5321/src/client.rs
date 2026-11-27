@@ -631,6 +631,13 @@ impl SmtpClient {
         .await
     }
 
+    async fn finish_data(&mut self, terminator: &[u8]) -> Result<Response, ClientError> {
+        self.write_data_with_timeout(terminator).await?;
+        let dot = Command::DataDot;
+        self.read_response(Some(&dot), dot.client_timeout(&self.timeouts))
+            .await
+    }
+
     /// Issue a series of commands, and return the responses to
     /// those commands.
     ///
@@ -1124,17 +1131,28 @@ impl SmtpClient {
             // RSET, but if the DATA command was accepted the client SMTP
             // should send a single dot.
 
-            // Send dummy data
-            self.write_data_with_timeout(b".\r\n").await?;
-            let data_dot = Command::DataDot;
-            // wait for its response
-            let _ = self
-                .read_response(Some(&data_dot), data_dot.client_timeout(&self.timeouts))
-                .await?;
+            if let Err(err) = self.finish_data(b".\r\n").await {
+                // A malformed reply can leave the socket open but out of sync.
+                if self.socket.take().is_some() {
+                    if let Some(tracer) = &self.tracer {
+                        tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
+                            level: Level::ERROR,
+                            message: "Error finishing empty DATA; closing connection".to_string(),
+                        });
+                        tracer.trace_event(SmtpClientTraceEvent::Closed);
+                    }
+                }
 
-            // Continue below: we will match one of the failure cases and
-            // return a ClientError::Rejected from one of the earlier
-            // commands
+                // When every recipient was explicitly refused, the dot only
+                // ends DATA mode. Its failure doesn't change any RCPT reply.
+                let all_refused = !rcpt_responses.is_empty()
+                    && rcpt_responses
+                        .iter()
+                        .all(|r| r.is_transient() || r.is_permanent());
+                if mail_resp.code != 250 || !all_refused {
+                    return Err(err);
+                }
+            }
         }
 
         if mail_resp.code != 250 {
@@ -1162,12 +1180,7 @@ impl SmtpClient {
 
         tracing::trace!("send->{}: {}", self.hostname, marker.escape_debug());
 
-        self.write_data_with_timeout(marker.as_bytes()).await?;
-
-        let data_dot = Command::DataDot;
-        let resp = self
-            .read_response(Some(&data_dot), data_dot.client_timeout(&self.timeouts))
-            .await?;
+        let resp = self.finish_data(marker.as_bytes()).await?;
         if resp.code != 250 {
             return Err(ClientError::Rejected(resp));
         }
@@ -1485,6 +1498,109 @@ mod test {
             ),
             r#"Timed Out waiting 10s for response to cmd=MAIL FROM:<user@host>"#
         );
+    }
+
+    async fn send_with_pipelined_replies(
+        recipients: &[&str],
+        replies: &[u8],
+    ) -> (ClientError, String) {
+        let (stream, mut peer) = tokio::net::UnixStream::pair().unwrap();
+        peer.write_all(b"250-mx.example\r\n250 PIPELINING\r\n")
+            .await
+            .unwrap();
+        peer.write_all(replies).await.unwrap();
+        // Half-close so the client sees EOF but we can still inspect what it sent.
+        peer.shutdown().await.unwrap();
+
+        let mut client =
+            SmtpClient::with_stream(stream, "mx.example", SmtpClientTimeouts::default());
+        client.set_enable_pipelining(true);
+        client.ehlo("client.example").await.unwrap();
+        let err = client
+            .send_mail_multi_recip(
+                ReversePath::try_from("sender@example.com").unwrap(),
+                recipients
+                    .iter()
+                    .map(|r| ForwardPath::try_from(*r).unwrap())
+                    .collect(),
+                b"message body",
+            )
+            .await
+            .unwrap_err();
+        assert!(!client.is_connected());
+        drop(client);
+        let mut sent = String::new();
+        peer.read_to_string(&mut sent).await.unwrap();
+        (err, sent)
+    }
+
+    #[tokio::test]
+    async fn empty_data_disconnect_preserves_recipient_refusal() {
+        let (err, sent) = send_with_pipelined_replies(
+            &["full@example.com"],
+            b"250 sender ok\r\n552 mailbox is full\r\n354 send data\r\n",
+        )
+        .await;
+        let ClientError::Rejected(reply) = err else {
+            panic!("{err:?}")
+        };
+        assert_eq!(reply.code, 552);
+        assert_eq!(reply.content, "mailbox is full");
+        assert_eq!(
+            reply.command.as_deref(),
+            Some("RCPT TO:<full@example.com>\r\n")
+        );
+        assert!(sent.ends_with("DATA\r\n.\r\n"));
+    }
+
+    #[tokio::test]
+    async fn malformed_empty_data_reply_preserves_each_refusal_and_closes_connection() {
+        let (err, _) = send_with_pipelined_replies(
+            &["busy@example.com", "missing@example.com"],
+            b"250 sender ok\r\n450 busy\r\n550 no such user\r\n354 send data\r\nbad reply\r\n",
+        )
+        .await;
+        let ClientError::RejectedBatch(replies) = err else {
+            panic!("{err:?}")
+        };
+        assert_eq!(
+            replies.iter().map(|r| r.code).collect::<Vec<_>>(),
+            [450, 550]
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_data_disconnect_after_refused_mail_from_remains_a_transport_error() {
+        let (err, sent) = send_with_pipelined_replies(
+            &["user@example.com"],
+            b"550 sender refused\r\n503 need MAIL first\r\n354 send data\r\n",
+        )
+        .await;
+        assert!(matches!(
+            err,
+            ClientError::ReadError {
+                command: Some(Command::DataDot),
+                ..
+            }
+        ));
+        assert!(sent.ends_with("DATA\r\n.\r\n"));
+    }
+
+    #[tokio::test]
+    async fn disconnect_after_real_data_remains_a_transport_error() {
+        let (err, sent) = send_with_pipelined_replies(
+            &["full@example.com", "ok@example.com"],
+            b"250 sender ok\r\n552 mailbox is full\r\n250 recipient ok\r\n354 send data\r\n",
+        )
+        .await;
+        assert!(matches!(
+            err,
+            ClientError::ReadError {
+                command: Some(Command::DataDot),
+                ..
+            }
+        ));
+        assert!(sent.ends_with("DATA\r\nmessage body\r\n.\r\n"));
     }
 
     #[test]

@@ -544,6 +544,9 @@ impl Opt {
                         if !self.keep_going {
                             return Err(err);
                         }
+                        if matches!(&client, Client::Smtp(smtp) if !smtp.is_connected()) {
+                            continue 'reconnect;
+                        }
                     }
                 };
             }
