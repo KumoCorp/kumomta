@@ -49,10 +49,12 @@ use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Weak};
 use std::time::{Duration, Instant};
+use futures::StreamExt;
 use throttle::limit::{LimitLease, LimitSpecWithDuration};
 use throttle::ThrottleSpec;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
+use tokio_stream::{self as stream};
 use tracing::instrument;
 use uuid::Uuid;
 
@@ -66,6 +68,15 @@ static RQMAINT_RUNTIME: LazyLock<Runtime> =
 pub fn set_ready_qmaint_threads(n: usize) {
     RQMAINT_THREADS.store(n, Ordering::SeqCst);
 }
+
+static CONFIG_THREADS: AtomicUsize =
+    AtomicUsize::new(8);
+
+pub fn set_config_threads(n: usize) {
+    CONFIG_THREADS.store(n.max(1), Ordering::SeqCst);
+}
+
+
 
 declare_event! {
 pub static GET_EGRESS_PATH_CONFIG_SIG: Single(
@@ -363,7 +374,6 @@ impl ReadyQueueManager {
             site_name,
             mx,
         } = Self::compute_queue_name(queue_name, queue_config, egress_source).await?;
-
         let components = QueueNameComponents::parse(queue_name);
         let routing_domain = components
             .routing_domain
@@ -505,7 +515,6 @@ impl ReadyQueueManager {
             }
         }
     }
-
     async fn check_config_refresh(epoch: &ConfigEpoch, epoch_changed: bool) {
         let now = Instant::now();
 
@@ -514,22 +523,27 @@ impl ReadyQueueManager {
         let mut num_due = 0;
         let num_queues = queues.len();
 
-        for queue in queues {
-            if is_shutting_down() {
-                return;
-            }
-            if queue
-                .perform_config_refresh_if_due(now, epoch, epoch_changed)
-                .await
-            {
+        // Gather queues ready to be refreshed and
+        // creates a thread for each up to the
+        // user-defined amount.
+        let mut refreshes = stream::iter(
+            queues.into_iter().take_while(|_| !is_shutting_down()),
+        )
+            .map(|queue| {
+                queue.perform_config_refresh_if_due(now, epoch, epoch_changed)
+            })
+            .buffer_unordered(CONFIG_THREADS.load(Ordering::SeqCst));
+
+        while let Some(due) = refreshes.next().await {
+            if due {
                 num_due += 1;
             }
         }
 
         tracing::debug!(
-            "refreshed {num_due} configs out of {num_queues} ready queues in {:?}",
-            now.elapsed()
-        );
+        "refreshed {num_due} configs out of {num_queues} ready queues in {:?}",
+        now.elapsed()
+    );
     }
 
     async fn maintainer_task(name: String, notify_maintainer: Arc<Notify>) -> anyhow::Result<()> {
@@ -1623,12 +1637,24 @@ impl ReadyQueue {
             return;
         };
 
-        match ReadyQueueManager::compute_config(
+        // Add a timeout to ensure refreshes do not hang unbounded
+        let timeout = self.path_config.borrow().refresh_timeout;
+        let refresh = ReadyQueueManager::compute_config(
             &scheduled_queue.name,
             &scheduled_queue.queue_config,
             &self.egress_source.name,
-        )
-        .await
+        );
+        let result = match timeout {
+            Some(duration) => {
+                match tokio::time::timeout(duration, refresh).await {
+                    Ok(result) => result,
+                    Err(err) => Err(err.into()),
+                }
+            }
+            None => refresh.await,
+        };
+
+        match result
         {
             Ok(ReadyQueueConfig { path_config, .. }) => {
                 if self.protocol != self.queue_config.borrow().protocol {
