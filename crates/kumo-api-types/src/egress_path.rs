@@ -415,6 +415,10 @@ pub struct EgressPathConfig {
     #[serde(default)]
     pub refresh_strategy: ConfigRefreshStrategy,
 
+    // How long to wait for a refresh to occur
+    #[serde(default, with = "duration_serde")]
+    pub refresh_timeout: Option<Duration>,
+
     #[serde(default)]
     pub dispatcher_wakeup_strategy: WakeupStrategy,
     #[serde(default)]
@@ -550,6 +554,7 @@ impl Default for EgressPathConfig {
             max_mx_plan_size: Self::default_max_mx_plan_size(),
             max_mx_addresses_per_host: Self::default_max_mx_addresses_per_host(),
             dispatcher_progress_watchdog_timeout: None,
+            refresh_timeout: None,
         }
     }
 }

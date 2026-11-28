@@ -198,6 +198,13 @@
    2000 domain entries the load went from roughly 300ms to under 50ms, and
    resolving the configuration for a new scheduled queue from roughly 240us
    to roughly 10us.
+* Queue configuration refreshes are now performed concurrently
+     rather than sequentially, reducing the impact of slow
+     configuration callbacks on unrelated queues.
+* New [kumo.set_config_threads](../reference/kumo/set_config_threads.md)
+  function for controlling configuration refresh concurrency.
+* New `refresh_timeout` option for [egress path configurations](../reference/kumo/make_egress_path/refresh_timeout.md)
+to prevent a hanging configuration refresh.
 
 ## Fixes
 

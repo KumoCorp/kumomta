@@ -163,6 +163,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+      "set_refresh_threads",
+      lua.create_function(move |_, limit| {
+          crate::ready_queue::set_config_threads(limit);
+          Ok(())
+      })?,
+    )?;
+
+    kumo_mod.set(
         "reject",
         lua.create_function(move |_lua, (code, message): (u16, String)| {
             Err::<(), mlua::Error>(mlua::Error::external(RejectError {
