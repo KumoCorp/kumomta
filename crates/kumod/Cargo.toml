@@ -79,11 +79,13 @@ throttle = {path="../throttle"}
 timeq = {path="../timeq"}
 tokio = {workspace=true, features=["full", "tracing"]}
 tokio-rustls = {workspace=true}
+tokio-stream = {workspace=true}
 tracing = {workspace=true}
 utoipa = {workspace=true}
 uuid = {workspace=true, features=["v4", "fast-rng"]}
 version-info = {path="../version-info"}
 zstd = {workspace=true}
+futures = {workspace = true}
 
 [target.'cfg(target_os = "linux")'.dependencies]
 caps = {workspace=true}
