@@ -1605,7 +1605,6 @@ impl ReadyQueue {
     }
 
     async fn perform_config_refresh(self: Arc<Self>, epoch: &ConfigEpoch) {
-        *self.config_epoch.lock() = *epoch;
         tracing::trace!("perform_config_refresh for {}", self.name);
 
         // Pick any live scheduled queue to drive the refresh. Its
@@ -1673,6 +1672,9 @@ impl ReadyQueue {
                         }
                     }
                 }
+
+                // Record the epoch only after a successful refresh
+                *self.config_epoch.lock() = *epoch;
             }
             Err(err) => {
                 tracing::error!("{}: refreshing get_egress_path_config: {err:#}", self.name);

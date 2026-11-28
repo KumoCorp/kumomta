@@ -407,3 +407,5 @@
    compiled `queues.toml` domain map from such a cache for every received
    message. In practical terms, that meant that the maximum ingress rate
    possible would fall as the size of `queues.toml` increased.
+ * `ReadyQueue` now sets its new epoch only after a successful config refresh, 
+preventing a case where it would skip a `ScheduledQueue` with an older epoch.
